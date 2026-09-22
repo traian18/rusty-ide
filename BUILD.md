@@ -74,10 +74,11 @@ The same command works on every platform:
 npm run tauri build
 ```
 
-This runs two steps automatically:
+This runs three steps automatically:
 
-1. **Frontend** — `npm run build` (TypeScript + Vite)
-2. **Tauri** — compiles the Rust app in release mode and bundles the app.
+1. **Harness SDK** — compiles the TypeScript SDK from the sibling `rusty-core` checkout.
+2. **Frontend** — typechecks and bundles the React application with Vite.
+3. **Tauri** — compiles the Rust app in release mode and bundles the app.
 
 Codex, Claude Code, and GitHub Copilot runtimes are not included in installers.
 On first sign-in (or an explicitly started session), Rusty downloads only that

@@ -9,6 +9,7 @@
   "scripts": {
     "predev": "npm run build:sdk",
     "dev": "vite",
+    "prebuild": "npm run build:sdk",
     "build": "tsc && vite build",
     "typecheck": "tsc --noEmit",
     "typecheck:test": "tsc -p tsconfig.test.json",
@@ -21,7 +22,7 @@
     "verify": "npm run typecheck:test && npm run theme:check && npm run test && npm run build && npm run test:rust",
     "theme:check": "node scripts/check-theme-usage.mjs",
     "icons:generate": "tauri icon public/rusty-dark.png && node scripts/prune-mobile-icons.mjs",
-    "build:sdk": "npm --prefix ../rusty-core/sdk/typescript run build",
+    "build:sdk": "tsc -p ../rusty-core/sdk/typescript/tsconfig.json",
     "preview": "vite preview",
     "tauri": "tauri"
   },

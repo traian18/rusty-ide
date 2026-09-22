@@ -162,7 +162,7 @@ export class ExecutionObservabilityStore {
       : undefined;
     if (!callId) return;
     const id = `${envelope.session_id}:${callId}`;
-    const existing = this.snapshot.records.find((record) => record.id === id) ?? {
+    const existing: ToolExecutionRecord = this.snapshot.records.find((record) => record.id === id) ?? {
       id,
       callId,
       ideRunId: runId,
