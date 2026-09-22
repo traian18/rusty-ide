@@ -21,7 +21,7 @@
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult, GenerateTaskNodesInput } from "../../contract";
 import type { CoreCapabilityDefinition } from "../CoreHarness";
-import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
+import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { InvalidTaskOutputError, parseGeneratedTaskGraph } from "./generatedTaskGraph";
@@ -70,7 +70,7 @@ export const generateTaskNodesDefinition: CoreCapabilityDefinition<"generate_tas
       // the way the sidecar's generic completeText path does. rusty-core
       // has no "minimal" level; clamped to its lowest ("low"), the same
       // clamp providerMapping.ts uses for a model-reference-derived effort.
-      execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: "low" },
+      execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: "low" },
       system_prompt: TASK_GENERATION_SYSTEM_PROMPT,
     };
   },

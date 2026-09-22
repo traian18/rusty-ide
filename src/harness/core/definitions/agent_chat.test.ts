@@ -119,7 +119,7 @@ describe("agentChatDefinition", () => {
       "write_file",
     ]);
     expect(recipe.system_prompt).toContain("'run_command'");
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: undefined });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("AI coding agent");
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
     expect(recipe.system_prompt).toContain("'report_progress'");

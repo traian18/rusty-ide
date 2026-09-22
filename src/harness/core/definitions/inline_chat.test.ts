@@ -72,7 +72,7 @@ describe("inlineChatDefinition", () => {
 
   it("recipe() carries the raw model reference and a realistic max_tokens ceiling into execution_params", () => {
     const recipe = inlineChatDefinition.recipe!(input());
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: undefined });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: undefined });
   });
 
   it("recipe() carries the UI's model reference through unresolved for a provider with no explicit modelRouting.ts route -- the answerer resolves it, not this file", () => {
@@ -107,7 +107,7 @@ describe("inlineChatDefinition", () => {
     const recipe = inlineChatDefinition.recipe!(withReasoningSuffix);
     expect(recipe.execution_params).toEqual({
       model: "some-http-gateway/big-pickle::reasoning=minimal",
-      max_tokens: 64_000,
+      max_tokens: 128_000,
       reasoning_effort: "low",
     });
   });

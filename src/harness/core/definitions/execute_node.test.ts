@@ -63,13 +63,14 @@ const fakeHost: RunHost = {
 
 describe("executeNodeDefinition", () => {
   it.each([
-    ["openrouter", "deepseek/deepseek-v4-flash", 64_000],
-    // OpenCode Zen keeps the 8192 ceiling its gateway is documented to
-    // require (see the recipe()'s own comment): a real regression here
-    // means an execute_node run against OpenCode Zen goes back to hanging
-    // indefinitely instead of streaming a result.
-    ["opencode", "minimax-m3", 8192],
-  ])("routes %s through the shared tool-aware backend with its own max_tokens ceiling", (providerId, remoteId, expectedMaxTokens) => {
+    ["openrouter", "deepseek/deepseek-v4-flash"],
+    // OpenCode Zen gets the same standard ceiling as everyone else -- the
+    // 8192 cap this used to carry was a workaround for a host-routed
+    // browser-fetch hang that no longer applies now that it runs through
+    // rusty-core's own timeout-bounded direct integration (see
+    // providerMapping.ts's `CORE_MAX_TOKENS` doc comment).
+    ["opencode", "minimax-m3"],
+  ])("routes %s through the shared tool-aware backend with the standard max_tokens ceiling", (providerId, remoteId) => {
     const recipe = executeNodeDefinition.recipe!(input({
       model: `${providerId}/${remoteId}`,
       customProvider: {
@@ -79,7 +80,7 @@ describe("executeNodeDefinition", () => {
     }));
     expect(recipe.integration).toBe("openai-compatible");
     expect(recipe.execution_params?.model).toBe(remoteId);
-    expect(recipe.execution_params?.max_tokens).toBe(expectedMaxTokens);
+    expect(recipe.execution_params?.max_tokens).toBe(128_000);
   });
 
   it("supports() is true for a provider that maps to the host-routed backend with no MCP context or LSP", () => {
@@ -113,7 +114,7 @@ describe("executeNodeDefinition", () => {
     const recipe = executeNodeDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["list_files", "open_document", "read_file", "search_codebase", "write_file"]);
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: undefined });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("bounded task executor");
     expect(recipe.system_prompt).toContain("Add a health-check endpoint.");
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");

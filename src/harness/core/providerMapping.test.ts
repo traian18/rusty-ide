@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CustomProvider } from "../../store/types";
-import { mapProviderToIntegration, maxTokensFor } from "./providerMapping";
+import { mapProviderToIntegration } from "./providerMapping";
 
 function provider(overrides: Partial<CustomProvider>): CustomProvider {
   return {
@@ -132,18 +132,5 @@ describe("mapProviderToIntegration", () => {
       "anthropic-claude-code/sonnet::reasoning=high",
     );
     expect(result).toMatchObject({ integration: "claude-code", model: "sonnet", reasoningEffort: "high" });
-  });
-});
-
-describe("maxTokensFor", () => {
-  it("gives OpenCode Zen (and its opencode-go twin) the 8192 ceiling its gateway is documented to require", () => {
-    expect(maxTokensFor(provider({ id: "opencode" }))).toBe(8192);
-    expect(maxTokensFor(provider({ id: "opencode-go" }))).toBe(8192);
-  });
-
-  it("gives every other provider a realistic ceiling instead of OpenCode Zen's one-off constraint", () => {
-    expect(maxTokensFor(provider({ id: "openrouter" }))).toBe(64_000);
-    expect(maxTokensFor(provider({ id: "p1" }))).toBe(64_000);
-    expect(maxTokensFor(provider({ id: "anthropic-claude-code", transport: "anthropic-claude-agent-sdk" }))).toBe(64_000);
   });
 });

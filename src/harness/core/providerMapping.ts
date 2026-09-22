@@ -144,21 +144,23 @@ export function mapProviderToIntegration(provider: CustomProvider, modelReferenc
  * routinely cut off exploration/analysis answers that needed more room --
  * the model had plenty left to say and never got the tokens to say it.
  *
- * OpenCode Zen is the one documented exception: its gateway hung
+ * OpenCode Zen used to be the one documented exception: its gateway hung
  * indefinitely (no terminal stream event at all, confirmed live across
- * three models) once max_tokens went above 8192 or was omitted. That's a
- * transport-level fault in one gateway, not a real model output ceiling --
- * every other provider (OpenRouter, direct provider APIs, the managed CLI
- * backends) has no such fault on record, so they get a realistic budget
- * instead of the OpenCode-Zen-specific one.
+ * three models) once max_tokens went above 8192 or was omitted. That
+ * finding predates `modelRouting.ts`: at the time, OpenCode Zen was
+ * "host"-routed through a raw browser `fetch()` (`HostExecutionBackend`),
+ * which has no application-level timeout at all -- a genuinely stalled
+ * response there really could hang forever. OpenCode Zen has since moved
+ * onto rusty-core's own direct integrations (`anthropic`/`openai-responses`/
+ * `openai-compatible`, via the `chatCompletionsFamilyRoute`/
+ * `anthropicFamilyRoute` routes below), and every one of those already
+ * enforces `RecoveryPolicy.idle_timeout` (`harness-generic-backend`,
+ * 600s by default, reset on every byte received -- an inactivity timeout,
+ * not a total-duration one, so it never cuts off a slow-but-live stream).
+ * A stalled connection today surfaces as a normal, retried
+ * `ModelError::Timeout` instead of hanging -- the actual fix for that
+ * failure mode is the timeout, not a lower max_tokens, so there is no
+ * longer a reason to treat OpenCode Zen differently from every other
+ * provider here.
  */
-const OPENCODE_ZEN_PROVIDER_IDS = new Set(["opencode", "opencode-go"]);
-const OPENCODE_ZEN_MAX_TOKENS = 8192;
-const DEFAULT_CORE_MAX_TOKENS = 64_000;
-
-/** The `execution_params.max_tokens` a core-routed recipe should send for
- * `provider` -- see the constants above for why this isn't one constant
- * shared by every provider. */
-export function maxTokensFor(provider: CustomProvider): number {
-  return OPENCODE_ZEN_PROVIDER_IDS.has(provider.id) ? OPENCODE_ZEN_MAX_TOKENS : DEFAULT_CORE_MAX_TOKENS;
-}
+export const CORE_MAX_TOKENS = 128_000;

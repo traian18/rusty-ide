@@ -15,7 +15,7 @@
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult, InlineChatInput } from "../../contract";
 import type { CoreCapabilityDefinition } from "../CoreHarness";
-import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
+import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 
@@ -69,7 +69,7 @@ export const inlineChatDefinition: CoreCapabilityDefinition<"inline_chat"> = {
       // the sidecar's own resolveProviderModelSelection, the same
       // resolution every other sidecar-routed capability already uses),
       // not rusty-core or this file.
-      execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
+      execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(input),
     };
   },

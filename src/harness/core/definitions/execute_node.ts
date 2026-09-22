@@ -43,7 +43,7 @@ import type { CapabilityResult, ExecuteNodeInput } from "../../contract";
 import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
-import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
+import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -198,13 +198,13 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
-      // OpenCode Zen's gateway hung indefinitely (no terminal stream event
-      // at all, confirmed live across three models) once max_tokens went
-      // above 8192 or was omitted -- see HARNESS_CONTRACT_PLAN.md's
-      // execute_node live-test writeup. `maxTokensFor` keeps that ceiling
-      // for OpenCode Zen specifically and gives every other provider a
-      // realistic one instead (see its own doc comment in providerMapping.ts).
-      execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
+      // OpenCode Zen's gateway used to hang indefinitely above max_tokens
+      // 8192, back when it ran through the host-routed browser `fetch()`
+      // path with no application-level timeout -- see providerMapping.ts's
+      // own `CORE_MAX_TOKENS` doc comment for why that no longer applies
+      // now that it runs through rusty-core's own timeout-bounded direct
+      // integrations.
+      execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(
         input,
         [...toolSpecs.map((spec) => spec.name), "web_fetch"],

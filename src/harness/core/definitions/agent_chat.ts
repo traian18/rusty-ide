@@ -79,7 +79,7 @@ import type { AgentChatInput, CapabilityEvent, CapabilityResult } from "../../co
 import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
-import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
+import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -415,7 +415,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
-      execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
+      execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(
         input,
         isSubprocessBackend ? [] : [...toolSpecs.map((spec) => spec.name), "web_fetch", "agent_spawn"],

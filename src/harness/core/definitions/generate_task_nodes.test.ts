@@ -45,7 +45,7 @@ describe("generateTaskNodesDefinition", () => {
   it("recipe() routes to the host-routed backend with a fixed low reasoning effort and a realistic max_tokens ceiling", () => {
     const recipe = generateTaskNodesDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: "low" });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: "low" });
     expect(recipe.system_prompt).toContain("extract an implementation graph");
   });
 
