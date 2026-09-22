@@ -22,6 +22,18 @@ export const AppShell: React.FC = () => {
   const drawerWidth = useWorkspaceStore((state) => state.drawerWidth);
   const setDrawerWidth = useWorkspaceStore((state) => state.setDrawerWidth);
 
+  const [shouldRenderDrawer, setShouldRenderDrawer] = useState(drawerOpen);
+  const [isDrawerClosing, setIsDrawerClosing] = useState(false);
+
+  useEffect(() => {
+    if (drawerOpen) {
+      setShouldRenderDrawer(true);
+      setIsDrawerClosing(false);
+    } else if (shouldRenderDrawer) {
+      setIsDrawerClosing(true);
+    }
+  }, [drawerOpen, shouldRenderDrawer]);
+
   const isDraggingRef = useRef(false);
   const drawerWidthRef = useRef(drawerWidth);
   const drawerElementRef = useRef<HTMLDivElement>(null);
@@ -83,6 +95,22 @@ export const AppShell: React.FC = () => {
     };
   }, [handleDrawerResizeMouseMove, handleDrawerResizeMouseUp]);
 
+  const handleDrawerAnimationEnd = useCallback((e: React.AnimationEvent) => {
+    if (e.target === drawerElementRef.current && isDrawerClosing) {
+      setShouldRenderDrawer(false);
+      setIsDrawerClosing(false);
+    }
+  }, [isDrawerClosing]);
+
+  useEffect(() => {
+    if (!isDrawerClosing) return;
+    const timer = setTimeout(() => {
+      setShouldRenderDrawer(false);
+      setIsDrawerClosing(false);
+    }, 280);
+    return () => clearTimeout(timer);
+  }, [isDrawerClosing]);
+
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "e") {
@@ -102,7 +130,9 @@ export const AppShell: React.FC = () => {
       toolExecutionOpen={toolExecutionOpen}
       onToolExecutionToggle={() => setToolExecutionOpen((open) => !open)}
       onToolExecutionClose={() => setToolExecutionOpen(false)}
-      drawerOpen={drawerOpen}
+      drawerMounted={shouldRenderDrawer}
+      drawerClosing={isDrawerClosing}
+      onDrawerAnimationEnd={handleDrawerAnimationEnd}
       onDrawerResizeMouseDown={handleDrawerResizeMouseDown}
       drawerElementRef={drawerElementRef}
     />

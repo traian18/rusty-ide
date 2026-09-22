@@ -6,6 +6,8 @@ import { ContextDrawerView } from "./ContextDrawer.view";
 
 interface ContextDrawerProps {
   containerRef?: React.RefObject<HTMLDivElement | null>;
+  isClosing?: boolean;
+  onAnimationEnd?: (e: React.AnimationEvent) => void;
   onResizerMouseDown: (e: React.MouseEvent) => void;
 }
 
@@ -18,7 +20,12 @@ const RESIZE_STEP_LARGE = 32;
  * rendered only while `drawerOpen` -- which is what satisfies "the file
  * tree must not mount at launch" (REFACTOR_PLAN.md PR 2).
  */
-export const ContextDrawer: React.FC<ContextDrawerProps> = ({ containerRef, onResizerMouseDown }) => {
+export const ContextDrawer: React.FC<ContextDrawerProps> = ({
+  containerRef,
+  isClosing,
+  onAnimationEnd,
+  onResizerMouseDown,
+}) => {
   const fileTree = useWorkspaceStore((state) => state.fileTree);
   const setFileTree = useWorkspaceStore((state) => state.setFileTree);
   const drawerView = useWorkspaceStore((state) => state.drawerView);
@@ -82,6 +89,8 @@ export const ContextDrawer: React.FC<ContextDrawerProps> = ({ containerRef, onRe
       drawerWidth={drawerWidth}
       fileTree={fileTree}
       containerRef={containerRef}
+      isClosing={isClosing}
+      onAnimationEnd={onAnimationEnd}
       handleRefreshExplorer={handleRefreshExplorer}
       handleCollapseAllFolders={handleCollapseAllFolders}
       handleCollapseDrawer={closeDrawer}

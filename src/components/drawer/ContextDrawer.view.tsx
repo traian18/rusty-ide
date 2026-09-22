@@ -11,6 +11,8 @@ interface ContextDrawerViewProps {
   drawerWidth: number;
   fileTree: any[];
   containerRef?: React.RefObject<HTMLDivElement | null>;
+  isClosing?: boolean;
+  onAnimationEnd?: (e: React.AnimationEvent) => void;
   handleRefreshExplorer: () => void;
   handleCollapseAllFolders: () => void;
   handleCollapseDrawer: () => void;
@@ -24,6 +26,8 @@ export const ContextDrawerView: React.FC<ContextDrawerViewProps> = ({
   drawerWidth,
   fileTree,
   containerRef,
+  isClosing,
+  onAnimationEnd,
   handleRefreshExplorer,
   handleCollapseAllFolders,
   handleCollapseDrawer,
@@ -34,7 +38,8 @@ export const ContextDrawerView: React.FC<ContextDrawerViewProps> = ({
   return (
     <div
       ref={containerRef}
-      className={styles.drawer}
+      className={`${styles.drawer} ${isClosing ? styles.drawerClosing : ""}`}
+      onAnimationEnd={onAnimationEnd}
       // --drawer-width, not a `width` inline style: ContextDrawer.module.css's
       // `width: var(--drawer-width)` rule is what applies it, in both docked
       // and narrow-shell overlay mode. The cast is needed because React 19's

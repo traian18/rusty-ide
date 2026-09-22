@@ -15,7 +15,9 @@ interface AppShellViewProps {
   toolExecutionOpen: boolean;
   onToolExecutionToggle: () => void;
   onToolExecutionClose: () => void;
-  drawerOpen: boolean;
+  drawerMounted: boolean;
+  drawerClosing: boolean;
+  onDrawerAnimationEnd: (e: React.AnimationEvent) => void;
   onDrawerResizeMouseDown: (e: React.MouseEvent) => void;
   drawerElementRef: React.RefObject<HTMLDivElement | null>;
 }
@@ -27,7 +29,9 @@ export const AppShellView: React.FC<AppShellViewProps> = ({
   toolExecutionOpen,
   onToolExecutionToggle,
   onToolExecutionClose,
-  drawerOpen,
+  drawerMounted,
+  drawerClosing,
+  onDrawerAnimationEnd,
   onDrawerResizeMouseDown,
   drawerElementRef,
 }) => (
@@ -48,9 +52,11 @@ export const AppShellView: React.FC<AppShellViewProps> = ({
         rounded rectangle -- see NavigationRail.module.css's matching note.
       */}
       <div className={styles.surface}>
-        {drawerOpen && (
+        {drawerMounted && (
           <ContextDrawer
             containerRef={drawerElementRef}
+            isClosing={drawerClosing}
+            onAnimationEnd={onDrawerAnimationEnd}
             onResizerMouseDown={onDrawerResizeMouseDown}
           />
         )}

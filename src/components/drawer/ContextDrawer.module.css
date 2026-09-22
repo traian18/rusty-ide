@@ -39,6 +39,15 @@
     max-width: min(80cqi, 26rem);
     box-shadow: var(--shadow-elevated);
   }
+
+  .drawer.drawerClosing {
+    animation-name: drawerOverlayClose;
+  }
+}
+
+.drawerClosing {
+  animation: drawerClose 220ms cubic-bezier(.2, .8, .2, 1) forwards;
+  pointer-events: none;
 }
 
 .drawerHeader {
@@ -147,9 +156,19 @@
   to { margin-left: 0; opacity: 1; }
 }
 
+@keyframes drawerClose {
+  from { margin-left: 0; opacity: 1; }
+  to { margin-left: calc(-1 * var(--drawer-width)); opacity: 0; }
+}
+
 @keyframes drawerOverlayOpen {
   from { transform: translateX(-100%); opacity: 0; }
   to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes drawerOverlayClose {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-100%); opacity: 0; }
 }
 
 @keyframes drawerContentOpen {
@@ -160,5 +179,5 @@
 .drawerBody { animation: drawerContentOpen 180ms ease-out; }
 
 @media (prefers-reduced-motion: reduce) {
-  .drawer, .drawerBody { animation: none; }
+  .drawer, .drawerBody, .drawerClosing { animation: none; }
 }
