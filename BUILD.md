@@ -57,6 +57,7 @@ sudo zypper install -y libwebkit2gtk-4_1-0-devel libappindicator3-devel librsvg-
 
 ```bash
 npm install
+npm install --prefix ../rusty-core/sdk/typescript
 ```
 
 > `npm ci` (against the committed lockfiles) is unaffected, but plain

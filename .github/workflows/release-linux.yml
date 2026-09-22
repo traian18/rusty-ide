@@ -55,7 +55,9 @@ jobs:
             patchelf libssl-dev rpm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          npm ci --prefix ../rusty-core/sdk/typescript
 
       # Only deb is built. This predates sidecar removal -- the ~850MB bundled
       # sidecar payload (codex musl binaries, large node_modules) made the rpm
