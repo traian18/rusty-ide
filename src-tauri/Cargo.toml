@@ -1,6 +1,6 @@
 [package]
 name = "rusty-ide"
-version = "0.1.26"
+version = "0.1.27"
 description = "AI-assisted coding IDE"
 edition = "2021"
 

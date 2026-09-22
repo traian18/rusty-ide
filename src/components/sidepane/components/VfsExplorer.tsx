@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { Folder, Trash2, RefreshCw, X, ChevronRight, ChevronDown } from "lucide-react";
+import { Folder, Trash2, RefreshCw, X, ChevronRight, ChevronDown, Copy, Check, ExternalLink } from "lucide-react";
 import { VfsRegistry, VFS_CHANGED_EVENT, NodeFilesEntry } from "../../../services/vfs";
 import { useWorkspaceStore } from "../../../store";
 import { RECONCILIATION_NODE_PREFIX } from "../../../services/reconciliationService";
 import { focusCanvasNode } from "../../../services/canvasNodeNavigation";
+import { FileIcon } from "../../../services/fileTypeService";
 
 interface VfsExplorerProps {
   onClose?: () => void;
@@ -11,10 +12,12 @@ interface VfsExplorerProps {
 }
 
 export const VfsExplorer: React.FC<VfsExplorerProps> = ({ onClose, tabId }) => {
+  const openTab = useWorkspaceStore((state) => state.openTab);
   const [nodeFiles, setNodeFiles] = useState<NodeFilesEntry[]>([]);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [copiedPath, setCopiedPath] = useState<string | null>(null);
 
   const loadNodeFiles = async () => {
     setLoading(true);
@@ -52,6 +55,32 @@ export const VfsExplorer: React.FC<VfsExplorerProps> = ({ onClose, tabId }) => {
       newExpanded.add(nodeId);
     }
     setExpandedNodes(newExpanded);
+  };
+
+  const handleOpenFile = (filePath: string) => {
+    openTab({
+      type: "file",
+      path: filePath,
+      title: `${getFileName(filePath)} (VFS)`,
+      vfsTabId: tabId,
+    });
+  };
+
+  const handleCopyName = (fileName: string, filePath: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(fileName);
+    setCopiedPath(filePath);
+    setTimeout(() => setCopiedPath(null), 1500);
+  };
+
+  const deleteSingleFile = async (nodeId: string, filePath: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await VfsRegistry.getOrCreate(tabId).deleteNodeFile(nodeId, filePath);
+      await loadNodeFiles();
+    } catch (err) {
+      console.error(`[VfsExplorer] Failed to delete file ${filePath}:`, err);
+    }
   };
 
   const deleteNodeFiles = async (nodeId: string) => {
@@ -200,14 +229,56 @@ export const VfsExplorer: React.FC<VfsExplorerProps> = ({ onClose, tabId }) => {
                   {isExpanded && (
                     <div className="bg-[var(--bg-sidebar)] border-t border-[var(--border-color)]">
                       {nf.files.map((filePath, idx) => (
-                        <div key={idx} className="flex items-center justify-between px-3 py-1 pl-6 border-b border-[var(--border-color)]/50 last:border-b-0">
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-[9px] font-medium text-[var(--text-normal)] truncate" title={filePath}>
-                              {getFileName(filePath)}
-                            </span>
-                            <span className="text-[8px] text-[var(--text-muted)] truncate" title={getFileDir(filePath)}>
-                              {getFileDir(filePath)}
-                            </span>
+                        <div
+                          key={idx}
+                          onClick={() => handleOpenFile(filePath)}
+                          className="flex items-center justify-between px-3 py-1.5 pl-6 border-b border-[var(--border-color)]/50 last:border-b-0 hover:bg-[var(--accent-bg)]/20 cursor-pointer group transition-colors"
+                          title="Click to open in FileTab"
+                        >
+                          <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
+                            <FileIcon fileName={filePath} size={13} className="flex-shrink-0" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-[9px] font-medium text-[var(--text-normal)] group-hover:text-[var(--accent-color)] truncate" title={filePath}>
+                                {getFileName(filePath)}
+                              </span>
+                              <span className="text-[8px] text-[var(--text-muted)] truncate" title={getFileDir(filePath)}>
+                                {getFileDir(filePath)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-1 flex-shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopyName(getFileName(filePath), filePath, e)}
+                              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-light)] hover:bg-[var(--bg-header)] transition-colors opacity-0 group-hover:opacity-100"
+                              title="Copy file name for prompt"
+                            >
+                              {copiedPath === filePath ? (
+                                <Check size={11} className="text-[var(--color-status-success)]" />
+                              ) : (
+                                <Copy size={11} />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenFile(filePath);
+                              }}
+                              className="p-1 rounded text-[var(--text-muted)] hover:text-[var(--text-light)] hover:bg-[var(--bg-header)] transition-colors opacity-0 group-hover:opacity-100"
+                              title="Open in FileTab"
+                            >
+                              <ExternalLink size={11} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => deleteSingleFile(nf.node_id, filePath, e)}
+                              className="p-1 text-[var(--text-muted)] hover:text-[var(--color-status-danger)] transition-colors opacity-0 group-hover:opacity-100"
+                              title="Delete file from VFS"
+                            >
+                              <Trash2 size={11} />
+                            </button>
                           </div>
                         </div>
                       ))}

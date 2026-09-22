@@ -91,6 +91,17 @@ describe("fileTabIdentity", () => {
   it("is namespaced so it cannot collide with another tab type", () => {
     expect(fileTabIdentity("/a.ts", "", false)).toBe("file:/a.ts");
   });
+
+  it("incorporates vfsTabId to distinguish VFS files from disk files and across canvases", () => {
+    const diskId = fileTabIdentity("/workspace/README.md", "", false);
+    const vfsId1 = fileTabIdentity("/workspace/README.md", "", false, "canvas-1");
+    const vfsId2 = fileTabIdentity("/workspace/README.md", "", false, "canvas-2");
+
+    expect(vfsId1).toBe("file:/workspace/README.md:vfs:canvas-1");
+    expect(diskId).toBe("file:/workspace/README.md");
+    expect(vfsId1).not.toBe(diskId);
+    expect(vfsId1).not.toBe(vfsId2);
+  });
 });
 
 describe("foldCase", () => {

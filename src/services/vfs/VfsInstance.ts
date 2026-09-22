@@ -54,7 +54,24 @@ export class VfsInstance {
    * Checks the in-memory cache first; falls back to physical disk.
    */
   async readFile(path: string): Promise<string> {
-    return fileActions.readFile(this.tabId, path);
+    try {
+      return await fileActions.readFile(this.tabId, path);
+    } catch (err) {
+      try {
+        const all = await bulkActions.exportContents(this.tabId);
+        if (all[path] !== undefined) return all[path];
+        const norm = path.replace(/\\/g, "/");
+        for (const [k, v] of Object.entries(all)) {
+          const normK = k.replace(/\\/g, "/");
+          if (normK === norm || norm.endsWith("/" + normK) || normK.endsWith("/" + norm)) {
+            return v;
+          }
+        }
+      } catch {
+        // ignore fallback errors
+      }
+      throw err;
+    }
   }
 
   /**

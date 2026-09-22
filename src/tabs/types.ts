@@ -80,7 +80,7 @@ type SingletonTabInstance = {
 
 export type TabInstance =
   | SingletonTabInstance
-  | (TabBase & { type: "file"; path: string; line?: number })
+  | (TabBase & { type: "file"; path: string; line?: number; vfsTabId?: string })
   | (TabBase & { type: "canvas"; canvasId: string })
   | (TabBase & { type: "task"; canvasId: string; taskNodeId: string })
   | (TabBase & { type: "git-history"; repoPath: string; path?: string })
@@ -106,7 +106,7 @@ type SingletonTabRequest = {
 
 export type OpenTabRequest =
   | SingletonTabRequest
-  | { type: "file"; path: string; line?: number; title?: string }
+  | { type: "file"; path: string; line?: number; title?: string; vfsTabId?: string }
   | { type: "canvas"; canvasId?: string; title?: string }
   | { type: "task"; canvasId: string; taskNodeId: string; title?: string }
   | { type: "git-history"; repoPath?: string; path?: string; title?: string }

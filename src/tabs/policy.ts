@@ -107,16 +107,17 @@ const agent: TabPolicy<"agent"> = {
 const file: TabPolicy<"file"> = {
   type: "file",
   uniqueness: "resource",
-  getIdentity: (request, ctx) => fileTabIdentity(request.path, ctx.rootPath),
-  label: (request) => basename(request.path),
+  getIdentity: (request, ctx) => fileTabIdentity(request.path, ctx.rootPath, undefined, request.vfsTabId),
+  label: (request) => request.title ?? (request.vfsTabId ? `${basename(request.path)} (VFS)` : basename(request.path)),
   create: (request, id, ctx) => ({
     id,
     type: "file",
-    title: request.title ?? basename(request.path),
+    title: request.title ?? (request.vfsTabId ? `${basename(request.path)} (VFS)` : basename(request.path)),
     status: "idle",
     dirty: false,
     path: resolveAgainstRoot(request.path, ctx.rootPath),
     line: request.line,
+    vfsTabId: request.vfsTabId,
   }),
   /**
    * `request.line ?? existing.line` deliberately PRESERVES the previous line
@@ -130,8 +131,9 @@ const file: TabPolicy<"file"> = {
   merge: (existing, request) => {
     const line = request.line ?? existing.line;
     const title = request.title ?? existing.title;
-    if (line === existing.line && title === existing.title) return existing;
-    return { ...existing, line, title };
+    const vfsTabId = request.vfsTabId ?? existing.vfsTabId;
+    if (line === existing.line && title === existing.title && vfsTabId === existing.vfsTabId) return existing;
+    return { ...existing, line, title, vfsTabId };
   },
   keepAlive: "active-only",
   closable: true,

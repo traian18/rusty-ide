@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import Editor, { loader } from "@monaco-editor/react";
 import { useWorkspaceStore } from "../../store";
 import { invoke } from "@tauri-apps/api/core";
-import { VfsRegistry } from "../../services/vfs";
+import { VfsRegistry, VFS_CHANGED_EVENT, type VfsChangedDetail } from "../../services/vfs";
 import { getFileTypeDetails } from "../../services/fileTypeService";
 import { getMonacoLanguageId, resolveLanguage } from "../../services/languageRegistry";
 import { themes, defineMonacoTheme } from "../../theme";
@@ -112,6 +112,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
   }, [isMarkdown, tab.path]);
 
   const canvasTabId = useMemo(() => {
+    if (tab.vfsTabId) return tab.vfsTabId;
     const contexts = useWorkspaceStore.getState().canvasContexts;
     for (const tId in contexts) {
       const ctx = contexts[tId];
@@ -119,13 +120,20 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
       if (hasNode) return tId;
     }
     return undefined;
-  }, [tab.path]);
+  }, [tab.path, tab.vfsTabId]);
 
-  // Load Git blame details. Skipped for images: blame is a per-line
-  // annotation and images have no lines -- there is nothing for the gutter
-  // to show, so there's no reason to pay for the invoke.
+  const monacoModelUri = useMemo(() => {
+    if (tab.vfsTabId) {
+      const cleanPath = tab.path.replace(/^\//, "");
+      return `vfs://${tab.vfsTabId}/${cleanPath}`;
+    }
+    return `file://${tab.path}`;
+  }, [tab.path, tab.vfsTabId]);
+
+  // Load Git blame details. Skipped for images and VFS-only files: blame is a per-line
+  // annotation on git commits and has no meaning for virtual or image files.
   useEffect(() => {
-    if (!fileRepoPath || !tab.path || isImage) return;
+    if (!fileRepoPath || !tab.path || isImage || tab.vfsTabId) return;
     const fetchBlame = async () => {
       try {
         const blameLines: any[] = await invoke("git_blame", { rootDir: fileRepoPath, filePath: tab.path });
@@ -183,25 +191,17 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
     }
 
     const fetchFileContent = async () => {
-      // check_file_open_safety (REFACTOR_PLAN.md PR 6 commit 8): a cheap
-      // stat + sniff, no full read, so it's safe to call unconditionally
-      // before every open. Reads the threshold fresh via getState() rather
-      // than subscribing to it, so changing the Settings preference
-      // elsewhere doesn't re-run this whole effect (which disposes and
-      // reloads the Monaco model in its cleanup below) for every open tab.
       let safety: { kind: "safe" } | { kind: "binary"; sizeBytes: number } | { kind: "too_large"; sizeBytes: number } = {
         kind: "safe",
       };
-      try {
-        const thresholdBytes = useWorkspaceStore.getState().editorFileSafety.largeFileThresholdBytes;
-        const raw: any = await invoke("check_file_open_safety", { path: tab.path, maxBytes: thresholdBytes });
-        safety = raw.kind === "safe" ? { kind: "safe" } : { kind: raw.kind, sizeBytes: raw.size_bytes };
-      } catch (err) {
-        // A file the safety check can't stat (e.g. a brand-new file that
-        // only exists in the VFS cache, not yet written to disk) falls
-        // back to "safe" -- the existing VFS read below already has its
-        // own error handling for a genuinely missing file.
-        console.warn("check_file_open_safety failed, proceeding as safe:", err);
+      if (!tab.vfsTabId) {
+        try {
+          const thresholdBytes = useWorkspaceStore.getState().editorFileSafety.largeFileThresholdBytes;
+          const raw: any = await invoke("check_file_open_safety", { path: tab.path, maxBytes: thresholdBytes });
+          safety = raw.kind === "safe" ? { kind: "safe" } : { kind: raw.kind, sizeBytes: raw.size_bytes };
+        } catch (err) {
+          console.warn("check_file_open_safety failed, proceeding as safe:", err);
+        }
       }
       setFileSafety(safety);
 
@@ -211,12 +211,9 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
       }
 
       try {
-        console.log(`FileTab reading VFS path: ${tab.path}`);
+        console.log(`FileTab reading VFS path: ${tab.path} (canvas: ${canvasTabId || "global"})`);
         const content: string = await VfsRegistry.getOrCreate(canvasTabId).readFile(tab.path);
         setFileContent(content);
-        // Shebang detection (PR 6 commit 5): only worth checking when the
-        // filename alone resolved to nothing more specific -- an
-        // already-recognized extension is never overridden by a shebang.
         if (getMonacoLanguageId(tab.path) === "plaintext") {
           const firstLine = content.split("\n", 1)[0] ?? "";
           const resolved = resolveLanguage(tab.path, firstLine);
@@ -238,32 +235,41 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
       }
       inlineChatCommandRef.current?.dispose();
       inlineChatCommandRef.current = null;
-      // We render <Editor keepCurrentModel /> below, so @monaco-editor/react
-      // never disposes the Monaco model on unmount; we own that lifecycle here.
-      //
-      // The "still open elsewhere" check is a holdover from split editors,
-      // where one file could be mounted in two panes and closing either would
-      // black out the other. File identity is unique per path now, so it can
-      // no longer be true -- it is kept as cheap insurance rather than making
-      // disposal unconditional.
-      //
-      // The deferral is NOT about splits and must stay: disposing synchronously
-      // races the Monaco wrapper's internal cancellation tokens during a branch
-      // reset, producing an unhandled rejection.
       window.setTimeout(() => {
         const monaco = (window as any).monaco;
         if (!monaco) return;
-        const uri = monaco.Uri.parse(`file://${tab.path}`);
+        const uri = monaco.Uri.parse(monacoModelUri);
         const model = monaco.editor.getModel(uri);
         const stillOpenElsewhere = useWorkspaceStore
           .getState()
-          .tabs.some((t) => t.type === "file" && t.path === tab.path);
+          .tabs.some((t) => t.type === "file" && t.id === tab.id);
         if (model && !model.isDisposed?.() && !stillOpenElsewhere) {
           model.dispose();
         }
       }, 0);
     };
-  }, [tab.path]);
+  }, [tab.path, tab.id, tab.vfsTabId, canvasTabId, isImage, monacoModelUri]);
+
+  // Live reload content when canvas VFS changes
+  useEffect(() => {
+    if (!canvasTabId) return;
+    const handleVfsChanged = (event: Event) => {
+      const detail = (event as CustomEvent<VfsChangedDetail>).detail;
+      if (detail && detail.tabId === canvasTabId) {
+        const affects = !detail.paths || detail.paths.some(
+          (p) => p === tab.path || tab.path.endsWith(p) || p.endsWith(tab.path)
+        );
+        if (affects) {
+          VfsRegistry.getOrCreate(canvasTabId)
+            .readFile(tab.path)
+            .then((content) => setFileContent(content))
+            .catch((err) => console.warn("Live VFS reload failed:", err));
+        }
+      }
+    };
+    window.addEventListener(VFS_CHANGED_EVENT, handleVfsChanged);
+    return () => window.removeEventListener(VFS_CHANGED_EVENT, handleVfsChanged);
+  }, [canvasTabId, tab.path]);
 
   // Trigger editor layout when tab becomes active
   useEffect(() => {
@@ -286,11 +292,16 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
 
     saveTimeoutRef.current = setTimeout(async () => {
       try {
-        await invoke("write_file_disk", { path: tab.path, content: value });
-        console.log(`FileTab auto-saved: ${tab.title}`);
-        useWorkspaceStore.getState().loadGitStatus(); // Reload git changes list
+        if (canvasTabId) {
+          await VfsRegistry.getOrCreate(canvasTabId).writeFile(tab.path, value);
+          console.log(`FileTab saved to VFS (${canvasTabId}): ${tab.title}`);
+        } else {
+          await invoke("write_file_disk", { path: tab.path, content: value });
+          console.log(`FileTab auto-saved: ${tab.title}`);
+          useWorkspaceStore.getState().loadGitStatus(); // Reload git changes list
+        }
       } catch (err) {
-        console.error("FileTab disk save failed:", err);
+        console.error("FileTab save failed:", err);
       }
     }, 500);
   };
@@ -575,6 +586,15 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
     <div ref={containerRef} className="w-full h-full relative bg-[var(--bg-app)]">
       {/* Floating Action Controls */}
       <div className="absolute top-2.5 right-6 z-10 flex items-center space-x-2">
+        {tab.vfsTabId && (
+          <span
+            className="flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-[var(--accent-bg)] border border-[var(--accent-color)]/40 text-[var(--accent-color)] shadow-sm"
+            title={`Virtual File System Document (${tab.vfsTabId})`}
+          >
+            <span>VFS</span>
+          </span>
+        )}
+
         {isMarkdown && (
           <button
             onClick={() => setMarkdownPreview((preview) => !preview)}
@@ -585,39 +605,45 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
             <span>{markdownPreview ? "Edit" : "Preview"}</span>
           </button>
         )}
-        {/* Floating Git History Button */}
-        <button
-          onClick={handleOpenFileHistory}
-          className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)] p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1"
-          title="Open Git History of this File"
-        >
-          <History size={10} />
-          <span>History</span>
-        </button>
+        {/* Floating Git History Button - only for physical disk files */}
+        {!tab.vfsTabId && (
+          <button
+            onClick={handleOpenFileHistory}
+            className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)] p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1"
+            title="Open Git History of this File"
+          >
+            <History size={10} />
+            <span>History</span>
+          </button>
+        )}
 
-        {/* Floating Git Blame Toggle Pill */}
-        <button
-          onClick={() => setShowBlame(!showBlame)}
-          className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold border transition-all shadow-md cursor-pointer ${
-            showBlame
-              ? "bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--color-primary-foreground)] font-semibold"
-              : "bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)]"
-          }`}
-          title="Toggle Git Blame (or click line numbers)"
-        >
-          <GitBranch size={10} />
-          <span>{showBlame ? "Blame: On" : "Blame"}</span>
-        </button>
+        {/* Floating Git Blame Toggle Pill - only for physical disk files */}
+        {!tab.vfsTabId && (
+          <button
+            onClick={() => setShowBlame(!showBlame)}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold border transition-all shadow-md cursor-pointer ${
+              showBlame
+                ? "bg-[var(--accent-color)] border-[var(--accent-color)] text-[var(--color-primary-foreground)] font-semibold"
+                : "bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)]"
+            }`}
+            title="Toggle Git Blame (or click line numbers)"
+          >
+            <GitBranch size={10} />
+            <span>{showBlame ? "Blame: On" : "Blame"}</span>
+          </button>
+        )}
 
-        {/* Reveal in Tree Button */}
-        <button
-          onClick={() => revealFileInTree(tab.path)}
-          className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)] p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1"
-          title="Reveal in File Tree"
-        >
-          <TreePine size={10} />
-          <span>Reveal</span>
-        </button>
+        {/* Reveal in Tree Button - only for physical disk files */}
+        {!tab.vfsTabId && (
+          <button
+            onClick={() => revealFileInTree(tab.path)}
+            className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)] p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1"
+            title="Reveal in File Tree"
+          >
+            <TreePine size={10} />
+            <span>Reveal</span>
+          </button>
+        )}
       </div>
 
       {definitionMenu && (
@@ -708,7 +734,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
       ) : (
         <Editor
           height="100%"
-          path={`file://${tab.path}`}
+          path={monacoModelUri}
           language={getEditorLanguage(tab.path)}
           theme="rusty-custom-theme"
           value={fileContent}

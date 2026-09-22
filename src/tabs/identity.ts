@@ -82,8 +82,10 @@ export function fileTabIdentity(
   path: string,
   rootPath = "",
   caseInsensitive = isCaseInsensitiveFs(),
+  vfsTabId?: string,
 ): string {
-  return `file:${foldCase(resolveAgainstRoot(path, rootPath), caseInsensitive)}`;
+  const base = `file:${foldCase(resolveAgainstRoot(path, rootPath), caseInsensitive)}`;
+  return vfsTabId ? `${base}:vfs:${vfsTabId}` : base;
 }
 
 export function gitHistoryTabIdentity(

@@ -90,7 +90,7 @@ export const TAB_VIEWS: TabViewTable = {
   file: {
     Component: ({ tab, isActive }) => <FileTab tab={tab} isActive={isActive} />,
     Icon: (props) => <FileIcon fileName="" {...props} />,
-    renderIcon: (tab, props) => <FileIcon fileName={tab.title} {...props} />,
+    renderIcon: (tab, props) => <FileIcon fileName={tab.path} {...props} />,
     surface: "editor",
   },
   task: {

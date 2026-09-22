@@ -31,6 +31,7 @@ import {
 import type { Node, ReactFlowInstance } from "@xyflow/react";
 import { focusCanvasNode } from "../../../../services/canvasNodeNavigation";
 import { getCanvasCenter } from "../helpers/canvasHelpers";
+import { VfsMarkdownMenu } from "./VfsMarkdownMenu";
 
 /** Props for the main toolbar component. */
 interface RustyTabToolbarProps {
@@ -76,6 +77,7 @@ export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = ({
   onApplyChanges,
 }) => {
   // Centralised dropdown state for the toolbar
+  const [mdMenuOpen, setMdMenuOpen] = useState(false);
   const [boundaryMenuOpen, setBoundaryMenuOpen] = useState(false);
   const [nodeMenuOpen, setNodeMenuOpen] = useState(false);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
@@ -86,6 +88,7 @@ export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = ({
   useEffect(() => {
     const handleGlobalClick = (e: MouseEvent) => {
       if (toolbarRef.current && e.target instanceof Node && !toolbarRef.current.contains(e.target)) {
+        setMdMenuOpen(false);
         setBoundaryMenuOpen(false);
         setNodeMenuOpen(false);
         setActionMenuOpen(false);
@@ -97,6 +100,19 @@ export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = ({
 
   return (
     <div ref={toolbarRef} className="absolute top-4 right-4 z-10 flex items-center space-x-2">
+      {/* VFS Markdown Files dropdown toggle (in front of Jump to Global Node) */}
+      <VfsMarkdownMenu
+        tabId={tabId}
+        isOpen={mdMenuOpen}
+        onToggle={() => {
+          setMdMenuOpen((prev) => !prev);
+          setBoundaryMenuOpen(false);
+          setNodeMenuOpen(false);
+          setActionMenuOpen(false);
+        }}
+        onClose={() => setMdMenuOpen(false)}
+      />
+
       {/* Global Chat Node navigation */}
       <GlobalChatNavButton
         tabId={tabId}
@@ -117,6 +133,7 @@ export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = ({
         isOpen={boundaryMenuOpen}
         onToggle={() => {
           setBoundaryMenuOpen((prev) => !prev);
+          setMdMenuOpen(false);
           setNodeMenuOpen(false);
           setActionMenuOpen(false);
         }}
@@ -131,6 +148,7 @@ export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = ({
         isOpen={nodeMenuOpen}
         onToggle={() => {
           setNodeMenuOpen((prev) => !prev);
+          setMdMenuOpen(false);
           setBoundaryMenuOpen(false);
           setActionMenuOpen(false);
         }}
@@ -150,6 +168,7 @@ export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = ({
         isPipelineApplied={isPipelineApplied}
         onToggle={() => {
           setActionMenuOpen((prev) => !prev);
+          setMdMenuOpen(false);
           setBoundaryMenuOpen(false);
           setNodeMenuOpen(false);
         }}
