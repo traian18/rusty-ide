@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Rusty",
+  "productName": "Rusty-IDE",
   "version": "0.1.27",
   "identifier": "com.rusty.ide",
   "build": {
