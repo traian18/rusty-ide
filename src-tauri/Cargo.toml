@@ -1,6 +1,6 @@
 [package]
 name = "rusty-ide"
-version = "0.1.19"
+version = "0.1.20"
 description = "AI-assisted coding IDE"
 edition = "2021"
 
@@ -127,4 +127,3 @@ tokio = { version = "1", features = ["macros", "rt"] }
 # crate/feature. Not `optional`: dev-dependencies are already excluded
 # from a non-test build, so there's nothing further to gate.
 harness-runtime = { path = "../../rusty-core/crates/harness-runtime", features = ["testing"] }
-
