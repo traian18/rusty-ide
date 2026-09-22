@@ -1,0 +1,9 @@
+.pathHint {
+  margin: 0;
+  font-size: var(--font-size-ui-xs);
+  color: var(--color-fg-muted);
+}
+
+.pathValue {
+  color: var(--color-fg-default);
+}

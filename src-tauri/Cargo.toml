@@ -1,0 +1,130 @@
+[package]
+name = "rusty-ide"
+version = "0.1.19"
+description = "AI-assisted coding IDE"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "rusty_ide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+default = ["core-harness"]
+# HARNESS_CONTRACT_PLAN.md Milestone B0: the sign/notarize spike. Linking
+# rusty-core pulls libgit2-sys + libz-sys (via harness-workspace's git2
+# dependency) into a bundle that has had zero native deps until now --
+# gated behind a feature (not just added straight to [dependencies]) so a
+# build can drop back to the pre-B0 dependency graph by turning this off,
+# without a Cargo.toml edit, if the spike turns up a real blocker.
+core-harness = [
+  "dep:harness-engine",
+  "dep:harness-protocol",
+  "dep:harness-context",
+  "dep:harness-tools",
+  "dep:harness-workspace",
+  "dep:harness-runtime",
+  "dep:harness-integration-anthropic",
+  "dep:harness-integration-openai",
+  "dep:harness-integration-openai-responses",
+  "dep:harness-integration-openai-compatible",
+  "dep:harness-integration-gemini",
+  "dep:harness-integration-claude-code",
+  "dep:harness-integration-codex",
+  "dep:harness-integration-github-copilot",
+  "dep:harness-tool-mcp",
+  "dep:harness-tool-web",
+  "dep:git2",
+  "dep:async-trait",
+  "dep:tokio-util",
+  "dep:reqwest",
+]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2"
+regex = "1.10"
+ignore = "0.4.22"
+fuzzy-matcher = "0.3.7"
+tauri-plugin-window-state = "2"
+portable-pty = "0.8"
+notify = "8"
+base64 = "0.22"
+flate2 = "1"
+tar = "0.4"
+sha2 = "0.10"
+tempfile = "3"
+# "process"/"time": test_build's own one-shot command execution
+# (shell_exec.rs) -- tokio::process::Command + tokio::time::timeout.
+tokio = { version = "1", features = ["sync", "rt", "macros", "process", "time"] }
+
+# Path deps into the sibling rusty-core checkout (HARNESS_CONTRACT_PLAN.md
+# §2 "During the transition"). Every one of these is a genuine build-time
+# risk the B0 spike exists to surface, not just the crate the Milestone B
+# bridge will actually call into (harness-engine) -- the seven integration
+# crates each bring their own transitive dependencies (HTTP clients, CLI
+# process spawning), and the binary-size delta this spike measures should
+# reflect the real Milestone B dependency graph, not a trimmed subset of it.
+harness-engine = { path = "../../rusty-core/crates/harness-engine", optional = true }
+harness-protocol = { path = "../../rusty-core/crates/harness-protocol", optional = true }
+harness-context = { path = "../../rusty-core/crates/harness-context", optional = true }
+harness-tools = { path = "../../rusty-core/crates/harness-tools", optional = true }
+harness-workspace = { path = "../../rusty-core/crates/harness-workspace", optional = true }
+harness-runtime = { path = "../../rusty-core/crates/harness-runtime", optional = true }
+harness-integration-anthropic = { path = "../../rusty-core/crates/integrations/anthropic", optional = true }
+harness-integration-openai = { path = "../../rusty-core/crates/integrations/openai", optional = true }
+harness-integration-openai-responses = { path = "../../rusty-core/crates/integrations/openai-responses", optional = true }
+harness-integration-openai-compatible = { path = "../../rusty-core/crates/integrations/openai-compatible", optional = true }
+harness-integration-gemini = { path = "../../rusty-core/crates/integrations/gemini", optional = true }
+harness-integration-claude-code = { path = "../../rusty-core/crates/integrations/claude-code", optional = true }
+harness-integration-codex = { path = "../../rusty-core/crates/integrations/codex", optional = true }
+harness-integration-github-copilot = { path = "../../rusty-core/crates/integrations/github-copilot", optional = true }
+# Phase 6 (HARNESS_CONTRACT_PLAN.md-adjacent, see the plan doc): closes the
+# "no MCP servers"/"no web search" v1 gaps for global_explore/execute_node/
+# agent_chat. Both already have complete, tested implementations upstream --
+# this just makes them reachable from `rusty`'s own `recipe.rs`.
+harness-tool-mcp = { path = "../../rusty-core/crates/tools/mcp", optional = true }
+harness-tool-web = { path = "../../rusty-core/crates/tools/web", optional = true }
+# Same version harness-workspace itself depends on (its workspace root pins
+# "0.21") -- named directly here so src-tauri/src/harness/host_workspace.rs
+# can make a real libgit2 FFI call (B0's own proof of linkage; B1 reuses it
+# for HostWorkspace's constructor path).
+git2 = { version = "0.21", optional = true }
+# Same versions rusty-core's own workspace root pins -- needed directly by
+# src-tauri/src/harness/*.rs's own `#[async_trait]` impls (Workspace,
+# ToolExecutor) and `CancellationToken` usage (HostBridge, HostWorkspace,
+# HostToolExecutor), not just transitively through the path deps above.
+async-trait = { version = "0.1", optional = true }
+tokio-util = { version = "0.7", optional = true }
+# managed_quota.rs's one HTTP call (Claude Code's OAuth usage endpoint).
+# Same version/TLS backend rusty-core's own anthropic integration already
+# pulls in (rustls), so this adds no new native dependency.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+
+# shell_exec.rs's cancel path kills the command's whole process group
+# (`libc::kill(-pgid, SIGKILL)`) so a build tool's own children die with
+# it; already in the tree transitively via tokio, named here for the one
+# direct FFI call.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+# Enables harness-runtime's `testing` feature (FakeBackend, used by the
+# harness module's own integration test) for `cargo test` only -- Cargo
+# unifies features across profiles, so this doesn't reach the release
+# build, mirroring harness-engine's own Cargo.toml pattern for the same
+# crate/feature. Not `optional`: dev-dependencies are already excluded
+# from a non-test build, so there's nothing further to gate.
+harness-runtime = { path = "../../rusty-core/crates/harness-runtime", features = ["testing"] }
+

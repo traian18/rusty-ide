@@ -1,0 +1,9 @@
+.app {
+  display: flex;
+  width: 100vw;
+  height: 100vh;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface-app);
+  color: var(--color-fg-strong);
+}

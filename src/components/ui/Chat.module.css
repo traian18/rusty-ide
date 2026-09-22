@@ -1,0 +1,161 @@
+.container {
+  font-size: var(--font-size-chat-md);
+  line-height: var(--line-height-chat);
+  overflow-anchor: none;
+}
+
+.scrollContent {
+  min-height: 100%;
+}
+
+.responseText { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.responseToggle { margin-top: var(--space-2); padding: var(--space-1) var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-app); color: var(--color-fg-muted); font: inherit; cursor: pointer; }
+
+.message {
+  margin-bottom: var(--space-2);
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-left-width: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.userMessage {
+  border-left-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-interaction-selected) 20%, transparent);
+}
+
+.agentMessage {
+  border-left-color: var(--color-border-strong);
+  background: color-mix(in srgb, var(--color-surface-sidebar) 25%, transparent);
+}
+
+.messageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-log-header);
+  padding: var(--space-1) var(--space-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  user-select: none;
+}
+
+.messageIdentity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.userTitle {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.agentTitle {
+  color: var(--color-fg-strong);
+  font-weight: 600;
+}
+
+.time,
+.messageType,
+.attachmentLabel,
+.empty,
+.streaming {
+  color: var(--color-fg-muted);
+}
+
+.messageType {
+  font-size: var(--font-size-chat-xs);
+  font-weight: 300;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.content {
+  max-width: 100%;
+  overflow: hidden;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-fg-default);
+  font-size: var(--font-size-chat-md);
+  line-height: var(--line-height-chat);
+  text-align: left;
+  user-select: text;
+}
+
+.groupedItem {
+  min-width: 0;
+}
+
+.groupedDivider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  user-select: none;
+}
+
+.groupedDividerLine {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border-subtle);
+  opacity: 0.6;
+}
+
+.groupedTime {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  color: var(--color-fg-muted);
+  opacity: 0.7;
+}
+
+.attachments {
+  margin-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-2);
+}
+
+.attachmentLabel {
+  margin-bottom: var(--space-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.attachmentList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-fg-default);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+}
+
+.attachment:hover {
+  border-color: var(--color-border-focus);
+}
+
+.attachmentName {
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.empty,
+.streaming {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-sm);
+}

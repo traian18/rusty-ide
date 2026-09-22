@@ -1,0 +1,127 @@
+.field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.label {
+  color: var(--color-fg-strong);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 650;
+}
+
+.control {
+  width: 100%;
+  min-height: var(--control-height-md);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-input);
+  color: var(--color-fg-strong);
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-ui-md);
+}
+
+.control:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.control:disabled {
+  color: var(--color-fg-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.hint,
+.error {
+  margin: 0;
+  font-size: var(--font-size-ui-xs);
+  line-height: var(--line-height-ui);
+}
+
+.hint {
+  color: var(--color-fg-muted);
+}
+
+.error {
+  color: var(--color-status-danger);
+}
+
+.textarea {
+  min-height: calc(var(--control-height-md) * 3);
+  padding: var(--space-2) var(--space-3);
+  resize: vertical;
+}
+
+.checkboxLabel,
+.switchLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-ui-sm);
+  color: var(--color-fg-strong);
+  cursor: pointer;
+}
+
+.checkbox {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--color-primary);
+}
+
+.checkbox:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.switchLabel {
+  position: relative;
+}
+
+.switchInput {
+  position: absolute;
+  opacity: 0;
+  width: 2.25rem;
+  height: 1.25rem;
+  margin: 0;
+  cursor: pointer;
+}
+
+.switchTrack {
+  position: relative;
+  display: inline-block;
+  width: 2.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  border: 1px solid var(--color-border-default);
+  border-radius: 999px;
+  background: var(--color-surface-input);
+  transition: background-color var(--motion-fast), border-color var(--motion-fast);
+}
+
+.switchTrack::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--color-fg-muted);
+  transition: transform var(--motion-fast), background-color var(--motion-fast);
+}
+
+.switchInput:checked + .switchTrack {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.switchInput:checked + .switchTrack::before {
+  transform: translateX(1rem);
+  background: var(--color-primary-foreground);
+}
+
+.switchInput:focus-visible + .switchTrack {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}

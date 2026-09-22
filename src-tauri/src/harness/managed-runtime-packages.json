@@ -1,0 +1,112 @@
+{
+  "@anthropic-ai/claude-agent-sdk-darwin-arm64": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-arm64/-/claude-agent-sdk-darwin-arm64-0.3.216.tgz",
+    "integrity": "sha512-TWtTUabXj+AMOBMknSe3EVQb/7qucw5pHYi0HWoKoixQt1JE6J/CiLDBIY69OD3eQn9k1XG6LaurT239kFxLUw=="
+  },
+  "@anthropic-ai/claude-agent-sdk-darwin-x64": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-darwin-x64/-/claude-agent-sdk-darwin-x64-0.3.216.tgz",
+    "integrity": "sha512-tULuvqhJUwGTj71Uln4uPumm0la4EO1XydFbISTbdc1BsuvGx3FOtFcVs0Qg3dhNBFAoU/iYVTO/B1rImeJZig=="
+  },
+  "@anthropic-ai/claude-agent-sdk-linux-arm64": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64/-/claude-agent-sdk-linux-arm64-0.3.216.tgz",
+    "integrity": "sha512-kX6x0otwOuA1zIeEiuAKQqOk2TUAOkDUzm4MmLoQHOM2xWvr/pc+xY4DZxaX4ef9dUFQuHA4r5Vtbk7tPTL7Bw=="
+  },
+  "@anthropic-ai/claude-agent-sdk-linux-arm64-musl": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-arm64-musl/-/claude-agent-sdk-linux-arm64-musl-0.3.216.tgz",
+    "integrity": "sha512-sisWj2nhQolKu6aGWnu+I7d8EU6/m5J3G6bGfR7YvZ1wkQTQZAX3aOq6DVLIfCaZSH22wtqyuXhE/gn5eU1syw=="
+  },
+  "@anthropic-ai/claude-agent-sdk-linux-x64": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64/-/claude-agent-sdk-linux-x64-0.3.216.tgz",
+    "integrity": "sha512-WbJTLQafcYw9wl+gh/YpepdbWsOoJS7JZQA0obpzBBWzpx9PqPbjUDXDfCDrtzDI2fmr3Nz0//vC12bvlMZd8g=="
+  },
+  "@anthropic-ai/claude-agent-sdk-linux-x64-musl": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-linux-x64-musl/-/claude-agent-sdk-linux-x64-musl-0.3.216.tgz",
+    "integrity": "sha512-3Ts2Ab6oEGG2r+epmWc6lOR1ahECjvH4y+lPb32qLKMdYxT2PU6TAc4Z/USLLuqDpgw3nSb8xuiYEH77rv88fw=="
+  },
+  "@anthropic-ai/claude-agent-sdk-win32-arm64": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-arm64/-/claude-agent-sdk-win32-arm64-0.3.216.tgz",
+    "integrity": "sha512-xGB8rKatsXl9enqmPXixYNvdjGh1AL2jFmMRC9lR9M1prf2FGl7dkpdHz8YyItKAciRwpPIfts/9dSGhxlgT3A=="
+  },
+  "@anthropic-ai/claude-agent-sdk-win32-x64": {
+    "version": "0.3.216",
+    "resolved": "https://registry.npmjs.org/@anthropic-ai/claude-agent-sdk-win32-x64/-/claude-agent-sdk-win32-x64-0.3.216.tgz",
+    "integrity": "sha512-cGbBgoKNzB6wRL6bMOwM2iJEG/wx0B6FCblmKF+ZAYKcj5oNi3jM6oQsnPJbKfrzVKrip3YEpXxopQ9O30LrSg=="
+  },
+  "@github/copilot-darwin-arm64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-darwin-arm64/-/copilot-darwin-arm64-1.0.85.tgz",
+    "integrity": "sha512-FqoLTSpgJanY1FmuE2636Fxup9sc5w/VnNzvF8OLyXHtlwWzNm21Zl8an9/MOJHEt1442EUxZlgjItdVdeW7Fg=="
+  },
+  "@github/copilot-darwin-x64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-darwin-x64/-/copilot-darwin-x64-1.0.85.tgz",
+    "integrity": "sha512-nTNJQfP6fZA4HkOneFPlTBtIOnocu9mavlZ7vL+wwgZl+YgVAKnbFwa0OGzSJVZSTr16XtW95rGL/bD88XkJFQ=="
+  },
+  "@github/copilot-linux-arm64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-linux-arm64/-/copilot-linux-arm64-1.0.85.tgz",
+    "integrity": "sha512-VhiYw/N4mOzGH7AG7h+e2eZ/dlnaS5+BwmnOFOMvzj/fjBCFbzLB8+l/3sHkNh/pmwnqwztGMkm0u2UWmlAxZw=="
+  },
+  "@github/copilot-linux-x64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-linux-x64/-/copilot-linux-x64-1.0.85.tgz",
+    "integrity": "sha512-2P7bRLwPjZjWY+wI7H2tOZX6Wv6nS3Lc/m2tAWigS9MwH91YpUnJpHUCXSvRW7Q3shFKzFw4KeKL+OOz5pxGRA=="
+  },
+  "@github/copilot-linuxmusl-arm64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-linuxmusl-arm64/-/copilot-linuxmusl-arm64-1.0.85.tgz",
+    "integrity": "sha512-+a5cEo1IDqsfbm7zQMjX29voOc/sgHNJZwObnln/8n2S+DebYQZjQknPrIVYj0tT0B+jphCNPccRsr0+rZYN7A=="
+  },
+  "@github/copilot-linuxmusl-x64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-linuxmusl-x64/-/copilot-linuxmusl-x64-1.0.85.tgz",
+    "integrity": "sha512-sfMF6n2Ec+Hu9KvYG3SE+5oMwlrrilP2Ua5COLSKNdZliPXaiQ1E1nSuBhESIE0B//kYryJf0vsyF9JnKp05GQ=="
+  },
+  "@github/copilot-win32-arm64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-win32-arm64/-/copilot-win32-arm64-1.0.85.tgz",
+    "integrity": "sha512-WXZOcjtPbmdgDgfU6UJuTTC/5cHhgzqNyNOvJC1LttwFQuzddFITGKMKbbki9op09jFxa6IW9CfTWbvud6x+Qg=="
+  },
+  "@github/copilot-win32-x64": {
+    "version": "1.0.85",
+    "resolved": "https://registry.npmjs.org/@github/copilot-win32-x64/-/copilot-win32-x64-1.0.85.tgz",
+    "integrity": "sha512-8OY+GLhvghDkDJHFu0wYpemC4y7z/RcF89ZOQffUJx8qf8GsCfW2C3OnVu5RtpmUrT3vNI7WoEFgTkzqgkCa1g=="
+  },
+  "@openai/codex-darwin-arm64": {
+    "version": "0.144.6-darwin-arm64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-darwin-arm64.tgz",
+    "integrity": "sha512-6zgvh70MzBNSeT17HEhSOrmmGGZGAKzSC7x6JAq+edkJkdPYA9P0I1tG7aJ49GlBkBxuC+MKBH1qm6+2Cghcww=="
+  },
+  "@openai/codex-darwin-x64": {
+    "version": "0.144.6-darwin-x64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-darwin-x64.tgz",
+    "integrity": "sha512-THRyPG0zSU6M8NQAge1LHEHsJDnoH4BpKsfJHB/qe3Fm+Wf6zqAmWJFlOKzBm27m0K2Hq3za4Ac2I5p5i4yp/A=="
+  },
+  "@openai/codex-linux-arm64": {
+    "version": "0.144.6-linux-arm64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-linux-arm64.tgz",
+    "integrity": "sha512-PGiLXMN+2IQRkf7tOLi64dMInjU1pRLbz0Rwfj/yt2Y97SZQqAjFQoi2wmswmqtqMDnfwCPTC1DRXVQkvU6T6Q=="
+  },
+  "@openai/codex-linux-x64": {
+    "version": "0.144.6-linux-x64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-linux-x64.tgz",
+    "integrity": "sha512-4E7EnzCg0OnBxCyYnwJ+qnZwWHYe0YScr5ucKWbngE9u4+0XrpWELqq2Kn9jl5GZK8MDjU7PrJwFIwusHOHjuw=="
+  },
+  "@openai/codex-win32-arm64": {
+    "version": "0.144.6-win32-arm64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-win32-arm64.tgz",
+    "integrity": "sha512-SpMjXJLW43JzMP0K62mVcYfmFcpk0BK4AOgYmWSfyZHs3iRtHMd0UYw7605n/9lwkT2EqbwQLT2omZFeKJFzwA=="
+  },
+  "@openai/codex-win32-x64": {
+    "version": "0.144.6-win32-x64",
+    "resolved": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.6-win32-x64.tgz",
+    "integrity": "sha512-dN39VnjEthKz5io1RNWwZDtErdSn07nW3pGUgvlA6DMxgm/nuGaIAZO/sG/Hgxq/x5j9HteAENfrFgVkpZ0lFg=="
+  }
+}

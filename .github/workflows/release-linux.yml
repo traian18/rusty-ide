@@ -1,0 +1,82 @@
+name: Release Linux
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-22.04 # older glibc = broader compatibility for the AppImage/deb
+    defaults:
+      run:
+        working-directory: rusty-ide
+    steps:
+      - name: Checkout rusty-ide
+        uses: actions/checkout@v4
+        with:
+          path: rusty-ide
+
+      # See release.yml's own comment on this step: rusty-core is a separate
+      # repo consumed via plain `path = "../../rusty-core/..."` Cargo
+      # dependencies, so it needs to be checked out as a sibling of this repo
+      # for the build to resolve at all. Tracks `main`, same as local dev.
+      - name: Checkout rusty-core
+        uses: actions/checkout@v4
+        with:
+          repository: traian18/rusty-core
+          ref: main
+          path: rusty-core
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rusty-ide/src-tauri/target
+            rusty-core/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rusty-ide/src-tauri/Cargo.lock', 'rusty-core/Cargo.lock') }}
+
+      # webkit2gtk + friends for the Tauri build; rpm/patchelf for the rpm bundler.
+      - name: Install system libraries
+        run: |
+          sudo apt update
+          sudo apt install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
+            patchelf libssl-dev rpm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Only deb is built. This predates sidecar removal -- the ~850MB bundled
+      # sidecar payload (codex musl binaries, large node_modules) made the rpm
+      # bundler's xz pass take 30min+ and tripped the AppImage bundler ("failed
+      # to run linuxdeploy") outright. The bundled payload is smaller now
+      # (managed runtimes now download on demand), but rpm/AppImage
+      # haven't been re-verified against it -- revisit once someone has.
+      # deb covers Debian/Ubuntu/Mint in the meantime.
+      - name: Build (deb)
+        run: npm run tauri build -- --bundles deb
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist-artifacts
+          find src-tauri/target/release/bundle \
+            -name '*.deb' \
+            -exec cp {} dist-artifacts/ \;
+          ls -lh dist-artifacts
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Rusty-IDE-linux-x86_64
+          path: rusty-ide/dist-artifacts/*

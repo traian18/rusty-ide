@@ -1,0 +1,118 @@
+.header {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  width: 100%;
+  height: 2.25rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-header);
+  padding: 0 var(--space-3);
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-app-region: drag;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.headerActions {
+  display: flex;
+  min-width: 12rem;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.brandName {
+  color: var(--color-fg-strong);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.searchArea {
+  position: relative;
+  width: 100%;
+  max-width: 22rem;
+  margin: 0 auto;
+  padding: 0 var(--space-3);
+}
+
+.searchControl {
+  position: relative;
+}
+
+.searchIcon {
+  position: absolute;
+  top: 50%;
+  left: 0.5rem;
+  color: var(--color-fg-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.searchInput {
+  width: 100%;
+  height: 1.5rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  color: var(--color-fg-default);
+  padding: 0 2.5rem 0 1.625rem;
+  font: inherit;
+  font-size: var(--font-size-ui-xs);
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--motion-fast);
+}
+
+.searchInput:hover {
+  border-color: var(--color-border-focus);
+}
+
+.searchInput:focus-visible {
+  border-color: var(--color-border-focus);
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.shortcut {
+  position: absolute;
+  top: 50%;
+  right: 0.375rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-app);
+  color: var(--color-fg-muted);
+  padding: 0 var(--space-1);
+  font-family: inherit;
+  font-size: var(--font-size-ui-xs);
+  font-weight: 500;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.quota {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.macosHeader {
+  /* Reserve the native traffic-light cluster before the Rusty icon. */
+  padding-left: 5rem;
+}
+
+.searchArea,
+.headerActions,
+.header button,
+.header input,
+.header a,
+.header [role="button"] {
+  -webkit-app-region: no-drag;
+}

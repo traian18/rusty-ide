@@ -1,0 +1,24 @@
+.workbench {
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+}
+
+/*
+ * Minimalist edge-to-edge layout: no floating card, no extra padding or shadows.
+ * Panels meet cleanly with fine 1px border dividers.
+ */
+.surface {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  overflow: hidden;
+  background: var(--color-surface-workspace);
+  container-name: shell;
+  container-type: inline-size;
+}

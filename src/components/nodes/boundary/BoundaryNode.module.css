@@ -1,0 +1,25 @@
+.root { position: relative; pointer-events: none; user-select: none; }
+.labelRow { position: absolute; z-index: 10; bottom: calc(100% + 4px); left: 0; display: flex; align-items: center; gap: var(--space-1); pointer-events: auto; }
+.nameInput, .name { border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); background: var(--color-surface-sidebar); padding: 0.125rem 0.375rem; font-family: inherit; }
+.nameInput { width: auto; min-width: 8rem; color: var(--color-fg-strong); }
+.nameInput:focus-visible { border-color: var(--color-border-focus); outline: 2px solid var(--color-focus-ring); }
+.name { max-width: min(20rem, 80vw); overflow: hidden; border-color: transparent; color: var(--color-fg-muted); font-weight: 600; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.name:hover { border-color: var(--color-border-default); }
+.sizeActions { display: flex; align-items: center; opacity: 0; transition: opacity var(--motion-fast); }
+.labelRow:hover .sizeActions, .sizeActions:focus-within { opacity: 1; }
+.iconButton, .delete { display: grid; place-items: center; border: 0; background: transparent; color: var(--color-fg-muted); cursor: pointer; }
+.iconButton { padding: 0.125rem; }
+.iconButton:hover { color: var(--color-fg-strong); }
+.iconButton:focus-visible, .delete:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+.boundary { width: 100%; height: 100%; border: 2px dashed var(--color-secondary-border); border-radius: var(--radius-md); background: color-mix(in srgb, var(--color-secondary-bg) 8%, transparent); pointer-events: none; }
+.dragBar { position: absolute; top: 0; right: 0; left: 0; display: flex; height: 1.25rem; align-items: center; justify-content: center; border-radius: var(--radius-md) var(--radius-md) 0 0; color: var(--color-secondary); cursor: move; pointer-events: auto; transition: background-color var(--motion-fast); }
+.dragBar:hover { background: var(--color-secondary-bg); }
+.dragIcon { pointer-events: none; }
+.resize { position: absolute; display: grid; width: 1rem; height: 1rem; place-items: center; pointer-events: auto; }
+.nw { top: -0.375rem; left: -0.375rem; cursor: nw-resize; }
+.ne { top: -0.375rem; right: -0.375rem; cursor: ne-resize; }
+.sw { bottom: -0.375rem; left: -0.375rem; cursor: sw-resize; }
+.se { right: -0.375rem; bottom: -0.375rem; cursor: se-resize; }
+.resizeKnob { width: 0.625rem; height: 0.625rem; border: 1px solid var(--color-secondary-border); border-radius: 0.125rem; background: var(--color-secondary-bg); box-shadow: 0 1px 3px color-mix(in srgb, var(--color-surface-overlay) 30%, transparent); }
+.delete { position: absolute; z-index: 30; top: -0.625rem; right: -0.625rem; width: 1.25rem; height: 1.25rem; border: 1px solid var(--color-border-default); border-radius: 50%; background: var(--color-surface-sidebar); box-shadow: 0 2px 5px color-mix(in srgb, var(--color-surface-overlay) 35%, transparent); pointer-events: auto; }
+.delete:hover { border-color: var(--color-status-danger-border); color: var(--color-status-danger); }

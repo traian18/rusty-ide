@@ -1,0 +1,9 @@
+.scope {
+  font-size: var(--font-size-chat-md);
+  line-height: var(--line-height-chat);
+}
+
+.scope button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}

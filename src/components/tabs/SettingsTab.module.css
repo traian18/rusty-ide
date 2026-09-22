@@ -1,0 +1,35 @@
+.page {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--color-surface-workspace);
+  color: var(--color-fg-default);
+}
+
+.content {
+  display: grid;
+  width: min(100% - 2rem, 54rem);
+  margin: 0 auto;
+  gap: var(--space-3);
+  padding: 1.25rem 0 2.5rem;
+}
+
+.pageTitle {
+  margin: 0;
+  color: var(--color-fg-strong);
+  font-size: var(--font-size-ui-lg);
+}
+
+.pageDescription {
+  margin: var(--space-1) 0 0;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-sm);
+}
+
+.panel {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-panel);
+  padding: var(--space-3) var(--space-4);
+}

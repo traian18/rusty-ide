@@ -1,0 +1,127 @@
+.root {
+  color: var(--color-fg-default);
+  font-size: var(--font-size-chat-md);
+  line-height: var(--line-height-chat);
+  text-align: left;
+}
+
+.heading1,
+.heading2,
+.heading3 {
+  color: var(--color-fg-strong);
+  font-weight: 700;
+}
+
+.heading1 {
+  margin: 1.25em 0 0.6em;
+  font-size: var(--font-size-chat-lg);
+}
+
+.heading2 {
+  margin: 1em 0 0.5em;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding-bottom: 0.25em;
+  font-size: calc(var(--font-size-chat-md) * 1.1);
+}
+
+.heading3 {
+  margin: 0.9em 0 0.4em;
+  font-size: var(--font-size-chat-md);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.paragraph,
+.listItem {
+  margin: 0.4em 0;
+  font-size: var(--font-size-chat-md);
+}
+
+.link {
+  color: var(--color-primary);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.link:hover {
+  opacity: 0.8;
+}
+
+.list {
+  margin: 0.6em 0;
+  padding-left: 1.5em;
+}
+
+.unordered {
+  list-style: disc;
+}
+
+.ordered {
+  list-style: decimal;
+}
+
+.quote {
+  margin: 0.75em 0;
+  border-left: 4px solid var(--color-primary);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-interaction-hover);
+  padding: 0.25em 0.75em;
+  color: var(--color-fg-muted);
+  font-style: italic;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-chat-sm);
+  text-align: left;
+}
+
+.tableHead {
+  border-bottom: 1px solid var(--color-border-default);
+  background: var(--color-surface-sidebar);
+}
+
+.cell {
+  padding: 0.5em 0.75em;
+  color: var(--color-fg-default);
+}
+
+.headerCell {
+  color: var(--color-fg-strong);
+  font-weight: 600;
+}
+
+.row {
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.row:hover {
+  background: var(--color-interaction-hover);
+}
+
+.code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-sm);
+  line-height: var(--line-height-chat);
+}
+
+.inlineCode {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-sunken);
+  padding: 0.1em 0.35em;
+  color: var(--color-fg-strong);
+}
+
+.pre {
+  margin: 0.5em 0;
+  overflow: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-log-background);
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-fg-default);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

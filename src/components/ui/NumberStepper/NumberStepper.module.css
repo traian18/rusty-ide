@@ -1,0 +1,70 @@
+.stepper {
+  display: inline-grid;
+  grid-template-columns: var(--control-height-md) minmax(5rem, 1fr) var(--control-height-md);
+  overflow: hidden;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-input);
+}
+
+.button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--color-fg-default);
+  cursor: pointer;
+}
+
+.button:first-child {
+  border-right: 1px solid var(--color-border-subtle);
+}
+
+.button:last-child {
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.button:not(:disabled):hover {
+  background: var(--color-interaction-hover);
+}
+
+.button:focus-visible,
+.input:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.button:disabled {
+  color: var(--color-disabled);
+  cursor: not-allowed;
+}
+
+.inputWrap {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.input {
+  width: 3ch;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-fg-strong);
+  padding: 0;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  appearance: textfield;
+}
+
+.input::-webkit-inner-spin-button,
+.input::-webkit-outer-spin-button {
+  appearance: none;
+}
+
+.unit {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-xs);
+}
