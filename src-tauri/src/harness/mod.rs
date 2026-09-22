@@ -23,6 +23,7 @@ mod host_tools;
 mod host_workspace;
 mod managed_auth;
 mod managed_binaries;
+mod managed_models;
 mod managed_quota;
 mod recipe;
 mod session;

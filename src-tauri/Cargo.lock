@@ -1618,7 +1618,7 @@ dependencies = [
 
 [[package]]
 name = "harness-context"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-protocol",
@@ -1629,7 +1629,7 @@ dependencies = [
 
 [[package]]
 name = "harness-core"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "harness-protocol",
  "rust_decimal",
@@ -1640,7 +1640,7 @@ dependencies = [
 
 [[package]]
 name = "harness-engine"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-context",
@@ -1669,7 +1669,7 @@ dependencies = [
 
 [[package]]
 name = "harness-generic-backend"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-model",
@@ -1684,7 +1684,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-anthropic"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1704,7 +1704,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-claude-code"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-protocol",
@@ -1720,7 +1720,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-codex"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-protocol",
@@ -1733,7 +1733,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-gemini"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-github-copilot"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-protocol",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-openai"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1786,7 +1786,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-openai-compatible"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-generic-backend",
@@ -1800,7 +1800,7 @@ dependencies = [
 
 [[package]]
 name = "harness-integration-openai-responses"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1820,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "harness-model"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-protocol",
@@ -1833,7 +1833,7 @@ dependencies = [
 
 [[package]]
 name = "harness-protocol"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -1847,7 +1847,7 @@ dependencies = [
 
 [[package]]
 name = "harness-runtime"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -1868,7 +1868,7 @@ dependencies = [
 
 [[package]]
 name = "harness-session-store"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-protocol",
@@ -1882,7 +1882,7 @@ dependencies = [
 
 [[package]]
 name = "harness-skills"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-context",
@@ -1895,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tool-filesystem"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-tools",
@@ -1910,7 +1910,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tool-git"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "git2",
@@ -1924,7 +1924,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tool-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -1940,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tool-shell"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-tools",
@@ -1956,7 +1956,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tool-skills"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "harness-skills",
@@ -1969,7 +1969,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tool-web"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "bytes",
@@ -1986,7 +1986,7 @@ dependencies = [
 
 [[package]]
 name = "harness-tools"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "schemars 0.8.22",
@@ -2000,7 +2000,7 @@ dependencies = [
 
 [[package]]
 name = "harness-workspace"
-version = "0.1.1"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -3963,7 +3963,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rusty-ide"
-version = "0.1.20"
+version = "0.1.22"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

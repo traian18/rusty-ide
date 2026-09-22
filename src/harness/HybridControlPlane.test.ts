@@ -38,18 +38,42 @@ describe("createHybridControlPlane", () => {
     expect(models).toHaveLength(1);
   });
 
-  it("discoverModels() rejects with a clear error for a managed transport (sidecar-removal Phase 8c: no fallback left)", async () => {
+  it("discoverModels() reads and normalizes a managed transport's live catalog", async () => {
+    invokeMock.mockReset().mockResolvedValue([{
+      id: "gpt-5.6-sol",
+      name: "GPT-5.6-Sol",
+      reasoning: true,
+      supportedReasoningEfforts: ["low", "high", "max"],
+      defaultReasoningEffort: "low",
+      input: ["text", "image"],
+      isDefault: true,
+    }]);
     const hybridControlPlane = createHybridControlPlane();
     const managed = provider({ id: "openai-codex", transport: "openai-codex-app-server" });
 
-    await expect(hybridControlPlane.discoverModels(managed)).rejects.toThrow(/not available for managed-auth provider 'openai-codex'/);
+    const models = await hybridControlPlane.discoverModels(managed);
+
+    expect(invokeMock).toHaveBeenCalledWith("managed_auth_models", { provider: "codex" });
+    expect(models).toEqual([expect.objectContaining({
+      id: "openai-codex/gpt-5.6-sol",
+      remoteId: "gpt-5.6-sol",
+      name: "GPT-5.6-Sol",
+      supported: true,
+      supportedReasoningEfforts: ["low", "high"],
+      defaultReasoningEffort: "low",
+      input: ["text", "image"],
+    })]);
   });
 
-  it("discoverModels() rejects for a provider identified only by its managed id (no transport set)", async () => {
+  it("discoverModels() maps a managed provider identified only by its id", async () => {
+    invokeMock.mockReset().mockResolvedValue([{ id: "auto", name: "Auto", reasoning: false, isDefault: true }]);
     const hybridControlPlane = createHybridControlPlane();
     const managed = provider({ id: "github-copilot", transport: undefined });
 
-    await expect(hybridControlPlane.discoverModels(managed)).rejects.toThrow(/not available for managed-auth provider 'github-copilot'/);
+    await expect(hybridControlPlane.discoverModels(managed)).resolves.toEqual([
+      expect.objectContaining({ id: "github-copilot/auto", remoteId: "auto" }),
+    ]);
+    expect(invokeMock).toHaveBeenCalledWith("managed_auth_models", { provider: "github-copilot" });
   });
 
   it("testConnection() answers an HTTP-transport provider directly", async () => {
@@ -62,6 +86,18 @@ describe("createHybridControlPlane", () => {
     const result = await hybridControlPlane.testConnection(provider());
 
     expect(result.modelCount).toBe(1);
+  });
+
+  it("testConnection() counts models from a managed provider", async () => {
+    invokeMock.mockReset().mockResolvedValue([
+      { id: "sonnet", name: "Sonnet", reasoning: true, isDefault: true },
+      { id: "haiku", name: "Haiku", reasoning: false, isDefault: false },
+    ]);
+    const hybridControlPlane = createHybridControlPlane();
+
+    await expect(hybridControlPlane.testConnection(provider({ id: "anthropic-claude-code" })))
+      .resolves.toEqual({ modelCount: 2, supportedModelCount: 2 });
+    expect(invokeMock).toHaveBeenCalledWith("managed_auth_models", { provider: "claude-code" });
   });
 
   it("getQuota() answers an HTTP-transport provider directly (no network call)", async () => {

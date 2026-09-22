@@ -1,6 +1,6 @@
 // ============================================================
 // managedAuthClient.ts — Thin TypeScript client over the
-// managed_auth_{status,start_login,login_status,logout,quota} Tauri
+// managed_auth_{status,start_login,login_status,logout,quota,models} Tauri
 // commands (src-tauri/src/harness/managed_auth.rs and managed_quota.rs,
 // wired into commands.rs). Plain
 // exported functions, not a class: these are one-off admin/settings calls
@@ -88,4 +88,21 @@ export interface ManagedQuota {
  * with `authenticated: false` instead. */
 export function managedAuthQuota(provider: ManagedAuthProvider): Promise<ManagedQuota> {
   return invoke("managed_auth_quota", { provider });
+}
+
+export interface ManagedModel {
+  id: string;
+  name: string;
+  reasoning: boolean;
+  supportedReasoningEfforts?: string[];
+  defaultReasoningEffort?: string;
+  input?: Array<"text" | "image">;
+  contextWindow?: number;
+  maxTokens?: number;
+  isDefault: boolean;
+}
+
+/** Reads the account-aware model catalog from the managed runtime. */
+export function managedAuthModels(provider: ManagedAuthProvider): Promise<ManagedModel[]> {
+  return invoke("managed_auth_models", { provider });
 }

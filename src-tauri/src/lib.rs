@@ -1402,6 +1402,8 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             harness::commands::managed_auth_quota,
             #[cfg(feature = "core-harness")]
+            harness::commands::managed_auth_models,
+            #[cfg(feature = "core-harness")]
             harness::commands::mcp_test_connection
         ]);
 

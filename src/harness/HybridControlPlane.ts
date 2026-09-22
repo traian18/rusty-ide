@@ -1,12 +1,9 @@
 // ============================================================
 // HybridControlPlane.ts — The sole `HarnessControlPlane` implementation.
 // `discoverModels`/`testConnection`/`getQuota` answer directly via
-// providerCatalog.ts for an HTTP-transport provider. For a managed-auth
-// provider (Copilot/Codex/Claude Code), `getQuota` goes to
-// managed_quota.rs via `managedAuthQuota` (each CLI asked directly, no
-// SDK -- see that module) and is shaped by managedQuota.ts; the other two
-// still reject with a clear, honest error (sidecar-removal Phase 8c --
-// see below).
+// providerCatalog.ts for an HTTP-transport provider. Managed-auth model
+// discovery and quota calls go to their signed-in native runtimes through
+// managed_models.rs/managed_quota.rs; no Node sidecar is involved.
 //
 // `recordUsage` calls `record_usage` (src-tauri/src/usage_tracking.rs)
 // directly, unconditionally -- there's no provider-specific behavior to
@@ -27,18 +24,8 @@
 // and everything under src/harness/sidecar/, is gone now. Kept the
 // "Hybrid" name (renaming would just be unrelated churn across index.ts/
 // providerCoordinator.ts/LlmSetupTab.tsx/tests) since there's still a real
-// dispatch inside for the provider-catalog methods (direct HTTP vs. a
-// clear rejection for managed providers). `discoverModels`/`testConnection`
-// for a managed provider are a REAL, ACCEPTED regression from removing the
-// sidecar (confirmed live in LlmSetupTab.tsx that "Load Models" for
-// Copilot/Codex/Claude Code was real functionality) -- rusty-core's own
-// subprocess integrations expose no live model-list RPC to answer it with,
-// and fabricating a static model catalog was rejected as more likely to
-// ship silently wrong data than to help (see the sidecar-removal plan
-// doc's Phase 7c notes). These two throw a clear error instead of reaching
-// into deleted sidecar code. `getQuota` was on that list too until
-// 2026-09-18, when it turned out the vendored CLIs answer it directly
-// (managed_quota.rs) -- the sidecar's SDKs were never load-bearing there.
+// dispatch inside for the provider-catalog methods (direct HTTP vs. each
+// managed runtime's account-aware catalog protocol).
 //
 // No more dependency-injection factory: the singleton-leak bug that
 // motivated `createHybridControlPlane({sidecar})` was specifically about
@@ -58,10 +45,10 @@ import type {
   HarnessControlPlane,
   UsageRecordSample,
 } from "./contract/controlPlane";
-import { managedAuthLogout, managedAuthQuota, managedAuthStartLogin, managedAuthStatus, type LoginState, type ManagedAuthProvider } from "./managedAuthClient";
+import { managedAuthLogout, managedAuthModels, managedAuthQuota, managedAuthStartLogin, managedAuthStatus, type LoginState, type ManagedAuthProvider, type ManagedModel } from "./managedAuthClient";
 import { mapManagedQuota } from "./managedQuota";
 import { isClaudeCodeProvider, isCodexProvider, isCopilotProvider, isManagedAuthProvider } from "../store/providerHelpers";
-import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot } from "../store/types";
+import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot, ReasoningEffort } from "../store/types";
 
 function loginStateToConnectionStatus(state: LoginState): CopilotConnectionStatus & CodexConnectionStatus {
   const authenticated = state.authenticated === true;
@@ -102,6 +89,32 @@ function managedProviderUnsupported(method: string, provider: CustomProvider): E
   );
 }
 
+const UI_REASONING_EFFORTS = new Set<ReasoningEffort>(["minimal", "low", "medium", "high", "xhigh"]);
+
+function isUiReasoningEffort(value: string): value is ReasoningEffort {
+  return UI_REASONING_EFFORTS.has(value as ReasoningEffort);
+}
+
+function managedModelToProviderModel(provider: CustomProvider, model: ManagedModel): ProviderModel {
+  const supportedReasoningEfforts = (model.supportedReasoningEfforts || []).filter(isUiReasoningEffort);
+  const defaultReasoningEffort = model.defaultReasoningEffort && isUiReasoningEffort(model.defaultReasoningEffort)
+    ? model.defaultReasoningEffort
+    : undefined;
+  return {
+    id: `${provider.id}/${model.id}`,
+    remoteId: model.id,
+    name: model.name,
+    apiType: provider.apiType,
+    supported: true,
+    reasoning: model.reasoning,
+    supportedReasoningEfforts,
+    defaultReasoningEffort,
+    input: model.input,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+  };
+}
+
 /** The managed_auth.rs/managed_quota.rs integration id for a managed
  * provider (the store's own ids differ: `openai-codex`, `anthropic-claude-
  * code`), or undefined for anything else. */
@@ -116,12 +129,15 @@ export function createHybridControlPlane(): HarnessControlPlane {
   return {
     async discoverModels(provider: CustomProvider): Promise<ProviderModel[]> {
       if (isDirectlyReachable(provider)) return discoverProviderModelsDirect(provider);
-      throw managedProviderUnsupported("discoverModels", provider);
+      const integration = managedIntegrationId(provider);
+      if (!integration) throw managedProviderUnsupported("discoverModels", provider);
+      return (await managedAuthModels(integration)).map((model) => managedModelToProviderModel(provider, model));
     },
 
     async testConnection(provider: CustomProvider): Promise<{ modelCount: number; supportedModelCount: number }> {
       if (isDirectlyReachable(provider)) return testProviderConnectionDirect(provider);
-      throw managedProviderUnsupported("testConnection", provider);
+      const models = await this.discoverModels(provider);
+      return { modelCount: models.length, supportedModelCount: models.filter((model) => model.supported).length };
     },
 
     async getQuota(provider: CustomProvider): Promise<ProviderQuotaSnapshot> {

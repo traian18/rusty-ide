@@ -232,6 +232,15 @@ pub async fn managed_auth_quota(app: tauri::AppHandle, provider: String) -> Resu
     super::managed_quota::fetch_quota(&app, &provider).await
 }
 
+/// Account-aware model catalog from the managed provider's own runtime.
+#[tauri::command]
+pub async fn managed_auth_models(
+    app: tauri::AppHandle,
+    provider: String,
+) -> Result<Vec<super::managed_models::ManagedModel>, String> {
+    super::managed_models::fetch_models(&app, &provider).await
+}
+
 #[derive(serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct McpTestResult {

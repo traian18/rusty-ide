@@ -55,7 +55,7 @@ use super::managed_binaries::resolve_managed_binary;
 
 /// Per-request ceiling for one JSON-RPC round trip or HTTP call. The
 /// sidecar used 20s for the same calls.
-const RPC_TIMEOUT: Duration = Duration::from_secs(20);
+pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(20);
 
 #[derive(Debug, Serialize, Default, PartialEq)]
 pub struct ManagedQuota {
@@ -75,7 +75,7 @@ pub struct ManagedQuota {
     pub data: Option<Value>,
 }
 
-fn binary_or_error(app: &AppHandle, provider: &str) -> Result<PathBuf, String> {
+pub(super) fn binary_or_error(app: &AppHandle, provider: &str) -> Result<PathBuf, String> {
     resolve_managed_binary(app, provider).ok_or_else(|| {
         format!(
             "The {provider} runtime is not installed. Sign in to download it."
@@ -97,14 +97,14 @@ fn string_field(value: Option<&Value>, key: &str) -> Option<String> {
 // ------------------------------------------------------------
 
 #[derive(Clone, Copy)]
-enum Framing {
+pub(super) enum Framing {
     /// `Content-Length: N\r\n\r\n<body>` (vscode-jsonrpc; Copilot CLI).
     ContentLength,
     /// One JSON object per line (Codex app-server).
     NewlineDelimited,
 }
 
-struct RpcChild {
+pub(super) struct RpcChild {
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
@@ -113,7 +113,7 @@ struct RpcChild {
 }
 
 impl RpcChild {
-    async fn spawn(binary: &Path, args: &[&str], framing: Framing) -> Result<Self, String> {
+    pub(super) async fn spawn(binary: &Path, args: &[&str], framing: Framing) -> Result<Self, String> {
         let mut child = Command::new(binary)
             .args(args)
             .stdin(Stdio::piped())
@@ -209,7 +209,7 @@ impl RpcChild {
         }
     }
 
-    async fn notify(&mut self, method: &str, params: Value) -> Result<(), String> {
+    pub(super) async fn notify(&mut self, method: &str, params: Value) -> Result<(), String> {
         self.write(&json!({ "jsonrpc": "2.0", "method": method, "params": params }))
             .await
     }
@@ -218,7 +218,7 @@ impl RpcChild {
     /// server-to-client request that arrives in between with
     /// MethodNotFound (nothing here implements a client-side API) and
     /// dropping notifications. Bounded by `RPC_TIMEOUT`.
-    async fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
+    pub(super) async fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id;
         self.next_id += 1;
         self.write(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
@@ -257,7 +257,7 @@ impl RpcChild {
             .map_err(|_| format!("{method} timed out after {}s", RPC_TIMEOUT.as_secs()))?
     }
 
-    async fn shutdown(mut self) {
+    pub(super) async fn shutdown(mut self) {
         let _ = self.child.start_kill();
         let _ = self.child.wait().await;
     }
@@ -401,7 +401,7 @@ async fn codex_quota_over(rpc: &mut RpcChild) -> Result<ManagedQuota, String> {
 // Claude Code
 // ------------------------------------------------------------
 
-fn claude_credentials_path(app: &AppHandle) -> Option<PathBuf> {
+pub(super) fn claude_credentials_path(app: &AppHandle) -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
         return Some(PathBuf::from(dir).join(".credentials.json"));
     }
@@ -429,7 +429,7 @@ pub fn oauth_access_token(credentials: &Value) -> Option<String> {
         .map(str::to_string)
 }
 
-async fn read_claude_oauth_token(credentials_path: Option<PathBuf>) -> Option<String> {
+pub(super) async fn read_claude_oauth_token(credentials_path: Option<PathBuf>) -> Option<String> {
     if let Some(path) = credentials_path {
         if let Ok(content) = tokio::fs::read_to_string(&path).await {
             if let Some(token) = serde_json::from_str::<Value>(&content)
