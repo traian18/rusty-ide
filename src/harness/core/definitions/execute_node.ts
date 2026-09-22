@@ -43,7 +43,7 @@ import type { CapabilityResult, ExecuteNodeInput } from "../../contract";
 import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
-import { mapProviderToIntegration } from "../providerMapping";
+import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -198,12 +198,13 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
-      // 8192 is the largest max_tokens live-verified to work on this
-      // host-routed path (global_explore's own value); 16_000 and an
-      // omitted/null value both hung indefinitely after a bare "start"
-      // stream event against OpenCode Zen, across three models -- see
-      // HARNESS_CONTRACT_PLAN.md's execute_node live-test writeup.
-      execution_params: { model: mapped.model ?? input.model, max_tokens: 8192, reasoning_effort: mapped.reasoningEffort },
+      // OpenCode Zen's gateway hung indefinitely (no terminal stream event
+      // at all, confirmed live across three models) once max_tokens went
+      // above 8192 or was omitted -- see HARNESS_CONTRACT_PLAN.md's
+      // execute_node live-test writeup. `maxTokensFor` keeps that ceiling
+      // for OpenCode Zen specifically and gives every other provider a
+      // realistic one instead (see its own doc comment in providerMapping.ts).
+      execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(
         input,
         [...toolSpecs.map((spec) => spec.name), "web_fetch"],

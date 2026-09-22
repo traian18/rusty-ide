@@ -42,7 +42,7 @@ import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult } from "../../contract";
 import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
-import { mapProviderToIntegration } from "../providerMapping";
+import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
 import type { HostToolSpec } from "../SessionRecipe";
 import { flattenHistory } from "./promptHistory";
 
@@ -397,7 +397,7 @@ ${JSON.stringify(compactFileContext(fileContext), null, 2)}`;
             workspace: { root: input.workspaceRoot, binding: "host" },
             integration: mapped.integration,
             integration_config: mapped.integration_config,
-            execution_params: { model: mapped.model ?? input.model, max_tokens: 8192, reasoning_effort: mapped.reasoningEffort },
+            execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
             system_prompt: systemPrompt(input.workspaceRoot),
             host_tools: [READ_FILE_TOOL, WRITE_FILE_TOOL],
           },

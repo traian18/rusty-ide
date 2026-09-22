@@ -133,3 +133,32 @@ export function mapProviderToIntegration(provider: CustomProvider, modelReferenc
       : undefined,
   };
 }
+
+/**
+ * Every core-routed capability used to hard-code `execution_params.max_tokens`
+ * at 8192 (4096/4000 in a couple of definitions) -- copied from one
+ * investigation and repeated everywhere else without re-verifying it applied
+ * generally. It didn't: rusty-core treats a provider's own `finish_reason:
+ * "max_tokens"/"length"` as a hard failure (`OUTPUT_LIMIT_REACHED` in
+ * harness-core/src/transitions.rs), not a soft truncation, so a low ceiling
+ * routinely cut off exploration/analysis answers that needed more room --
+ * the model had plenty left to say and never got the tokens to say it.
+ *
+ * OpenCode Zen is the one documented exception: its gateway hung
+ * indefinitely (no terminal stream event at all, confirmed live across
+ * three models) once max_tokens went above 8192 or was omitted. That's a
+ * transport-level fault in one gateway, not a real model output ceiling --
+ * every other provider (OpenRouter, direct provider APIs, the managed CLI
+ * backends) has no such fault on record, so they get a realistic budget
+ * instead of the OpenCode-Zen-specific one.
+ */
+const OPENCODE_ZEN_PROVIDER_IDS = new Set(["opencode", "opencode-go"]);
+const OPENCODE_ZEN_MAX_TOKENS = 8192;
+const DEFAULT_CORE_MAX_TOKENS = 64_000;
+
+/** The `execution_params.max_tokens` a core-routed recipe should send for
+ * `provider` -- see the constants above for why this isn't one constant
+ * shared by every provider. */
+export function maxTokensFor(provider: CustomProvider): number {
+  return OPENCODE_ZEN_PROVIDER_IDS.has(provider.id) ? OPENCODE_ZEN_MAX_TOKENS : DEFAULT_CORE_MAX_TOKENS;
+}

@@ -67,7 +67,7 @@ describe("generateSkillDefinition", () => {
     expect(recipe.workspace).toEqual({ root: "/workspace", binding: "host" });
     expect(recipe.integration).toBe("host");
     expect(recipe.integration_config).toEqual({});
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 4000, reasoning_effort: undefined });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: undefined });
   });
 
   it("recipe() defaults an absent workspaceRoot to an empty string rather than throwing", () => {

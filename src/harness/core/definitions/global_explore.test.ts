@@ -77,7 +77,7 @@ describe("globalExploreDefinition", () => {
     const recipe = globalExploreDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
     expect(recipe.host_tools).toBe(EXPLORE_TOOLS);
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 8192, reasoning_effort: undefined });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("codebase exploration assistant");
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
   });

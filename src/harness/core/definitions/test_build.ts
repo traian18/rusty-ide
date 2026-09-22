@@ -40,7 +40,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
-import { mapProviderToIntegration } from "../providerMapping";
+import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
 import type { HostToolSpec } from "../SessionRecipe";
 import { RUN_COMMAND_TOOL, runCommandTool, runShellCommand } from "./shellExec";
 
@@ -214,7 +214,7 @@ export const testBuildDefinition: CoreCapabilityDefinition<"test_build"> = {
           workspace: { root: input.workspaceRoot, binding: "disk" },
           integration: mapped.integration,
           integration_config: mapped.integration_config,
-          execution_params: { model: mapped.model ?? input.model, max_tokens: 8192, reasoning_effort: mapped.reasoningEffort },
+          execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
           system_prompt: fixSystemPrompt(input.workspaceRoot, filePaths),
           host_tools: [READ_FILE_TOOL, WRITE_FILE_TOOL, RUN_COMMAND_TOOL],
         },

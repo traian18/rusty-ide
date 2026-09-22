@@ -16,7 +16,7 @@
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult, GenerateSkillInput } from "../../contract";
 import type { CoreCapabilityDefinition } from "../CoreHarness";
-import { mapProviderToIntegration } from "../providerMapping";
+import { mapProviderToIntegration, maxTokensFor } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 
@@ -93,7 +93,7 @@ export const generateSkillDefinition: CoreCapabilityDefinition<"generate_skill">
       workspace: { root: input.workspaceRoot ?? "", binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
-      execution_params: { model: mapped.model ?? input.model, max_tokens: 4000, reasoning_effort: mapped.reasoningEffort },
+      execution_params: { model: mapped.model ?? input.model, max_tokens: maxTokensFor(input.customProvider as CustomProvider), reasoning_effort: mapped.reasoningEffort },
       system_prompt: metaPrompt(input.description),
     };
   },

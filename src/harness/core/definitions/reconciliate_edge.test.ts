@@ -73,7 +73,7 @@ describe("reconciliateEdgeDefinition", () => {
     const recipe = reconciliateEdgeDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["list_files", "read_file", "search_codebase", "write_file"]);
-    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 8192, reasoning_effort: undefined });
+    expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 64_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("code reconciliation assistant");
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
   });
