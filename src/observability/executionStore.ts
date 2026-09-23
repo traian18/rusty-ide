@@ -14,6 +14,7 @@ interface RunContext {
   capability: CapabilityName;
   origin: ExecutionOrigin;
   context: ToolExecutionRecord["context"];
+  sessionId?: string;
   tokens?: ExecutionTokensSnapshot;
 }
 
@@ -75,16 +76,19 @@ export class ExecutionObservabilityStore {
     });
   }
 
-  bindSession(_runId: string, _sessionId: string): void {
-    trajectories.bind(_runId, _sessionId);
-    // Session ids arrive on every core envelope; keeping this method makes
-    // the run lifecycle explicit without persisting empty run-only rows.
+  bindSession(runId: string, sessionId: string): void {
+    trajectories.bind(runId, sessionId);
+    const run = this.runs.get(runId);
+    if (run) run.sessionId = sessionId;
   }
 
   ingest(runId: string, envelope: AgentEventEnvelope): void {
     const event = envelope.event as AgentEvent;
     const run = this.runs.get(runId);
     if (!run) return;
+    if (envelope.session_id && !run.sessionId) {
+      run.sessionId = envelope.session_id;
+    }
     trajectories.append(runId, Object.keys(event)[0], event, {
       id: envelope.event_id, timestamp: envelope.timestamp, agentId: envelope.agent_id,
       sequence: envelope.session_sequence ?? envelope.agent_sequence,
@@ -255,7 +259,8 @@ export class ExecutionObservabilityStore {
     let changed = false;
     const run = this.runs.get(runId);
     const records = this.snapshot.records.map((record) => {
-      if (record.ideRunId !== runId || !["queued", "waiting-permission", "running"].includes(record.status)) return record;
+      const matchesRun = record.ideRunId === runId || (run?.sessionId && record.sessionId === run.sessionId);
+      if (!matchesRun || !["queued", "waiting-permission", "running"].includes(record.status)) return record;
       changed = true;
       const status: ToolExecutionRecord["status"] = outcome.status === "cancelled" ? "cancelled" : "failed";
       return {
@@ -279,10 +284,10 @@ export class ExecutionObservabilityStore {
     this.prune();
   }
 
-  deleteExecution(id: string): void { this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.id !== id || ACTIVE_STATUSES.has(record.status))); }
-  deleteSession(sessionId: string): void { trajectories.remove((run) => run.sessionId === sessionId); this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.sessionId !== sessionId || ACTIVE_STATUSES.has(record.status))); }
-  deleteWorkspace(workspaceId: string): void { trajectories.remove((run) => run.origin.workspaceId === workspaceId); this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.origin.workspaceId !== workspaceId || ACTIVE_STATUSES.has(record.status))); }
-  clear(): void { trajectories.remove(() => true); this.hydrate(); this.replace(this.snapshot.records.filter((record) => ACTIVE_STATUSES.has(record.status))); }
+  deleteExecution(id: string): void { this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.id !== id)); }
+  deleteSession(sessionId: string): void { trajectories.remove((run) => run.sessionId === sessionId); this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.sessionId !== sessionId)); }
+  deleteWorkspace(workspaceId: string): void { trajectories.remove((run) => run.origin.workspaceId === workspaceId); this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.origin.workspaceId !== workspaceId)); }
+  clear(): void { trajectories.remove(() => true); this.hydrate(); this.replace(this.snapshot.records.filter((record) => this.runs.has(record.ideRunId) && ACTIVE_STATUSES.has(record.status))); }
 
   private hydrate(): void {
     if (this.hydrated) return;
@@ -290,7 +295,19 @@ export class ExecutionObservabilityStore {
     try {
       const raw = storage()?.getItem(STORAGE_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      const records = Array.isArray(parsed) ? parsed as ToolExecutionRecord[] : [];
+      const records = (Array.isArray(parsed) ? parsed as ToolExecutionRecord[] : []).map((record) => {
+        if (ACTIVE_STATUSES.has(record.status)) {
+          const finishedAt = record.finishedAt ?? new Date().toISOString();
+          return {
+            ...record,
+            status: "failed" as const,
+            finishedAt,
+            durationMs: record.durationMs ?? duration(record, finishedAt),
+            resultPreview: record.resultPreview ?? "Interrupted: session was closed or IDE reloaded while call was active.",
+          };
+        }
+        return record;
+      });
       this.snapshot = { ...this.snapshot, records, storageBytes: raw?.length ?? 0 };
       this.prune();
     } catch (error) {

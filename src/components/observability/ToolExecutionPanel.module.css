@@ -4,7 +4,34 @@
 .triggerLabel { font-weight: 600; }
 .activeBadge { display: grid; min-width: 1rem; height: 1rem; place-items: center; border-radius: 999px; background: var(--color-primary); color: var(--color-primary-foreground); padding: 0 .2rem; font-size: .625rem; }
 .errorDot { width: .45rem; height: .45rem; border-radius: 50%; background: var(--color-status-danger); }
-.panel { position: fixed; z-index: 100; top: 0; left: 0; right: 0; bottom: 0; display: flex; width: 100vw; height: 100vh; flex-direction: column; background: var(--color-surface-app); color: var(--color-fg-default); backdrop-filter: blur(16px); overflow: hidden; }
+.panelOverlay {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3.25rem 2rem 2rem 2rem;
+  background: color-mix(in srgb, var(--color-surface-app) 60%, rgb(0 0 0 / 0.55));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  width: min(88vw, 84rem);
+  height: min(82vh, 52rem);
+  max-width: calc(100vw - 4rem);
+  max-height: calc(100vh - 4.5rem);
+  flex-direction: column;
+  background: var(--color-surface-app);
+  color: var(--color-fg-default);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-xl, 12px);
+  box-shadow: 0 24px 64px -12px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(255 255 255 / 0.06);
+  overflow: hidden;
+}
 .panelHeader { display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--color-border-subtle); padding: var(--space-3) var(--space-6); background: var(--color-surface-sidebar); flex-shrink: 0; }
 .panelHeader h2 { margin: 0; color: var(--color-fg-strong); font-size: var(--font-size-ui-md); display: flex; align-items: center; gap: .5rem; }
 .panelHeader p { margin: .15rem 0 0; color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); }

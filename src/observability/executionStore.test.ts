@@ -107,6 +107,50 @@ describe("executionObservability", () => {
     expect(executionObservability.getSnapshot().records).toEqual([]);
   });
 
+  it("heals stale active calls upon hydration so processes do not remain stuck in running", () => {
+    // Put a stuck "running" record in localStorage as if the browser crashed or reloaded while running
+    const stuckRecord = {
+      id: "session-1:call-stuck",
+      callId: "call-stuck",
+      ideRunId: "stuck-run",
+      toolName: "bash.exec",
+      status: "running",
+      requestedAt: new Date(Date.now() - 60_000).toISOString(),
+      startedAt: new Date(Date.now() - 50_000).toISOString(),
+      origin: { surface: "agent", displayLabel: "Agent" },
+      context: { capability: "agent_chat" },
+      payloadState: "full",
+    };
+    localStorage.setItem("rusty.execution-observability.v1", JSON.stringify([stuckRecord]));
+
+    const freshStore = new ExecutionObservabilityStore();
+    const records = freshStore.getSnapshot().records;
+    expect(records).toHaveLength(1);
+    expect(records[0].status).toBe("failed");
+    expect(records[0].resultPreview).toContain("Interrupted");
+    expect(records[0].durationMs).toBeGreaterThan(0);
+  });
+
+  it("clears history including stuck calls when there is no active in-memory run", () => {
+    // Put a stuck "running" record in localStorage
+    const stuckRecord = {
+      id: "session-1:call-stuck",
+      callId: "call-stuck",
+      ideRunId: "stuck-run",
+      toolName: "bash.exec",
+      status: "running",
+      requestedAt: new Date().toISOString(),
+      origin: { surface: "agent", displayLabel: "Agent" },
+      context: { capability: "agent_chat" },
+      payloadState: "full",
+    };
+    localStorage.setItem("rusty.execution-observability.v1", JSON.stringify([stuckRecord]));
+
+    const freshStore = new ExecutionObservabilityStore();
+    freshStore.clear();
+    expect(freshStore.getSnapshot().records).toEqual([]);
+  });
+
   it("restores saved history and degrades safely when persisted data is corrupt", () => {
     executionObservability.startRun("ide-run", "agent_chat", INPUT);
     executionObservability.ingest("ide-run", envelope({

@@ -16,6 +16,7 @@ export interface TrajectoryEntry {
 export interface RunTrajectory {
   id: string;
   startedAt: string;
+  finishedAt?: string;
   sessionId?: string;
   origin: ExecutionOrigin;
   context: ExecutionContextSnapshot;
@@ -115,7 +116,8 @@ export class TrajectoryStore {
   }
   finish(id: string, status: "completed" | "failed" | "cancelled", outcome: unknown) {
     this.append(id, "Run finished", outcome);
-    this.update(this.getSnapshot().runs.map((run) => run.id === id ? { ...run, status } : run));
+    const finishedAt = new Date().toISOString();
+    this.update(this.getSnapshot().runs.map((run) => run.id === id ? { ...run, status, finishedAt } : run));
     this.flush();
   }
   remove(matches: (run: RunTrajectory) => boolean) {

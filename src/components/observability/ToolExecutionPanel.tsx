@@ -544,24 +544,40 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
           getTimestampMs(a.startedAt || a.requestedAt) -
           getTimestampMs(b.startedAt || b.requestedAt)
       );
-      const firstRecord = sortedRecords[0];
-      const lastRecord = sortedRecords[sortedRecords.length - 1];
+      const trajFinished = traj && traj.status !== "running";
+      const sanitizedRecords = sortedRecords.map((r) => {
+        if (trajFinished && ["queued", "waiting-permission", "running"].includes(r.status)) {
+          const resolvedStatus: ToolExecutionRecord["status"] = traj.status === "cancelled" ? "cancelled" : "failed";
+          const finishedAtTime = traj.finishedAt || r.finishedAt || new Date().toISOString();
+          return {
+            ...r,
+            status: resolvedStatus,
+            finishedAt: finishedAtTime,
+            durationMs: r.durationMs ?? (r.startedAt ? Math.max(0, getTimestampMs(finishedAtTime) - getTimestampMs(r.startedAt)) : undefined),
+            resultPreview: r.resultPreview ?? "Process ended before a terminal tool event was recorded.",
+          };
+        }
+        return r;
+      });
+
+      const firstRecord = sanitizedRecords[0];
+      const lastRecord = sanitizedRecords[sanitizedRecords.length - 1];
 
       const startedAt = traj?.startedAt || firstRecord?.startedAt || firstRecord?.requestedAt || new Date().toISOString();
-      const finishedAt = lastRecord?.finishedAt;
+      const finishedAt = traj?.finishedAt || lastRecord?.finishedAt;
       const durationMs =
         startedAt && finishedAt
           ? Math.max(0, getTimestampMs(finishedAt) - getTimestampMs(startedAt))
           : undefined;
 
       const hasRunning =
-        sortedRecords.some((r) =>
+        sanitizedRecords.some((r) =>
           ["queued", "waiting-permission", "running"].includes(r.status)
         ) || traj?.status === "running";
       const hasFailed =
-        sortedRecords.some((r) => r.status === "failed") || traj?.status === "failed";
+        sanitizedRecords.some((r) => r.status === "failed") || traj?.status === "failed";
       const allCancelled =
-        (sortedRecords.length > 0 && sortedRecords.every((r) => r.status === "cancelled")) ||
+        (sanitizedRecords.length > 0 && sanitizedRecords.every((r) => r.status === "cancelled")) ||
         traj?.status === "cancelled";
 
       const runStatus: GroupedRun["status"] = hasRunning
@@ -573,7 +589,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         : "succeeded";
 
       // Calculate max run tokens rather than summing duplicates
-      const runTokens = sortedRecords.reduce<ExecutionTokensSnapshot | undefined>((acc, r) => {
+      const runTokens = sanitizedRecords.reduce<ExecutionTokensSnapshot | undefined>((acc, r) => {
         if (!r.tokens?.totalTokens) return acc;
         if (!acc || (r.tokens.totalTokens > (acc.totalTokens ?? 0))) return r.tokens;
         return acc;
@@ -601,7 +617,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         }
       }
 
-      const toolItems: TimelineToolItem[] = sortedRecords.map((record) => ({
+      const toolItems: TimelineToolItem[] = sanitizedRecords.map((record) => ({
         kind: "tool",
         id: record.id,
         timestamp: record.startedAt || record.requestedAt,
@@ -626,10 +642,10 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         provider: traj?.context?.provider || firstRecord?.context?.provider,
         requestPrompt:
           traj?.context?.requestPrompt ||
-          sortedRecords.find((r) => r.context?.requestPrompt)?.context?.requestPrompt,
+          sanitizedRecords.find((r) => r.context?.requestPrompt)?.context?.requestPrompt,
         totalTokens: runTokens?.totalTokens,
         runTokens,
-        records: sortedRecords,
+        records: sanitizedRecords,
         timelineItems,
         entries: trajEntries,
       });
@@ -680,17 +696,23 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <aside id="tool-execution-panel" className={styles.panel} role="dialog" aria-modal="false" aria-label="Tool execution">
-      <div className={styles.panelHeader}>
-        <div>
-          <h2>
-            <Activity size={18} className="text-[var(--color-primary)]" />
-            Tool Execution Observability
-          </h2>
-          <p>
-            {snapshot.records.length} calls across {groupedRuns.length} executions · DeepSeek timeline view per run
-          </p>
-        </div>
+    <div
+      className={styles.panelOverlay}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <aside id="tool-execution-panel" className={styles.panel} role="dialog" aria-modal="true" aria-label="Tool execution">
+        <div className={styles.panelHeader}>
+          <div>
+            <h2>
+              <Activity size={18} className="text-[var(--color-primary)]" />
+              Tool Execution Observability
+            </h2>
+            <p>
+              {snapshot.records.length} calls across {groupedRuns.length} executions · Timeline view per run
+            </p>
+          </div>
         <div className={styles.headerActions}>
           <button ref={closeRef} type="button" className={styles.iconButton} aria-label="Close tool execution" onClick={onClose}>
             <X size={18} />
@@ -770,7 +792,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                     </div>
                   </div>
 
-                  {/* Horizontal DeepSeek-style Time Series Execution Chart */}
+                  {/* Horizontal Time Series Execution Chart */}
                   <RunExecutionTimeline
                     items={run.timelineItems}
                     selectedItemId={selectedItemId}
@@ -908,5 +930,6 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         </button>
       </div>
     </aside>
-  );
+  </div>
+);
 }

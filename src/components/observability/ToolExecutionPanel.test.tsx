@@ -11,7 +11,7 @@ const INPUT = {
   tabId: "agent",
   message: "Refactor database service",
   workspaceRoot: "/workspace",
-  model: "deepseek-coder",
+  model: "gpt-4o",
   chatHistory: [],
   mcpServers: [],
   customProvider: null,
@@ -76,8 +76,9 @@ describe("ToolExecutionPanel", () => {
 
       // Header title & metrics
       expect(container.textContent).toContain("Tool Execution Observability");
-      expect(container.textContent).toContain("DeepSeek timeline view");
-      expect(container.textContent).toContain("deepseek-coder");
+      expect(container.textContent).toContain("Timeline view per run");
+      expect(container.textContent).not.toContain("DeepSeek");
+      expect(container.textContent).toContain("gpt-4o");
 
       // Grouped run card contains both tools on the timeline
       expect(container.textContent).toContain("fs.read");
@@ -445,6 +446,84 @@ describe("ToolExecutionPanel", () => {
       // Command is truncated to 25 chars + ...
       expect(cmdButton?.textContent).toContain("cargo test");
       expect(inspector?.textContent).toContain("Execution Details: bash.exec");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("auto-heals stuck tool records in finished trajectories so they do not appear as running", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onClose = vi.fn();
+
+    // Start a run, start a tool call, but simulate the run finishing (e.g. process completed or ended)
+    // without the tool receiving a ToolCallCompleted event.
+    executionObservability.startRun("stuck-run", "agent_chat", {
+      ...INPUT,
+      message: "Stuck process test",
+    });
+    executionObservability.ingest("stuck-run", envelope({
+      ToolCallRequested: { call: { id: "call-stuck", name: "bash.exec", arguments: { command: "sleep 100" } } },
+    }, 1));
+    executionObservability.ingest("stuck-run", envelope({
+      ToolCallStarted: { call_id: "call-stuck" },
+    }, 2));
+    // The run finished (e.g. timeout or completed)
+    trajectories.finish("stuck-run", "completed", { response: "Finished" });
+
+    try {
+      await act(async () => {
+        root.render(<ToolExecutionPanel onClose={onClose} />);
+      });
+
+      // The run should NOT display as "Running"
+      expect(container.textContent).not.toContain("Running");
+      expect(container.textContent).toContain("Stuck process test");
+
+      // The tool node on the timeline should NOT have a spinning loader
+      const spinLoaders = container.querySelectorAll(".animate-spin");
+      expect(spinLoaders.length).toBe(0);
+
+      // Clicking on the healed tool shows it as resolved, not live
+      const toolButton = Array.from(container.querySelectorAll("button")).find(b => b.textContent?.includes("sleep 100"));
+      expect(toolButton).toBeTruthy();
+      await act(async () => {
+        toolButton?.click();
+      });
+
+      expect(container.textContent).toContain("Process ended before a terminal tool event was recorded.");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("closes when the modal backdrop overlay is clicked", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onClose = vi.fn();
+
+    try {
+      await act(async () => {
+        root.render(<ToolExecutionPanel onClose={onClose} />);
+      });
+
+      const overlay = container.firstElementChild as HTMLElement;
+      expect(overlay).toBeTruthy();
+
+      // Click on the overlay backdrop itself
+      await act(async () => {
+        overlay.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+
+      expect(onClose).toHaveBeenCalledTimes(1);
     } finally {
       await act(async () => root.unmount());
       container.remove();
