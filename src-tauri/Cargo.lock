@@ -4107,7 +4107,7 @@ checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
 
 [[package]]
 name = "rusty-ide"
-version = "0.1.30"
+version = "0.1.31"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

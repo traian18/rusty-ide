@@ -1,8 +1,9 @@
-import { RunExecutionTimeline, type TimelineItem } from "./RunExecutionTimeline";
+import { RunExecutionTimeline, estimateTokens, type TimelineItem } from "./RunExecutionTimeline";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Bot,
+  Brain,
   Copy,
   Database,
   FileCode2,
@@ -28,6 +29,15 @@ export interface TimelineToolItem {
 
 export interface TimelineAssistantTextItem {
   kind: "assistant_text";
+  id: string;
+  timestamp: string;
+  messageId: string;
+  text: string;
+  agentId?: string;
+}
+
+export interface TimelineReasoningItem {
+  kind: "reasoning";
   id: string;
   timestamp: string;
   messageId: string;
@@ -473,6 +483,152 @@ function AssistantTextDetail({
   );
 }
 
+function ReasoningDetail({
+  item,
+  requestPrompt,
+  tokens,
+  model,
+  originLabel,
+  surface,
+}: {
+  item: TimelineReasoningItem;
+  requestPrompt?: string;
+  tokens?: ExecutionTokensSnapshot;
+  model?: string;
+  originLabel: string;
+  surface: string;
+}) {
+  const tokenEstimate = estimateTokens(item.text);
+  const charCount = item.text.length;
+
+  return (
+    <div className={styles.detail}>
+      {/* Reasoning Banner */}
+      <div className={styles.callBanner}>
+        <div className={styles.callBannerTop}>
+          <span className={styles.callBannerBadge}>
+            <Brain size={15} className="text-[var(--color-primary)]" />
+            Reasoning
+          </span>
+          <span className="text-[var(--color-fg-muted)] font-mono text-xs">
+            {formatTime(item.timestamp)}
+          </span>
+        </div>
+        <div className={styles.callHeadline}>Model Reasoning (Internal)</div>
+        <div className={styles.callKeyParams}>
+          <span className={styles.callParamPill}>
+            <strong>Est. tokens:</strong>
+            <span>~{tokenEstimate}</span>
+          </span>
+          <span className={styles.callParamPill}>
+            <strong>Chars:</strong>
+            <span>{charCount}</span>
+          </span>
+          {item.messageId && (
+            <span className={styles.callParamPill}>
+              <strong>Message ID:</strong>
+              <span>{item.messageId}</span>
+            </span>
+          )}
+          {item.agentId && (
+            <span className={styles.callParamPill}>
+              <strong>Agent:</strong>
+              <span>{item.agentId}</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Response Content */}
+      <section className={styles.detailSection}>
+        <div className={styles.sectionHeaderWithAction}>
+          <h4>Reasoning Content</h4>
+          <button
+            type="button"
+            className={styles.copySmallButton}
+            onClick={() => navigator.clipboard?.writeText(item.text)}
+            title="Copy reasoning text"
+          >
+            <Copy size={11} /> Copy text
+          </button>
+        </div>
+        <div className={styles.promptCard}>{item.text}</div>
+      </section>
+
+      {/* Run Request Context (Initiating Prompt) */}
+      {requestPrompt && (
+        <section className={styles.detailSection}>
+          <div className={styles.sectionHeaderWithAction}>
+            <div>
+              <h4>Run Context (Initiating Prompt)</h4>
+              <small className="text-[var(--color-fg-muted)] text-[10px]">User request initiating this run</small>
+            </div>
+            <button
+              type="button"
+              className={styles.copySmallButton}
+              onClick={() => navigator.clipboard?.writeText(requestPrompt)}
+              title="Copy request prompt"
+            >
+              <Copy size={11} /> Copy prompt
+            </button>
+          </div>
+          <div className={styles.contextNotice}>
+            <Info size={13} className="text-[var(--color-primary)] shrink-0" />
+            <span>
+              All responses and tool calls in this run stem from the user prompt below.
+            </span>
+          </div>
+          <div className={styles.promptCard}>{requestPrompt}</div>
+        </section>
+      )}
+
+      {/* Run Token Usage */}
+      <section className={styles.detailSection}>
+        <h4>Run Token Usage <small>(Model Total)</small></h4>
+        {tokens && tokens.totalTokens !== undefined ? (
+          <div className={styles.tokenGrid}>
+            <div className={`${styles.tokenCard} ${styles.tokenCardHighlight}`}>
+              <span className={styles.tokenLabel}>Total Tokens</span>
+              <strong className={styles.tokenValue}>{tokens.totalTokens.toLocaleString()}</strong>
+            </div>
+            {tokens.inputTokens !== undefined && (
+              <div className={styles.tokenCard}>
+                <span className={styles.tokenLabel}>Input (Prompt)</span>
+                <span className={styles.tokenValue}>{tokens.inputTokens.toLocaleString()}</span>
+              </div>
+            )}
+            {tokens.outputTokens !== undefined && (
+              <div className={styles.tokenCard}>
+                <span className={styles.tokenLabel}>Output (Completion)</span>
+                <span className={styles.tokenValue}>{tokens.outputTokens.toLocaleString()}</span>
+              </div>
+            )}
+            {tokens.reasoningTokens !== undefined && (
+              <div className={styles.tokenCard}>
+                <span className={styles.tokenLabel}>Reasoning</span>
+                <span className={styles.tokenValue}>{tokens.reasoningTokens.toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className={styles.tokenEmpty}>Token count not reported for this run</p>
+        )}
+      </section>
+
+      {/* Metadata */}
+      <section className={styles.detailSection}>
+        <h4>Execution Metadata</h4>
+        <dl className={styles.metadata}>
+          <div><dt>Source</dt><dd>{originLabel}</dd></div>
+          <div><dt>Surface</dt><dd>{surface}</dd></div>
+          {model && <div><dt>Model</dt><dd>{model}</dd></div>}
+          <div><dt>Timestamp</dt><dd>{formatDateTime(item.timestamp)}</dd></div>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
 export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
   const snapshot = useExecutionObservability();
   const trajectorySnapshot = useTrajectories();
@@ -617,6 +773,28 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         }
       }
 
+      // Extract ReasoningDelta events from trajectory -- same shape and
+      // coalescing as AssistantTextDelta above (trajectoryStore.ts's
+      // append() special-cases both sources identically).
+      const reasoningItems: TimelineReasoningItem[] = [];
+      for (const entry of trajEntries) {
+        if (entry.source === "ReasoningDelta") {
+          const p = entry.payload as Record<string, any> | undefined;
+          const block = p?.ReasoningDelta ?? p;
+          const delta = typeof block?.delta === "string" ? block.delta : typeof block?.text === "string" ? block.text : "";
+          if (delta.trim()) {
+            reasoningItems.push({
+              kind: "reasoning",
+              id: `reasoning-${entry.id}`,
+              timestamp: entry.timestamp,
+              messageId: String(block?.message_id ?? entry.id),
+              text: delta,
+              agentId: entry.agentId,
+            });
+          }
+        }
+      }
+
       const toolItems: TimelineToolItem[] = sanitizedRecords.map((record) => ({
         kind: "tool",
         id: record.id,
@@ -624,7 +802,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         record,
       }));
 
-      const timelineItems: TimelineItem[] = [...toolItems, ...textItems].sort(
+      const timelineItems: TimelineItem[] = [...toolItems, ...textItems, ...reasoningItems].sort(
         (a, b) => getTimestampMs(a.timestamp) - getTimestampMs(b.timestamp)
       );
 
@@ -676,7 +854,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
         `${r.toolName} ${r.resultPreview ?? ""} ${JSON.stringify(r.arguments)}`.toLowerCase().includes(needle)
       );
       const textMatch = run.timelineItems.some((it) =>
-        it.kind === "assistant_text" && it.text.toLowerCase().includes(needle)
+        (it.kind === "assistant_text" || it.kind === "reasoning") && it.text.toLowerCase().includes(needle)
       );
       return promptMatch || modelMatch || labelMatch || capabilityMatch || recordsMatch || textMatch;
     });
@@ -850,6 +1028,16 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                         {formatDuration(selectedInfo.item.record)}
                       </span>
                     </>
+                  ) : selectedInfo.item.kind === "reasoning" ? (
+                    <>
+                      <Brain size={15} className="text-[var(--color-primary)]" />
+                      <strong className="text-[var(--color-fg-strong)] font-mono text-sm">
+                        Reasoning
+                      </strong>
+                      <span className="text-[var(--color-fg-muted)] text-xs">
+                        {formatTime(selectedInfo.item.timestamp)}
+                      </span>
+                    </>
                   ) : (
                     <>
                       <Bot size={15} className="text-[var(--color-primary)]" />
@@ -875,6 +1063,15 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
 
               {selectedInfo.item.kind === "tool" ? (
                 <ExecutionDetail record={selectedInfo.item.record} runTokens={selectedInfo.run.runTokens} />
+              ) : selectedInfo.item.kind === "reasoning" ? (
+                <ReasoningDetail
+                  item={selectedInfo.item}
+                  requestPrompt={selectedInfo.run.requestPrompt}
+                  tokens={selectedInfo.run.runTokens}
+                  model={selectedInfo.run.model}
+                  originLabel={selectedInfo.run.originLabel}
+                  surface={selectedInfo.run.surface}
+                />
               ) : (
                 <AssistantTextDetail
                   item={selectedInfo.item}
@@ -890,7 +1087,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
             <div className={styles.inspectorEmpty}>
               <Activity size={32} className="text-[var(--color-fg-muted)] opacity-60" />
               <strong>No tool call selected</strong>
-              <span>Click any tool call or assistant response on the timeline to the left to inspect details, output, and run context.</span>
+              <span>Click any tool call, assistant response, or reasoning step on the timeline to the left to inspect details, output, and run context.</span>
             </div>
           )}
         </div>

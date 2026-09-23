@@ -298,6 +298,76 @@ describe("ToolExecutionPanel", () => {
     }
   });
 
+  it("shows ReasoningDelta as a distinct, collapsed Reasoning node, expandable in the inspector", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    executionObservability.startRun("run-reasoning", "agent_chat", {
+      ...INPUT,
+      message: "Find the bug in the auth flow",
+    }, { displayLabel: "Agent Chat" });
+
+    // Reasoning happens before any tool call or assistant text.
+    executionObservability.ingest("run-reasoning", envelope({
+      ReasoningDelta: { message_id: "thought-1", delta: "The session lookup happens before the JWT check, that seems backwards." }
+    }, 1));
+
+    executionObservability.ingest("run-reasoning", envelope({
+      ToolCallRequested: { call: { id: "call-grep", name: "workspace.grep", arguments: { query: "verifyRefreshToken" } } }
+    }, 2));
+    executionObservability.ingest("run-reasoning", envelope({ ToolCallStarted: { call_id: "call-grep" } }, 3));
+    executionObservability.ingest("run-reasoning", envelope({
+      ToolCallCompleted: { call_id: "call-grep", result: { has_error: false, output_preview: "token.service.ts:12" } }
+    }, 4));
+
+    executionObservability.ingest("run-reasoning", envelope({
+      AssistantTextDelta: { message_id: "msg-1", delta: "Found it: the checks are in the wrong order." }
+    }, 5));
+
+    executionObservability.finishRun("run-reasoning", {
+      status: "completed",
+      result: { response: "Done", modifiedFiles: [], subagents: [] }
+    });
+
+    try {
+      await act(async () => {
+        root.render(<ToolExecutionPanel onClose={vi.fn()} />);
+      });
+
+      // A collapsed "Reasoning" pill shows an estimated (not exact) token
+      // count -- distinct from the tool call and assistant response nodes.
+      const reasoningButton = Array.from(container.querySelectorAll("button")).find(
+        (b) => b.textContent?.includes("Reasoning")
+      );
+      expect(reasoningButton).toBeTruthy();
+      expect(reasoningButton?.textContent).toMatch(/~\d+ tok/);
+      // The full reasoning text is not shown on the collapsed timeline pill.
+      expect(reasoningButton?.textContent).not.toContain("session lookup");
+
+      expect(container.textContent).toContain("workspace.grep");
+      expect(container.textContent).toContain("Assistant");
+
+      // Click the Reasoning node to expand it in the inspector.
+      await act(async () => {
+        reasoningButton!.click();
+      });
+
+      const inspector = container.querySelector('[aria-label="Execution details inspector"]');
+      expect(inspector?.textContent).toContain("Reasoning");
+      expect(inspector?.textContent).toContain(
+        "The session lookup happens before the JWT check, that seems backwards."
+      );
+      expect(inspector?.textContent).toContain("Run Context (Initiating Prompt)");
+      expect(inspector?.textContent).toContain("Find the bug in the auth flow");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("stacks multiple workflow runs vertically with newest on top and independent run contexts", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");

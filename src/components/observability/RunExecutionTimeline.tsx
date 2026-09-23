@@ -1,5 +1,5 @@
 import React from "react";
-import { Loader2, Clock, AlertTriangle, FileCode2, Bot, MessageSquare } from "lucide-react";
+import { Loader2, Clock, AlertTriangle, FileCode2, Bot, MessageSquare, Brain } from "lucide-react";
 import type { ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
 import { extractCallSummary, formatCompactCallLabel } from "./callSummary";
 import styles from "./ToolExecutionPanel.module.css";
@@ -18,7 +18,25 @@ export type TimelineItem =
       text: string;
       timestamp: string;
       agentId?: string;
+    }
+  | {
+      kind: "reasoning";
+      id: string;
+      messageId: string;
+      text: string;
+      timestamp: string;
+      agentId?: string;
     };
+
+/** Character-based estimate, not an exact token count -- there is no
+    per-segment token count on the wire (only a cumulative, run-level
+    reasoningTokens from UsageUpdated). Shared by the collapsed timeline
+    pill and ToolExecutionPanel's ReasoningDetail so both agree on one
+    formula; always rendered with a leading "~" so it never looks like it
+    contradicts the exact run-level total shown elsewhere in the panel. */
+export function estimateTokens(text: string): number {
+  return Math.max(1, Math.round(text.length / 4));
+}
 
 export interface RunExecutionTimelineProps {
   items?: TimelineItem[];
@@ -123,6 +141,43 @@ export const RunExecutionTimeline: React.FC<RunExecutionTimelineProps> = ({
                     <MessageSquare size={11} className={styles.nodeTextIcon} />
                     <strong className={styles.nodeToolName}>Assistant</strong>
                     <span className={styles.nodeDuration}>{wordCount}w</span>
+                  </div>
+                  {isSelected && <div className={styles.nodeSelectedCaret} />}
+                </button>
+
+                {!isLast && (
+                  <div className={styles.timelineConnector} aria-hidden="true" />
+                )}
+              </React.Fragment>
+            );
+          }
+
+          if (item.kind === "reasoning") {
+            const tokenEstimate = estimateTokens(item.text);
+            const preview = item.text.replace(/\s+/g, " ").trim().slice(0, 30);
+
+            return (
+              <React.Fragment key={item.id}>
+                <button
+                  type="button"
+                  className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`}
+                  onClick={() => handleSelect(item.id)}
+                  title={`Click to inspect Reasoning (~${tokenEstimate} tokens): "${preview}..."`}
+                  aria-pressed={isSelected}
+                  aria-label={`Reasoning ${index + 1}: approximately ${tokenEstimate} tokens, "${preview}"`}
+                >
+                  <span className={styles.nodeTimeOffset}>
+                    {offsetLabel || `#${index + 1}`}
+                  </span>
+                  <div className={styles.nodeMarkerWrapper}>
+                    <div className={`${styles.nodeMarker} ${styles.nodeMarkerReasoning}`}>
+                      <Brain size={13} className={styles.nodeIconReasoning} />
+                    </div>
+                  </div>
+                  <div className={`${styles.nodePill} ${styles.nodePillReasoning}`}>
+                    <Brain size={11} className={styles.nodeReasoningIcon} />
+                    <strong className={styles.nodeToolName}>Reasoning</strong>
+                    <span className={styles.nodeDuration}>~{tokenEstimate} tok</span>
                   </div>
                   {isSelected && <div className={styles.nodeSelectedCaret} />}
                 </button>

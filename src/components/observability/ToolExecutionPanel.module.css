@@ -103,6 +103,13 @@
 .nodeIconText { color: var(--color-primary); }
 .nodePillText { border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border-subtle)); background: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-app)); }
 .nodeTextIcon { color: var(--color-primary); }
+/* Muted (fg-muted, not primary) rather than the *Text trio above -- reasoning
+   is the model's internal "scratch" content, not a user-facing output, so it
+   should read as visually secondary next to assistant text on a busy timeline. */
+.nodeMarkerReasoning { border-color: color-mix(in srgb, var(--color-fg-muted) 50%, var(--color-border-default)); background: color-mix(in srgb, var(--color-fg-muted) 12%, var(--color-surface-app)); }
+.nodeIconReasoning { color: var(--color-fg-muted); }
+.nodePillReasoning { border-color: color-mix(in srgb, var(--color-fg-muted) 35%, var(--color-border-subtle)); background: color-mix(in srgb, var(--color-fg-muted) 6%, var(--color-surface-app)); }
+.nodeReasoningIcon { color: var(--color-fg-muted); }
 
 .nodePill { display: inline-flex; align-items: center; gap: .35rem; padding: .25rem .55rem; border-radius: var(--radius-md); background: var(--color-surface-app); border: 1px solid var(--color-border-subtle); color: var(--color-fg-default); font-family: var(--font-family-mono); font-size: .72rem; white-space: nowrap; transition: all var(--motion-fast); }
 .timelineNode:hover .nodePill { border-color: var(--color-border-default); background: var(--color-interaction-hover); }

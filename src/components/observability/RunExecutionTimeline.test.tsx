@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
-import { RunExecutionTimeline } from "./RunExecutionTimeline";
+import { RunExecutionTimeline, estimateTokens } from "./RunExecutionTimeline";
 import type { ToolExecutionRecord } from "../../observability/types";
 
 function createMockRecord(overrides: Partial<ToolExecutionRecord>): ToolExecutionRecord {
@@ -144,6 +144,75 @@ it("renders interleaved timeline items including assistant_text nodes", async ()
       buttons[0].click();
     });
     expect(handleSelect).toHaveBeenCalledWith("text-1");
+  } finally {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  }
+});
+
+it("renders reasoning nodes alongside tool and assistant_text nodes, with an estimated token count", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  document.body.appendChild(container);
+  const root = createRoot(container);
+
+  const reasoningText = "Considering which file to inspect first...";
+
+  const items = [
+    {
+      kind: "reasoning" as const,
+      id: "reasoning-1",
+      messageId: "m1",
+      text: reasoningText,
+      timestamp: new Date(1700000000000).toISOString(),
+    },
+    {
+      kind: "tool" as const,
+      id: "tool-1",
+      record: createMockRecord({ id: "tool-1", toolName: "file.read" }),
+      timestamp: new Date(1700000001000).toISOString(),
+    },
+    {
+      kind: "assistant_text" as const,
+      id: "text-1",
+      messageId: "m2",
+      text: "Here is what I found.",
+      timestamp: new Date(1700000002000).toISOString(),
+    },
+  ];
+
+  let selectedId: string | null = null;
+  const handleSelect = vi.fn((id: string) => {
+    selectedId = id;
+  });
+
+  try {
+    await act(async () => {
+      root.render(
+        <RunExecutionTimeline
+          items={items}
+          selectedItemId={selectedId}
+          onSelectItem={handleSelect}
+          runStartedAt={items[0].timestamp}
+        />
+      );
+    });
+
+    const buttons = container.querySelectorAll("button");
+    expect(buttons).toHaveLength(3);
+
+    // Reasoning pill shows a distinct label and an estimated (not exact) token count
+    expect(container.textContent).toContain("Reasoning");
+    expect(container.textContent).toContain(`~${estimateTokens(reasoningText)} tok`);
+    expect(container.textContent).toContain("file.read");
+    expect(container.textContent).toContain("Assistant");
+
+    // Click on the reasoning node
+    await act(async () => {
+      buttons[0].click();
+    });
+    expect(handleSelect).toHaveBeenCalledWith("reasoning-1");
   } finally {
     await act(async () => root.unmount());
     container.remove();
