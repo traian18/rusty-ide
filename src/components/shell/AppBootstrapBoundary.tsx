@@ -105,6 +105,13 @@ function beginRun(steps: readonly StartupStep[]): Promise<StartupResult> {
       // rootPath change from here on regardless of when this particular
       // run settled.
       startWorkspaceFsWatch();
+      // Deliberately not a StartupStep: checkForUpdates() never throws (see
+      // createUpdateSlice.ts) and its result doesn't gate anything the user
+      // is waiting on, so making it compete for the splash's global time
+      // budget would only risk a false "degraded" banner (skipped for
+      // "no time left") over a pure nice-to-have. Fire-and-forget, same as
+      // this callback's other two background kicks.
+      void useWorkspaceStore.getState().checkForUpdates();
       return result;
     })
     .finally(() => {

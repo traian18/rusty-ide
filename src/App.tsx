@@ -1,5 +1,6 @@
 import { AlertModal } from "./components/AlertModal";
 import { DisclaimerModal } from "./components/DisclaimerModal";
+import { UpdateAvailableModal } from "./components/UpdateAvailableModal";
 import { AppBootstrapBoundary } from "./components/shell/AppBootstrapBoundary";
 import { AppShell } from "./components/shell/AppShell";
 import { DevLogBridge } from "./components/shell/DevLogBridge";
@@ -22,6 +23,7 @@ function App() {
           renders. */}
       <AlertModal />
       <DisclaimerModal />
+      <UpdateAvailableModal />
     </div>
   );
 }

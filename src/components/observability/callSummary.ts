@@ -40,15 +40,22 @@ export function extractCallSummary(record: ToolExecutionRecord): CallSummary {
     }
 
     // Command execution
-    if (typeof args.CommandLine === "string" && args.CommandLine.trim()) {
-      target = args.CommandLine.trim();
-      actionLabel = `Run: ${target}`;
-      keyParams.push({ label: "Command", value: target });
+    const rawCmd =
+      (typeof args.CommandLine === "string" && args.CommandLine.trim()) ||
+      (typeof args.command === "string" && args.command.trim()) ||
+      (typeof args.cmd === "string" && args.cmd.trim()) ||
+      (typeof args.program === "string" && args.program.trim()
+        ? Array.isArray(args.args)
+          ? `${args.program.trim()} ${args.args.join(" ")}`
+          : args.program.trim()
+        : null);
+
+    if (rawCmd) {
+      const displayCmd = truncateCommand(rawCmd);
+      target = displayCmd;
+      actionLabel = `Run: ${displayCmd}`;
+      keyParams.push({ label: "Command", value: displayCmd });
       if (typeof args.Cwd === "string") keyParams.push({ label: "Directory", value: args.Cwd });
-    } else if (typeof args.command === "string" && args.command.trim()) {
-      target = args.command.trim();
-      actionLabel = `Run: ${target}`;
-      keyParams.push({ label: "Command", value: target });
     }
 
     // File target
@@ -145,11 +152,17 @@ export function extractCallSummary(record: ToolExecutionRecord): CallSummary {
   return { actionLabel, summary, target, description, instruction, keyParams };
 }
 
+export function truncateCommand(cmd: string): string {
+  const trimmed = cmd.trim();
+  if (trimmed.length <= 25) return trimmed;
+  return `${trimmed.slice(0, 25)}...`;
+}
+
 export function formatCompactCallLabel(record: ToolExecutionRecord): string {
   const summary = extractCallSummary(record);
   if (summary.target) {
     const shortTarget = summary.target.length > 25
-      ? (summary.target.split("/").pop() || summary.target.slice(0, 25))
+      ? `${summary.target.slice(0, 25)}...`
       : summary.target;
     return `${record.toolName}: ${shortTarget}`;
   }

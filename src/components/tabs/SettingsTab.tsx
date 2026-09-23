@@ -5,6 +5,7 @@ import { EditorFileSafetySettings } from "../settings/EditorFileSafetySettings";
 import { WebSearchSettings } from "../settings/WebSearchSettings";
 import { StorageSettings } from "../settings/StorageSettings";
 import { KeyboardShortcutsSettings } from "../settings/KeyboardShortcutsSettings";
+import { UpdateSettings } from "../settings/UpdateSettings";
 import styles from "./SettingsTab.module.css";
 
 export const SettingsTab: React.FC = () => {
@@ -23,6 +24,7 @@ export const SettingsTab: React.FC = () => {
         <div className={styles.panel}><WebSearchSettings /></div>
         <div className={styles.panel}><StorageSettings /></div>
         <div className={styles.panel}><KeyboardShortcutsSettings /></div>
+        <div className={styles.panel}><UpdateSettings /></div>
       </div>
     </div>
   );

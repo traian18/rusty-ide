@@ -18,9 +18,9 @@
 
 .runList { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--space-6); display: flex; flex-direction: column; gap: var(--space-4); }
 
-.runsDashboard { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(28rem, 1fr); flex: 1; min-height: 0; overflow: hidden; }
-.runsOverview { overflow-y: auto; overflow-x: hidden; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-4); border-right: 1px solid var(--color-border-subtle); }
-.inspectorPanel { overflow-y: auto; overflow-x: hidden; padding: var(--space-5); background: var(--color-surface-app); display: flex; flex-direction: column; gap: var(--space-4); }
+.runsDashboard { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(28rem, 1fr); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; height: 100%; overflow: hidden; }
+.runsOverview { height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: var(--space-5); display: flex; flex-direction: column; gap: var(--space-5); border-right: 1px solid var(--color-border-subtle); scrollbar-gutter: stable; }
+.inspectorPanel { height: 100%; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: var(--space-5); background: var(--color-surface-app); display: flex; flex-direction: column; gap: var(--space-4); scrollbar-gutter: stable; }
 .inspectorEmpty { display: flex; height: 100%; min-height: 16rem; align-items: center; justify-content: center; flex-direction: column; gap: var(--space-3); color: var(--color-fg-muted); text-align: center; padding: var(--space-8); }
 .inspectorHeader { display: flex; align-items: center; justify-content: space-between; padding-bottom: var(--space-3); margin-bottom: var(--space-2); border-bottom: 1px solid var(--color-border-subtle); }
 .contextNotice { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--color-primary) 8%, transparent); border: 1px solid color-mix(in srgb, var(--color-primary) 20%, transparent); color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); }
@@ -34,7 +34,7 @@
 .callParamPill strong { color: var(--color-fg-muted); text-transform: uppercase; font-size: .65rem; }
 .callParamPill span { color: var(--color-fg-strong); word-break: break-all; }
 
-.runCard { border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-surface-sunken); overflow: hidden; transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
+.runCard { flex-shrink: 0; width: 100%; min-height: fit-content; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-lg); background: var(--color-surface-sunken); overflow: hidden; transition: border-color var(--motion-fast), box-shadow var(--motion-fast); }
 .runCard:hover { border-color: var(--color-border-default); }
 .runCardActive { border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-border-subtle)); box-shadow: 0 4px 20px rgb(0 0 0 / .18); }
 
@@ -147,8 +147,9 @@
 .dangerButton { color: var(--color-status-danger); }
 .dangerButton:disabled { opacity: .45; cursor: default; }
 @media (max-width: 1024px) {
-  .runsDashboard { grid-template-columns: 1fr; overflow-y: auto; }
-  .runsOverview { border-right: none; border-bottom: 1px solid var(--color-border-subtle); }
+  .runsDashboard { grid-template-columns: 1fr; grid-template-rows: auto auto; overflow-y: auto; }
+  .runsOverview { height: auto; border-right: none; border-bottom: 1px solid var(--color-border-subtle); }
+  .inspectorPanel { height: auto; }
 }
 @media (max-width: 680px) { .panel { width: 100%; } .filters { grid-template-columns: 1fr 1fr; } .filters input { grid-column: 1 / -1; } .triggerLabel { display: none; } .storageFooter { flex-wrap: wrap; } }
 .viewTabs { display: flex; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border-subtle); }

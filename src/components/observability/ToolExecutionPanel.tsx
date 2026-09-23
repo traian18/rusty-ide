@@ -83,6 +83,24 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
 
+function getTimestampMs(isoString?: string): number {
+  if (!isoString) return 0;
+  const parsed = Date.parse(isoString);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function formatDateTime(isoString?: string): string {
+  if (!isoString) return "—";
+  const date = new Date(isoString);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+function formatTime(isoString?: string): string {
+  if (!isoString) return "—";
+  const date = new Date(isoString);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString();
+}
+
 function JsonValue({ value }: { value: unknown }) {
   return <pre className={styles.code}>{JSON.stringify(value, null, 2) ?? "—"}</pre>;
 }
@@ -113,7 +131,9 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
             <FileCode2 size={15} className="text-[var(--color-primary)]" />
             {record.toolName}
           </span>
-          <span className={`${styles.status} ${styles[`status_${record.status}`]}`} aria-label={STATUS_LABEL[record.status]} />
+          {record.status === "running" && (
+            <span className={`${styles.status} ${styles.status_running}`} />
+          )}
         </div>
         <div className={styles.callHeadline}>{callSummary.actionLabel}</div>
         {callSummary.summary && (
@@ -153,11 +173,11 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
         <JsonValue value={record.arguments} />
       </section>
 
-      {/* Call Output or Error */}
+      {/* Call Output */}
       {record.resultPreview !== undefined && (
         <section className={styles.detailSection}>
           <div className={styles.sectionHeaderWithAction}>
-            <h4>{record.status === "failed" ? "Call Error" : "Call Result / Output"}</h4>
+            <h4>Call Output</h4>
             <button
               type="button"
               className={styles.copySmallButton}
@@ -280,9 +300,9 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
           <div><dt>Agent</dt><dd>{record.agentId ?? "—"}</dd></div>
           {record.parentAgentId && <div><dt>Parent agent</dt><dd>{record.parentAgentId}</dd></div>}
           <div><dt>Call ID</dt><dd>{record.callId}</dd></div>
-          <div><dt>Requested</dt><dd>{new Date(record.requestedAt).toLocaleString()}</dd></div>
-          {record.startedAt && <div><dt>Started</dt><dd>{new Date(record.startedAt).toLocaleString()}</dd></div>}
-          {record.finishedAt && <div><dt>Finished</dt><dd>{new Date(record.finishedAt).toLocaleString()}</dd></div>}
+          <div><dt>Requested</dt><dd>{formatDateTime(record.requestedAt)}</dd></div>
+          {record.startedAt && <div><dt>Started</dt><dd>{formatDateTime(record.startedAt)}</dd></div>}
+          {record.finishedAt && <div><dt>Finished</dt><dd>{formatDateTime(record.finishedAt)}</dd></div>}
           {record.permission && <div><dt>Permission</dt><dd>{record.permission.state}</dd></div>}
         </dl>
       </section>
@@ -329,7 +349,7 @@ function AssistantTextDetail({
             Assistant Response
           </span>
           <span className="text-[var(--color-fg-muted)] font-mono text-xs">
-            {new Date(item.timestamp).toLocaleTimeString()}
+            {formatTime(item.timestamp)}
           </span>
         </div>
         <div className={styles.callHeadline}>Model Output Message</div>
@@ -446,7 +466,7 @@ function AssistantTextDetail({
           <div><dt>Source</dt><dd>{originLabel}</dd></div>
           <div><dt>Surface</dt><dd>{surface}</dd></div>
           {model && <div><dt>Model</dt><dd>{model}</dd></div>}
-          <div><dt>Timestamp</dt><dd>{new Date(item.timestamp).toLocaleString()}</dd></div>
+          <div><dt>Timestamp</dt><dd>{formatDateTime(item.timestamp)}</dd></div>
         </dl>
       </section>
     </div>
@@ -491,35 +511,47 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
   );
 
   const groupedRuns = useMemo<GroupedRun[]>(() => {
-    const runMap = new Map<string, ToolExecutionRecord[]>();
+    // 1. Group records by exact ideRunId when present, or fallback
+    const runRecordsMap = new Map<string, ToolExecutionRecord[]>();
 
     for (const record of snapshot.records) {
-      const key = record.ideRunId || record.sessionId || `adhoc-${record.id}`;
-      const group = runMap.get(key) ?? [];
+      const key = record.ideRunId || (record.sessionId ? `legacy-${record.sessionId}` : `adhoc-${record.id}`);
+      const group = runRecordsMap.get(key) ?? [];
       group.push(record);
-      runMap.set(key, group);
+      runRecordsMap.set(key, group);
+    }
+
+    // 2. Gather all unique run IDs from trajectory runs first, plus any from records
+    const allRunIds = new Set<string>();
+    for (const traj of trajectorySnapshot.runs) {
+      allRunIds.add(traj.id);
+    }
+    for (const key of runRecordsMap.keys()) {
+      allRunIds.add(key);
     }
 
     const runs: GroupedRun[] = [];
 
-    for (const [runId, records] of runMap.entries()) {
+    for (const runId of allRunIds) {
+      // Strictly match trajectory by exact id (never by loose sessionId which conflates multiple runs)
+      const traj = trajectorySnapshot.runs.find((r) => r.id === runId);
+      const records = runRecordsMap.get(runId) ?? [];
+
+      if (!traj && records.length === 0) continue;
+
       const sortedRecords = [...records].sort(
         (a, b) =>
-          Date.parse(a.startedAt || a.requestedAt) -
-          Date.parse(b.startedAt || b.requestedAt)
+          getTimestampMs(a.startedAt || a.requestedAt) -
+          getTimestampMs(b.startedAt || b.requestedAt)
       );
       const firstRecord = sortedRecords[0];
       const lastRecord = sortedRecords[sortedRecords.length - 1];
 
-      const traj = trajectorySnapshot.runs.find(
-        (r) => r.id === runId || (firstRecord.sessionId && r.sessionId === firstRecord.sessionId)
-      );
-
-      const startedAt = traj?.startedAt || firstRecord.startedAt || firstRecord.requestedAt;
-      const finishedAt = lastRecord.finishedAt;
+      const startedAt = traj?.startedAt || firstRecord?.startedAt || firstRecord?.requestedAt || new Date().toISOString();
+      const finishedAt = lastRecord?.finishedAt;
       const durationMs =
         startedAt && finishedAt
-          ? Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt))
+          ? Math.max(0, getTimestampMs(finishedAt) - getTimestampMs(startedAt))
           : undefined;
 
       const hasRunning =
@@ -577,24 +609,24 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
       }));
 
       const timelineItems: TimelineItem[] = [...toolItems, ...textItems].sort(
-        (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
+        (a, b) => getTimestampMs(a.timestamp) - getTimestampMs(b.timestamp)
       );
 
       runs.push({
         runId,
-        sessionId: firstRecord.sessionId,
+        sessionId: traj?.sessionId || firstRecord?.sessionId,
         status: runStatus,
         startedAt,
         finishedAt,
         durationMs,
-        originLabel: traj?.origin.displayLabel || firstRecord.origin.displayLabel || "Execution",
-        surface: traj?.origin.surface || firstRecord.origin.surface || "agent",
-        capability: traj?.context.capability || firstRecord.context.capability,
-        model: traj?.context.model || firstRecord.context.model,
-        provider: traj?.context.provider || firstRecord.context.provider,
+        originLabel: traj?.origin?.displayLabel || firstRecord?.origin?.displayLabel || "Execution",
+        surface: traj?.origin?.surface || firstRecord?.origin?.surface || "agent",
+        capability: traj?.context?.capability || firstRecord?.context?.capability,
+        model: traj?.context?.model || firstRecord?.context?.model,
+        provider: traj?.context?.provider || firstRecord?.context?.provider,
         requestPrompt:
-          traj?.context.requestPrompt ||
-          sortedRecords.find((r) => r.context.requestPrompt)?.context.requestPrompt,
+          traj?.context?.requestPrompt ||
+          sortedRecords.find((r) => r.context?.requestPrompt)?.context?.requestPrompt,
         totalTokens: runTokens?.totalTokens,
         runTokens,
         records: sortedRecords,
@@ -603,55 +635,8 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
       });
     }
 
-    // Include any trajectory runs that had no tool calls recorded
-    for (const traj of trajectorySnapshot.runs) {
-      if (!runMap.has(traj.id)) {
-        const textItems: TimelineAssistantTextItem[] = [];
-        for (const entry of traj.entries) {
-          if (entry.source === "AssistantTextDelta") {
-            const p = entry.payload as Record<string, any> | undefined;
-            const block = p?.AssistantTextDelta ?? p;
-            const delta = typeof block?.delta === "string" ? block.delta : typeof block?.text === "string" ? block.text : "";
-            if (delta.trim()) {
-              textItems.push({
-                kind: "assistant_text",
-                id: `text-${entry.id}`,
-                timestamp: entry.timestamp,
-                messageId: String(block?.message_id ?? entry.id),
-                text: delta,
-                agentId: entry.agentId,
-              });
-            }
-          }
-        }
-        const timelineItems = textItems.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-
-        runs.push({
-          runId: traj.id,
-          sessionId: traj.sessionId,
-          status:
-            traj.status === "running"
-              ? "running"
-              : traj.status === "failed"
-              ? "failed"
-              : traj.status === "cancelled"
-              ? "cancelled"
-              : "succeeded",
-          startedAt: traj.startedAt,
-          originLabel: traj.origin.displayLabel,
-          surface: traj.origin.surface,
-          capability: traj.context.capability,
-          model: traj.context.model,
-          provider: traj.context.provider,
-          requestPrompt: traj.context.requestPrompt,
-          records: [],
-          timelineItems,
-          entries: traj.entries,
-        });
-      }
-    }
-
-    runs.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
+    // Sort descending by startedAt: newest on top, scrolling towards older at bottom
+    runs.sort((a, b) => getTimestampMs(b.startedAt) - getTimestampMs(a.startedAt));
     return runs;
   }, [snapshot.records, trajectorySnapshot.runs]);
 
@@ -760,9 +745,16 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                 >
                   <div className={styles.runCardHeader}>
                     <div className={styles.runIdentity}>
-                      <span className={`${styles.runStatusBadge} ${styles[`runStatus_${run.status}`]}`}>
-                        {run.status}
-                      </span>
+                      {run.status === "running" && (
+                        <span className={`${styles.runStatusBadge} ${styles.runStatus_running}`}>
+                          Running
+                        </span>
+                      )}
+                      {run.status === "cancelled" && (
+                        <span className={`${styles.runStatusBadge} ${styles.runStatus_cancelled}`}>
+                          Cancelled
+                        </span>
+                      )}
                       <strong className={styles.runPromptPreview} title={run.requestPrompt || run.originLabel}>
                         {run.requestPrompt ? `"${run.requestPrompt}"` : run.originLabel}
                       </strong>
@@ -771,7 +763,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                       <span className={styles.runMetaPill}>{run.surface}</span>
                     </div>
                     <div className={styles.runStats}>
-                      <span>{new Date(run.startedAt).toLocaleTimeString()}</span>
+                      <span>{formatTime(run.startedAt)}</span>
                       <span>{run.records.length} {run.records.length === 1 ? "call" : "calls"}</span>
                       {run.durationMs !== undefined && <span>{(run.durationMs / 1000).toFixed(1)}s</span>}
                       {run.totalTokens !== undefined && <span>{run.totalTokens.toLocaleString()} tok</span>}
@@ -795,7 +787,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                           <details key={entry.id} className={styles.trajectoryEntry}>
                             <summary>
                               <span>{entry.sequence ?? index + 1} · {entry.source}</span>
-                              <small>{new Date(entry.timestamp).toLocaleTimeString()} · {entry.payloadState}</small>
+                              <small>{formatTime(entry.timestamp)} · {entry.payloadState}</small>
                             </summary>
                             <div className={styles.detail}>
                               {entry.agentId && <p className="text-xs text-[var(--color-fg-muted)] m-0">Agent: {entry.agentId}</p>}
@@ -825,12 +817,15 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                 <div className="flex items-center gap-2">
                   {selectedInfo.item.kind === "tool" ? (
                     <>
-                      <span className={`${styles.status} ${styles[`status_${selectedInfo.item.record.status}`]}`} />
+                      {selectedInfo.item.record.status === "running" && (
+                        <span className={`${styles.status} ${styles.status_running}`} />
+                      )}
                       <strong className="text-[var(--color-fg-strong)] font-mono text-sm">
                         Execution Details: {selectedInfo.item.record.toolName}
                       </strong>
                       <span className="text-[var(--color-fg-muted)] text-xs">
-                        {STATUS_LABEL[selectedInfo.item.record.status]} · {formatDuration(selectedInfo.item.record)}
+                        {selectedInfo.item.record.status === "running" ? "Running · " : ""}
+                        {formatDuration(selectedInfo.item.record)}
                       </span>
                     </>
                   ) : (
@@ -840,7 +835,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                         Assistant Response
                       </strong>
                       <span className="text-[var(--color-fg-muted)] text-xs">
-                        {new Date(selectedInfo.item.timestamp).toLocaleTimeString()}
+                        {formatTime(selectedInfo.item.timestamp)}
                       </span>
                     </>
                   )}

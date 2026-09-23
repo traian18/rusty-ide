@@ -10,6 +10,7 @@ import { createPreferencesSlice } from "./store/slices/createPreferencesSlice";
 import { createProviderRegistrySlice } from "./store/slices/createProviderRegistrySlice";
 import { createStartupSlice } from "./store/slices/createStartupSlice";
 import { createTerminalSlice } from "./store/slices/createTerminalSlice";
+import { createUpdateSlice } from "./store/slices/createUpdateSlice";
 import { createUiSlice } from "./store/slices/createUiSlice";
 import { createWorkspaceSlice } from "./store/slices/createWorkspaceSlice";
 import type { WorkspaceState } from "./store/types";
@@ -30,4 +31,5 @@ export const useWorkspaceStore = create<WorkspaceState>()((...args) => ({
   ...createPreferencesSlice(...args),
   ...createProviderRegistrySlice(...args),
   ...createStartupSlice(...args),
+  ...createUpdateSlice(...args),
 }) as WorkspaceState);

@@ -1,5 +1,5 @@
 import React from "react";
-import { CheckCircle2, XCircle, Loader2, Clock, AlertTriangle, Play, FileCode2, Bot, MessageSquare } from "lucide-react";
+import { Loader2, Clock, AlertTriangle, FileCode2, Bot, MessageSquare } from "lucide-react";
 import type { ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
 import { extractCallSummary, formatCompactCallLabel } from "./callSummary";
 import styles from "./ToolExecutionPanel.module.css";
@@ -46,19 +46,17 @@ function formatRelativeOffset(itemTime: string, runStartTime?: string): string {
 
 function getStatusIcon(status: ToolExecutionStatus) {
   switch (status) {
-    case "succeeded":
-      return <CheckCircle2 size={13} className={styles.nodeIconSuccess} />;
-    case "failed":
-      return <XCircle size={13} className={styles.nodeIconFailure} />;
     case "running":
       return <Loader2 size={13} className={`${styles.nodeIconRunning} animate-spin`} />;
     case "waiting-permission":
       return <AlertTriangle size={13} className={styles.nodeIconWarning} />;
     case "queued":
       return <Clock size={13} className={styles.nodeIconQueued} />;
+    case "succeeded":
+    case "failed":
     case "cancelled":
     default:
-      return <Play size={11} className={styles.nodeIconCancelled} />;
+      return <FileCode2 size={11} className={styles.nodeToolIcon} />;
   }
 }
 
@@ -146,11 +144,11 @@ export const RunExecutionTimeline: React.FC<RunExecutionTimelineProps> = ({
             <React.Fragment key={record.id}>
               <button
                 type="button"
-                className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""} ${styles[`timelineNode_${record.status}`]}`}
+                className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`}
                 onClick={() => handleSelect(record.id)}
-                title={`Click to inspect: ${callSummary.actionLabel} (${record.status}, ${durationLabel})`}
+                title={`Click to inspect: ${callSummary.actionLabel} (${durationLabel})`}
                 aria-pressed={isSelected}
-                aria-label={`Tool execution ${index + 1}: ${compactLabel}, status ${record.status}, duration ${durationLabel}`}
+                aria-label={`Tool execution ${index + 1}: ${compactLabel}, duration ${durationLabel}`}
               >
                 {/* Node Time Marker */}
                 <span className={styles.nodeTimeOffset}>

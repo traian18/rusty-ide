@@ -13,6 +13,7 @@ import type { DrawerView } from "../preferences/shellLayout";
 import type { OpenTabRequest, TabInstance } from "../tabs/types";
 import type { StartupState } from "../startup/types";
 import type { ProviderId, ProviderStatusEntry } from "../integrations/registryTypes";
+import type { UpdateState } from "./slices/createUpdateSlice";
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
 
@@ -337,6 +338,16 @@ export interface WorkspaceState {
       to it in a later commit. */
   startupState: StartupState;
   setStartupState: (startupState: StartupState) => void;
+
+  /** Update-check state against GitHub's `latest.json`. Populated by a
+      fire-and-forget background check kicked off once startup settles
+      (AppBootstrapBoundary.tsx) and by the Settings tab's "Check for
+      Updates" button -- see createUpdateSlice.ts for why neither action
+      ever throws. */
+  updateState: UpdateState;
+  checkForUpdates: () => Promise<void>;
+  installUpdate: () => Promise<void>;
+  skipUpdateVersion: (version: string) => void;
 
   rootPath: string;
   nodes: Node[];

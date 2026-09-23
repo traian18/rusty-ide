@@ -296,6 +296,161 @@ describe("ToolExecutionPanel", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("stacks multiple workflow runs vertically with newest on top and independent run contexts", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    // Run 1: Oldest run
+    const timeRun1 = new Date(1700000000000).toISOString();
+    trajectories.start("run-1", { surface: "agent", displayLabel: "Run 1" }, {
+      capability: "agent_chat",
+      requestPrompt: "First task: read documentation",
+    });
+    // Override startedAt to guarantee deterministic timestamp
+    (trajectories.getSnapshot().runs.find(r => r.id === "run-1") as any).startedAt = timeRun1;
+    executionObservability.startRun("run-1", "agent_chat", {
+      ...INPUT,
+      message: "First task: read documentation",
+    });
+    executionObservability.ingest("run-1", {
+      ...envelope({
+        ToolCallRequested: { call: { id: "call-run1", name: "fs.read", arguments: { path: "README.md" } } }
+      }, 1),
+      timestamp: timeRun1,
+      run_id: "run-1",
+    });
+    executionObservability.ingest("run-1", {
+      ...envelope({
+        ToolCallCompleted: { call_id: "call-run1", result: { has_error: false, output_preview: "# Docs" } }
+      }, 2),
+      timestamp: timeRun1,
+      run_id: "run-1",
+    });
+    executionObservability.finishRun("run-1", { status: "completed" });
+
+    // Run 2: Middle run (same session)
+    const timeRun2 = new Date(1700000060000).toISOString();
+    trajectories.start("run-2", { surface: "agent", displayLabel: "Run 2" }, {
+      capability: "agent_chat",
+      requestPrompt: "Second task: write unit test",
+    });
+    (trajectories.getSnapshot().runs.find(r => r.id === "run-2") as any).startedAt = timeRun2;
+    executionObservability.startRun("run-2", "agent_chat", {
+      ...INPUT,
+      message: "Second task: write unit test",
+    });
+    executionObservability.ingest("run-2", {
+      ...envelope({
+        ToolCallRequested: { call: { id: "call-run2", name: "fs.write", arguments: { path: "test.rs" } } }
+      }, 3),
+      timestamp: timeRun2,
+      run_id: "run-2",
+    });
+    executionObservability.ingest("run-2", {
+      ...envelope({
+        ToolCallCompleted: { call_id: "call-run2", result: { has_error: false, output_preview: "test created" } }
+      }, 4),
+      timestamp: timeRun2,
+      run_id: "run-2",
+    });
+    executionObservability.finishRun("run-2", { status: "completed" });
+
+    // Run 3: Newest run
+    const timeRun3 = new Date(1700000120000).toISOString();
+    trajectories.start("run-3", { surface: "agent", displayLabel: "Run 3" }, {
+      capability: "agent_chat",
+      requestPrompt: "Third task: run integration suite",
+    });
+    (trajectories.getSnapshot().runs.find(r => r.id === "run-3") as any).startedAt = timeRun3;
+    executionObservability.startRun("run-3", "agent_chat", {
+      ...INPUT,
+      message: "Third task: run integration suite",
+    });
+    executionObservability.ingest("run-3", {
+      ...envelope({
+        ToolCallRequested: { call: { id: "call-run3", name: "bash.exec", arguments: { command: "cargo test" } } }
+      }, 5),
+      timestamp: timeRun3,
+      run_id: "run-3",
+    });
+    executionObservability.ingest("run-3", {
+      ...envelope({
+        ToolCallCompleted: { call_id: "call-run3", result: { has_error: false, output_preview: "test result: ok" } }
+      }, 6),
+      timestamp: timeRun3,
+      run_id: "run-3",
+    });
+    executionObservability.finishRun("run-3", { status: "completed" });
+
+    try {
+      await act(async () => {
+        root.render(<ToolExecutionPanel onClose={vi.fn()} />);
+      });
+
+      // Total executions header count
+      expect(container.textContent).toContain("3 calls across 3 executions");
+
+      // Verify that 3 individual runCard elements rendered
+      const runArticles = Array.from(container.querySelectorAll("article"));
+      expect(runArticles.length).toBe(3);
+
+      // Verify newest on top: index 0 must be Run 3, index 1 Run 2, index 2 Run 1
+      expect(runArticles[0].textContent).toContain("Third task: run integration suite");
+      expect(runArticles[0].textContent).toContain("bash.exec");
+
+      expect(runArticles[1].textContent).toContain("Second task: write unit test");
+      expect(runArticles[1].textContent).toContain("fs.write");
+
+      expect(runArticles[2].textContent).toContain("First task: read documentation");
+      expect(runArticles[2].textContent).toContain("fs.read");
+
+      // Verify neither "succeeded" nor "failed" status badge is shown on runs
+      for (const article of runArticles) {
+        expect(article.querySelector('[class*="runStatus_succeeded"]')).toBeNull();
+        expect(article.querySelector('[class*="runStatus_failed"]')).toBeNull();
+      }
+
+      // Click on the tool in the middle run (fs.write)
+      const writeButton = Array.from(runArticles[1].querySelectorAll("button")).find(
+        b => b.textContent?.includes("fs.write")
+      );
+      expect(writeButton).toBeTruthy();
+
+      await act(async () => {
+        writeButton?.click();
+      });
+
+      // Inspector displays fs.write details with Run 2's specific context prompt, NOT Run 1 or 3
+      const inspector = container.querySelector('[aria-label="Execution details inspector"]');
+      expect(inspector?.textContent).toContain("Execution Details: fs.write");
+      expect(inspector?.textContent).not.toContain("Succeeded ·");
+      expect(inspector?.textContent).not.toContain("Failed ·");
+      expect(inspector?.textContent).toContain("Run Context (Initiating Prompt)");
+      expect(inspector?.textContent).toContain("Second task: write unit test");
+      expect(inspector?.textContent).not.toContain("First task: read documentation");
+      expect(inspector?.textContent).not.toContain("Third task: run integration suite");
+
+      // Click on the long command in Run 3
+      const cmdButton = Array.from(runArticles[0].querySelectorAll("button")).find(
+        b => b.textContent?.includes("bash.exec")
+      );
+      expect(cmdButton).toBeTruthy();
+      await act(async () => {
+        cmdButton?.click();
+      });
+
+      // Command is truncated to 25 chars + ...
+      expect(cmdButton?.textContent).toContain("cargo test");
+      expect(inspector?.textContent).toContain("Execution Details: bash.exec");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
 });
 
 

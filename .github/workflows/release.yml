@@ -91,6 +91,14 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY_ID }}
+          # Signs the updater artifact (the `.app.tar.gz` + `.sig` pair
+          # `createUpdaterArtifacts: true` in tauri.conf.json makes `tauri
+          # build` emit alongside the `.app`) with the keypair the updater
+          # plugin verifies against via tauri.conf.json's `plugins.updater
+          # .pubkey` -- unrelated to the Apple Developer ID cert above, which
+          # only covers macOS Gatekeeper, not the updater's own signature.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           export APPLE_API_KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey.p8"
           npm run tauri build -- --bundles app
@@ -118,15 +126,49 @@ jobs:
           xcrun stapler validate "src-tauri/target/release/bundle/macos/Rusty-IDE.app"
           spctl -a -vvv --type execute "src-tauri/target/release/bundle/macos/Rusty-IDE.app"
 
+      - name: Prepare updater manifest
+        run: |
+          VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          BUNDLE_DIR="src-tauri/target/release/bundle/macos"
+
+          # Named by product name, not hardcoded here, since the exact
+          # updater-artifact filename is the bundler's own convention --
+          # discovering it by glob keeps this step correct even if that
+          # convention shifts across tauri-cli versions.
+          ARCHIVE="$(find "$BUNDLE_DIR" -maxdepth 1 -name '*.tar.gz' | head -n1)"
+          if [ -z "$ARCHIVE" ]; then
+            echo "No updater .app.tar.gz found in $BUNDLE_DIR -- is createUpdaterArtifacts set in tauri.conf.json and TAURI_SIGNING_PRIVATE_KEY set?" >&2
+            exit 1
+          fi
+          SIG_FILE="${ARCHIVE}.sig"
+          SIGNATURE="$(cat "$SIG_FILE")"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          cat > latest.json <<EOF
+          {
+            "version": "$VERSION",
+            "notes": "See the GitHub release for details: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}",
+            "pub_date": "$PUB_DATE",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$SIGNATURE",
+                "url": "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$(basename "$ARCHIVE")"
+              }
+            }
+          }
+          EOF
+
+          echo "UPDATER_ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
+
       - name: Create GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" "$DMG_PATH" \
+          gh release create "${{ github.ref_name }}" "$DMG_PATH" "$UPDATER_ARCHIVE" latest.json \
             --repo "${{ github.repository }}" \
             --title "Rusty-IDE ${{ github.ref_name }}" \
             --notes "macOS build, signed with a Developer ID certificate and notarized by Apple. Apple Silicon (aarch64) only." \
-            || gh release upload "${{ github.ref_name }}" "$DMG_PATH" --clobber --repo "${{ github.repository }}"
+            || gh release upload "${{ github.ref_name }}" "$DMG_PATH" "$UPDATER_ARCHIVE" latest.json --clobber --repo "${{ github.repository }}"
 
       - name: Update Homebrew tap
         env:
