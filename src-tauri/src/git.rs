@@ -65,7 +65,16 @@ impl std::error::Error for GitError {}
 /// `Command::new("git")...output().map_err(...)` blocks with inconsistent
 /// success/failure branching.
 fn run_git(repo: &str, operation: &str, args: &[&str]) -> Result<std::process::Output, GitError> {
-    let output = Command::new("git")
+    run_git_command(Command::new("git"), repo, operation, args)
+}
+
+fn run_git_command(
+    mut command: Command,
+    repo: &str,
+    operation: &str,
+    args: &[&str],
+) -> Result<std::process::Output, GitError> {
+    let output = command
         .args(args)
         .current_dir(repo)
         .output()
@@ -758,7 +767,10 @@ pub async fn git_smart_checkout_branch(root_dir: String, branch_name: String) ->
     Ok(SmartBranchSwitchResult { stashed, restored })
 }
 
-/// Creates a new branch and optionally checks it out.
+/// Creates a new branch at HEAD and optionally checks it out. Uncommitted
+/// work (staged, unstaged, untracked) deliberately carries over to the new
+/// branch, IntelliJ-style -- unlike switching to an existing branch, which
+/// goes through `git_smart_checkout_branch`'s per-branch stash.
 #[tauri::command]
 pub async fn git_create_branch(root_dir: String, branch_name: String, checkout: bool) -> Result<(), GitError> {
     let args = if checkout {
@@ -770,28 +782,18 @@ pub async fn git_create_branch(root_dir: String, branch_name: String, checkout: 
     Ok(())
 }
 
-/// Creates a branch and, when requested, uses the same safe stash workflow as
-/// smart checkout so the new branch starts clean and the source work remains
-/// associated with its original branch.
-#[tauri::command]
-pub async fn git_smart_create_branch(root_dir: String, branch_name: String, checkout: bool) -> Result<SmartBranchSwitchResult, GitError> {
-    if !checkout {
-        git_create_branch(root_dir, branch_name, false).await?;
-        return Ok(SmartBranchSwitchResult { stashed: false, restored: false });
-    }
-    let source_branch = current_branch_name(&root_dir)?;
-    let stashed = stash_current_branch(&root_dir, &source_branch)?;
-    run_git(&root_dir, "git_smart_create_branch", &["checkout", "-b", &branch_name])?;
-    Ok(SmartBranchSwitchResult { stashed, restored: false })
-}
-
 /// Deletes a local branch. When `force` is true uses `git branch -D` (delete
 /// even if not merged), otherwise `git branch -d` (safe delete, refuses if the
 /// branch has unmerged commits).
+///
+/// Runs under the C locale: the frontend recognizes `-d`'s "not fully merged"
+/// refusal by its message to offer a forced delete, and git translates it.
 #[tauri::command]
 pub async fn git_delete_branch(root_dir: String, branch_name: String, force: bool) -> Result<(), GitError> {
     let flag = if force { "-D" } else { "-d" };
-    run_git(&root_dir, "git_delete_branch", &["branch", flag, &branch_name])?;
+    let mut command = Command::new("git");
+    command.env("LC_ALL", "C");
+    run_git_command(command, &root_dir, "git_delete_branch", &["branch", flag, &branch_name])?;
     Ok(())
 }
 

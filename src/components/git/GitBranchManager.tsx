@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { GitBranch, ChevronRight, Check, Play, CornerDownLeft, Trash2, X, Plus } from "lucide-react";
 import { useConfirm } from "../useConfirm";
+import { UnmergedBranchError } from "./gitErrors";
 
 interface GitBranchManagerProps {
   currentBranch: string;
@@ -42,22 +43,22 @@ export const GitBranchManager: React.FC<GitBranchManagerProps> = ({
   const popoverRef = useRef<HTMLDivElement>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { confirm, ConfirmModalComponent } = useConfirm();
+  const { confirm, ConfirmModalComponent, isOpen: confirmOpen } = useConfirm();
+  const confirmOpenRef = useRef(false);
+  confirmOpenRef.current = confirmOpen;
 
   // Close popover when clicking outside
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
+      // The confirm dialog is portaled into document.body, so every click on
+      // it lands "outside" this popover. Closing here would unmount the
+      // dialog and abandon the pending delete/merge/rebase.
+      if (confirmOpenRef.current) {
+        return;
+      }
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
-        // Also verify clicking is not inside the portal overlay sub-menu
         const portalMenu = document.querySelector(".branch-actions-portal");
         if (portalMenu && portalMenu.contains(e.target as Node)) {
-          return;
-        }
-        // Confirmation dialogs are rendered into document.body. Keep this
-        // popover mounted until the dialog resolves, otherwise its promise and
-        // the requested branch action are abandoned on mouse-down.
-        const confirmModal = document.querySelector(".confirm-modal-portal");
-        if (confirmModal && confirmModal.contains(e.target as Node)) {
           return;
         }
         onClose();
@@ -164,17 +165,30 @@ export const GitBranchManager: React.FC<GitBranchManagerProps> = ({
       cancelLabel: "Cancel",
       kind: "danger",
     });
-    if (confirmed) {
-      setDeletingBranch(branch);
+    if (!confirmed) return;
+
+    setDeletingBranch(branch);
+    try {
       try {
         await onDeleteBranch(branch, false);
-        setSelectedBranch(null);
-      } catch {
-        // GitPresenter already reports the command error. Keep the branch
-        // selected so the user can retry or choose another action.
-      } finally {
-        setDeletingBranch(null);
+      } catch (err) {
+        if (!(err instanceof UnmergedBranchError)) throw err;
+        const force = await confirm({
+          title: "Branch Not Fully Merged",
+          message: `"${displayName}" has commits that aren't merged into "${currentBranch}" or its upstream. Deleting it will lose those commits unless they exist elsewhere. Delete anyway?`,
+          confirmLabel: "Force Delete",
+          cancelLabel: "Keep Branch",
+          kind: "danger",
+        });
+        if (!force) return;
+        await onDeleteBranch(branch, true);
       }
+      setSelectedBranch(null);
+    } catch {
+      // GitPresenter already reports the command error. Keep the branch
+      // selected so the user can retry or choose another action.
+    } finally {
+      setDeletingBranch(null);
     }
   };
 

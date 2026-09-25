@@ -19,8 +19,9 @@ import type { CoreCapabilityDefinition } from "../CoreHarness";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
+import { SKILL_TOOLS } from "../../../config/skillTools";
 
-const AVAILABLE_TOOLS = ["read_file", "write_file", "list_files", "search_codebase", "web_search", "run_command"];
+const AVAILABLE_TOOLS = SKILL_TOOLS.map((tool) => tool.id);
 
 function metaPrompt(description: string): string {
   return `You are a skill designer for an AI coding agent. Based on the following description, generate a skill specification as a JSON object.
@@ -42,9 +43,9 @@ Available tools:
 - web_search: Search the public web for current information and cited sources
 - run_command: Run an explicitly user-approved non-interactive command in the physical workspace
 
-For a coding/building skill, enable all tools.
+Enable only tools required by the user's description. Do not add web or command access unless needed.
 For a read-only analysis/planning skill, only enable: read_file, list_files, search_codebase
-For a question-heavy skill (like 'grind-me'), enable all tools but emphasize asking questions in the systemPrompt.`;
+An empty enabledTools array is valid for a skill that only answers questions.`;
 }
 
 /**
@@ -52,7 +53,7 @@ For a question-heavy skill (like 'grind-me'), enable all tools but emphasize ask
  * generateSkill.ts's own extraction/fallback/tool-filtering exactly:
  * tolerate prose around the JSON object, fall back to a generic
  * systemPrompt/enabledTools when the model's own JSON is missing either,
- * and never leave enabledTools empty.
+ * without widening an empty or missing tool allowlist.
  */
 function parseSkillSpec(content: string, description: string): Record<string, unknown> {
   let spec: Record<string, unknown>;
@@ -63,14 +64,11 @@ function parseSkillSpec(content: string, description: string): Record<string, un
     throw new Error("Failed to parse skill specification. Please try again.");
   }
 
-  if (!spec.systemPrompt || !Array.isArray(spec.enabledTools)) {
-    spec.systemPrompt = spec.systemPrompt || `You are a coding agent focused on: ${description}`;
-    spec.enabledTools = spec.enabledTools || ["read_file", "list_files", "search_codebase"];
-  }
+  if (!spec || typeof spec !== "object" || Array.isArray(spec)) throw new Error("Invalid skill specification");
+  spec.systemPrompt = spec.systemPrompt || `You are a coding agent focused on: ${description}`;
+  if (spec.enabledTools === undefined) spec.enabledTools = [];
+  if (!Array.isArray(spec.enabledTools)) throw new Error("Skill enabledTools must be a list");
   spec.enabledTools = (spec.enabledTools as string[]).filter((tool) => AVAILABLE_TOOLS.includes(tool));
-  if ((spec.enabledTools as string[]).length === 0) {
-    spec.enabledTools = ["read_file", "list_files", "search_codebase"];
-  }
   return spec;
 }
 

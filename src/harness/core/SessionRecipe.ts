@@ -19,7 +19,7 @@
 // by hand.
 // ============================================================
 
-import type { McpServerSpec, SkillsSpec } from "@rusty/harness-sdk";
+import type { ExecutionPolicy, McpServerSpec, SkillsSpec } from "@rusty/harness-sdk";
 
 export type WorkspaceBinding = "host" | "disk";
 
@@ -65,6 +65,7 @@ export interface ExecutionParams {
 }
 
 export interface SessionRecipe {
+  execution_policy?: ExecutionPolicy;
   workspace: WorkspaceRecipe;
   integration: string;
   integration_config?: unknown;

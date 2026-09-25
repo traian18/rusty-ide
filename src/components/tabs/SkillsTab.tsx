@@ -9,15 +9,9 @@ import { resolveExecutionProvider } from "../../store/resolveExecutionProvider";
 import { harness } from "../../harness";
 import { createRunHost } from "../../harness/hostDefaults";
 import type { RunHandle } from "../../harness/contract";
+import { SKILL_TOOLS } from "../../config/skillTools";
 
-const AVAILABLE_TOOLS = [
-  { id: "read_file", label: "Read Files" },
-  { id: "write_file", label: "Write Files" },
-  { id: "list_files", label: "List Files" },
-  { id: "search_codebase", label: "Search Codebase" },
-  { id: "web_search", label: "Search Web" },
-  { id: "run_command", label: "Run Commands" },
-];
+const AVAILABLE_TOOLS = SKILL_TOOLS;
 
 export const SkillsTab: React.FC = () => {
   const skills = useWorkspaceStore((state) => state.skills);
@@ -240,7 +234,7 @@ export const SkillsTab: React.FC = () => {
             setEditingSkill({
               ...editingSkill!,
               systemPrompt: generated.systemPrompt || "",
-              enabledTools: generated.enabledTools || ["read_file", "list_files"],
+              enabledTools: generated.enabledTools ?? [],
               description: generated.description || description,
             });
           } catch {
@@ -447,7 +441,7 @@ export const SkillsTab: React.FC = () => {
                     </div>
                   )}
                   <p className="text-[9px] text-[var(--text-muted)] font-mono mt-1.5">
-                    Selected servers expose their tools to the LLM when this skill is active.
+                    The harness enforces these selections and the current mode. Commands and MCP servers currently require Write Files and Search Web because they can modify files and access the network.
                   </p>
                 </div>
 

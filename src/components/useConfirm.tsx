@@ -58,5 +58,5 @@ export function useConfirm() {
     />
   ) : null;
 
-  return { confirm: showConfirmDialog, ConfirmModalComponent };
+  return { confirm: showConfirmDialog, ConfirmModalComponent, isOpen: confirmState.open };
 }

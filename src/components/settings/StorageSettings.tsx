@@ -7,6 +7,7 @@ import {
   type StorageCacheBreakdown,
 } from "../../services/storageCacheService";
 import { notify } from "../../notificationStore";
+import { SecretStorageStatus } from "./SecretStorageStatus";
 import styles from "./StorageSettings.module.css";
 
 export const StorageSettings: React.FC = () => {
@@ -94,6 +95,8 @@ export const StorageSettings: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      <SecretStorageStatus />
     </section>
   );
 };

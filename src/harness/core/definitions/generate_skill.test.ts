@@ -116,13 +116,13 @@ describe("generateSkillDefinition", () => {
     expect(result).toEqual({ spec });
   });
 
-  it("toResult() fills in a fallback systemPrompt/enabledTools when the model's JSON omits them", () => {
+  it("toResult() defaults missing generated permissions to no tools", () => {
     const result = generateSkillDefinition.toResult!(transcriptWith(JSON.stringify({ description: "d" })), input(), { scratch: {} });
     expect(result).toEqual({
       spec: {
         description: "d",
         systemPrompt: "You are a coding agent focused on: A skill that reviews pull requests for style issues.",
-        enabledTools: ["read_file", "list_files", "search_codebase"],
+        enabledTools: [],
       },
     });
   });
@@ -133,10 +133,10 @@ describe("generateSkillDefinition", () => {
     expect((result as { spec: { enabledTools: string[] } }).spec.enabledTools).toEqual(["read_file", "search_codebase"]);
   });
 
-  it("toResult() falls back to the default tool set when every requested tool is filtered out", () => {
+  it("toResult() does not grant tools when every requested tool is filtered out", () => {
     const spec = { systemPrompt: "s", enabledTools: ["not_a_real_tool"] };
     const result = generateSkillDefinition.toResult!(transcriptWith(JSON.stringify(spec)), input(), { scratch: {} });
-    expect((result as { spec: { enabledTools: string[] } }).spec.enabledTools).toEqual(["read_file", "list_files", "search_codebase"]);
+    expect((result as { spec: { enabledTools: string[] } }).spec.enabledTools).toEqual([]);
   });
 
   it("toResult() throws a clear error when the model's response isn't valid JSON at all", () => {

@@ -44,6 +44,7 @@ import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
+import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -195,6 +196,7 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     const { specs: mcpServers, skipped } = mapMcpServerConfigs(asMcpServerConfigsFromContext(input.mcpContext));
     for (const { reason } of skipped) console.warn(`[execute_node] ${reason}`);
     return {
+      execution_policy: skillExecutionPolicy(input.skill, "execute"),
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,

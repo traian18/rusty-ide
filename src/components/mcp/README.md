@@ -24,7 +24,16 @@ deleted in REFACTOR_PLAN.md PR 3a.
 - `McpIntegrationModal.tsx` — The main component; a thin orchestrator that
   sets up the form, wires the hook, and composes the sections.
 - `McpIntegrationModal.module.css` — Scoped styles.
-- `McpIntegrationTab.tsx` — Host that lists servers and opens the modal.
+- `McpIntegrationTab.tsx` — Main host view providing top-level tabs for:
+  - **GitHub**: Specialized GitHub MCP tab with NPX, Docker, Remote HTTP, and Custom integration methods.
+  - **Atlassian**: Specialized Jira & Confluence MCP tab with UVX, Docker, NPX, and Remote HTTP integration methods.
+  - **Generic / Custom Servers**: Full custom MCP server manager and modal launcher.
+- `specialized/` — Dedicated presets, parsers, and UI components for specialized providers:
+  - `GitHubMcpTab.tsx` & `githubConfig.ts` — Specialized GitHub configuration and live connection testing.
+  - `AtlassianMcpTab.tsx` & `atlassianConfig.ts` — Specialized Atlassian Jira & Confluence configuration and live testing.
+  - `GenericMcpTab.tsx` — Custom server list and launcher.
+  - `SpecializedMcp.module.css` — Theme-compliant styling for tabs, cards, and credential forms.
+  - `icons.tsx` — Brand SVG icons for GitHub, Atlassian, Jira, and Confluence.
 
 ## Component interface
 

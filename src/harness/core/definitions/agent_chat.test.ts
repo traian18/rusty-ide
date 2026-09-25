@@ -69,6 +69,16 @@ function fakeHost(overrides: Partial<RunHost> = {}): RunHost {
 }
 
 describe("agentChatDefinition", () => {
+  it("passes custom skill grants to the harness independently of the provider and mode", () => {
+    for (const transport of ["http", "openai-codex-app-server", "anthropic-claude-agent-sdk", "github-copilot-sdk"]) {
+      const recipe = agentChatDefinition.recipe!(input({
+        customProvider: { ...(input().customProvider as any), transport },
+        planOnly: true,
+        skill: { enabledTools: ["read_file", "write_file"], mcpServers: ["docs"] },
+      }));
+      expect(recipe.execution_policy).toEqual({ mode: "plan", enabled_tools: ["read_file", "write_file"], allowed_mcp_servers: ["docs"] });
+    }
+  });
   it("supports() is true for a provider that maps to the host-routed backend with no MCP/LSP/planOnly/vfsOnly", () => {
     expect(agentChatDefinition.supports?.(input())).toBe(true);
   });
@@ -154,7 +164,7 @@ describe("agentChatDefinition", () => {
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
-    const recipe = agentChatDefinition.recipe!(input({ skill: { systemPrompt: "Always use Zod for validation." } }));
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [], systemPrompt: "Always use Zod for validation." } }));
     expect(recipe.system_prompt).toContain("Active skill guidance");
     expect(recipe.system_prompt).toContain("Always use Zod for validation.");
   });
@@ -324,7 +334,7 @@ describe("agentChatDefinition", () => {
     expect(agentChatDefinition.usageContext(input())).toEqual({ workspaceRoot: "/workspace", model: "claude-opus-4-20250514" });
   });
 
-  it("recipe() configures subprocess backends without host tools or fake tool prompts", () => {
+  it("recipe() provides harness tools to subscription inference backends", () => {
     const claudeInput = input({
       customProvider: {
         id: "claude-code",
@@ -336,11 +346,11 @@ describe("agentChatDefinition", () => {
     });
     const recipe = agentChatDefinition.recipe!(claudeInput);
     expect(recipe.integration).toBe("claude-code");
-    expect(recipe.host_tools).toEqual([]);
-    expect(recipe.enable_web_fetch).toBe(false);
-    expect(recipe.enable_agent_spawn).toBe(false);
+    expect(recipe.host_tools?.some((tool) => tool.name === "read_file")).toBe(true);
+    expect(recipe.enable_web_fetch).toBe(true);
+    expect(recipe.enable_agent_spawn).toBe(true);
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
-    expect(recipe.system_prompt).not.toContain("You have access to tools:");
-    expect(recipe.system_prompt).not.toContain("'read_file'");
+    expect(recipe.system_prompt).toContain("You have access to tools:");
+    expect(recipe.system_prompt).toContain("'read_file'");
   });
 });

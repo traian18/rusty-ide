@@ -47,6 +47,16 @@ describe("CoreEngineClient", () => {
     expect(sessionId).toBe("session-1");
   });
 
+  it("requires policy support before submitting skill permissions", async () => {
+    const restricted: SessionRecipe = { ...recipe, execution_policy: { mode: "plan", enabled_tools: ["write_file"], allowed_mcp_servers: [] } };
+    invokeMock.mockResolvedValueOnce({ protocol_version: 2, capabilities: [] });
+    await expect(new CoreEngineClient().createSession(restricted)).rejects.toThrow(/cannot enforce skill permissions/);
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    invokeMock.mockResolvedValueOnce({ protocol_version: 2, capabilities: ["execution_policy"] }).mockResolvedValueOnce("session-policy");
+    await expect(new CoreEngineClient().createSession(restricted)).resolves.toBe("session-policy");
+    expect(invokeMock).toHaveBeenLastCalledWith("harness_create_session", { recipe: restricted });
+  });
+
   it("subscribe() forwards each delivered BridgeEvent to onEvent, in order", async () => {
     invokeMock.mockResolvedValue(undefined);
     const client = new CoreEngineClient();

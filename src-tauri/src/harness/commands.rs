@@ -7,7 +7,6 @@
 use tauri::ipc::Channel;
 use tauri::State;
 
-use super::managed_binaries::{ensure_managed_binary, is_managed_provider};
 use super::recipe::{mcp_config_from_spec, SessionRecipe};
 use super::session::SessionSnapshotWire;
 use super::{BridgeEvent, HarnessState};
@@ -27,28 +26,19 @@ fn parse_session_id(value: &str) -> Result<harness_protocol::ids::SessionId, Str
 pub fn harness_hello() -> HarnessHello {
     HarnessHello {
         protocol_version: harness_protocol::rpc::PROTOCOL_VERSION,
-        // No transport-level capability negotiation for an in-process
-        // embed (unlike agentHarnessClient.ts's protocol.hello/welcome
-        // handshake with the sidecar, which negotiates over a real
-        // socket) -- this exists so a future frontend check can still ask
-        // "does this build support pause/resume" without special-casing
-        // "core" vs. "sidecar".
-        capabilities: vec!["pause_resume"],
+        // Policy-bearing requests refuse an older bridge rather than silently
+        // dropping permissions when the frontend and native build differ.
+        capabilities: vec!["pause_resume", "execution_policy"],
     }
 }
 
 #[tauri::command]
 pub async fn harness_create_session(
-    app: tauri::AppHandle,
     state: State<'_, HarnessState>,
     recipe: SessionRecipe,
 ) -> Result<String, String> {
-    let managed_binary_path = if is_managed_provider(&recipe.integration) {
-        Some(ensure_managed_binary(&app, &recipe.integration).await?)
-    } else {
-        None
-    };
-    let session_id = state.create_session(recipe, managed_binary_path).await?;
+    // Provider inference and tool authorization belong to the harness.
+    let session_id = state.create_session(recipe).await?;
     Ok(session_id.to_string())
 }
 

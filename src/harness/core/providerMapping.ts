@@ -83,7 +83,7 @@ function toCoreReasoningEffort(effort: UiReasoningEffort): CoreReasoningEffort {
  * for why: the direct integration clients on the other end always prefer
  * `execution_params.model` over `integration_config`'s own default).
  */
-/** `CustomProvider.transport` -> rusty-core's own subprocess integration id
+/** Persisted transport labels -> rusty-core's inference-only integration id
  * (rusty-core/crates/integrations/*). */
 const MANAGED_TRANSPORT_INTEGRATIONS: Record<string, string> = {
   "github-copilot-sdk": "github-copilot",

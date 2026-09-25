@@ -62,6 +62,10 @@ const fakeHost: RunHost = {
 };
 
 describe("executeNodeDefinition", () => {
+  it("forwards the selected custom skill permissions to the harness", () => {
+    const recipe = executeNodeDefinition.recipe!(input({ skill: { enabledTools: [], mcpServers: ["docs"] } }));
+    expect(recipe.execution_policy).toEqual({ mode: "execute", enabled_tools: [], allowed_mcp_servers: ["docs"] });
+  });
   it.each([
     ["openrouter", "deepseek/deepseek-v4-flash"],
     // OpenCode Zen gets the same standard ceiling as everyone else -- the
@@ -181,7 +185,7 @@ describe("executeNodeDefinition", () => {
 
   it("recipe() appends skill guidance with workspaceRoot/instructions placeholders substituted", () => {
     const recipe = executeNodeDefinition.recipe!(
-      input({ skill: { systemPrompt: "Work in ${workspaceRoot} on: ${instructions}" } }),
+      input({ skill: { enabledTools: [], systemPrompt: "Work in ${workspaceRoot} on: ${instructions}" } }),
     );
     expect(recipe.system_prompt).toContain("Work in /workspace on: Add a health-check endpoint.");
   });

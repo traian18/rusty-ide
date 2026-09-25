@@ -948,3 +948,52 @@ fn workspace_discovery_includes_ignored_nested_repos_and_keeps_real_detached_hea
     assert_eq!(discovered[1].head.mode, "detached");
     assert!(discovered[1].head.branch.is_none());
 }
+
+#[tokio::test]
+async fn creating_and_checking_out_a_branch_carries_uncommitted_work_along() {
+    let fx = GitFixture::init();
+    fx.commit_file("a.txt", "one\n", "initial commit");
+    fx.commit_file("b.txt", "one\n", "second commit");
+    fx.write("a.txt", "unstaged edit\n");
+    fx.write("b.txt", "staged edit\n").add("b.txt");
+    fx.write("c.txt", "untracked\n");
+    let status_before = fx.git_ok(&["status", "--porcelain"]);
+
+    git_create_branch(fx.path_str(), "feature".to_string(), true).await.unwrap();
+
+    assert_eq!(fx.git_ok(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(), "feature");
+    assert_eq!(fx.git_ok(&["status", "--porcelain"]), status_before);
+    assert_eq!(fx.git_ok(&["stash", "list"]), "", "nothing may be stashed away");
+    assert_eq!(std::fs::read_to_string(fx.path().join("a.txt")).unwrap(), "unstaged edit\n");
+}
+
+#[tokio::test]
+async fn deleting_an_unmerged_branch_is_refused_until_forced() {
+    let fx = GitFixture::init();
+    fx.commit_file("a.txt", "one\n", "initial commit");
+    fx.branch("feature").checkout("feature");
+    fx.commit_file("a.txt", "feature work\n", "unmerged commit");
+    fx.checkout("main");
+
+    let refused = git_delete_branch(fx.path_str(), "feature".to_string(), false).await.unwrap_err();
+    assert!(
+        refused.message.contains("not fully merged"),
+        "the frontend keys its force-delete prompt off this text: {}",
+        refused.message
+    );
+    assert!(fx.git_ok(&["branch", "--list", "feature"]).contains("feature"));
+
+    git_delete_branch(fx.path_str(), "feature".to_string(), true).await.unwrap();
+    assert_eq!(fx.git_ok(&["branch", "--list", "feature"]), "");
+}
+
+#[tokio::test]
+async fn deleting_a_merged_branch_succeeds_without_force() {
+    let fx = GitFixture::init();
+    fx.commit_file("a.txt", "one\n", "initial commit");
+    fx.branch("done");
+
+    git_delete_branch(fx.path_str(), "done".to_string(), false).await.unwrap();
+
+    assert_eq!(fx.git_ok(&["branch", "--list", "done"]), "");
+}

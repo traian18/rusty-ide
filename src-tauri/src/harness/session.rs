@@ -27,19 +27,16 @@ impl HarnessState {
     /// so nothing emitted between here and the frontend's first
     /// `harness_subscribe` call is lost.
     ///
-    /// `managed_binary_path`: forwarded to `build_session_builder` --
-    /// resolved by `commands.rs::harness_create_session`, the one caller
-    /// with a real `AppHandle` (see `managed_binaries.rs`).
+    /// Provider inference never installs or starts a managed agent CLI.
     pub async fn create_session(
         &self,
         recipe: SessionRecipe,
-        managed_binary_path: Option<std::path::PathBuf>,
     ) -> Result<SessionId, String> {
         let harness = self.harness().await;
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let bridge = Arc::new(HostBridge::new(outbound_tx.clone()));
 
-        let builder = build_session_builder(&harness, recipe, bridge.clone(), managed_binary_path).await.map_err(|error| error.to_string())?;
+        let builder = build_session_builder(&harness, recipe, bridge.clone()).await.map_err(|error| error.to_string())?;
         let handle = builder.start().await.map_err(|error| error.to_string())?;
         let session_id = handle.session_id();
 
@@ -299,7 +296,7 @@ mod integration_tests {
         // rather than `HarnessState::harness()`'s hardcoded seven real ones.
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let bridge = Arc::new(HostBridge::new(outbound_tx.clone()));
-        let builder = build_session_builder(&harness, recipe, bridge.clone(), None).await.expect("recipe should convert");
+        let builder = build_session_builder(&harness, recipe, bridge.clone()).await.expect("recipe should convert");
         let handle = builder.start().await.expect("session should start");
         let session_id = handle.session_id();
         let pump = super::super::spawn_event_pump(handle.subscribe(), outbound_tx);
@@ -355,4 +352,21 @@ mod integration_tests {
         }
         assert!(saw_completed, "expected a ToolCallCompleted event after answering the host tool call");
     }
+    #[tokio::test]
+    async fn all_subscription_adapters_start_with_harness_owned_build_tools() {
+        let state = HarnessState::new();
+        for integration in ["codex", "claude-code", "github-copilot"] {
+            let recipe: SessionRecipe = serde_json::from_value(serde_json::json!({
+                "workspace": { "root": "/tmp", "binding": "host" },
+                "integration": integration,
+                "host_tools": [{ "name": "run_command", "description": "Run a Build command" }],
+                "execution_policy": { "mode": "execute", "enabled_tools": ["run_command", "write_file", "web_search"], "allowed_mcp_servers": [] }
+            })).unwrap();
+            // Creation must not request credentials, launch a CLI, or reject
+            // the provider as backend-managed. Inference happens on prompt.
+            let session_id = state.create_session(recipe).await.expect(integration);
+            state.close_session(session_id).await.unwrap();
+        }
+    }
+
 }

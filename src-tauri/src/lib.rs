@@ -3,6 +3,7 @@ mod git;
 mod fs_watch;
 mod shell_exec;
 mod usage_tracking;
+mod secure_key;
 #[cfg(feature = "core-harness")]
 mod harness;
 
@@ -1323,6 +1324,7 @@ pub fn run() {
             delete_file_or_dir,
             get_storage_cache_size,
             clear_storage_cache,
+            secure_key::get_storage_key,
             move_file_or_dir,
             search_project,
             shell_exec::run_shell_command,
@@ -1342,7 +1344,6 @@ pub fn run() {
             git::git_checkout_branch,
             git::git_smart_checkout_branch,
             git::git_create_branch,
-            git::git_smart_create_branch,
             git::git_delete_branch,
             git::git_delete_remote_branch,
             git::git_merge_branch,

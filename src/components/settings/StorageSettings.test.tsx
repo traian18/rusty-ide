@@ -13,6 +13,12 @@ vi.mock("../../services/storageCacheService", () => ({
   clearStorageCache: () => mockClearStorageCache(),
 }));
 
+const mockGetStorageBackend = vi.fn();
+
+vi.mock("../../services/secureStorageService", () => ({
+  SecureStorageService: { getStorageBackend: () => mockGetStorageBackend() },
+}));
+
 vi.mock("../../notificationStore", () => ({
   notify: (...args: unknown[]) => mockNotify(...args),
 }));
@@ -23,6 +29,7 @@ let container: HTMLDivElement;
 beforeEach(() => {
   (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
+  mockGetStorageBackend.mockResolvedValue({ backend: "keychain" });
   mockGetStorageCacheBreakdown.mockResolvedValue({
     cacheBytes: 1024 * 1024 * 15,
     logBytes: 1024 * 1024 * 7,
@@ -90,5 +97,29 @@ describe("StorageSettings component", () => {
 
     const deleteBtn = container.querySelector("#storage-cache-delete") as HTMLButtonElement;
     expect(deleteBtn.disabled).toBe(true);
+  });
+
+  it("says when secrets are protected by the OS keychain", async () => {
+    await act(async () => root.render(<StorageSettings />));
+
+    expect(container.textContent).toContain("held in the OS keychain");
+  });
+
+  it("warns with the reason when the keychain was unavailable", async () => {
+    mockGetStorageBackend.mockResolvedValue({ backend: "file", fallbackReason: "Secret Service unavailable" });
+
+    await act(async () => root.render(<StorageSettings />));
+
+    const alert = container.querySelector('[role="alert"]');
+    expect(alert?.textContent).toContain("OS keychain unavailable");
+    expect(alert?.textContent).toContain("Secret Service unavailable");
+  });
+
+  it("warns when the storage key could not be obtained", async () => {
+    mockGetStorageBackend.mockRejectedValue(new Error("keyring is locked"));
+
+    await act(async () => root.render(<StorageSettings />));
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("keyring is locked");
   });
 });

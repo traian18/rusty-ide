@@ -78,7 +78,10 @@ export class CoreEngineClient implements CoreEngine {
     return invoke("harness_hello");
   }
 
-  createSession(recipe: SessionRecipe): Promise<string> {
+  async createSession(recipe: SessionRecipe): Promise<string> {
+    if (recipe.execution_policy && !(await this.hello()).capabilities.includes("execution_policy")) {
+      throw new Error("This harness cannot enforce skill permissions. Update the application before running this skill.");
+    }
     return invoke("harness_create_session", { recipe });
   }
 

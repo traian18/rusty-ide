@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useWorkspaceStore } from "../../store";
 import { notify } from "../../notificationStore";
 import { GitActions } from "./GitActions";
-import { gitErrorMessage as errorMessage } from "./gitErrors";
+import { gitErrorMessage as errorMessage, isUnmergedBranchError, UnmergedBranchError } from "./gitErrors";
 
 export const gitPresenter: GitActions = {
   async commit(rootDir: string, message: string): Promise<void> {
@@ -161,16 +161,18 @@ export const gitPresenter: GitActions = {
   async createBranch(rootDir: string, branchName: string, checkout: boolean): Promise<void> {
     console.log(`GitPresenter: Creating branch ${branchName} (checkout: ${checkout})`);
     try {
-      const result = await invoke<{ stashed: boolean; restored: boolean }>("git_smart_create_branch", { rootDir, branchName, checkout });
+      await invoke("git_create_branch", { rootDir, branchName, checkout });
       if (checkout) {
-        useWorkspaceStore.getState().resetForBranchChange();
+        // A new branch starts at HEAD, so staged, unstaged and untracked
+        // changes carry over untouched and nothing on disk changes -- open
+        // editors and the file tree stay as they are.
         await useWorkspaceStore.getState().loadGitStatus(rootDir);
-        const tree: any[] = await invoke("get_directory_structure", { rootDir: useWorkspaceStore.getState().rootPath || rootDir });
-        useWorkspaceStore.getState().setFileTree(tree);
       }
       notify(
         "Branch Created",
-        `Successfully created branch: ${branchName}.${result.stashed ? " Current branch changes were saved." : ""}`,
+        checkout
+          ? `Switched to new branch ${branchName}. Uncommitted changes came with you.`
+          : `Created branch ${branchName}.`,
         "success"
       );
     } catch (err: any) {
@@ -191,6 +193,10 @@ export const gitPresenter: GitActions = {
       await useWorkspaceStore.getState().loadGitStatus(rootDir);
       notify("Branch Deleted", `Successfully deleted branch: ${branchName}`, "success");
     } catch (err: any) {
+      if (!force && isUnmergedBranchError(err)) {
+        // Not a failure to report yet: the caller asks whether to force it.
+        throw new UnmergedBranchError(errorMessage(err));
+      }
       console.error("Failed to delete branch:", err);
       notify("Deletion Failed", errorMessage(err), "error");
       throw err;

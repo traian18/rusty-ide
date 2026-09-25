@@ -11,3 +11,13 @@
 export function gitErrorMessage(err: unknown): string {
   return (err as { message?: string } | undefined)?.message ?? String(err);
 }
+
+/** `git branch -d` refused because the branch has unmerged commits; the
+ * caller can offer a forced delete (`-D`) instead of just failing. */
+export class UnmergedBranchError extends Error {
+  readonly name = "UnmergedBranchError";
+}
+
+export function isUnmergedBranchError(err: unknown): boolean {
+  return /not fully merged/i.test(gitErrorMessage(err));
+}

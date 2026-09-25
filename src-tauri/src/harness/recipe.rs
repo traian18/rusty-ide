@@ -78,11 +78,6 @@ impl ToolExecutor for AgentSpawnDescriptorOnly {
     }
 }
 
-/// Integration ids `rusty` installs an on-demand CLI binary for -- see
-/// `managed_binaries.rs`'s own module doc for why rusty-core's own default
-/// (`$PATH` resolution) doesn't fit this app.
-const MANAGED_AUTH_INTEGRATIONS: [&str; 3] = ["codex", "claude-code", "github-copilot"];
-
 /// The `SessionRecipe.integration` value that routes a session's model
 /// execution to the IDE instead of one of rusty-core's own direct HTTP
 /// integrations -- see `HostExecutionBackend`'s own module doc for why.
@@ -139,6 +134,8 @@ fn default_input_schema() -> serde_json::Value {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct SessionRecipe {
+    #[serde(default)]
+    pub execution_policy: Option<harness_protocol::tools::ExecutionPolicy>,
     pub workspace: WorkspaceRecipe,
     pub integration: String,
     #[serde(default)]
@@ -170,54 +167,16 @@ pub struct SessionRecipe {
 /// `bridge` into whichever pieces need to call back into the IDE
 /// (`HostWorkspace` when `binding: "host"`, every `host_tools` entry).
 ///
-/// `managed_binary_path`: the installed CLI path `commands.rs::
-/// harness_create_session` already resolved (it alone has a real
-/// `AppHandle` to resolve one from -- see `managed_binaries.rs`), for a
-/// recipe whose `integration` is one of `MANAGED_AUTH_INTEGRATIONS`. `None`
-/// for every other recipe, and also tolerated for a managed-auth recipe
-/// (falls back to rusty-core's own `$PATH` resolution) so a caller that
-/// hasn't resolved one yet -- every existing test -- doesn't have to.
+/// Inference adapters load credentials themselves. The core rejects backends
+/// that execute their own tools.
 ///
-/// `async` (Milestone Phase 6): MCP servers are connected here, directly,
-/// rather than via `SessionBuilder::mcp_server()` -- that path (`session_
-/// builder.rs::start()`) aborts the *entire* session on the first server
-/// that fails to connect, which doesn't match the sidecar's own graceful
-/// per-server degrade (a broken MCP server loses just its own tools, not
-/// the whole run). Calling `harness_tool_mcp::connect_and_discover`
-/// ourselves and registering the survivors' tools into the same registry
-/// `host_tools` already populate reproduces that degrade without any
-/// rusty-core change -- `.mcp_server()` itself is never called.
+/// MCP discovery and skill permissions are delegated to rusty-core. Optional
+/// servers retain the IDE's graceful degradation on connection failures.
 pub async fn build_session_builder(
     harness: &Harness,
-    mut recipe: SessionRecipe,
+    recipe: SessionRecipe,
     bridge: Arc<HostBridge>,
-    managed_binary_path: Option<PathBuf>,
 ) -> Result<SessionBuilder, HarnessError> {
-    if MANAGED_AUTH_INTEGRATIONS.contains(&recipe.integration.as_str()) {
-        let root_str = recipe.workspace.root.to_string_lossy().into_owned();
-        if let serde_json::Value::Object(config) = &mut recipe.integration_config {
-            if let Some(path) = managed_binary_path {
-                config.insert("binary_path".to_string(), serde_json::Value::String(path.to_string_lossy().into_owned()));
-            }
-            config.entry("working_dir".to_string()).or_insert_with(|| serde_json::Value::String(root_str.clone()));
-            config.entry("workspace_root".to_string()).or_insert_with(|| serde_json::Value::String(root_str));
-            if recipe.integration == "codex" {
-                config.entry("dangerously_bypass".to_string()).or_insert_with(|| serde_json::Value::Bool(true));
-            }
-        } else {
-            let mut obj = serde_json::Map::new();
-            if let Some(path) = managed_binary_path {
-                obj.insert("binary_path".to_string(), serde_json::Value::String(path.to_string_lossy().into_owned()));
-            }
-            obj.insert("working_dir".to_string(), serde_json::Value::String(root_str.clone()));
-            obj.insert("workspace_root".to_string(), serde_json::Value::String(root_str));
-            if recipe.integration == "codex" {
-                obj.insert("dangerously_bypass".to_string(), serde_json::Value::Bool(true));
-            }
-            recipe.integration_config = serde_json::Value::Object(obj);
-        }
-    }
-
     let mut builder = if recipe.integration == HOST_EXECUTION_INTEGRATION {
         // `.backend()` is infallible (unlike `.integration()`, there is no
         // registry lookup or provider-config deserialization that could
@@ -271,7 +230,13 @@ pub async fn build_session_builder(
         let _ = registry.register_tool(executor);
     }
 
-    register_mcp_servers(&registry, recipe.mcp_servers).await;
+    // Discovery belongs to the harness so disallowed servers are never started.
+    for spec in recipe.mcp_servers {
+        builder = builder.optional_mcp_server(mcp_config_from_spec(spec));
+    }
+    if let Some(policy) = recipe.execution_policy {
+        builder = builder.execution_policy(policy);
+    }
     register_optional_builtin_tools(&registry, recipe.enable_web_fetch, recipe.enable_agent_spawn);
 
     builder = builder.tools(Arc::new(registry));
@@ -279,33 +244,8 @@ pub async fn build_session_builder(
     Ok(builder)
 }
 
-/// Connects each configured MCP server and registers the tools it
-/// discovers into `registry` -- a server that fails to connect is skipped
-/// (logged, not propagated), matching the old sidecar's own
-/// `createMcpTools` graceful degrade rather than rusty-core's own
-/// `SessionBuilder::mcp_server()`/`start()` path (which aborts the entire
-/// session on the first failure). Extracted from `build_session_builder`
-/// so it's directly unit-testable against a bare `SimpleToolRegistry`,
-/// without needing a full `SessionBuilder`.
-async fn register_mcp_servers(registry: &SimpleToolRegistry, specs: Vec<McpServerSpec>) {
-    for spec in specs {
-        let config = mcp_config_from_spec(spec);
-        match harness_tool_mcp::connect_and_discover(&config).await {
-            Ok(executors) => {
-                for executor in executors {
-                    let _ = registry.register_tool(executor);
-                }
-            }
-            Err(error) => {
-                eprintln!("[recipe] skipping MCP server '{}' that failed to connect: {error}", config.name);
-            }
-        }
-    }
-}
-
-/// Registers `web_fetch`/`agent_spawn` into `registry` when the recipe
-/// opts into them. Extracted for the same direct-unit-testability reason
-/// as `register_mcp_servers`.
+/// Registers optional built-ins. The harness applies the execution policy
+/// to these descriptors before advertising or executing them.
 fn register_optional_builtin_tools(registry: &SimpleToolRegistry, enable_web_fetch: bool, enable_agent_spawn: bool) {
     if enable_web_fetch {
         let _ = registry.register_tool(Arc::new(harness_tool_web::FetchTool::new()));
@@ -379,40 +319,19 @@ fn skills_config_from_spec(spec: SkillsSpec, workspace_root: &std::path::Path) -
 mod tests {
     use super::*;
 
-    fn broken_stdio_spec(name: &str) -> McpServerSpec {
-        McpServerSpec {
-            name: name.to_string(),
-            transport: None,
-            command: "definitely-not-a-real-command-rusty-test-fixture".to_string(),
-            args: Vec::new(),
-            env: std::collections::HashMap::new(),
-            cwd: None,
-            request_timeout_secs: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn register_mcp_servers_skips_a_server_that_fails_to_connect_without_erroring() {
-        let registry = SimpleToolRegistry::new();
-        // Must not panic and must leave the registry exactly as it found it
-        // -- the whole point of the graceful-degrade behavior this ports
-        // from the old sidecar's own `createMcpTools`.
-        register_mcp_servers(&registry, vec![broken_stdio_spec("broken")]).await;
-        assert!(registry.descriptors().is_empty());
-    }
-
-    #[tokio::test]
-    async fn register_mcp_servers_skips_each_broken_server_independently() {
-        let registry = SimpleToolRegistry::new();
-        register_mcp_servers(&registry, vec![broken_stdio_spec("first"), broken_stdio_spec("second")]).await;
-        assert!(registry.descriptors().is_empty());
-    }
-
-    #[tokio::test]
-    async fn register_mcp_servers_with_no_servers_is_a_no_op() {
-        let registry = SimpleToolRegistry::new();
-        register_mcp_servers(&registry, Vec::new()).await;
-        assert!(registry.descriptors().is_empty());
+    #[test]
+    fn skill_policy_deserializes_exact_grants_and_rejects_malformed_permissions() {
+        let mut value = serde_json::json!({
+            "workspace": { "root": "/tmp" }, "integration": "host",
+            "execution_policy": { "mode": "plan", "enabled_tools": ["write_file"], "allowed_mcp_servers": ["docs"] }
+        });
+        let recipe: SessionRecipe = serde_json::from_value(value.clone()).unwrap();
+        let policy = recipe.execution_policy.unwrap();
+        assert_eq!(policy.mode, harness_protocol::tools::ExecutionMode::Plan);
+        assert_eq!(policy.enabled_tools, vec!["write_file"]);
+        assert_eq!(policy.allowed_mcp_servers, vec!["docs"]);
+        value["execution_policy"]["enabled_tools"] = serde_json::json!("all");
+        assert!(serde_json::from_value::<SessionRecipe>(value).is_err());
     }
 
     #[test]

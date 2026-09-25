@@ -80,6 +80,7 @@ import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
+import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -404,26 +405,24 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (!mapped.supported) {
       throw new Error(`CoreHarness: agent_chat cannot run on core -- ${mapped.reason}`);
     }
-    const isSubprocessBackend = mapped.integration === "claude-code" || mapped.integration === "codex";
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly) };
-    const toolSpecs = isSubprocessBackend ? [] : toolSpecsFor(asSkill(input.skill), mode);
-    const { specs: mcpServers, skipped } = isSubprocessBackend
-      ? { specs: [], skipped: [] }
-      : mapMcpServerConfigs(asMcpServerConfigs(input.mcpServers));
+    const toolSpecs = toolSpecsFor(asSkill(input.skill), mode);
+    const { specs: mcpServers, skipped } = mapMcpServerConfigs(asMcpServerConfigs(input.mcpServers));
     for (const { reason } of skipped) console.warn(`[agent_chat] ${reason}`);
     return {
+      execution_policy: skillExecutionPolicy(input.skill, mode.planOnly ? "plan" : mode.vfsOnly ? "virtual" : "execute"),
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
       execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(
         input,
-        isSubprocessBackend ? [] : [...toolSpecs.map((spec) => spec.name), "web_fetch", "agent_spawn"],
+        [...toolSpecs.map((spec) => spec.name), "web_fetch", "agent_spawn"],
       ),
       host_tools: toolSpecs,
       mcp_servers: mcpServers,
-      enable_web_fetch: !isSubprocessBackend,
-      enable_agent_spawn: !isSubprocessBackend,
+      enable_web_fetch: true,
+      enable_agent_spawn: true,
     };
   },
 
