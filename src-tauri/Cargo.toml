@@ -36,7 +36,6 @@ core-harness = [
   "dep:harness-integration-openai-responses",
   "dep:harness-integration-openai-compatible",
   "dep:harness-integration-gemini",
-  "dep:harness-integration-claude-code",
   "dep:harness-integration-codex",
   "dep:harness-integration-github-copilot",
   "dep:harness-tool-mcp",
@@ -92,7 +91,6 @@ harness-integration-openai = { path = "../../rusty-core/crates/integrations/open
 harness-integration-openai-responses = { path = "../../rusty-core/crates/integrations/openai-responses", optional = true }
 harness-integration-openai-compatible = { path = "../../rusty-core/crates/integrations/openai-compatible", optional = true }
 harness-integration-gemini = { path = "../../rusty-core/crates/integrations/gemini", optional = true }
-harness-integration-claude-code = { path = "../../rusty-core/crates/integrations/claude-code", optional = true }
 harness-integration-codex = { path = "../../rusty-core/crates/integrations/codex", optional = true }
 harness-integration-github-copilot = { path = "../../rusty-core/crates/integrations/github-copilot", optional = true }
 # Phase 6 (HARNESS_CONTRACT_PLAN.md-adjacent, see the plan doc): closes the
@@ -112,9 +110,9 @@ git2 = { version = "0.21", optional = true }
 # HostToolExecutor), not just transitively through the path deps above.
 async-trait = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", optional = true }
-# managed_quota.rs's one HTTP call (Claude Code's OAuth usage endpoint).
-# Same version/TLS backend rusty-core's own anthropic integration already
-# pulls in (rustls), so this adds no new native dependency.
+# managed_binaries.rs's runtime downloads. Same version/TLS backend
+# rusty-core's own integrations already pull in (rustls), so this adds no
+# new native dependency.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 
 # shell_exec.rs's cancel path kills the command's whole process group

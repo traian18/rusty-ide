@@ -1,5 +1,5 @@
-//! Login/status/logout for the three managed-auth providers (Codex, Claude
-//! Code, GitHub Copilot), driven by shelling out to each CLI's own plain
+//! Login/status/logout for the two managed-auth providers (Codex, GitHub
+//! Copilot), driven by shelling out to each CLI's own plain
 //! subcommands -- the Tauri command surface `commands.rs` never had before
 //! this (`harness_list_providers`/`harness_list_models` were the only
 //! provider-facing commands; see HARNESS_CONTRACT_PLAN.md's Milestone B2).
@@ -18,12 +18,10 @@
 //! Exact commands per provider, confirmed against the vendored CLI's own
 //! `--help` output (not guessed) and, where noted, already proven by the
 //! sidecar's own working code (`agent-sidecar/src/services/
-//! {codexService,claudeCodeService,copilotService}.ts`):
+//! {codexService,copilotService}.ts`):
 //! - Codex: `login` (browser flow -- `--device-auth` exists but its exact
 //!   output is unverified without a live login, so left unused), `login
 //!   status` (plain text, no `--json` flag), `logout`.
-//! - Claude Code: `auth login --claudeai`, `auth status --json` (structured,
-//!   already parsed successfully by `claudeCodeService.ts`), `auth logout`.
 //! - GitHub Copilot: `login --host <host>` (device-code flow, output
 //!   scraped the same way `copilotService.ts`'s own `parseCopilotLoginOutput`
 //!   already does, ported verbatim below). Copilot's CLI has **no plain
@@ -43,7 +41,6 @@ use std::sync::{Arc, Mutex};
 use regex::Regex;
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
-use tauri_plugin_opener::OpenerExt;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
@@ -77,8 +74,8 @@ pub struct ManagedAuthState {
     /// forever, which the UI renders as a permanently disabled
     /// "Signing in..." button (clicking it does nothing at all).
     tasks: Mutex<HashMap<String, (u64, tauri::async_runtime::JoinHandle<()>)>>,
-    /// Senders for passing interactive input (e.g. Claude Code's browser confirmation code)
-    /// to the child process's stdin.
+    /// Senders for passing interactive input to the login child process's
+    /// stdin.
     inputs: Mutex<HashMap<String, (u64, tokio::sync::mpsc::Sender<String>)>>,
     /// Monotonic attempt id, so a finishing task only clears its own
     /// registration -- an attempt that completes naturally just as a new
@@ -167,11 +164,6 @@ impl ManagedAuthState {
     }
 
     pub async fn send_input(&self, provider: &str, input: String) -> Result<(), String> {
-        let input = if provider == "claude-code" {
-            normalize_claude_code(&input)
-        } else {
-            input
-        };
         let sender = {
             let inputs = self.inputs.lock().expect("managed auth input mutex poisoned");
             inputs.get(provider).map(|(_, tx)| tx.clone())
@@ -372,29 +364,6 @@ pub async fn check_status(
                 account: None,
             })
         }
-        "claude-code" => {
-            let binary = binary_or_error(app, provider)?;
-            let (success, output) =
-                run_to_completion(&binary, &["auth", "status", "--json"]).await?;
-            let parsed = serde_json::from_str::<serde_json::Value>(&output).ok();
-            let logged_in = success
-                && parsed
-                    .as_ref()
-                    .and_then(|value| value.get("loggedIn").and_then(serde_json::Value::as_bool))
-                    .unwrap_or(false);
-            let account = parsed
-                .as_ref()
-                .and_then(|value| value.get("email").and_then(serde_json::Value::as_str))
-                .map(String::from);
-            Ok(LoginState {
-                authenticated: Some(logged_in),
-                message: output,
-                verification_uri: None,
-                user_code: None,
-                in_progress: false,
-                account,
-            })
-        }
         "github-copilot" => {
             let mut copilot_state = check_copilot_status(app).await;
             if in_flight.authenticated == Some(true) && copilot_state.authenticated != Some(true) {
@@ -431,99 +400,9 @@ fn parse_copilot_login_output(buffer: &str) -> (Option<String>, Option<String>, 
     (uri, code, done)
 }
 
-/// Normalizes code input for Claude Code authentication.
-/// The CLI's manual input handler splits by '#' (`[code, state] = input.trim().split('#')`).
-/// If the user pastes:
-/// - `code#state` directly -> returned trimmed
-/// - Callback URL `https://platform.claude.com/oauth/code/callback#code=...&state=...` or query `?code=...&state=...` -> extracts and reconstructs `code#state`
-/// - Parameter string `code=...&state=...` -> extracts and reconstructs `code#state`
-pub fn normalize_claude_code(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-
-    if trimmed.contains('#') && !trimmed.contains("code=") && !trimmed.contains("state=") {
-        return trimmed.to_string();
-    }
-
-    let query_or_fragment = if let Some(idx) = trimmed.find('#') {
-        &trimmed[idx + 1..]
-    } else if let Some(idx) = trimmed.find('?') {
-        &trimmed[idx + 1..]
-    } else {
-        trimmed
-    };
-
-    let mut code: Option<&str> = None;
-    let mut state: Option<&str> = None;
-
-    for part in query_or_fragment.split(['&', ';']) {
-        if let Some((k, v)) = part.split_once('=') {
-            let k = k.trim_start_matches('?');
-            if k == "code" || k == "authorizationCode" {
-                code = Some(v);
-            } else if k == "state" {
-                state = Some(v);
-            }
-        }
-    }
-
-    if let (Some(c), Some(s)) = (code, state) {
-        let decode_param = |p: &str| -> String {
-            let mut res = String::new();
-            let bytes = p.as_bytes();
-            let mut i = 0;
-            while i < bytes.len() {
-                if bytes[i] == b'%' && i + 2 < bytes.len() {
-                    if let Ok(val) = u8::from_str_radix(
-                        std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or_default(),
-                        16,
-                    ) {
-                        res.push(val as char);
-                        i += 3;
-                        continue;
-                    }
-                }
-                res.push(bytes[i] as char);
-                i += 1;
-            }
-            res
-        };
-        return format!("{}#{}", decode_param(c), decode_param(s));
-    }
-
-    trimmed.to_string()
-}
-
-/// Claude Code's own login output, confirmed against the vendored CLI
-/// (`claude auth login --claudeai`, stdout, no TTY):
-///
-/// ```text
-/// Opening browser to sign in...
-/// If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?...
-/// Paste code here if prompted > Login successful.
-/// ```
-///
-/// Parsing that URL is what makes the flow work at all inside the app:
-/// the CLI's own browser launch does not take effect when it runs as a
-/// child of the app process (reproduced from a plain Rust parent -- the
-/// CLI prints "Opening browser to sign in" and then sits there), so the
-/// app opens this URL itself.
-fn parse_claude_login_output(buffer: &str) -> (Option<String>, bool) {
-    let uri = Regex::new(r"https://\S*claude\S*/oauth/\S+")
-        .expect("static regex")
-        .find(buffer)
-        .map(|m| m.as_str().trim_end_matches(['.', ',', ')']).to_string());
-    let done = Regex::new(r"(?i)login successful")
-        .expect("static regex")
-        .is_match(buffer);
-    (uri, done)
-}
-
 /// What a provider's login output says about the attempt so far:
-/// `(verification_uri, user_code, finished_successfully)`. Only the two
-/// providers whose CLIs actually print something actionable are parsed;
+/// `(verification_uri, user_code, finished_successfully)`. Only Copilot,
+/// whose CLI actually prints something actionable, is parsed;
 /// Codex's `login` output has not been captured against a real attempt, so
 /// it deliberately reports nothing rather than guessing at a format.
 fn parse_login_output(
@@ -534,10 +413,6 @@ fn parse_login_output(
         "github-copilot" => {
             let (uri, code, done) = parse_copilot_login_output(buffer);
             Some((uri, code, done))
-        }
-        "claude-code" => {
-            let (uri, done) = parse_claude_login_output(buffer);
-            Some((uri, None, done))
         }
         _ => None,
     }
@@ -571,7 +446,6 @@ fn silent_exit_message(
 fn login_args(provider: &str) -> Result<Vec<&'static str>, String> {
     match provider {
         "codex" => Ok(vec!["login"]),
-        "claude-code" => Ok(vec!["auth", "login", "--claudeai"]),
         "github-copilot" => Ok(vec!["login", "--device-code", "--host", "https://github.com"]),
         _ => Err(format!("unknown managed-auth provider: {provider}")),
     }
@@ -590,12 +464,12 @@ async fn drain_lines(reader: impl tokio::io::AsyncRead + Unpin) -> String {
 /// Starts a login attempt in the background: spawns `<binary> login
 /// [args]`, waits for it to finish while capturing its combined stdout/
 /// stderr (parsing out whatever the provider's CLI reports about the
-/// attempt -- a device code for Copilot, the sign-in URL for Claude Code),
+/// attempt -- a device code for Copilot),
 /// and marks `in_progress: false` once done, following up with
 /// `check_status` so `authenticated` reflects reality rather than just
 /// "the process exited 0." Returns immediately -- `managed_auth_login_status`
 /// is how the frontend observes progress (matches the existing
-/// sidecar-backed Copilot/Codex/Claude Code login cards' own polling UX).
+/// sidecar-backed Copilot/Codex login cards' own polling UX).
 /// `state` is an `Arc` clone the caller already holds (from
 /// `HarnessState`), so this background task outlives the Tauri command that
 /// started it without needing a `'static` reference into `HarnessState`
@@ -685,29 +559,8 @@ pub fn start_login(
         let mut input_rx_opt = Some(input_rx);
 
         let mut buffer = String::new();
-        // Claude Code's CLI tries to open the browser itself, but that is
-        // exactly the step that does not survive being run as a child of
-        // the app: reproduced from a plain Rust parent, where the CLI
-        // prints "Opening browser to sign in" and no browser ever appears
-        // (the same spawn from a Node parent opens it fine). So the app
-        // opens the URL the CLI prints, through the same opener the
-        // device-code providers' own "Open GitHub"/"Open OpenAI" buttons
-        // already use. Once per attempt, and only for claude-code: Copilot
-        // and Codex are device-code flows where the user has to read a
-        // code off the card *before* the page is of any use, so
-        // auto-opening those would be worse, not better.
-        let mut browser_opened = false;
-        let mut publish = |buffer: &str| {
+        let publish = |buffer: &str| {
             if let Some((uri, code, done)) = parse_login_output(&provider, buffer) {
-                if provider == "claude-code" && !browser_opened {
-                    if let Some(url) = uri.as_deref() {
-                        browser_opened = true;
-                        match app.opener().open_url(url, None::<&str>) {
-                            Ok(()) => println!("Rust [managed_auth] opened the {provider} sign-in page"),
-                            Err(error) => println!("Rust [managed_auth] could not open the {provider} sign-in page: {error}"),
-                        }
-                    }
-                }
                 state.set(
                     &provider,
                     LoginState {
@@ -884,7 +737,6 @@ pub fn start_login(
 fn logout_args(provider: &str) -> Result<Vec<&'static str>, String> {
     match provider {
         "codex" => Ok(vec!["logout"]),
-        "claude-code" => Ok(vec!["auth", "logout"]),
         "github-copilot" => Err(
             "GitHub Copilot's CLI has no plain logout subcommand -- sign out via the credential your OS keychain (or ~/.copilot/) stores, the same store the existing sidecar-based logout manages.".to_string(),
         ),
@@ -960,14 +812,14 @@ mod tests {
     fn managed_auth_state_round_trips_a_set_value() {
         let state = ManagedAuthState::new();
         state.set(
-            "claude-code",
+            "codex",
             LoginState {
                 authenticated: Some(true),
                 message: "Ready".to_string(),
                 ..LoginState::default()
             },
         );
-        let login = state.get("claude-code");
+        let login = state.get("codex");
         assert_eq!(login.authenticated, Some(true));
         assert_eq!(login.message, "Ready");
     }
@@ -975,10 +827,6 @@ mod tests {
     #[test]
     fn login_args_are_defined_for_every_managed_provider() {
         assert_eq!(login_args("codex").unwrap(), vec!["login"]);
-        assert_eq!(
-            login_args("claude-code").unwrap(),
-            vec!["auth", "login", "--claudeai"]
-        );
         assert_eq!(
             login_args("github-copilot").unwrap(),
             vec!["login", "--device-code", "--host", "https://github.com"]
@@ -990,46 +838,10 @@ mod tests {
     fn copilot_has_no_plain_logout_subcommand() {
         assert!(logout_args("github-copilot").is_err());
         assert_eq!(logout_args("codex").unwrap(), vec!["logout"]);
-        assert_eq!(logout_args("claude-code").unwrap(), vec!["auth", "logout"]);
-    }
-
-    /// Verbatim stdout from the vendored CLI (`claude auth login
-    /// --claudeai`, no TTY), captured 2026-09-18 -- the query string is
-    /// truncated here, everything else is exactly as printed.
-    const CLAUDE_LOGIN_OUTPUT: &str = "Opening browser to sign in\u{2026}\nIf the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code\n";
-
-    #[test]
-    fn parses_the_claude_sign_in_url_the_app_has_to_open_itself() {
-        let (uri, done) = parse_claude_login_output(CLAUDE_LOGIN_OUTPUT);
-        assert_eq!(
-            uri.as_deref(),
-            Some("https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code")
-        );
-        assert!(
-            !done,
-            "the attempt is still in flight until the CLI says it succeeded"
-        );
     }
 
     #[test]
-    fn detects_a_completed_claude_sign_in() {
-        let finished =
-            format!("{CLAUDE_LOGIN_OUTPUT}Paste code here if prompted > Login successful.\n");
-        let (uri, done) = parse_claude_login_output(&finished);
-        assert!(done);
-        assert!(uri.is_some(), "the URL stays available after completion");
-    }
-
-    #[test]
-    fn reports_no_claude_url_for_unrelated_output() {
-        let (uri, done) = parse_claude_login_output("Checking for updates...\n");
-        assert_eq!(uri, None);
-        assert!(!done);
-    }
-
-    #[test]
-    fn login_output_is_parsed_for_copilot_and_claude_but_not_guessed_at_for_codex() {
-        assert!(parse_login_output("claude-code", CLAUDE_LOGIN_OUTPUT).is_some());
+    fn login_output_is_parsed_for_copilot_but_not_guessed_at_for_codex() {
         assert!(parse_login_output(
             "github-copilot",
             "visit https://github.com/login/device and enter code ABCD-1234"
@@ -1050,12 +862,12 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_secs(300)).await;
             *flag.lock().unwrap() = true;
         });
-        state.replace_task("claude-code", first_attempt, first);
-        assert!(state.has_task("claude-code"));
+        state.replace_task("codex", first_attempt, first);
+        assert!(state.has_task("codex"));
 
         let second_attempt = state.next_attempt_id();
         let second = tauri::async_runtime::spawn(async {});
-        state.replace_task("claude-code", second_attempt, second);
+        state.replace_task("codex", second_attempt, second);
 
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         assert!(
@@ -1065,94 +877,29 @@ mod tests {
 
         // The superseded attempt's own cleanup must not unregister the
         // one that replaced it.
-        state.clear_task("claude-code", first_attempt);
+        state.clear_task("codex", first_attempt);
         assert!(
-            state.has_task("claude-code"),
+            state.has_task("codex"),
             "the live attempt is still registered"
         );
-        state.clear_task("claude-code", second_attempt);
-        assert!(!state.has_task("claude-code"));
-    }
-
-    /// Reproduces `start_login`'s exact spawn (tokio child, piped stdio,
-    /// null stdin, kill_on_drop) against the real vendored Claude CLI from
-    /// a Rust parent, then opens the parsed URL the way the app does.
-    /// Diagnostic, hence `#[ignore]`: run with
-    /// `cargo test claude_login_spawn -- --ignored --nocapture`.
-    /// Without the explicit open, the CLI prints "Opening browser to sign
-    /// in" and nothing happens -- that is the bug this module works around.
-    #[tokio::test]
-    #[ignore = "diagnostic: starts a real Claude sign-in attempt and opens a browser"]
-    async fn claude_login_spawn_from_a_rust_parent_needs_the_app_to_open_the_browser() {
-        let node_modules = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("..")
-            .join("vendor-cli")
-            .join("node_modules");
-        let binary = super::super::managed_binaries::claude_code_binary_path(&node_modules)
-            .expect("vendored claude binary");
-        let started = std::time::Instant::now();
-
-        let mut child = Command::new(&binary)
-            .args(login_args("claude-code").unwrap())
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .expect("claude should start");
-
-        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-        let mut buffer = String::new();
-        let mut opened = false;
-        let read = async {
-            while let Ok(Some(line)) = lines.next_line().await {
-                println!("[{:>5.1}s] {line}", started.elapsed().as_secs_f32());
-                buffer.push_str(&line);
-                buffer.push('\n');
-                let (uri, done) = parse_claude_login_output(&buffer);
-                if let (Some(url), false) = (uri.as_deref(), opened) {
-                    opened = true;
-                    // What `start_login` does via `app.opener()`; the
-                    // plugin shells out to exactly this on macOS.
-                    let status = std::process::Command::new("/usr/bin/open")
-                        .arg(url)
-                        .status();
-                    println!(
-                        "[{:>5.1}s] opened the sign-in page: {status:?}",
-                        started.elapsed().as_secs_f32()
-                    );
-                }
-                if done {
-                    println!(
-                        "[{:>5.1}s] login completed",
-                        started.elapsed().as_secs_f32()
-                    );
-                    return;
-                }
-            }
-        };
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(45), read).await;
-        assert!(
-            opened,
-            "the CLI must have printed a sign-in URL for the app to open"
-        );
-        println!("[probe] done after {:.1}s", started.elapsed().as_secs_f32());
+        state.clear_task("codex", second_attempt);
+        assert!(!state.has_task("codex"));
     }
 
     #[test]
     fn a_cli_that_dies_without_output_names_the_binary_and_the_check_that_finds_it() {
-        // The real failure: the staged Claude binary had a hole of zeros
+        // The real failure: a staged CLI binary had a hole of zeros
         // in the middle from an interrupted resource copy, so its
         // signature no longer matched and macOS killed it on exec --
         // exit 137, no output, and the sign-in button looked inert.
         let message = silent_exit_message(
-            "claude-code",
-            Path::new("/Apps/rusty.app/Contents/Resources/managed-cli/claude"),
+            "github-copilot",
+            Path::new("/Apps/rusty.app/Contents/Resources/managed-cli/copilot"),
             None,
         );
-        assert!(message.contains("claude-code"), "{message}");
+        assert!(message.contains("github-copilot"), "{message}");
         assert!(
-            message.contains("/Apps/rusty.app/Contents/Resources/managed-cli/claude"),
+            message.contains("/Apps/rusty.app/Contents/Resources/managed-cli/copilot"),
             "{message}"
         );
         assert!(message.contains("codesign --verify"), "{message}");
@@ -1166,7 +913,7 @@ mod tests {
             .status()
             .await
             .expect("sh should run");
-        let message = silent_exit_message("claude-code", Path::new("/tmp/claude"), Some(status));
+        let message = silent_exit_message("codex", Path::new("/tmp/codex"), Some(status));
         assert!(message.contains("exited immediately"), "{message}");
         assert!(
             message.contains("signal: 9"),
@@ -1212,56 +959,10 @@ mod tests {
         assert!(!authenticated);
     }
 
-    #[test]
-    fn normalizes_claude_code_already_formatted_as_code_hash_state() {
-        assert_eq!(
-            normalize_claude_code("auth_code_123#state_456"),
-            "auth_code_123#state_456"
-        );
-        assert_eq!(
-            normalize_claude_code("   auth_code_123#state_456  \n"),
-            "auth_code_123#state_456"
-        );
-    }
-
-    #[test]
-    fn normalizes_claude_code_from_callback_url_hash() {
-        let url = "https://platform.claude.com/oauth/code/callback#code=cai_code_999&state=state_xyz";
-        assert_eq!(
-            normalize_claude_code(url),
-            "cai_code_999#state_xyz"
-        );
-    }
-
-    #[test]
-    fn normalizes_claude_code_from_callback_url_query() {
-        let url = "https://claude.ai/oauth/code/callback?code=cai_code_999&state=state_xyz";
-        assert_eq!(
-            normalize_claude_code(url),
-            "cai_code_999#state_xyz"
-        );
-    }
-
-    #[test]
-    fn normalizes_claude_code_from_query_string() {
-        assert_eq!(
-            normalize_claude_code("code=cai_code_999&state=state_xyz"),
-            "cai_code_999#state_xyz"
-        );
-    }
-
-    #[test]
-    fn normalizes_claude_code_with_percent_encoding() {
-        assert_eq!(
-            normalize_claude_code("https://platform.claude.com/oauth/code/callback#code=cai%2F123&state=state%20xyz"),
-            "cai/123#state xyz"
-        );
-    }
-
     #[tokio::test]
     async fn managed_auth_state_send_input_fails_when_no_active_login() {
         let state = ManagedAuthState::new();
-        let result = state.send_input("claude-code", "test#test".to_string()).await;
+        let result = state.send_input("codex", "test-input".to_string()).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No active login process"));
     }
@@ -1270,24 +971,24 @@ mod tests {
     async fn managed_auth_state_send_input_routes_to_channel() {
         let state = ManagedAuthState::new();
         let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(16);
-        state.replace_input("claude-code", 1, tx);
+        state.replace_input("codex", 1, tx);
 
-        let send_res = state.send_input("claude-code", "mycode#mystate".to_string()).await;
+        let send_res = state.send_input("codex", "my-input".to_string()).await;
         assert!(send_res.is_ok());
 
         let received = rx.recv().await;
-        assert_eq!(received.as_deref(), Some("mycode#mystate"));
+        assert_eq!(received.as_deref(), Some("my-input"));
     }
 
     #[test]
     fn managed_auth_state_cancel_login_cleans_up_and_resets_state() {
         let state = ManagedAuthState::new();
-        state.set("claude-code", LoginState { in_progress: true, message: "Signing in...".to_string(), ..LoginState::default() });
+        state.set("codex", LoginState { in_progress: true, message: "Signing in...".to_string(), ..LoginState::default() });
         let (tx, _rx) = tokio::sync::mpsc::channel::<String>(16);
-        state.replace_input("claude-code", 1, tx);
+        state.replace_input("codex", 1, tx);
 
-        state.cancel_login("claude-code");
-        let login = state.get("claude-code");
+        state.cancel_login("codex");
+        let login = state.get("codex");
         assert!(!login.in_progress);
         assert_eq!(login.authenticated, Some(false));
         assert_eq!(login.message, "Sign-in cancelled.");

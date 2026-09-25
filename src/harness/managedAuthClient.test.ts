@@ -37,8 +37,8 @@ describe("managedAuthClient", () => {
 
   it("managedAuthStartLogin() invokes managed_auth_start_login with the provider", async () => {
     invokeMock.mockResolvedValue(undefined);
-    await managedAuthStartLogin("claude-code");
-    expect(invokeMock).toHaveBeenCalledWith("managed_auth_start_login", { provider: "claude-code" });
+    await managedAuthStartLogin("github-copilot");
+    expect(invokeMock).toHaveBeenCalledWith("managed_auth_start_login", { provider: "github-copilot" });
   });
 
   it("managedAuthLoginStatus() invokes managed_auth_login_status with the provider", async () => {
@@ -56,18 +56,18 @@ describe("managedAuthClient", () => {
 
   it("managedAuthSubmitCode() invokes managed_auth_submit_code with provider and code", async () => {
     invokeMock.mockResolvedValue(undefined);
-    await managedAuthSubmitCode("claude-code", "auth_code#state_123");
+    await managedAuthSubmitCode("github-copilot", "auth_code_123");
     expect(invokeMock).toHaveBeenCalledWith("managed_auth_submit_code", {
-      provider: "claude-code",
-      code: "auth_code#state_123",
+      provider: "github-copilot",
+      code: "auth_code_123",
     });
   });
 
   it("managedAuthCancelLogin() invokes managed_auth_cancel_login with the provider", async () => {
     invokeMock.mockResolvedValue(undefined);
-    await managedAuthCancelLogin("claude-code");
+    await managedAuthCancelLogin("github-copilot");
     expect(invokeMock).toHaveBeenCalledWith("managed_auth_cancel_login", {
-      provider: "claude-code",
+      provider: "github-copilot",
     });
   });
 });

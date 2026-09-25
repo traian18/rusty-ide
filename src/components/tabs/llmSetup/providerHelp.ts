@@ -12,11 +12,6 @@ const PROVIDER_HELP_TEXT: Record<string, string[]> = {
     "Connects directly to Anthropic's Claude API.",
     "If API Key is left blank, it falls back to ANTHROPIC_API_KEY in the sidecar environment.",
   ],
-  "anthropic-claude-code": [
-    "Uses Anthropic's official Claude Agent SDK and local Claude Code authentication.",
-    "Sign in with Claude Code using /login, or provide ANTHROPIC_API_KEY in the sidecar environment.",
-    "Rusty supplies and controls the workspace tools.",
-  ],
   opencode: [
     "Connects to OpenCode Zen and uses OPENCODE_API_KEY when the key is blank.",
     "Model discovery enriches the Zen catalog with each model's required protocol.",

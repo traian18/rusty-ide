@@ -1840,28 +1840,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "harness-integration-claude-code"
-version = "0.2.2"
-dependencies = [
- "async-trait",
- "harness-generic-backend",
- "harness-integration-anthropic",
- "harness-model",
- "harness-protocol",
- "harness-runtime",
- "reqwest 0.12.28",
- "rust_decimal",
- "security-framework",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
 name = "harness-integration-codex"
 version = "0.2.2"
 dependencies = [
@@ -4357,7 +4335,6 @@ dependencies = [
  "harness-context",
  "harness-engine",
  "harness-integration-anthropic",
- "harness-integration-claude-code",
  "harness-integration-codex",
  "harness-integration-gemini",
  "harness-integration-github-copilot",

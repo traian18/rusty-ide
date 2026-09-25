@@ -95,9 +95,9 @@ describe("createHybridControlPlane", () => {
     ]);
     const hybridControlPlane = createHybridControlPlane();
 
-    await expect(hybridControlPlane.testConnection(provider({ id: "anthropic-claude-code" })))
+    await expect(hybridControlPlane.testConnection(provider({ id: "openai-codex" })))
       .resolves.toEqual({ modelCount: 2, supportedModelCount: 2 });
-    expect(invokeMock).toHaveBeenCalledWith("managed_auth_models", { provider: "claude-code" });
+    expect(invokeMock).toHaveBeenCalledWith("managed_auth_models", { provider: "codex" });
   });
 
   it("getQuota() answers an HTTP-transport provider directly (no network call)", async () => {
@@ -139,10 +139,10 @@ describe("createHybridControlPlane", () => {
   });
 
   it("getQuota() surfaces a managed_quota.rs failure as a rejection", async () => {
-    invokeMock.mockReset().mockRejectedValue("The claude-code CLI is not bundled with this build");
+    invokeMock.mockReset().mockRejectedValue("The codex CLI is not bundled with this build");
     const hybridControlPlane = createHybridControlPlane();
 
-    await expect(hybridControlPlane.getQuota(provider({ id: "anthropic-claude-code" }))).rejects.toBe("The claude-code CLI is not bundled with this build");
+    await expect(hybridControlPlane.getQuota(provider({ id: "openai-codex" }))).rejects.toBe("The codex CLI is not bundled with this build");
   });
 
   it("getCopilotStatus()/startCopilotLogin()/logoutCopilot() call managed_auth.rs directly", async () => {
@@ -163,15 +163,12 @@ describe("createHybridControlPlane", () => {
     expect(invokeMock).toHaveBeenCalledWith("managed_auth_logout", { provider: "github-copilot" });
   });
 
-  it("getCodexStatus()/getClaudeCodeStatus() call managed_auth.rs with the right integration id", async () => {
+  it("getCodexStatus() calls managed_auth.rs with the right integration id", async () => {
     invokeMock.mockReset().mockResolvedValue({ authenticated: false, message: "", verification_uri: null, user_code: null, in_progress: false });
     const hybridControlPlane = createHybridControlPlane();
 
     await hybridControlPlane.getCodexStatus();
     expect(invokeMock).toHaveBeenCalledWith("managed_auth_status", { provider: "codex" });
-
-    await hybridControlPlane.getClaudeCodeStatus();
-    expect(invokeMock).toHaveBeenCalledWith("managed_auth_status", { provider: "claude-code" });
   });
 
   it("recordUsage() calls record_usage directly and unconditionally", async () => {

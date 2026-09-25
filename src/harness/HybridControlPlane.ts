@@ -9,8 +9,8 @@
 // directly, unconditionally -- there's no provider-specific behavior to
 // preserve for writing a usage sample.
 //
-// The 9 managed-provider status/login/logout methods (get/start/logout x
-// Copilot/Codex/ClaudeCode) call `managedAuthClient.ts`'s Rust-backed
+// The 6 managed-provider status/login/logout methods (get/start/logout x
+// Copilot/Codex) call `managedAuthClient.ts`'s Rust-backed
 // commands (`managed_auth.rs`, Phase 3) -- `loginStateToConnectionStatus`
 // adapts `managed_auth.rs`'s `LoginState` (authenticated/message/
 // verification_uri/user_code/in_progress) into the richer Copilot/Codex-
@@ -39,7 +39,6 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { discoverProviderModelsDirect, fetchProviderQuotaDirect, testProviderConnectionDirect } from "./core/engine/providerCatalog";
 import type {
-  ClaudeCodeConnectionStatus,
   CodexConnectionStatus,
   CopilotConnectionStatus,
   HarnessControlPlane,
@@ -47,7 +46,7 @@ import type {
 } from "./contract/controlPlane";
 import { managedAuthLogout, managedAuthModels, managedAuthQuota, managedAuthStartLogin, managedAuthStatus, type LoginState, type ManagedAuthProvider, type ManagedModel } from "./managedAuthClient";
 import { mapManagedQuota } from "./managedQuota";
-import { isClaudeCodeProvider, isCodexProvider, isCopilotProvider, isManagedAuthProvider } from "../store/providerHelpers";
+import { isCodexProvider, isCopilotProvider, isManagedAuthProvider } from "../store/providerHelpers";
 import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot, ReasoningEffort } from "../store/types";
 
 function loginStateToConnectionStatus(state: LoginState): CopilotConnectionStatus & CodexConnectionStatus {
@@ -116,12 +115,10 @@ function managedModelToProviderModel(provider: CustomProvider, model: ManagedMod
 }
 
 /** The managed_auth.rs/managed_quota.rs integration id for a managed
- * provider (the store's own ids differ: `openai-codex`, `anthropic-claude-
- * code`), or undefined for anything else. */
+ * provider (the store's own id differs: `openai-codex`), or undefined for anything else. */
 function managedIntegrationId(provider: CustomProvider): ManagedAuthProvider | undefined {
   if (isCopilotProvider(provider)) return "github-copilot";
   if (isCodexProvider(provider)) return "codex";
-  if (isClaudeCodeProvider(provider)) return "claude-code";
   return undefined;
 }
 
@@ -173,18 +170,6 @@ export function createHybridControlPlane(): HarnessControlPlane {
     },
     async logoutCodex(): Promise<CodexConnectionStatus> {
       await managedAuthLogout("codex");
-      return DISCONNECTED_PLACEHOLDER;
-    },
-
-    async getClaudeCodeStatus(): Promise<ClaudeCodeConnectionStatus> {
-      return loginStateToConnectionStatus(await managedAuthStatus("claude-code"));
-    },
-    async startClaudeCodeLogin(): Promise<ClaudeCodeConnectionStatus> {
-      await managedAuthStartLogin("claude-code");
-      return CONNECTING_PLACEHOLDER;
-    },
-    async logoutClaudeCode(): Promise<ClaudeCodeConnectionStatus> {
-      await managedAuthLogout("claude-code");
       return DISCONNECTED_PLACEHOLDER;
     },
   };

@@ -18,7 +18,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-export type ManagedAuthProvider = "codex" | "claude-code" | "github-copilot";
+export type ManagedAuthProvider = "codex" | "github-copilot";
 
 export interface LoginState {
   /** `null` when this provider has no reliable plain-CLI way to check

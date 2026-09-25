@@ -186,7 +186,7 @@ pub async fn managed_auth_status(
 
 /// Starts a login attempt in the background and returns immediately --
 /// the frontend polls `managed_auth_login_status` for progress, matching
-/// the existing sidecar-backed Copilot/Codex/Claude Code login cards' own
+/// the existing sidecar-backed Copilot/Codex login cards' own
 /// polling UX.
 #[tauri::command]
 pub async fn managed_auth_start_login(app: tauri::AppHandle, state: State<'_, HarnessState>, provider: String) -> Result<(), String> {

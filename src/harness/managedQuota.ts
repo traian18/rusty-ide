@@ -3,13 +3,12 @@
 // (managed_quota.rs's `ManagedQuota`, via managedAuthClient.ts's
 // `managedAuthQuota`) into the store's `ProviderQuotaSnapshot`.
 //
-// The three mappers are the removed sidecar's own
+// The two mappers are the removed sidecar's own
 // agent-sidecar/src/services/providerQuota.ts `mapCopilotQuota` /
-// `mapCodexQuota` / `mapClaudeCodeQuota`, ported verbatim -- the raw
-// shapes they consume are unchanged (Copilot's SDK-style
-// `AccountQuotaSnapshot`s come straight from the CLI's `account.getQuota`,
-// Codex's `account/rateLimits/read` result, Anthropic's `/api/oauth/usage`
-// body). One deliberate difference: Copilot's per-snapshot `resetDate` is
+// `mapCodexQuota`, ported verbatim -- the raw shapes they consume are
+// unchanged (Copilot's SDK-style `AccountQuotaSnapshot`s come straight
+// from the CLI's `account.getQuota`, Codex's `account/rateLimits/read`
+// result). One deliberate difference: Copilot's per-snapshot `resetDate` is
 // really the snapshot *timestamp* (observed live: every window's
 // `resetDate` == now), so the period reset is taken from the user
 // record's `quota_reset_date_utc` (`data.quotaResetDate`) first.
@@ -17,7 +16,7 @@
 
 import type { ManagedQuota } from "./managedAuthClient";
 import type { CustomProvider, ProviderQuotaSnapshot, ProviderQuotaWindow } from "../store/types";
-import { isClaudeCodeProvider, isCodexProvider, isCopilotProvider } from "../store/providerHelpers";
+import { isCodexProvider, isCopilotProvider } from "../store/providerHelpers";
 
 type Raw = Record<string, unknown>;
 
@@ -219,94 +218,10 @@ export function mapCodexQuota(provider: CustomProvider, quota: ManagedQuota): Pr
 // Claude Code
 // ------------------------------------------------------------
 
-const CLAUDE_WINDOW_DETAILS: Record<string, { label: string; minutes: number }> = {
-  five_hour: { label: "5-hour limit", minutes: 300 },
-  seven_day: { label: "Weekly limit", minutes: 10_080 },
-  seven_day_oauth_apps: { label: "Weekly OAuth apps limit", minutes: 10_080 },
-  seven_day_opus: { label: "Weekly Opus limit", minutes: 10_080 },
-  seven_day_sonnet: { label: "Weekly Sonnet limit", minutes: 10_080 },
-};
-
-function claudeUtilization(value: Raw): number | undefined {
-  return percentage(value.utilization ?? value.used_percent ?? value.usedPercent);
-}
-
-export function mapClaudeCodeQuota(provider: CustomProvider, quota: ManagedQuota): ProviderQuotaSnapshot {
-  const base = snapshotBase(provider, "anthropic-claude-code");
-  if (!quota.authenticated) {
-    return {
-      ...base,
-      state: "unauthenticated",
-      account: quota.account,
-      plan: quota.plan,
-      message: quota.message || "Sign in with Claude Code to read subscription usage.",
-      manageUrl: "https://claude.ai/settings/usage",
-    };
-  }
-  const usage = asRecord(quota.data);
-  const windows = Object.entries(CLAUDE_WINDOW_DETAILS).flatMap(([id, details]): ProviderQuotaWindow[] => {
-    const value = usage[id];
-    if (!value || typeof value !== "object") return [];
-    const window = value as Raw;
-    const usedPercent = claudeUtilization(window);
-    return [{
-      id,
-      label: details.label,
-      usedPercent,
-      remainingPercent: usedPercent === undefined ? undefined : 100 - usedPercent,
-      resetAt: isoDate(window.resets_at ?? window.resetsAt),
-      windowMinutes: details.minutes,
-    }];
-  });
-  if (Array.isArray(usage.model_scoped)) {
-    usage.model_scoped.forEach((value: unknown, index: number) => {
-      if (!value || typeof value !== "object") return;
-      const window = value as Raw;
-      const usedPercent = claudeUtilization(window);
-      windows.push({
-        id: `model_scoped_${index}`,
-        label: typeof window.display_name === "string" && window.display_name.trim()
-          ? `Weekly ${window.display_name.trim()} limit`
-          : "Weekly model limit",
-        usedPercent,
-        remainingPercent: usedPercent === undefined ? undefined : 100 - usedPercent,
-        resetAt: isoDate(window.resets_at ?? window.resetsAt),
-        windowMinutes: 10_080,
-      });
-    });
-  }
-  const extraUsage = asRecord(usage.extra_usage);
-  if (extraUsage.is_enabled) {
-    const usedPercent = percentage(extraUsage.utilization);
-    const used = finiteNumber(extraUsage.used_credits);
-    const limit = finiteNumber(extraUsage.monthly_limit);
-    windows.push({
-      id: "extra_usage",
-      label: "Monthly extra usage",
-      usedPercent,
-      remainingPercent: usedPercent === undefined ? undefined : 100 - usedPercent,
-      used,
-      limit,
-      remaining: used === undefined || limit === undefined ? undefined : Math.max(0, limit - used),
-      unit: "credits",
-    });
-  }
-  return {
-    ...base,
-    state: windows.length ? "available" : "unavailable",
-    account: quota.account,
-    plan: quota.plan,
-    windows,
-    message: windows.length ? undefined : quota.message || "Anthropic did not return usage windows for this Claude Code account.",
-    manageUrl: "https://claude.ai/settings/usage",
-  };
-}
-
 /** Picks the mapper by provider identity (same predicates
  * `HybridControlPlane`'s managed-provider detection uses). */
 export function mapManagedQuota(provider: CustomProvider, quota: ManagedQuota): ProviderQuotaSnapshot {
   if (isCopilotProvider(provider)) return mapCopilotQuota(provider, quota);
   if (isCodexProvider(provider)) return mapCodexQuota(provider, quota);
-  if (isClaudeCodeProvider(provider)) return mapClaudeCodeQuota(provider, quota);
   throw new Error(`mapManagedQuota: '${provider.id}' is not a managed-auth provider.`);
 }

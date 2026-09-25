@@ -13,7 +13,6 @@ export interface RuntimeProgress {
 
 const names: Record<string, string> = {
   codex: "Codex",
-  "claude-code": "Claude Code",
   "github-copilot": "GitHub Copilot",
 };
 const megabytes = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;

@@ -15,9 +15,8 @@
 // already knows how to reach becomes usable here, not just the three this
 // file used to hand-map to rusty-core's own direct integrations.
 //
-// Managed transports (github-copilot-sdk, openai-codex-app-server,
-// anthropic-claude-agent-sdk) map to rusty-core's own subprocess
-// integrations (`codex`/`claude-code`/`github-copilot`,
+// Managed transports (github-copilot-sdk, openai-codex-app-server) map to
+// rusty-core's own subprocess integrations (`codex`/`github-copilot`,
 // rusty-core/crates/integrations/*) -- already registered and live in
 // HarnessState::harness() (src-tauri/src/harness/mod.rs), just never routed
 // to before. `recipe.rs::build_session_builder` fills in the real
@@ -88,7 +87,6 @@ function toCoreReasoningEffort(effort: UiReasoningEffort): CoreReasoningEffort {
 const MANAGED_TRANSPORT_INTEGRATIONS: Record<string, string> = {
   "github-copilot-sdk": "github-copilot",
   "openai-codex-app-server": "codex",
-  "anthropic-claude-agent-sdk": "claude-code",
 };
 
 export function mapProviderToIntegration(provider: CustomProvider, modelReference: string): ProviderMappingResult {

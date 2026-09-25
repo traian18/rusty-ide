@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  isClaudeCodeProvider,
   isCodexProvider,
   isCopilotProvider,
   isManagedAuthProvider,
+  isRemovedProviderId,
+  isRemovedProviderModel,
   normalizeStoredProvider,
   parseModelReference,
   resolveProviderModel,
@@ -55,23 +56,23 @@ describe("isCodexProvider", () => {
   });
 });
 
-describe("isClaudeCodeProvider", () => {
-  it("recognizes by id", () => {
-    expect(isClaudeCodeProvider(provider({ id: "anthropic-claude-code" }))).toBe(true);
+describe("isRemovedProviderId / isRemovedProviderModel", () => {
+  it("flags the removed Claude subscription provider and its models", () => {
+    expect(isRemovedProviderId("anthropic-claude-code")).toBe(true);
+    expect(isRemovedProviderModel("anthropic-claude-code/claude-opus-4-6")).toBe(true);
+    expect(isRemovedProviderModel("anthropic-claude-code/claude-opus-4-6::reasoning=high")).toBe(true);
   });
-  it("recognizes by transport", () => {
-    expect(isClaudeCodeProvider(provider({ id: "renamed", transport: "anthropic-claude-agent-sdk" }))).toBe(true);
-  });
-  it("is false for an unrelated provider", () => {
-    expect(isClaudeCodeProvider(provider({ id: "anthropic" }))).toBe(false);
+  it("leaves the API-key Anthropic provider alone", () => {
+    expect(isRemovedProviderId("anthropic")).toBe(false);
+    expect(isRemovedProviderModel("anthropic/claude-opus-4-6")).toBe(false);
+    expect(isRemovedProviderModel("openrouter/anthropic-claude-code/x")).toBe(false);
   });
 });
 
 describe("isManagedAuthProvider", () => {
-  it("is true for any of the three managed providers", () => {
+  it("is true for both managed providers", () => {
     expect(isManagedAuthProvider(provider({ id: "github-copilot" }))).toBe(true);
     expect(isManagedAuthProvider(provider({ id: "openai-codex" }))).toBe(true);
-    expect(isManagedAuthProvider(provider({ id: "anthropic-claude-code" }))).toBe(true);
   });
 
   it("is false for a regular provider", () => {

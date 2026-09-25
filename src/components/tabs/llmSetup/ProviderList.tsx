@@ -1,7 +1,6 @@
 import { GitBranch } from "lucide-react";
 import type { CustomProvider, ProviderStatus } from "../../../store";
 import {
-  isClaudeCodeProvider,
   isCodexProvider,
   isCopilotProvider,
   isManagedAuthProvider,
@@ -27,7 +26,7 @@ interface ProviderListProps {
   activeProviderId: string | null;
   connectionStatuses: Record<string, ConnectionStatus>;
   /** The whole registry (REFACTOR_PLAN.md PR 3b commit 10) -- replaces the
-      three separate copilotStatus/codexStatus/claudeCodeStatus props each
+      separate copilotStatus/codexStatus props each
       previously requiring LlmSetupTab to plumb through its own status
       objects. Every provider's badge is looked up by id from here. */
   providerStatus: Record<string, ProviderStatus>;
@@ -92,13 +91,11 @@ function requiresAnApiKey(provider: CustomProvider): boolean {
 function providerSubtitle(provider: CustomProvider): string {
   if (isCopilotProvider(provider)) return "Copilot subscription via GitHub";
   if (isCodexProvider(provider)) return "Codex plan via OpenAI sign-in";
-  if (isClaudeCodeProvider(provider)) return "Claude Code via Anthropic sign-in";
   return provider.baseUrl || "Built-in API endpoint";
 }
 
 function managedProviderVendor(provider: CustomProvider): string {
   if (isCodexProvider(provider)) return "OpenAI";
-  if (isClaudeCodeProvider(provider)) return "Anthropic";
   return "GitHub";
 }
 

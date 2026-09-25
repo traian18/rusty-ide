@@ -1,7 +1,6 @@
 import { useWorkspaceStore } from "../../store";
 import { hybridControlPlane as controlPlane } from "../../harness/HybridControlPlane";
 import type {
-  ClaudeCodeConnectionStatus,
   CodexConnectionStatus,
   CopilotConnectionStatus,
 } from "../../harness/contract/controlPlane";
@@ -37,24 +36,22 @@ import { notify } from "../../notificationStore";
  * the store until the secure-config step completes.
  */
 
-const MANAGED_PROVIDER_IDS = ["github-copilot", "openai-codex", "anthropic-claude-code"] as const;
+const MANAGED_PROVIDER_IDS = ["github-copilot", "openai-codex"] as const;
 type ManagedProviderId = (typeof MANAGED_PROVIDER_IDS)[number];
 
-type ManagedStatus = CopilotConnectionStatus | CodexConnectionStatus | ClaudeCodeConnectionStatus;
+type ManagedStatus = CopilotConnectionStatus | CodexConnectionStatus;
 
 const STATUS_LOADERS: Record<ManagedProviderId, () => Promise<ManagedStatus>> = {
   "github-copilot": () => controlPlane.getCopilotStatus(),
   "openai-codex": () => controlPlane.getCodexStatus(),
-  "anthropic-claude-code": () => controlPlane.getClaudeCodeStatus(),
 };
 
 /**
- * Bounds how many of the three managed-provider status checks run at once.
+ * Bounds how many of the managed-provider status checks run at once.
  * Each one can be expensive on the sidecar side (Copilot: a full SDK client
  * cold start with no server-side timeout of its own; Codex: a child-process
- * spawn plus a 20s initialize; Claude Code: up to a 10s keychain read plus a
- * 20s execFile) -- unbounded concurrency at every launch would mean all
- * three paying their worst case simultaneously.
+ * spawn plus a 20s initialize) -- unbounded concurrency at every launch
+ * would mean all of them paying their worst case simultaneously.
  */
 const STATUS_CHECK_CONCURRENCY = 2;
 const statusCheckSemaphore = createSemaphore(STATUS_CHECK_CONCURRENCY);
@@ -88,7 +85,7 @@ function isSetupTabOpen(): boolean {
   return useWorkspaceStore.getState().tabs.some((tab) => tab.type === "llm-setup");
 }
 
-/** CopilotConnectionStatus reports `login`/`host`; Codex/Claude Code report
+/** CopilotConnectionStatus reports `login`/`host`; Codex reports
  * `email`/`planType` -- accessed via a loose cast rather than an `in`
  * narrowing on the union, which TS accepts either way but this is more
  * obviously correct at a glance. */
@@ -147,8 +144,8 @@ function applySettled(id: ManagedProviderId, status: ManagedStatus, mySeq: numbe
       );
     if (isReadyForBrowserAuth) {
       pendingLoginNotification.delete(id);
-      const vendor = id === "openai-codex" ? "OpenAI" : id === "anthropic-claude-code" ? "Anthropic" : "GitHub";
-      const product = id === "openai-codex" ? "Codex" : id === "anthropic-claude-code" ? "Claude Code" : "Copilot";
+      const vendor = id === "openai-codex" ? "OpenAI" : "GitHub";
+      const product = id === "openai-codex" ? "Codex" : "Copilot";
       notify(
         `${vendor} authorization`,
         `Complete the ${product} sign-in flow in your browser.`,
@@ -229,12 +226,10 @@ function forcePollNow(id: ManagedProviderId): void {
 const LOGIN_LOADERS: Record<ManagedProviderId, () => Promise<ManagedStatus>> = {
   "github-copilot": () => controlPlane.startCopilotLogin(),
   "openai-codex": () => controlPlane.startCodexLogin(),
-  "anthropic-claude-code": () => controlPlane.startClaudeCodeLogin(),
 };
 const LOGOUT_LOADERS: Record<ManagedProviderId, () => Promise<ManagedStatus>> = {
   "github-copilot": () => controlPlane.logoutCopilot(),
   "openai-codex": () => controlPlane.logoutCodex(),
-  "anthropic-claude-code": () => controlPlane.logoutClaudeCode(),
 };
 
 /**
@@ -251,7 +246,7 @@ export async function startManagedLogin(provider: CustomProvider): Promise<void>
   const id = provider.id;
   // Throws rather than returning silently: LlmSetupTab renders its sign-in
   // button from the transport-OR-id predicates (providerHelpers.ts's
-  // isClaudeCodeProvider etc.), while this dispatch is keyed on the id
+  // isCodexProvider etc.), while this dispatch is keyed on the id
   // alone -- so a provider matched only by transport used to get a button
   // whose click did nothing at all: no browser, no error, no status
   // change. A visible error beats a dead button.
@@ -291,51 +286,8 @@ export async function logoutManaged(provider: CustomProvider): Promise<void> {
   forcePollNow(id);
 }
 
-/**
- * Normalizes user input for Claude Code authentication.
- * If the user pastes:
- * - Direct `code#state`
- * - Callback URL `https://platform.claude.com/oauth/code/callback#code=...&state=...` or `?code=...&state=...`
- * - Parameter string `code=...&state=...`
- * This extracts and reconstructs `code#state`.
- */
-export function normalizeClaudeAuthCode(rawInput: string): string {
-  const trimmed = rawInput.trim();
-  if (!trimmed) return trimmed;
-
-  if (trimmed.includes("#") && !trimmed.includes("code=") && !trimmed.includes("state=")) {
-    return trimmed;
-  }
-
-  let searchStr = "";
-  if (trimmed.includes("#")) {
-    searchStr = trimmed.substring(trimmed.indexOf("#") + 1);
-  } else if (trimmed.includes("?")) {
-    searchStr = trimmed.substring(trimmed.indexOf("?") + 1);
-  } else if (trimmed.includes("code=") || trimmed.includes("state=")) {
-    searchStr = trimmed;
-  }
-
-  if (searchStr) {
-    try {
-      const params = new URLSearchParams(searchStr);
-      const code = params.get("code") || params.get("authorizationCode");
-      const state = params.get("state");
-      if (code && state) {
-        return `${code}#${state}`;
-      }
-    } catch {
-      // Fall back to returning trimmed
-    }
-  }
-
-  return trimmed;
-}
-
 function managedIntegrationForProviderId(id: ManagedProviderId): ManagedAuthProvider {
   switch (id) {
-    case "anthropic-claude-code":
-      return "claude-code";
     case "openai-codex":
       return "codex";
     case "github-copilot":
@@ -344,7 +296,7 @@ function managedIntegrationForProviderId(id: ManagedProviderId): ManagedAuthProv
 }
 
 /**
- * Submits an authentication code (e.g. Claude Code's browser confirmation code)
+ * Submits an authentication code
  * into the in-flight login process's stdin.
  */
 export async function submitManagedAuthCode(provider: CustomProvider, rawCode: string): Promise<void> {
@@ -352,7 +304,7 @@ export async function submitManagedAuthCode(provider: CustomProvider, rawCode: s
   if (!isManagedProviderId(id)) {
     throw new Error(`'${provider.id}' is not one of the managed-auth providers (${MANAGED_PROVIDER_IDS.join(", ")}).`);
   }
-  const code = id === "anthropic-claude-code" ? normalizeClaudeAuthCode(rawCode) : rawCode.trim();
+  const code = rawCode.trim();
   const integration = managedIntegrationForProviderId(id);
   await managedAuthSubmitCode(integration, code);
   forcePollNow(id);
@@ -374,7 +326,7 @@ export async function cancelManagedLogin(provider: CustomProvider): Promise<void
 
 /**
  * Background model discovery (REFACTOR_PLAN.md PR 3b commit 7). Separate
- * from the status-check semaphore above: Copilot/Codex/Claude Code's
+ * from the status-check semaphore above: Copilot/Codex's
  * discovery calls are just as expensive as their status checks, and a
  * regular (non-managed) provider's discovery has no status-check cycle to
  * piggyback on at all, so it needs its own bound.
@@ -464,7 +416,7 @@ async function runDiscoverySweep(): Promise<void> {
  * timer would be a real, avoidable new cost: every managed provider's
  * quota path spawns its vendored CLI afresh on each call (src-tauri/src/
  * harness/managed_quota.rs -- a one-shot JSON-RPC session for Copilot/
- * Codex, `auth status` plus an HTTP call for Claude Code), so there is no
+ * Codex), so there is no
  * warm-state amortization to rely on.
  */
 const QUOTA_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;

@@ -40,7 +40,6 @@ use std::sync::{Arc, Mutex};
 
 use harness_engine::{Harness, SessionHandle};
 use harness_integration_anthropic::AnthropicFactory;
-use harness_integration_claude_code::ClaudeCodeFactory;
 use harness_integration_codex::CodexFactory;
 use harness_integration_gemini::GeminiFactory;
 use harness_integration_github_copilot::GitHubCopilotFactory;
@@ -105,7 +104,6 @@ impl HarnessState {
                     .register_integration(Arc::new(OpenAiResponsesFactory))
                     .register_integration(Arc::new(OpenAiCompatibleFactory))
                     .register_integration(Arc::new(GeminiFactory))
-                    .register_integration(Arc::new(ClaudeCodeFactory))
                     .register_integration(Arc::new(CodexFactory))
                     .register_integration(Arc::new(GitHubCopilotFactory))
                     .build()

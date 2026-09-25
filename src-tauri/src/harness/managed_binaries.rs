@@ -68,19 +68,6 @@ pub fn codex_binary_path(node_modules_dir: &Path) -> Option<PathBuf> {
     path.is_file().then_some(path)
 }
 
-/// `<node_modules>/@anthropic-ai/claude-agent-sdk-{platform}-{arch}/claude`.
-pub fn claude_code_binary_path(node_modules_dir: &Path) -> Option<PathBuf> {
-    let path = node_modules_dir
-        .join("@anthropic-ai")
-        .join(format!(
-            "claude-agent-sdk-{}-{}",
-            node_platform(),
-            node_arch()
-        ))
-        .join(exe_name("claude"));
-    path.is_file().then_some(path)
-}
-
 /// `<node_modules>/@github/copilot-{platform}-{arch}/copilot`.
 pub fn github_copilot_binary_path(node_modules_dir: &Path) -> Option<PathBuf> {
     let path = node_modules_dir
@@ -98,7 +85,7 @@ struct Package {
 }
 
 pub fn is_managed_provider(provider: &str) -> bool {
-    matches!(provider, "codex" | "claude-code" | "github-copilot")
+    matches!(provider, "codex" | "github-copilot")
 }
 
 fn package_for(provider: &str) -> Result<(String, Package), String> {
@@ -111,14 +98,6 @@ fn package_for(provider: &str) -> Result<(String, Package), String> {
     let arch = node_arch();
     let name = match provider {
         "codex" => format!("@openai/codex-{platform}-{arch}"),
-        "claude-code" => format!(
-            "@anthropic-ai/claude-agent-sdk-{platform}-{arch}{}",
-            if cfg!(target_env = "musl") {
-                "-musl"
-            } else {
-                ""
-            }
-        ),
         "github-copilot" => format!(
             "@github/copilot-{}-{arch}",
             if cfg!(target_env = "musl") {
@@ -146,7 +125,6 @@ fn binary_in_package(provider: &str, root: &Path) -> Option<PathBuf> {
             .join(codex_target_triple()?)
             .join("bin")
             .join(exe_name("codex")),
-        "claude-code" => root.join(exe_name("claude")),
         "github-copilot" => root.join(exe_name("copilot")),
         _ => return None,
     };
@@ -285,15 +263,13 @@ impl Drop for ProgressReporter {
 /// Per-provider locking coalesces concurrent requests. Temporary directories
 /// keep cancelled/failed downloads invisible and the final rename is atomic.
 pub async fn ensure_managed_binary(app: &AppHandle, provider: &str) -> Result<PathBuf, String> {
-    static LOCKS: [tokio::sync::Mutex<()>; 3] = [
-        tokio::sync::Mutex::const_new(()),
+    static LOCKS: [tokio::sync::Mutex<()>; 2] = [
         tokio::sync::Mutex::const_new(()),
         tokio::sync::Mutex::const_new(()),
     ];
     let index = match provider {
         "codex" => 0,
-        "claude-code" => 1,
-        "github-copilot" => 2,
+        "github-copilot" => 1,
         _ => return Err(format!("Unknown managed provider: {provider}")),
     };
     let _guard = LOCKS[index].lock().await;
@@ -412,16 +388,16 @@ mod tests {
     fn extracts_package_and_preserves_executable_permissions() {
         let dir = tempfile::tempdir().unwrap();
         extract_package(
-            &archive_with("package/claude", tar::EntryType::Regular),
+            &archive_with("package/copilot", tar::EntryType::Regular),
             dir.path(),
         )
         .unwrap();
-        assert!(dir.path().join("claude").is_file());
+        assert!(dir.path().join("copilot").is_file());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             assert_ne!(
-                fs::metadata(dir.path().join("claude"))
+                fs::metadata(dir.path().join("copilot"))
                     .unwrap()
                     .permissions()
                     .mode()
@@ -455,7 +431,7 @@ mod tests {
                 assert_eq!(package[field], locked[field], "{name}: {field}");
             }
         }
-        for provider in ["codex", "claude-code", "github-copilot"] {
+        for provider in ["codex", "github-copilot"] {
             assert!(package_for(provider).is_ok());
         }
         assert!(package_for("openai").is_err());
@@ -464,7 +440,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "downloads native packages; run explicitly to smoke-test upstream artifacts"]
     async fn downloaded_runtimes_pass_integrity_and_execute() {
-        for provider in ["codex", "claude-code", "github-copilot"] {
+        for provider in ["codex", "github-copilot"] {
             let (_, package) = package_for(provider).unwrap();
             let bytes = reqwest::get(&package.resolved)
                 .await
@@ -504,11 +480,10 @@ mod tests {
     #[test]
     fn an_installed_provider_does_not_make_other_providers_available() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(binary_in_package("claude-code", dir.path()).is_none());
-        touch(&dir.path().join(exe_name("claude")));
-        assert!(binary_in_package("claude-code", dir.path()).is_some());
-        assert!(binary_in_package("codex", dir.path()).is_none());
         assert!(binary_in_package("github-copilot", dir.path()).is_none());
+        touch(&dir.path().join(exe_name("copilot")));
+        assert!(binary_in_package("github-copilot", dir.path()).is_some());
+        assert!(binary_in_package("codex", dir.path()).is_none());
     }
 
     fn touch(path: &Path) {
@@ -542,23 +517,6 @@ mod tests {
     }
 
     #[test]
-    fn resolves_the_claude_code_binary_when_the_vendored_package_is_staged() {
-        let dir = tempfile::tempdir().unwrap();
-        let expected = dir
-            .path()
-            .join("@anthropic-ai")
-            .join(format!(
-                "claude-agent-sdk-{}-{}",
-                node_platform(),
-                node_arch()
-            ))
-            .join(exe_name("claude"));
-        touch(&expected);
-
-        assert_eq!(claude_code_binary_path(dir.path()), Some(expected));
-    }
-
-    #[test]
     fn resolves_the_github_copilot_binary_when_the_vendored_package_is_staged() {
         let dir = tempfile::tempdir().unwrap();
         let expected = dir
@@ -574,7 +532,7 @@ mod tests {
     #[test]
     fn a_present_but_empty_node_modules_dir_resolves_nothing_for_any_provider() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(claude_code_binary_path(dir.path()), None);
+        assert_eq!(codex_binary_path(dir.path()), None);
         assert_eq!(github_copilot_binary_path(dir.path()), None);
     }
 }

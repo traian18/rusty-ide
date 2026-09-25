@@ -48,8 +48,6 @@ export interface CodexConnectionStatus {
   diagnostics?: string[];
 }
 
-export type ClaudeCodeConnectionStatus = CodexConnectionStatus;
-
 export interface UsageRecordSample {
   workspaceRoot: string;
   surface: string;
@@ -77,9 +75,6 @@ export interface HarnessControlPlane {
   getCodexStatus(): Promise<CodexConnectionStatus>;
   startCodexLogin(): Promise<CodexConnectionStatus>;
   logoutCodex(): Promise<CodexConnectionStatus>;
-  getClaudeCodeStatus(): Promise<ClaudeCodeConnectionStatus>;
-  startClaudeCodeLogin(): Promise<ClaudeCodeConnectionStatus>;
-  logoutClaudeCode(): Promise<ClaudeCodeConnectionStatus>;
   /** Records one incremental usage sample into .rusty/metrics (not a
    * cumulative total) via the `record_usage` Tauri command
    * (src-tauri/src/usage_tracking.rs) -- see HybridControlPlane.ts's own

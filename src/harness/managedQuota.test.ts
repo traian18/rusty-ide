@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CustomProvider } from "../store/types";
-import { mapClaudeCodeQuota, mapCodexQuota, mapCopilotQuota, mapManagedQuota } from "./managedQuota";
+import { mapCodexQuota, mapCopilotQuota, mapManagedQuota } from "./managedQuota";
 
 function provider(overrides: Partial<CustomProvider> = {}): CustomProvider {
   return { id: "github-copilot", name: "GitHub Copilot", baseUrl: "", apiKey: "", apiType: "openai-completions", models: [], ...overrides };
@@ -127,60 +127,11 @@ describe("mapCodexQuota", () => {
   });
 });
 
-describe("mapClaudeCodeQuota", () => {
-  const claude = provider({ id: "anthropic-claude-code", name: "Claude Code", transport: "anthropic-claude-agent-sdk" });
-  const live = {
-    authenticated: true,
-    account: "me@example.com",
-    plan: "pro",
-    data: {
-      five_hour: { utilization: 28.0, resets_at: "2026-09-18T16:00:00.591528+00:00" },
-      seven_day: { utilization: 86.0, resets_at: "2026-09-22T04:00:00.591552+00:00" },
-      seven_day_opus: null,
-      extra_usage: { is_enabled: false },
-    },
-  };
-
-  it("maps the 5-hour and weekly windows and skips null ones", () => {
-    const snapshot = mapClaudeCodeQuota(claude, live);
-    expect(snapshot.state).toBe("available");
-    expect(snapshot.plan).toBe("pro");
-    expect(snapshot.windows).toEqual([
-      { id: "five_hour", label: "5-hour limit", usedPercent: 28, remainingPercent: 72, resetAt: "2026-09-18T16:00:00.591Z", windowMinutes: 300 },
-      { id: "seven_day", label: "Weekly limit", usedPercent: 86, remainingPercent: 14, resetAt: "2026-09-22T04:00:00.591Z", windowMinutes: 10080 },
-    ]);
-    expect(snapshot.manageUrl).toBe("https://claude.ai/settings/usage");
-  });
-
-  it("adds model-scoped and extra-usage windows when present", () => {
-    const snapshot = mapClaudeCodeQuota(claude, {
-      ...live,
-      data: {
-        ...live.data,
-        model_scoped: [{ display_name: "Opus", utilization: 10, resets_at: "2026-09-22T04:00:00Z" }],
-        extra_usage: { is_enabled: true, utilization: 40, used_credits: 4, monthly_limit: 10 },
-      },
-    });
-    expect(snapshot.windows.map((w) => w.id)).toEqual(["five_hour", "seven_day", "model_scoped_0", "extra_usage"]);
-    expect(snapshot.windows[2]).toMatchObject({ label: "Weekly Opus limit", usedPercent: 10 });
-    expect(snapshot.windows[3]).toMatchObject({ label: "Monthly extra usage", used: 4, limit: 10, remaining: 6, unit: "credits" });
-  });
-
-  it("keeps the Rust-side message when signed in without a usable credential", () => {
-    const snapshot = mapClaudeCodeQuota(claude, { authenticated: true, account: "me@example.com", plan: "pro", message: "no OAuth credential" });
-    expect(snapshot).toMatchObject({ state: "unavailable", message: "no OAuth credential", plan: "pro" });
-  });
-
-  it("is unauthenticated when not signed in", () => {
-    expect(mapClaudeCodeQuota(claude, { authenticated: false }).state).toBe("unauthenticated");
-  });
-});
-
 describe("mapManagedQuota", () => {
   it("dispatches by provider identity and rejects a non-managed provider", () => {
     expect(mapManagedQuota(provider(), { authenticated: false }).source).toBe("github-copilot-cli");
     expect(mapManagedQuota(provider({ id: "openai-codex" }), { authenticated: false }).source).toBe("openai-codex-app-server");
-    expect(mapManagedQuota(provider({ id: "anthropic-claude-code" }), { authenticated: false }).source).toBe("anthropic-claude-code");
+    expect(() => mapManagedQuota(provider({ id: "anthropic-claude-code" }), { authenticated: false })).toThrow(/not a managed-auth provider/);
     expect(() => mapManagedQuota(provider({ id: "openai" }), { authenticated: false })).toThrow(/not a managed-auth provider/);
   });
 });

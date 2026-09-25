@@ -4,6 +4,8 @@ import { skillsService } from "../../services/skillsService";
 import { loadStoredThemeId, saveThemeId } from "../../preferences/theme";
 import {
   isManagedAuthProvider,
+  isRemovedProviderId,
+  isRemovedProviderModel,
   normalizeStoredModelReference,
   normalizeStoredProvider,
   normalizedProviderId,
@@ -105,20 +107,6 @@ const defaultProviders: CustomProvider[] = [
       { id: "openai-codex/gpt-5.6-terra", remoteId: "gpt-5.6-terra", name: "GPT-5.6 Terra", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], defaultReasoningEffort: "medium" },
       { id: "openai-codex/o3-mini", remoteId: "o3-mini", name: "o3-mini", apiType: "codex-app-server", supported: true, reasoning: true },
       { id: "openai-codex/o3", remoteId: "o3", name: "o3", apiType: "codex-app-server", supported: true, reasoning: true },
-    ],
-  },
-  {
-    id: "anthropic-claude-code",
-    name: "Claude Code",
-    baseUrl: "",
-    apiKey: "",
-    apiType: "claude-agent-sdk",
-    transport: "anthropic-claude-agent-sdk",
-    authType: "environment",
-    models: [
-      { id: "anthropic-claude-code/claude-sonnet-4-6", remoteId: "claude-sonnet-4-6", name: "Claude Sonnet 4.6", apiType: "claude-agent-sdk", supported: true },
-      { id: "anthropic-claude-code/claude-opus-4-6", remoteId: "claude-opus-4-6", name: "Claude Opus 4.6", apiType: "claude-agent-sdk", supported: true },
-      { id: "anthropic-claude-code/claude-haiku-4-5", remoteId: "claude-haiku-4-5", name: "Claude Haiku 4.5", apiType: "claude-agent-sdk", supported: true },
     ],
   },
   {
@@ -358,9 +346,9 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
     const configVersion = config.configVersion || 0;
     if (config.customProviders) {
       const currentDefaults = get().customProviders;
-      const normalizedProviders = config.customProviders.map((provider) =>
-        normalizeStoredProvider(provider, configVersion)
-      );
+      const normalizedProviders = config.customProviders
+        .filter((provider) => !isRemovedProviderId(provider.id))
+        .map((provider) => normalizeStoredProvider(provider, configVersion));
       const savedProviders = new Map(normalizedProviders.map((provider) => [provider.id, provider]));
       const mergedProviders = currentDefaults.map((defaultProvider) => {
         const savedProvider = savedProviders.get(defaultProvider.id);
@@ -391,12 +379,16 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
       updates.customProviders = mergedProviders;
     }
     if (config.activeCustomProviderId !== undefined) {
-      updates.activeCustomProviderId = config.activeCustomProviderId
-        ? normalizedProviderId(config.activeCustomProviderId, configVersion)
-        : null;
+      updates.activeCustomProviderId = !config.activeCustomProviderId
+        ? null
+        : isRemovedProviderId(config.activeCustomProviderId)
+        ? "anthropic"
+        : normalizedProviderId(config.activeCustomProviderId, configVersion);
     }
     if (config.activeModel) {
-      updates.activeModel = normalizeStoredModelReference(config.activeModel, configVersion) || "";
+      updates.activeModel = isRemovedProviderModel(config.activeModel)
+        ? ""
+        : normalizeStoredModelReference(config.activeModel, configVersion) || "";
     }
     if (config.mcpServers) updates.mcpServers = config.mcpServers;
     const grants = config.builtInSkillMcpServers;

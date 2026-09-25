@@ -16,8 +16,8 @@ export const MODEL_CATALOG_TTL_MS = 24 * 60 * 60 * 1_000;
 export const DISCOVERY_CONCURRENCY = 2;
 
 export interface DiscoveryEligibilityInput {
-  /** Whether this is one of the three managed-auth providers
-      (github-copilot, openai-codex, anthropic-claude-code). */
+  /** Whether this is one of the two managed-auth providers
+      (github-copilot, openai-codex). */
   isManaged: boolean;
   /** The registry's current status kind for this provider (ignored for
       non-managed providers, which have no status-check cycle of their

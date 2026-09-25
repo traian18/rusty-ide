@@ -11,8 +11,8 @@ import {
 import styles from "./ManagedAuthSettings.module.css";
 
 /**
- * Settings card for the core-routed (rusty-core subprocess) Codex/Claude
- * Code/GitHub Copilot integrations -- see HARNESS_CONTRACT_PLAN.md's
+ * Settings card for the core-routed (rusty-core subprocess) Codex/GitHub
+ * Copilot integrations -- see HARNESS_CONTRACT_PLAN.md's
  * Phase 3 plan notes for why this is a *separate*, additive card rather
  * than a change to LlmSetupTab's existing sidecar-backed managed-provider
  * UI: the two are independently routable (a provider can be signed in via
@@ -22,7 +22,6 @@ import styles from "./ManagedAuthSettings.module.css";
  */
 const PROVIDERS: Array<{ id: ManagedAuthProvider; name: string; vendor: string; verificationFallback: string }> = [
   { id: "codex", name: "OpenAI Codex", vendor: "OpenAI", verificationFallback: "https://auth.openai.com/codex/device" },
-  { id: "claude-code", name: "Claude Code", vendor: "Anthropic", verificationFallback: "" },
   { id: "github-copilot", name: "GitHub Copilot", vendor: "GitHub", verificationFallback: "https://github.com/login/device" },
 ];
 
@@ -198,7 +197,7 @@ export function ManagedAuthSettings() {
         <div>
           <h3 className={styles.title} id="managed-auth-title">Managed-auth providers (embedded engine)</h3>
           <p className={styles.description}>
-            Sign in to Codex, Claude Code, or GitHub Copilot for capabilities routed to the embedded engine. These
+            Sign in to Codex or GitHub Copilot for capabilities routed to the embedded engine. These
             share the same on-disk/keychain credentials as the sidecar-based sign-in above -- signing in here or
             there authenticates both.
           </p>

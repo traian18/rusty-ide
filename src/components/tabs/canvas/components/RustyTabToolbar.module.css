@@ -1,0 +1,111 @@
+.container {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-fg-default);
+  background-color: color-mix(in srgb, var(--color-surface-elevated) 85%, transparent);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(8px);
+}
+
+.button:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--color-surface-elevated) 95%, transparent);
+  border-color: var(--color-border-default);
+  box-shadow: 0 4px 12px 0 color-mix(in srgb, var(--color-surface-overlay) 35%, transparent);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.98);
+  box-shadow: 0 2px 6px 0 color-mix(in srgb, var(--color-surface-overlay) 25%, transparent);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button span {
+  line-height: 1.4;
+}
+
+.relative {
+  position: relative;
+}
+
+.menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.25rem;
+  min-width: 180px;
+  background-color: var(--color-surface-elevated);
+  border: 1px solid var(--color-border-default);
+  border-radius: 6px;
+  box-shadow: 0 10px 25px 0 color-mix(in srgb, var(--color-surface-overlay) 45%, transparent);
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  z-index: 20;
+  animation: slideDown 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.625rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-fg-default);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease-out;
+  text-align: left;
+}
+
+.menuItem:hover:not(:disabled) {
+  background-color: var(--color-interaction-hover);
+  color: var(--color-fg-emphasis);
+}
+
+.menuItem:active:not(:disabled) {
+  background-color: var(--color-interaction-selected);
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menuItem span {
+  flex: 1;
+  line-height: 1.4;
+}

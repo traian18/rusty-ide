@@ -400,3 +400,36 @@ describe("createIntegrationSlice: built-in skill MCP grants survive a restart", 
     expect(restarted.getState().skills.find((skill) => skill.id === plan.id)?.mcpServers).toEqual(["atlassian"]);
   });
 });
+
+describe("createIntegrationSlice: removed Claude subscription provider", () => {
+  beforeEach(() => {
+    vi.mocked(SecureStorageService.loadSecureData).mockReset();
+  });
+
+  it("is not a built-in provider", () => {
+    const ids = createIntegrationTestStore().getState().customProviders.map((provider) => provider.id);
+    expect(ids).not.toContain("anthropic-claude-code");
+    expect(ids).toContain("anthropic");
+  });
+
+  it("prunes it from a saved config and moves an active selection to the API-key Anthropic provider", async () => {
+    vi.mocked(SecureStorageService.loadSecureData).mockResolvedValue({
+      configVersion: 2,
+      customProviders: [
+        { id: "anthropic-claude-code", name: "Claude Code", baseUrl: "", apiKey: "", apiType: "claude-agent-sdk", models: [] },
+        { id: "my-gateway", name: "My Gateway", baseUrl: "https://gateway.example", apiKey: "", apiType: "openai-completions", models: [] },
+      ],
+      activeCustomProviderId: "anthropic-claude-code",
+      activeModel: "anthropic-claude-code/claude-opus-4-6::reasoning=medium",
+    });
+    const testStore = createIntegrationTestStore();
+
+    await testStore.getState().loadSecureConfig();
+
+    const ids = testStore.getState().customProviders.map((provider) => provider.id);
+    expect(ids).not.toContain("anthropic-claude-code");
+    expect(ids).toContain("my-gateway");
+    expect(testStore.getState().activeCustomProviderId).toBe("anthropic");
+    expect(testStore.getState().activeModel).toBe("");
+  });
+});

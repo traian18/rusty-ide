@@ -355,7 +355,7 @@ mod integration_tests {
     #[tokio::test]
     async fn all_subscription_adapters_start_with_harness_owned_build_tools() {
         let state = HarnessState::new();
-        for integration in ["codex", "claude-code", "github-copilot"] {
+        for integration in ["codex", "github-copilot"] {
             let recipe: SessionRecipe = serde_json::from_value(serde_json::json!({
                 "workspace": { "root": "/tmp", "binding": "host" },
                 "integration": integration,

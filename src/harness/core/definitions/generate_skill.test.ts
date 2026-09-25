@@ -55,7 +55,7 @@ describe("generateSkillDefinition", () => {
         baseUrl: "",
         apiKey: "",
         apiType: "openai-completions",
-        transport: "some-future-sdk" as any, // codex/claude-code/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
+        transport: "some-future-sdk" as any, // codex/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
         models: [],
       },
     });
@@ -90,7 +90,7 @@ describe("generateSkillDefinition", () => {
         baseUrl: "",
         apiKey: "",
         apiType: "openai-completions",
-        transport: "some-future-sdk" as any, // codex/claude-code/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
+        transport: "some-future-sdk" as any, // codex/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
         models: [],
       },
     });

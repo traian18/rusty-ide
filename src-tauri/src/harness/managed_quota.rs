@@ -1,5 +1,5 @@
-//! Subscription quota for the three managed-auth providers (GitHub
-//! Copilot, Codex, Claude Code) -- the `managed_auth_quota` Tauri command
+//! Subscription quota for the two managed-auth providers (GitHub
+//! Copilot, Codex) -- the `managed_auth_quota` Tauri command
 //! behind `HybridControlPlane.getQuota` for a managed provider.
 //!
 //! Sidecar-removal Phase 8c had written this off as an accepted gap:
@@ -22,15 +22,6 @@
 //!   `initialize` + `initialized`, `account/read`, then
 //!   `account/rateLimits/read`, the same three calls the sidecar's own
 //!   `codexService.ts` made. Confirmed live against the vendored 0.144.6.
-//! - **Claude Code**: `claude auth status --json` for login/email/plan,
-//!   then the OAuth access token the CLI itself stores (`~/.claude/
-//!   .credentials.json`, or the macOS Keychain item `Claude Code-
-//!   credentials` on current builds) against
-//!   `https://api.anthropic.com/api/oauth/usage` -- the sidecar's own
-//!   fallback path (`readClaudeUsageFromOAuth`), promoted to the only
-//!   path: it returns exactly the `five_hour`/`seven_day`/`extra_usage`
-//!   shape the mapper wants, without spinning up an SDK session. Confirmed
-//!   live.
 //!
 //! Each provider's raw payload is returned as-is under `data` for the
 //! frontend's `managedQuota.ts` to shape into a `ProviderQuotaSnapshot`
@@ -69,8 +60,7 @@ pub struct ManagedQuota {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     /// The provider's own raw quota payload -- Copilot: `{quotaSnapshots,
-    /// quotaResetDate}`; Codex: the `account/rateLimits/read` result;
-    /// Claude Code: the `/api/oauth/usage` body.
+    /// quotaResetDate}`; Codex: the `account/rateLimits/read` result.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
 }
@@ -397,156 +387,10 @@ async fn codex_quota_over(rpc: &mut RpcChild) -> Result<ManagedQuota, String> {
     })
 }
 
-// ------------------------------------------------------------
-// Claude Code
-// ------------------------------------------------------------
-
-pub(super) fn claude_credentials_path(app: &AppHandle) -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
-        return Some(PathBuf::from(dir).join(".credentials.json"));
-    }
-    app.path()
-        .home_dir()
-        .ok()
-        .map(|h| h.join(".claude").join(".credentials.json"))
-}
-
-/// `claudeAiOauth.accessToken` (or the older `oauth.accessToken` /
-/// top-level `accessToken`) out of the CLI's credentials JSON -- ported
-/// from the sidecar's own `oauthAccessToken`.
-pub fn oauth_access_token(credentials: &Value) -> Option<String> {
-    let candidates = [
-        credentials.pointer("/claudeAiOauth/accessToken"),
-        credentials.pointer("/oauth/accessToken"),
-        credentials.get("accessToken"),
-    ];
-    candidates
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(str::trim)
-        .find(|s| !s.is_empty())
-        .map(str::to_string)
-}
-
-pub(super) async fn read_claude_oauth_token(credentials_path: Option<PathBuf>) -> Option<String> {
-    if let Some(path) = credentials_path {
-        if let Ok(content) = tokio::fs::read_to_string(&path).await {
-            if let Some(token) = serde_json::from_str::<Value>(&content)
-                .ok()
-                .as_ref()
-                .and_then(oauth_access_token)
-            {
-                return Some(token);
-            }
-        }
-    }
-    // Current macOS builds keep the same JSON payload in the Keychain
-    // instead of the file.
-    #[cfg(target_os = "macos")]
-    {
-        let output = Command::new("security")
-            .args([
-                "find-generic-password",
-                "-s",
-                "Claude Code-credentials",
-                "-w",
-            ])
-            .stdin(Stdio::null())
-            .output()
-            .await
-            .ok()?;
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return serde_json::from_str::<Value>(stdout.trim())
-                .ok()
-                .as_ref()
-                .and_then(oauth_access_token);
-        }
-    }
-    None
-}
-
-pub async fn claude_code_quota(app: &AppHandle) -> Result<ManagedQuota, String> {
-    let binary = binary_or_error(app, "claude-code")?;
-    claude_code_quota_with(&binary, claude_credentials_path(app)).await
-}
-
-async fn claude_code_quota_with(
-    binary: &PathBuf,
-    credentials_path: Option<PathBuf>,
-) -> Result<ManagedQuota, String> {
-    let output = Command::new(binary)
-        .args(["auth", "status", "--json"])
-        .stdin(Stdio::null())
-        .output()
-        .await
-        .map_err(|error| format!("failed to run {}: {error}", binary.display()))?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let status: Value = serde_json::from_str(stdout.trim()).unwrap_or(Value::Null);
-    let logged_in = output.status.success()
-        && status
-            .get("loggedIn")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-    let email = string_field(Some(&status), "email");
-    let plan = string_field(Some(&status), "subscriptionType");
-    if !logged_in {
-        return Ok(ManagedQuota {
-            authenticated: false,
-            account: email,
-            plan,
-            message: Some("Sign in with Claude Code to read subscription usage.".to_string()),
-            data: None,
-        });
-    }
-
-    let Some(token) = read_claude_oauth_token(credentials_path).await else {
-        return Ok(ManagedQuota {
-            authenticated: true,
-            account: email,
-            plan,
-            message: Some("Claude Code is connected, but no OAuth credential was found to read its subscription usage with.".to_string()),
-            data: None,
-        });
-    };
-
-    let client = reqwest::Client::builder()
-        .timeout(RPC_TIMEOUT)
-        .build()
-        .map_err(|e| e.to_string())?;
-    let response = client
-        .get("https://api.anthropic.com/api/oauth/usage")
-        .bearer_auth(token)
-        .header("anthropic-beta", "oauth-2025-04-20")
-        .header("accept", "application/json")
-        .send()
-        .await
-        .map_err(|error| format!("Anthropic usage request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "Anthropic usage request failed ({}).",
-            response.status().as_u16()
-        ));
-    }
-    let usage: Value = response
-        .json()
-        .await
-        .map_err(|error| format!("Anthropic usage response was not JSON: {error}"))?;
-    Ok(ManagedQuota {
-        authenticated: true,
-        account: email,
-        plan,
-        message: None,
-        data: Some(usage),
-    })
-}
-
 pub async fn fetch_quota(app: &AppHandle, provider: &str) -> Result<ManagedQuota, String> {
     match provider {
         "github-copilot" => copilot_quota(app).await,
         "codex" => codex_quota(app).await,
-        "claude-code" => claude_code_quota(app).await,
         _ => Err(format!("unknown managed-auth provider: {provider}")),
     }
 }
@@ -688,28 +532,6 @@ rl.on("line", (line) => {
         rpc.shutdown().await;
     }
 
-    #[test]
-    fn oauth_access_token_accepts_every_credential_layout_the_cli_has_used() {
-        assert_eq!(
-            oauth_access_token(&json!({ "claudeAiOauth": { "accessToken": " tok-a " } }))
-                .as_deref(),
-            Some("tok-a")
-        );
-        assert_eq!(
-            oauth_access_token(&json!({ "oauth": { "accessToken": "tok-b" } })).as_deref(),
-            Some("tok-b")
-        );
-        assert_eq!(
-            oauth_access_token(&json!({ "accessToken": "tok-c" })).as_deref(),
-            Some("tok-c")
-        );
-        assert_eq!(
-            oauth_access_token(&json!({ "claudeAiOauth": { "accessToken": "" } })),
-            None
-        );
-        assert_eq!(oauth_access_token(&json!({})), None);
-    }
-
     /// The vendored CLI checkout next to this crate (`vendor-cli/`), the
     /// same packages `scripts/prepare-managed-cli-runtime.mjs` stages
     /// into the bundle -- for the live checks below, which need a real,
@@ -772,32 +594,6 @@ rl.on("line", (line) => {
             .as_ref()
             .and_then(|d| d.get("rateLimits"))
             .is_some());
-    }
-
-    #[tokio::test]
-    #[ignore = "needs the vendored Claude Code CLI, a signed-in claude.ai account, and network access"]
-    async fn live_claude_code_quota_against_the_vendored_cli() {
-        let binary =
-            super::super::managed_binaries::claude_code_binary_path(&vendored_node_modules())
-                .expect("vendored claude binary");
-        let credentials = std::env::var_os("HOME")
-            .map(|h| PathBuf::from(h).join(".claude").join(".credentials.json"));
-        let quota = claude_code_quota_with(&binary, credentials)
-            .await
-            .expect("live claude code flow");
-        println!("{}", serde_json::to_string_pretty(&quota).unwrap());
-        assert!(
-            quota.authenticated,
-            "expected a signed-in Claude Code account: {quota:?}"
-        );
-        assert!(
-            quota
-                .data
-                .as_ref()
-                .and_then(|d| d.get("five_hour"))
-                .is_some(),
-            "{quota:?}"
-        );
     }
 
     #[test]

@@ -56,11 +56,11 @@ describe("runtime download progress", () => {
     await send({ ...progress, total: null });
     expect(container.textContent).toContain("25.0 MB downloaded");
     expect(container.querySelector('[role="progressbar"]')?.hasAttribute("aria-valuenow")).toBe(false);
-    await send({ ...progress, provider: "claude-code" });
+    await send({ ...progress, provider: "github-copilot" });
     expect(container.querySelectorAll("section")).toHaveLength(2);
     await send({ ...progress, phase: "cancelled" });
     expect(container.textContent).toContain("Download cancelled");
-    await send({ ...progress, provider: "claude-code", phase: "failed", message: "Connection lost. Retry sign-in." });
+    await send({ ...progress, provider: "github-copilot", phase: "failed", message: "Connection lost. Retry sign-in." });
     expect(container.querySelectorAll('[role="progressbar"]')).toHaveLength(0);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Connection lost");
     await send({ ...progress, downloaded: 0 });

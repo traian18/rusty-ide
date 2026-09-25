@@ -5,7 +5,6 @@ import {
   cancelManagedLogin,
   logoutManaged,
   mapManagedStatus,
-  normalizeClaudeAuthCode,
   refreshProviderQuota,
   setQuotaWatch,
   startManagedLogin,
@@ -40,9 +39,6 @@ vi.mock("../../harness/HybridControlPlane", () => ({
     getCodexStatus: vi.fn(),
     startCodexLogin: vi.fn(),
     logoutCodex: vi.fn(),
-    getClaudeCodeStatus: vi.fn(),
-    startClaudeCodeLogin: vi.fn(),
-    logoutClaudeCode: vi.fn(),
     recordUsage: vi.fn(),
   },
 }));
@@ -58,7 +54,6 @@ import { managedAuthCancelLogin, managedAuthSubmitCode } from "../../harness/man
 const STATUS_LOADERS = {
   "github-copilot": hybridControlPlane.getCopilotStatus,
   "openai-codex": hybridControlPlane.getCodexStatus,
-  "anthropic-claude-code": hybridControlPlane.getClaudeCodeStatus,
 } as const;
 
 function connectionStatus(overrides: Partial<{ state: "disconnected" | "connecting" | "connected" | "failed"; authenticated: boolean; message: string }> = {}) {
@@ -138,7 +133,7 @@ describe("mapManagedStatus", () => {
     ).toBe("octocat");
   });
 
-  it("falls back to `email` for Codex/Claude Code", () => {
+  it("falls back to `email` for Codex", () => {
     expect(
       mapManagedStatus({ state: "connected", authenticated: true, email: "dev@example.com" } as any).account,
     ).toBe("dev@example.com");
@@ -194,10 +189,8 @@ describe("providerCoordinator", () => {
     vi.mocked(hybridControlPlane.getQuota).mockReset();
     vi.mocked(hybridControlPlane.startCopilotLogin).mockReset();
     vi.mocked(hybridControlPlane.startCodexLogin).mockReset();
-    vi.mocked(hybridControlPlane.startClaudeCodeLogin).mockReset();
     vi.mocked(hybridControlPlane.logoutCopilot).mockReset();
     vi.mocked(hybridControlPlane.logoutCodex).mockReset();
-    vi.mocked(hybridControlPlane.logoutClaudeCode).mockReset();
     vi.useFakeTimers();
   });
 
@@ -207,7 +200,7 @@ describe("providerCoordinator", () => {
     vi.useRealTimers();
   });
 
-  it("checks all three managed providers immediately on start", async () => {
+  it("checks both managed providers immediately on start", async () => {
     for (const loader of Object.values(STATUS_LOADERS)) vi.mocked(loader).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
@@ -215,7 +208,6 @@ describe("providerCoordinator", () => {
 
     expect(hybridControlPlane.getCopilotStatus).toHaveBeenCalledTimes(1);
     expect(hybridControlPlane.getCodexStatus).toHaveBeenCalledTimes(1);
-    expect(hybridControlPlane.getClaudeCodeStatus).toHaveBeenCalledTimes(1);
   });
 
   it("starting twice is a no-op -- does not double the in-flight checks", async () => {
@@ -231,7 +223,6 @@ describe("providerCoordinator", () => {
   it("writes the mapped status into the registry once a check settles", async () => {
     vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
     vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
     await vi.advanceTimersByTimeAsync(0);
@@ -239,35 +230,9 @@ describe("providerCoordinator", () => {
     expect(useWorkspaceStore.getState().providerStatus["github-copilot"]).toMatchObject({ kind: "ready" });
   });
 
-  it("bounds concurrency -- the third status check does not start until one of the first two finishes", async () => {
-    let copilotResolve!: (value: any) => void;
-    const copilotPending = new Promise((resolve) => (copilotResolve = resolve));
-    vi.mocked(hybridControlPlane.getCopilotStatus).mockReturnValue(copilotPending as any);
-    let codexResolve!: (value: any) => void;
-    const codexPending = new Promise((resolve) => (codexResolve = resolve));
-    vi.mocked(hybridControlPlane.getCodexStatus).mockReturnValue(codexPending as any);
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
-
-    startProviderCoordinator();
-    await vi.advanceTimersByTimeAsync(0);
-
-    // Two of the three loaders were invoked; the third's underlying call
-    // must not have started yet, since the semaphore (concurrency 2) is
-    // holding both slots on the first two.
-    expect(hybridControlPlane.getClaudeCodeStatus).not.toHaveBeenCalled();
-
-    copilotResolve(connectionStatus({ state: "connected", authenticated: true }));
-    await vi.advanceTimersByTimeAsync(0);
-    expect(hybridControlPlane.getClaudeCodeStatus).toHaveBeenCalledTimes(1);
-
-    codexResolve(connectionStatus());
-    await vi.advanceTimersByTimeAsync(0);
-  });
-
   it("polls again at the fast (1s) interval while a provider reports 'connecting'", async () => {
     vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
     vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
     await vi.advanceTimersByTimeAsync(0);
@@ -283,7 +248,6 @@ describe("providerCoordinator", () => {
   it("polls at the background (5 min) interval once settled and the setup tab is closed", async () => {
     vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
     vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
     await vi.advanceTimersByTimeAsync(0);
@@ -302,7 +266,6 @@ describe("providerCoordinator", () => {
     } as any);
     vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
     vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
     await vi.advanceTimersByTimeAsync(0);
@@ -318,7 +281,6 @@ describe("providerCoordinator", () => {
   it("drops out of the fast tier and records a stalled-login message once a connecting streak outlives the cap", async () => {
     vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
     vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
     await vi.advanceTimersByTimeAsync(FAST_POLL_MAX_DURATION_MS);
@@ -334,7 +296,6 @@ describe("providerCoordinator", () => {
   it("stopProviderCoordinator cancels pending timers so no further checks fire", async () => {
     vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
     vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-    vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
     startProviderCoordinator();
     await vi.advanceTimersByTimeAsync(0);
@@ -386,7 +347,6 @@ describe("providerCoordinator", () => {
     it("does not discover a managed provider until its status is 'ready'", async () => {
       vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
       vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
       startProviderCoordinator();
       await vi.advanceTimersByTimeAsync(0);
@@ -398,7 +358,6 @@ describe("providerCoordinator", () => {
     it("discovers a managed provider's models as soon as its status settles to 'ready'", async () => {
       vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
       vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
 
       startProviderCoordinator();
       await vi.advanceTimersByTimeAsync(0);
@@ -426,7 +385,6 @@ describe("providerCoordinator", () => {
     it("bounds discovery concurrency across providers", async () => {
       vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
       vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus());
       let activeDiscoveries = 0;
       let maxObserved = 0;
       vi.mocked(hybridControlPlane.discoverModels).mockImplementation(async () => {
@@ -653,51 +611,51 @@ describe("providerCoordinator", () => {
       expect(useWorkspaceStore.getState().providerStatus["github-copilot"]?.kind).toBe("loading");
     });
 
-    it("defers Claude Code browser authorization notification until verificationUri is available after download", async () => {
+    it("defers the browser authorization notification until verificationUri is available after download", async () => {
       useNotificationStore.getState().clear();
-      const CLAUDE_PROVIDER = {
-        id: "anthropic-claude-code",
-        name: "Claude Code",
-        transport: "anthropic-claude-agent-sdk",
+      const COPILOT_PROVIDER = {
+        id: "github-copilot",
+        name: "GitHub Copilot",
+        transport: "github-copilot-sdk",
       };
 
-      vi.mocked(hybridControlPlane.startClaudeCodeLogin).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
+      vi.mocked(hybridControlPlane.startCopilotLogin).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
       // First check during download: no verificationUri, downloading message
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue({
+      vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue({
         state: "connecting",
         authenticated: false,
         message: "Downloading and installing the integration runtime. This may take a few minutes...",
       } as any);
 
       startProviderCoordinator();
-      await startManagedLogin(CLAUDE_PROVIDER as any);
+      await startManagedLogin(COPILOT_PROVIDER as any);
       await vi.advanceTimersByTimeAsync(0);
 
       // Status is loading, but no notification yet because download is in progress
-      expect(useWorkspaceStore.getState().providerStatus["anthropic-claude-code"]).toMatchObject({
+      expect(useWorkspaceStore.getState().providerStatus["github-copilot"]).toMatchObject({
         kind: "loading",
         verificationUri: undefined,
       });
       expect(useNotificationStore.getState().notification).toBeNull();
 
       // Download finishes, CLI spawns, outputs verificationUri
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue({
+      vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue({
         state: "connecting",
         authenticated: false,
-        verificationUri: "https://claude.com/oauth/authorize?test=1",
+        verificationUri: "https://github.com/login/device",
       } as any);
 
       // Advance fast-poll timer (1s)
       await vi.advanceTimersByTimeAsync(FAST_POLL_INTERVAL_MS);
 
       // Notification now arrives
-      expect(useWorkspaceStore.getState().providerStatus["anthropic-claude-code"]).toMatchObject({
+      expect(useWorkspaceStore.getState().providerStatus["github-copilot"]).toMatchObject({
         kind: "loading",
-        verificationUri: "https://claude.com/oauth/authorize?test=1",
+        verificationUri: "https://github.com/login/device",
       });
       expect(useNotificationStore.getState().notification).toMatchObject({
-        title: "Anthropic authorization",
-        message: "Complete the Claude Code sign-in flow in your browser.",
+        title: "GitHub authorization",
+        message: "Complete the Copilot sign-in flow in your browser.",
         variant: "info",
       });
 
@@ -709,92 +667,66 @@ describe("providerCoordinator", () => {
 
     it("cancels pending authorization notification when login is cancelled before download finishes", async () => {
       useNotificationStore.getState().clear();
-      const CLAUDE_PROVIDER = {
-        id: "anthropic-claude-code",
-        name: "Claude Code",
-        transport: "anthropic-claude-agent-sdk",
+      const COPILOT_PROVIDER = {
+        id: "github-copilot",
+        name: "GitHub Copilot",
+        transport: "github-copilot-sdk",
       };
 
-      vi.mocked(hybridControlPlane.startClaudeCodeLogin).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue({
+      vi.mocked(hybridControlPlane.startCopilotLogin).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
+      vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue({
         state: "connecting",
         authenticated: false,
         message: "Downloading and installing the integration runtime...",
       } as any);
 
-      await startManagedLogin(CLAUDE_PROVIDER as any);
+      await startManagedLogin(COPILOT_PROVIDER as any);
       await vi.advanceTimersByTimeAsync(0);
       expect(useNotificationStore.getState().notification).toBeNull();
 
       // User cancels while downloading
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus({ state: "disconnected" }) as any);
-      await cancelManagedLogin(CLAUDE_PROVIDER as any);
+      vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "disconnected" }) as any);
+      await cancelManagedLogin(COPILOT_PROVIDER as any);
       await vi.advanceTimersByTimeAsync(0);
 
       expect(useNotificationStore.getState().notification).toBeNull();
     });
   });
 
-  describe("normalizeClaudeAuthCode", () => {
-    it("preserves already formatted code#state", () => {
-      expect(normalizeClaudeAuthCode("code123#state456")).toBe("code123#state456");
-      expect(normalizeClaudeAuthCode("  code123#state456  ")).toBe("code123#state456");
-    });
-
-    it("normalizes callback url with hash fragment", () => {
-      const url = "https://platform.claude.com/oauth/code/callback#code=cai_code_999&state=state_xyz";
-      expect(normalizeClaudeAuthCode(url)).toBe("cai_code_999#state_xyz");
-    });
-
-    it("normalizes callback url with query parameters", () => {
-      const url = "https://claude.ai/oauth/code/callback?code=cai_code_999&state=state_xyz";
-      expect(normalizeClaudeAuthCode(url)).toBe("cai_code_999#state_xyz");
-    });
-
-    it("normalizes key-value query string", () => {
-      expect(normalizeClaudeAuthCode("code=cai_code_999&state=state_xyz")).toBe("cai_code_999#state_xyz");
-    });
-
-    it("returns trimmed string when not matching oauth patterns", () => {
-      expect(normalizeClaudeAuthCode("   raw_code   ")).toBe("raw_code");
-      expect(normalizeClaudeAuthCode("")).toBe("");
-    });
-  });
-
   describe("submitManagedAuthCode / cancelManagedLogin", () => {
-    const CLAUDE_PROVIDER_FIXTURE = {
-      id: "anthropic-claude-code",
-      name: "Claude Code",
-      baseUrl: "https://api.anthropic.com",
+    const CODEX_PROVIDER_FIXTURE = {
+      id: "openai-codex",
+      name: "OpenAI Codex",
+      baseUrl: "",
       apiKey: "",
-      apiType: "anthropic-messages",
+      apiType: "codex-app-server",
       authType: "none" as const,
       models: [],
     };
 
-    it("submits normalized code to managedAuthSubmitCode and re-polls status", async () => {
+    it("submits the trimmed code to managedAuthSubmitCode and re-polls status", async () => {
       vi.mocked(managedAuthSubmitCode).mockResolvedValue(undefined);
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
+      vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
 
       await submitManagedAuthCode(
-        CLAUDE_PROVIDER_FIXTURE as any,
-        "https://platform.claude.com/oauth/code/callback#code=code_1&state=state_2",
+        CODEX_PROVIDER_FIXTURE as any,
+        "  code_1  ",
       );
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(managedAuthSubmitCode).toHaveBeenCalledWith("claude-code", "code_1#state_2");
-      expect(hybridControlPlane.getClaudeCodeStatus).toHaveBeenCalledTimes(1);
+      expect(managedAuthSubmitCode).toHaveBeenCalledWith("codex", "code_1");
+      expect(hybridControlPlane.getCodexStatus).toHaveBeenCalledTimes(1);
     });
 
     it("cancels login via managedAuthCancelLogin and re-polls status", async () => {
       vi.mocked(managedAuthCancelLogin).mockResolvedValue(undefined);
-      vi.mocked(hybridControlPlane.getClaudeCodeStatus).mockResolvedValue(connectionStatus({ state: "disconnected" }) as any);
+      vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus({ state: "disconnected" }) as any);
 
-      await cancelManagedLogin(CLAUDE_PROVIDER_FIXTURE as any);
+      await cancelManagedLogin(CODEX_PROVIDER_FIXTURE as any);
       await vi.advanceTimersByTimeAsync(0);
 
-      expect(managedAuthCancelLogin).toHaveBeenCalledWith("claude-code");
-      expect(hybridControlPlane.getClaudeCodeStatus).toHaveBeenCalledTimes(1);
+      expect(managedAuthCancelLogin).toHaveBeenCalledWith("codex");
+      expect(hybridControlPlane.getCodexStatus).toHaveBeenCalledTimes(1);
     });
 
     it("rejects submit/cancel for non-managed providers", async () => {

@@ -81,7 +81,7 @@ This runs three steps automatically:
 2. **Frontend** — typechecks and bundles the React application with Vite.
 3. **Tauri** — compiles the Rust app in release mode and bundles the app.
 
-Codex, Claude Code, and GitHub Copilot runtimes are not included in installers.
+Codex and GitHub Copilot runtimes are not included in installers.
 On first sign-in (or an explicitly started session), Rusty downloads only that
 provider’s native package into its app-local data directory under
 `managed-runtimes/<provider>/<version>-<platform>-<arch>`. Later launches reuse

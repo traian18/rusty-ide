@@ -71,7 +71,7 @@ function fakeHost(overrides: Partial<RunHost> = {}): RunHost {
 
 describe("agentChatDefinition", () => {
   it("passes custom skill grants to the harness independently of the provider and mode", () => {
-    for (const transport of ["http", "openai-codex-app-server", "anthropic-claude-agent-sdk", "github-copilot-sdk"]) {
+    for (const transport of ["http", "openai-codex-app-server", "github-copilot-sdk"]) {
       const recipe = agentChatDefinition.recipe!(input({
         customProvider: { ...(input().customProvider as any), transport },
         planOnly: true,
@@ -108,7 +108,7 @@ describe("agentChatDefinition", () => {
         baseUrl: "",
         apiKey: "",
         apiType: "openai-completions",
-        transport: "some-future-sdk" as any, // codex/claude-code/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
+        transport: "some-future-sdk" as any, // codex/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
         models: [],
       },
     });
@@ -204,7 +204,7 @@ describe("agentChatDefinition", () => {
         baseUrl: "",
         apiKey: "",
         apiType: "openai-completions",
-        transport: "some-future-sdk" as any, // codex/claude-code/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
+        transport: "some-future-sdk" as any, // codex/copilot are now core-supported (Phase 3); this simulates a transport core does not recognize yet
         models: [],
       },
     });
@@ -362,17 +362,17 @@ describe("agentChatDefinition", () => {
   });
 
   it("recipe() provides harness tools to subscription inference backends", () => {
-    const claudeInput = input({
+    const codexInput = input({
       customProvider: {
-        id: "claude-code",
-        name: "Claude Code",
-        transport: "anthropic-claude-agent-sdk",
-        models: [{ id: "claude-3-5-sonnet", name: "Claude 3.5 Sonnet" }],
+        id: "openai-codex",
+        name: "OpenAI Codex",
+        transport: "openai-codex-app-server",
+        models: [{ id: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
       } as any,
-      model: "claude-3-5-sonnet",
+      model: "gpt-5.6-sol",
     });
-    const recipe = agentChatDefinition.recipe!(claudeInput);
-    expect(recipe.integration).toBe("claude-code");
+    const recipe = agentChatDefinition.recipe!(codexInput);
+    expect(recipe.integration).toBe("codex");
     expect(recipe.host_tools?.some((tool) => tool.name === "read_file")).toBe(true);
     expect(recipe.enable_web_fetch).toBe(true);
     expect(recipe.enable_agent_spawn).toBe(true);

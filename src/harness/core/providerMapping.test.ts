@@ -42,20 +42,6 @@ describe("mapProviderToIntegration", () => {
     expect(result).toEqual({ supported: true, integration: "host", integration_config: {}, reasoningEffort: undefined });
   });
 
-  it("maps the Claude Code managed transport to rusty-core's own claude-code integration", () => {
-    const result = mapProviderToIntegration(
-      provider({ apiType: "anthropic-messages", transport: "anthropic-claude-agent-sdk" }),
-      "claude-opus-4-20250514",
-    );
-    expect(result).toEqual({
-      supported: true,
-      integration: "claude-code",
-      integration_config: {},
-      reasoningEffort: undefined,
-      model: "claude-opus-4-20250514",
-    });
-  });
-
   it("maps the Codex managed transport to rusty-core's own codex integration", () => {
     const result = mapProviderToIntegration(
       provider({ apiType: "openai-responses", transport: "openai-codex-app-server" }),
@@ -128,9 +114,9 @@ describe("mapProviderToIntegration", () => {
 
   it("strips the provider prefix and effort suffix before passing a managed model to core", () => {
     const result = mapProviderToIntegration(
-      provider({ id: "anthropic-claude-code", apiType: "anthropic-messages", transport: "anthropic-claude-agent-sdk" }),
-      "anthropic-claude-code/sonnet::reasoning=high",
+      provider({ id: "openai-codex", apiType: "codex-app-server", transport: "openai-codex-app-server" }),
+      "openai-codex/gpt-5.6-sol::reasoning=high",
     );
-    expect(result).toMatchObject({ integration: "claude-code", model: "sonnet", reasoningEffort: "high" });
+    expect(result).toMatchObject({ integration: "codex", model: "gpt-5.6-sol", reasoningEffort: "high" });
   });
 });

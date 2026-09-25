@@ -38,7 +38,6 @@ fi
 
 needs_runtime_entitlements() {
   case "$1" in
-    */@anthropic-ai/claude-agent-sdk-darwin-*/claude | \
     */@github/copilot-darwin-*/copilot | \
     */@openai/codex-darwin-*/vendor/*/bin/codex-code-mode-host)
       return 0

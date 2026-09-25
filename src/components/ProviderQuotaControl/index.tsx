@@ -113,7 +113,7 @@ export const ProviderQuotaControl: React.FC = () => {
 
 export default ProviderQuotaControl;
 
-const MANAGED_PROVIDER_IDS = new Set(["github-copilot", "openai-codex", "anthropic-claude-code"]);
+const MANAGED_PROVIDER_IDS = new Set(["github-copilot", "openai-codex"]);
 
 /* ── Effects ─────────────────────────────────────────────────────────────── */
 

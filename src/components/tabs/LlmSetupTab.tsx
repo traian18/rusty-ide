@@ -6,14 +6,13 @@ import { CustomSelect } from "../CustomSelect";
 import { notify } from "../../notificationStore";
 import { hybridControlPlane as controlPlane } from "../../harness/HybridControlPlane";
 import {
-  isClaudeCodeProvider,
   isCodexProvider,
   isCopilotProvider,
   isManagedAuthProvider as isManagedAuthProviderPredicate,
   providerModelVariants,
 } from "../../store/providerHelpers";
 import { providerStatusOrUnknown } from "../../integrations/registryTypes";
-import { cancelManagedLogin, logoutManaged, startManagedLogin, submitManagedAuthCode } from "../shell/providerCoordinator";
+import { cancelManagedLogin, logoutManaged, startManagedLogin } from "../shell/providerCoordinator";
 import { ProviderList, selectFirstSupportedModel } from "./llmSetup/ProviderList";
 import { providerHelpText } from "./llmSetup/providerHelp";
 
@@ -83,7 +82,6 @@ export const LlmSetupTab: React.FC = () => {
   const selectedProvider = customProviders.find((p) => p.id === activeCustomProviderId);
   const isCopilot = Boolean(selectedProvider && isCopilotProvider(selectedProvider));
   const isCodex = Boolean(selectedProvider && isCodexProvider(selectedProvider));
-  const isClaudeCode = Boolean(selectedProvider && isClaudeCodeProvider(selectedProvider));
   const isManagedAuthProvider = Boolean(selectedProvider && isManagedAuthProviderPredicate(selectedProvider));
 
   // The selected managed provider's entry, straight from the registry
@@ -96,8 +94,8 @@ export const LlmSetupTab: React.FC = () => {
   // reads the whole registry itself now (commit 10), so this tab no longer
   // needs its own per-vendor copies.
   const managedStatus = selectedProvider ? providerStatusOrUnknown(providerStatus, selectedProvider.id) : undefined;
-  const managedVendor = isCodex ? "OpenAI" : isClaudeCode ? "Anthropic" : "GitHub";
-  const managedProduct = isCodex ? "Codex" : isClaudeCode ? "Claude Code" : "Copilot";
+  const managedVendor = isCodex ? "OpenAI" : "GitHub";
+  const managedProduct = isCodex ? "Codex" : "Copilot";
 
   // Sync inputs with selected provider.
   //
@@ -246,23 +244,7 @@ export const LlmSetupTab: React.FC = () => {
     }
   };
 
-  const [claudeAuthCode, setClaudeAuthCode] = useState("");
-  const [submittingClaudeCode, setSubmittingClaudeCode] = useState(false);
   const [cancellingLogin, setCancellingLogin] = useState(false);
-
-  const handleSubmitClaudeCode = async () => {
-    if (!selectedProvider || !claudeAuthCode.trim()) return;
-    setSubmittingClaudeCode(true);
-    try {
-      await submitManagedAuthCode(selectedProvider, claudeAuthCode);
-      notify("Code submitted", "Submitting authorization code to Claude Code CLI...", "info");
-      setClaudeAuthCode("");
-    } catch (error: any) {
-      notify("Submission failed", error?.message || "Could not submit authorization code.", "error");
-    } finally {
-      setSubmittingClaudeCode(false);
-    }
-  };
 
   const handleCancelManagedLogin = async () => {
     if (!selectedProvider) return;
@@ -270,7 +252,6 @@ export const LlmSetupTab: React.FC = () => {
     try {
       await cancelManagedLogin(selectedProvider);
       notify("Sign-in cancelled", `Cancelled ${managedVendor} sign-in attempt.`, "info");
-      setClaudeAuthCode("");
     } catch (error: any) {
       notify("Cancel failed", error?.message || `Could not cancel ${managedVendor} sign-in.`, "error");
     } finally {
@@ -288,10 +269,6 @@ export const LlmSetupTab: React.FC = () => {
     }
   };
 
-  /** Claude Code has no static device-code page to fall back on -- its
-   * authorize URL is minted per attempt and only known once the CLI prints
-   * it (managed_auth.rs's parse_claude_login_output), so the button that
-   * calls this only renders once we actually have one. */
   const managedVerificationFallback = isCodex
     ? "https://auth.openai.com/codex/device"
     : isCopilot
@@ -573,8 +550,6 @@ export const LlmSetupTab: React.FC = () => {
                           <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">
                             {managedStatus?.message || (isCodex
                               ? "Use the OpenAI account connected to your Codex plan."
-                              : isClaudeCode
-                                ? "Use the Anthropic account connected to Claude Code."
                               : "Use the GitHub account that owns your Copilot subscription.")}
                           </p>
                           <p className="text-[10px] leading-relaxed text-[var(--text-muted)]">
@@ -583,7 +558,7 @@ export const LlmSetupTab: React.FC = () => {
                           {isCopilot && managedStatus?.host && (
                             <p className="font-mono text-[9px] text-[var(--text-muted)]">{managedStatus.host}</p>
                           )}
-                          {(isCodex || isClaudeCode) && managedStatus?.planType && (
+                          {isCodex && managedStatus?.planType && (
                             <p className="font-mono text-[9px] text-[var(--text-muted)]">Plan: {managedStatus.planType}</p>
                           )}
                         </div>
@@ -677,49 +652,6 @@ export const LlmSetupTab: React.FC = () => {
                         <p className="mt-2 break-all font-mono text-[9px] text-[var(--text-muted)]">
                           {managedStatus.verificationUri || managedVerificationFallback || "Waiting for the sign-in page…"}
                         </p>
-                        {isClaudeCode && (
-                          <div className="mt-4 pt-4 border-t border-[var(--border-color)]/40 text-left space-y-2">
-                            <div className="flex flex-col space-y-1">
-                              <span className="text-[10px] font-bold text-[var(--text-light)] font-mono">
-                                Enter Authorization Code / Hash
-                              </span>
-                              <span className="text-[9px] text-[var(--text-muted)]">
-                                Copy the code or hash displayed in your browser after signing in, and paste it below:
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                placeholder="Paste code#state from browser..."
-                                value={claudeAuthCode}
-                                onChange={(e) => setClaudeAuthCode(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && !submittingClaudeCode && claudeAuthCode.trim()) {
-                                    e.preventDefault();
-                                    void handleSubmitClaudeCode();
-                                  }
-                                }}
-                                disabled={submittingClaudeCode}
-                                className="flex-1 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg px-3 py-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--accent-color)]"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => void handleSubmitClaudeCode()}
-                                disabled={submittingClaudeCode || !claudeAuthCode.trim()}
-                                className="flex items-center gap-1.5 rounded-lg bg-[var(--accent-color)] px-3.5 py-2 font-mono text-[10px] font-bold text-[var(--color-primary-foreground)] hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                              >
-                                {submittingClaudeCode ? (
-                                  <>
-                                    <RefreshCw size={12} className="animate-spin" />
-                                    <span>Submitting…</span>
-                                  </>
-                                ) : (
-                                  <span>Submit Code</span>
-                                )}
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
                     {Boolean(managedStatus?.diagnostics?.length) && (
@@ -743,8 +675,6 @@ export const LlmSetupTab: React.FC = () => {
                     <div className="border-t border-[var(--border-color)]/50 pt-3 text-[10px] leading-relaxed text-[var(--text-muted)]">
                       {isCodex
                         ? "The official Codex app-server manages credentials in the same ~/.codex account used by Codex CLI/Desktop. Rusty never stores the OAuth token in provider settings."
-                        : isClaudeCode
-                          ? "The bundled Claude Code CLI manages credentials in the same ~/.claude account (or OS keychain) the CLI itself uses. Rusty never copies Claude OAuth credentials into provider settings."
                         : "GitHub Copilot CLI manages credentials, using the system credential store when available. Rusty never stores the OAuth token in provider settings."}
                     </div>
                   </div>

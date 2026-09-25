@@ -35,7 +35,7 @@ export interface ProviderStatusEntry<TQuota> {
       issued. */
   checkedAt?: string;
 
-  // Managed-auth device-code flow (copilot, codex, claude-code).
+  // Managed-auth device-code flow (copilot, codex).
   verificationUri?: string;
   userCode?: string;
   diagnostics?: string[];

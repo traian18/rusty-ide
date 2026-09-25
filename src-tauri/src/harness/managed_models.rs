@@ -5,17 +5,12 @@
 //! hard-coded list:
 //! - GitHub Copilot: `models.list` over the CLI's SDK JSON-RPC server.
 //! - Codex: `model/list` over `codex app-server`.
-//! - Claude Code: Anthropic's `/v1/models` endpoint with the CLI's OAuth
-//!   credential and OAuth beta header.
 
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use super::managed_quota::{
-    binary_or_error, claude_credentials_path, read_claude_oauth_token, Framing, RpcChild,
-    RPC_TIMEOUT,
-};
+use super::managed_quota::{binary_or_error, Framing, RpcChild, RPC_TIMEOUT};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -145,66 +140,6 @@ fn parse_copilot_models(payload: &Value) -> Result<Vec<ManagedModel>, String> {
         .ok_or_else(|| "GitHub Copilot returned an empty model catalog".to_string())
 }
 
-fn supported_claude_efforts(entry: &Value) -> Vec<String> {
-    let Some(effort) = entry.pointer("/capabilities/effort") else {
-        return Vec::new();
-    };
-    if effort.get("supported").and_then(Value::as_bool) != Some(true) {
-        return Vec::new();
-    }
-    ["low", "medium", "high", "xhigh", "max"]
-        .into_iter()
-        .filter(|name| {
-            effort
-                .get(*name)
-                .and_then(|value| value.get("supported"))
-                .and_then(Value::as_bool)
-                == Some(true)
-        })
-        .map(str::to_owned)
-        .collect()
-}
-
-fn parse_claude_models(payload: &Value) -> Result<Vec<ManagedModel>, String> {
-    let data = payload
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or("Anthropic models response did not contain data")?;
-    let models = data
-        .iter()
-        .filter_map(|entry| {
-            let id = non_empty_string(entry.get("id"))?;
-            let efforts = supported_claude_efforts(entry);
-            let reasoning = entry
-                .pointer("/capabilities/thinking/supported")
-                .and_then(Value::as_bool)
-                .unwrap_or(!efforts.is_empty());
-            let mut input = vec!["text".to_string()];
-            if entry
-                .pointer("/capabilities/image_input/supported")
-                .and_then(Value::as_bool)
-                == Some(true)
-            {
-                input.push("image".to_string());
-            }
-            Some(ManagedModel {
-                name: non_empty_string(entry.get("display_name")).unwrap_or_else(|| id.clone()),
-                id,
-                reasoning,
-                supported_reasoning_efforts: efforts,
-                default_reasoning_effort: None,
-                input,
-                context_window: entry.get("max_input_tokens").and_then(Value::as_u64),
-                max_tokens: entry.get("max_tokens").and_then(Value::as_u64),
-                is_default: false,
-            })
-        })
-        .collect::<Vec<_>>();
-    (!models.is_empty())
-        .then_some(models)
-        .ok_or_else(|| "Anthropic returned an empty model catalog".to_string())
-}
-
 async fn copilot_models(app: &AppHandle) -> Result<Vec<ManagedModel>, String> {
     let binary = binary_or_error(app, "github-copilot")?;
     let mut rpc = RpcChild::spawn(
@@ -248,41 +183,10 @@ async fn codex_models(app: &AppHandle) -> Result<Vec<ManagedModel>, String> {
     result
 }
 
-async fn claude_models(app: &AppHandle) -> Result<Vec<ManagedModel>, String> {
-    binary_or_error(app, "claude-code")?;
-    let token = read_claude_oauth_token(claude_credentials_path(app))
-        .await
-        .ok_or("Claude Code is not signed in with an OAuth credential")?;
-    let response = reqwest::Client::builder()
-        .timeout(RPC_TIMEOUT)
-        .build()
-        .map_err(|error| error.to_string())?
-        .get("https://api.anthropic.com/v1/models?limit=1000")
-        .bearer_auth(token)
-        .header("anthropic-beta", "oauth-2025-04-20")
-        .header("anthropic-version", "2023-06-01")
-        .header("accept", "application/json")
-        .send()
-        .await
-        .map_err(|error| format!("Anthropic model catalog request failed: {error}"))?;
-    if !response.status().is_success() {
-        return Err(format!(
-            "Anthropic model catalog request failed ({}).",
-            response.status().as_u16()
-        ));
-    }
-    let payload: Value = response
-        .json()
-        .await
-        .map_err(|error| format!("Anthropic model catalog response was not JSON: {error}"))?;
-    parse_claude_models(&payload)
-}
-
 pub async fn fetch_models(app: &AppHandle, provider: &str) -> Result<Vec<ManagedModel>, String> {
     match provider {
         "github-copilot" => copilot_models(app).await,
         "codex" => codex_models(app).await,
-        "claude-code" => claude_models(app).await,
         _ => Err(format!("unknown managed-auth provider: {provider}")),
     }
 }
@@ -314,21 +218,5 @@ mod tests {
         assert_eq!(models.len(), 2);
         assert!(models[0].is_default);
         assert!(models[1].reasoning);
-    }
-
-    #[test]
-    fn parses_claude_capabilities_and_limits() {
-        let models = parse_claude_models(&json!({ "data": [{
-            "id": "claude-sonnet-5", "display_name": "Claude Sonnet 5",
-            "max_input_tokens": 1000000, "max_tokens": 128000,
-            "capabilities": {
-                "image_input": { "supported": true },
-                "thinking": { "supported": true },
-                "effort": { "supported": true, "low": { "supported": true }, "high": { "supported": true } }
-            }
-        }] })).unwrap();
-        assert_eq!(models[0].input, ["text", "image"]);
-        assert_eq!(models[0].context_window, Some(1_000_000));
-        assert_eq!(models[0].supported_reasoning_efforts, ["low", "high"]);
     }
 }

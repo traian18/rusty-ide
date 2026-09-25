@@ -16,12 +16,27 @@ export function isCodexProvider(provider: CustomProvider): boolean {
   return provider.transport === "openai-codex-app-server" || provider.id === "openai-codex";
 }
 
-export function isClaudeCodeProvider(provider: CustomProvider): boolean {
-  return provider.transport === "anthropic-claude-agent-sdk" || provider.id === "anthropic-claude-code";
+export function isManagedAuthProvider(provider: CustomProvider): boolean {
+  return isCopilotProvider(provider) || isCodexProvider(provider);
 }
 
-export function isManagedAuthProvider(provider: CustomProvider): boolean {
-  return isCopilotProvider(provider) || isCodexProvider(provider) || isClaudeCodeProvider(provider);
+/**
+ * Built-in providers that no longer exist. Claude subscription sign-in
+ * ("Claude Code", `anthropic-claude-code`) was removed because Anthropic
+ * does not allow third-party tools to use Claude subscription OAuth
+ * tokens; Claude models are reached through the API-key `anthropic`
+ * provider instead. Saved configs that still carry these are pruned on
+ * load, independent of `configVersion`.
+ */
+const REMOVED_PROVIDER_IDS = new Set(["anthropic-claude-code"]);
+
+export function isRemovedProviderId(providerId: string): boolean {
+  return REMOVED_PROVIDER_IDS.has(providerId);
+}
+
+export function isRemovedProviderModel(model: string): boolean {
+  const separator = model.indexOf("/");
+  return separator > 0 && REMOVED_PROVIDER_IDS.has(model.slice(0, separator));
 }
 const REASONING_EFFORT_ORDER = ["minimal", "low", "medium", "high", "xhigh"] as const;
 const REASONING_EFFORT_LABELS: Record<(typeof REASONING_EFFORT_ORDER)[number], string> = {

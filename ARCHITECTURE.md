@@ -392,10 +392,10 @@ path with its own guarantees to keep in sync.
 **Quota stays scoped to one watched provider, not every eligible one.**
 `ProviderQuotaControl` only ever shows a single provider's quota;
 `setQuotaWatch` mirrors that exactly rather than proactively fetching
-every eligible provider's quota on a timer. Claude Code's quota path
-deliberately bypasses its own status cache on every single call — there
-is no warm-state amortization that would make fetching it for every
-eligible provider every 5 minutes forever anything but a pure added cost.
+every eligible provider's quota on a timer. Each managed provider's quota
+path spawns its CLI afresh on every call — there is no warm-state
+amortization that would make fetching it for every eligible provider
+every 5 minutes forever anything but a pure added cost.
 
 **Model discovery is background, TTL'd, and never touches `activeModel`.**
 `CustomProvider.modelsFetchedAt` (optional) records when a catalog was
