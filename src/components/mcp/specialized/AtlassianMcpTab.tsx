@@ -96,9 +96,11 @@ export const AtlassianMcpTab: React.FC = () => {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      const requirements = ATLASSIAN_PRESETS.find((preset) => preset.id === formData.method)?.requirements;
+      const hint = requirements && msg.includes("was not found on your PATH") ? ` ${requirements}` : "";
       setTestResult({
         status: "error",
-        message: `Connection failed: ${msg}`,
+        message: `Connection failed: ${msg}${hint}`,
       });
     } finally {
       setTesting(false);
@@ -131,6 +133,7 @@ export const AtlassianMcpTab: React.FC = () => {
     setTestResult({ status: "idle", message: "" });
   };
 
+  const isLocalServer = formData.method === "uvx" || formData.method === "docker";
   const isConfigured = Boolean(existingServer);
   const isEnabled = existingServer?.enabled ?? formData.enabled;
 
@@ -266,19 +269,20 @@ export const AtlassianMcpTab: React.FC = () => {
               <div className={styles.inputWrapper}>
                 <input
                   type="text"
-                  placeholder="ghcr.io/soopk/mcp-atlassian"
+                  placeholder="ghcr.io/sooperset/mcp-atlassian"
                   value={formData.dockerImage}
                   onChange={(e) => handleFieldChange("dockerImage", e.target.value)}
                   className={styles.input}
                 />
               </div>
               <span className={styles.fieldHint}>
-                Container image tag to run (defaults to <code>ghcr.io/soopk/mcp-atlassian</code>).
+                Container image tag to run (defaults to <code>ghcr.io/sooperset/mcp-atlassian</code>).
               </span>
             </div>
           )}
 
           {/* Atlassian Site / Instance URL */}
+          {isLocalServer && (
           <div className={styles.field}>
             <label className={`${styles.fieldLabel} ${styles.fieldLabelRequired}`}>
               <span>Atlassian Instance URL</span>
@@ -297,6 +301,7 @@ export const AtlassianMcpTab: React.FC = () => {
               Your Atlassian Cloud domain (e.g. <code>https://mycompany.atlassian.net</code>).
             </span>
           </div>
+          )}
 
           {/* Account Email and API Token in a row */}
           <div className={styles.row}>
@@ -344,12 +349,21 @@ export const AtlassianMcpTab: React.FC = () => {
                 </button>
               </div>
               <span className={styles.fieldHint}>
-                Create an API token in your Atlassian Account Security settings. Supports <code>{"${ENV_VAR}"}</code>.
+                {formData.method === "hosted" ? (
+                  <>
+                    Use <strong>Create API token with scopes</strong> and pick the Rovo MCP{" "}
+                    <code>agent-interface</code> scopes you need (e.g. <code>read:jira:agent-interface</code>).
+                    Your org admin must allow API-token authentication for the Rovo MCP server.
+                  </>
+                ) : (
+                  "Create an API token in your Atlassian Account Security settings."
+                )}
               </span>
             </div>
           </div>
 
           {/* Enabled Modules / Products */}
+          {isLocalServer && (
           <div className={styles.field}>
             <label className={styles.fieldLabel}>
               <span className={styles.fieldLabelRequired}>Enabled Products</span>
@@ -382,6 +396,7 @@ export const AtlassianMcpTab: React.FC = () => {
               </label>
             </div>
           </div>
+          )}
 
           {/* Advanced row: Server name & Timeout */}
           <div className={styles.row}>
@@ -491,8 +506,14 @@ export const AtlassianMcpTab: React.FC = () => {
         <ul className={styles.guideList}>
           <li>
             <strong>Generating an API Token:</strong> Sign in to{" "}
-            <code>id.atlassian.com/manage-profile/security/api-tokens</code>, click "Create API token",
-            give it a label (e.g. <code>Rusty IDE</code>), and paste the generated string above.
+            <code>id.atlassian.com/manage-profile/security/api-tokens</code>. For the hosted server, click
+            "Create API token with scopes" and select the Rovo MCP <code>agent-interface</code> scopes; for the
+            self-hosted methods, a regular "Create API token" is enough.
+          </li>
+          <li>
+            <strong>Hosted Method:</strong> Uses Atlassian's official Rovo MCP server — nothing runs on your
+            machine. Atlassian Cloud only; an org admin must enable API-token authentication under
+            Atlassian Administration → Rovo → Rovo MCP server → Authentication.
           </li>
           <li>
             <strong>UVX Method:</strong> Runs the Python-based <code>mcp-atlassian</code> package

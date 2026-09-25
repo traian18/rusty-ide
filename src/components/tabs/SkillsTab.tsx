@@ -470,7 +470,7 @@ export const SkillsTab: React.FC = () => {
                   </button>
                   {editingSkill.isBuiltIn && (
                     <span className="text-[10px] text-[var(--text-muted)] font-mono">
-                      Built-in skill — editing in memory
+                      Built-in skill — MCP server access is saved; other edits last for this session
                     </span>
                   )}
                 </div>

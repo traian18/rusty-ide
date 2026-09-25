@@ -45,6 +45,7 @@ import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import { skillExecutionPolicy } from "../skillExecutionPolicy";
+import { mcpIntegrationsSection } from "../mcpPrompt";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -58,8 +59,15 @@ function asMcpServerConfigsFromContext(value: unknown): McpServerConfig[] {
 }
 
 interface SkillLike {
+  name?: unknown;
   enabledTools?: unknown;
   systemPrompt?: unknown;
+}
+
+function activeSkillLine(skill: SkillLike | undefined): string {
+  return typeof skill?.name === "string" && skill.name
+    ? `Active skill: ${skill.name}`
+    : "Active skill: none (default tools)";
 }
 
 function asSkill(skill: unknown): SkillLike | undefined {
@@ -126,7 +134,7 @@ function buildContextDescriptionsSection(contextDescriptions: unknown): string {
   return `\n--- CONNECTED CONTEXT (read-only reference) ---\n${contextDescriptions.map((d) => String(d)).join("\n")}\n`;
 }
 
-function systemPrompt(input: ExecuteNodeInput, toolNames: string[]): string {
+function systemPrompt(input: ExecuteNodeInput, toolNames: string[], mcpSection: string): string {
   const skill = asSkill(input.skill);
   const toolListText = toolNames.map((name) => TOOL_DESCRIPTIONS[name] ?? `- '${name}'`).join("\n");
   const upstreamSection = buildUpstreamSection(input.upstreamTaskContext);
@@ -153,11 +161,10 @@ READING vs WRITING:
 - Writing is restricted: only files your task explicitly requires.
 
 Workspace root: ${input.workspaceRoot || "unknown"}
+${activeSkillLine(skill)}
 ${buildFilesList(input.inputFiles)}
 ${globalContextSection}${contextDescriptionsSection}${upstreamBlock}Available tools:
-${toolListText}
-
-If any MCP integration tools appear in your tool list, call them for external data your other tools can't reach.
+${toolListText}${mcpSection}
 
 File writing rules:
 - Write the complete file content — never partial edits or diffs.
@@ -193,10 +200,12 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
       throw new Error(`CoreHarness: execute_node cannot run on core -- ${mapped.reason}`);
     }
     const toolSpecs = toolSpecsFor(asSkill(input.skill));
-    const { specs: mcpServers, skipped } = mapMcpServerConfigs(asMcpServerConfigsFromContext(input.mcpContext));
+    const mcpConfigs = asMcpServerConfigsFromContext(input.mcpContext);
+    const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
     for (const { reason } of skipped) console.warn(`[execute_node] ${reason}`);
+    const executionPolicy = skillExecutionPolicy(input.skill, "execute", mcpServers.map((spec) => spec.name));
     return {
-      execution_policy: skillExecutionPolicy(input.skill, "execute"),
+      execution_policy: executionPolicy,
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
@@ -210,6 +219,7 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
       system_prompt: systemPrompt(
         input,
         [...toolSpecs.map((spec) => spec.name), "web_fetch"],
+        mcpIntegrationsSection(mcpServers, mcpConfigs, executionPolicy),
       ),
       host_tools: toolSpecs,
       mcp_servers: mcpServers,

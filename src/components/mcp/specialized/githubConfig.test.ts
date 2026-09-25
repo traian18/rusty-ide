@@ -10,6 +10,14 @@ import type { McpServerConfig } from "../types";
 
 describe("githubConfig", () => {
   describe("githubFormToConfig", () => {
+    it("maps the hosted method to GitHub's remote MCP server with the PAT as a bearer token", () => {
+      const config = githubFormToConfig({ ...DEFAULT_GITHUB_FORM_DATA, token: "ghp_hosted" });
+
+      expect(config.transport).toEqual({ type: "http", url: "https://api.githubcopilot.com/mcp/" });
+      expect(config.auth).toEqual({ type: "bearer", token: "ghp_hosted" });
+      expect(configToGithubForm(config).method).toBe("hosted");
+    });
+
     it("converts NPX form data into standard McpServerConfig", () => {
       const form: GitHubMcpFormData = {
         method: "npx",
@@ -38,6 +46,7 @@ describe("githubConfig", () => {
     it("includes GITHUB_API_URL when provided for enterprise", () => {
       const form: GitHubMcpFormData = {
         ...DEFAULT_GITHUB_FORM_DATA,
+        method: "npx",
         token: "ghp_enterprise_token",
         apiUrl: "https://github.mycorp.internal/api/v3",
       };
@@ -96,7 +105,7 @@ describe("githubConfig", () => {
   describe("configToGithubForm", () => {
     it("returns default form when config is undefined", () => {
       const form = configToGithubForm(undefined);
-      expect(form.method).toBe("npx");
+      expect(form.method).toBe("hosted");
       expect(form.serverName).toBe("github");
       expect(form.token).toBe("");
     });
@@ -153,6 +162,11 @@ describe("githubConfig", () => {
   });
 
   describe("validateGitHubInputs", () => {
+    it("needs only a token for the hosted method", () => {
+      expect(validateGitHubInputs({ ...DEFAULT_GITHUB_FORM_DATA, token: "" })).toContain("Token is required");
+      expect(validateGitHubInputs({ ...DEFAULT_GITHUB_FORM_DATA, token: "ghp_x", apiUrl: "not a url" })).toBeNull();
+    });
+
     it("fails when token is empty", () => {
       const error = validateGitHubInputs({
         ...DEFAULT_GITHUB_FORM_DATA,

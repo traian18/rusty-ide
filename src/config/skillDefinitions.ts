@@ -204,17 +204,23 @@ export function resolveSkill(skills: Skill[], preferredId: string | null | undef
 }
 
 /**
- * Extracts the minimal skill payload that is sent to the sidecar.
+ * The skill payload a run receives. `mcpServers` feeds the session's execution
+ * policy (skillExecutionPolicy.ts) -- dropping it silently denies every MCP
+ * server to every skill.
  */
 export function toSkillData(skill: Skill | null): {
+  name: string;
   systemPrompt: string;
   enabledTools: string[];
+  mcpServers: string[];
   preferredModel?: string;
 } | null {
   if (!skill) return null;
   return {
+    name: skill.name,
     systemPrompt: skill.systemPrompt,
     enabledTools: skill.enabledTools,
+    mcpServers: skill.mcpServers ?? [],
     preferredModel: skill.preferredModel,
   };
 }

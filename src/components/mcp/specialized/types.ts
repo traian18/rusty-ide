@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 
-export type GitHubIntegrationMethod = "npx" | "docker" | "remote_http" | "custom";
+export type GitHubIntegrationMethod = "hosted" | "npx" | "docker" | "remote_http" | "custom";
 
 export interface GitHubMcpFormData {
   method: GitHubIntegrationMethod;
@@ -15,7 +15,7 @@ export interface GitHubMcpFormData {
   enabled: boolean;
 }
 
-export type AtlassianIntegrationMethod = "uvx" | "docker" | "npx" | "remote_http";
+export type AtlassianIntegrationMethod = "hosted" | "uvx" | "docker" | "remote_http";
 
 export interface AtlassianMcpFormData {
   method: AtlassianIntegrationMethod;

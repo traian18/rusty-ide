@@ -267,7 +267,13 @@ fn register_optional_builtin_tools(registry: &SimpleToolRegistry, enable_web_fet
 /// where the same interpolation had no environment to resolve against.
 pub(crate) fn mcp_config_from_spec(spec: McpServerSpec) -> McpServerConfig {
     let transport = match spec.resolve_transport() {
-        McpTransportSpec::Stdio { command, args, env, cwd } => {
+        McpTransportSpec::Stdio { command, args, mut env, cwd } => {
+            // Setting PATH on the child also changes where `command` itself is
+            // looked up, so this is what makes `uvx`/`npx`/`docker` spawnable
+            // from a Finder-launched app.
+            if let Some(path) = super::user_path::user_path() {
+                env.entry("PATH".to_string()).or_insert_with(|| path.to_string());
+            }
             McpTransportConfig::Stdio { command, args, env, cwd }
         }
         McpTransportSpec::Http { url, headers } => McpTransportConfig::Http {

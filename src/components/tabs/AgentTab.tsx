@@ -414,12 +414,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const resolved = resolveSkill(currentSkills, selectedSkillId);
     const skillData = toSkillData(resolved);
 
-    // Resolve MCP servers declared in the active skill.
-    const mcpServersMap = useWorkspaceStore.getState().mcpServers;
-    const skillMcpNames: string[] = resolved?.mcpServers || [];
-    const mcpServers = skillMcpNames
-      .map((name: string) => mcpServersMap[name])
-      .filter((srv: any): srv is NonNullable<typeof srv> => !!srv);
+    // Offer every connected server; the session's execution policy decides
+    // which ones the active skill actually gets (skillExecutionPolicy.ts).
+    const mcpServers = Object.values(useWorkspaceStore.getState().mcpServers).filter((server) => server.enabled);
 
     const host = createRunHost({
       readFile: (path) => invoke<string>("read_file_disk", { path }),

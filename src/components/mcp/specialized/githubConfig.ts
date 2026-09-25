@@ -1,13 +1,25 @@
-import { Package, Box, Cloud, TerminalSquare } from "lucide-react";
+import { Package, Box, Cloud, Globe, TerminalSquare } from "lucide-react";
 import type { McpServerConfig } from "../types";
 import type { GitHubIntegrationMethod, GitHubMcpFormData, SpecializedIntegrationPreset } from "./types";
 
+/** GitHub's own hosted MCP server; github.com only (not GitHub Enterprise Server). */
+export const GITHUB_HOSTED_MCP_URL = "https://api.githubcopilot.com/mcp/";
+
 export const GITHUB_PRESETS: SpecializedIntegrationPreset<GitHubIntegrationMethod>[] = [
+  {
+    id: "hosted",
+    name: "Hosted by GitHub",
+    badge: "Recommended",
+    description: "Connects to GitHub's official remote MCP server. Nothing to install; just a personal access token.",
+    requirements: "Requires only a GitHub personal access token.",
+    commandPreview: GITHUB_HOSTED_MCP_URL,
+    icon: Globe,
+  },
   {
     id: "npx",
     name: "NPX / Node.js",
-    badge: "Recommended",
-    description: "Launches the official @modelcontextprotocol/server-github via npx.",
+    badge: "Deprecated",
+    description: "Launches @modelcontextprotocol/server-github via npx. npm marks this package as no longer supported.",
     requirements: "Requires Node.js 18+ and npm installed on your system.",
     commandPreview: "npx -y @modelcontextprotocol/server-github",
     icon: Package,
@@ -42,7 +54,7 @@ export const GITHUB_PRESETS: SpecializedIntegrationPreset<GitHubIntegrationMetho
 ];
 
 export const DEFAULT_GITHUB_FORM_DATA: GitHubMcpFormData = {
-  method: "npx",
+  method: "hosted",
   serverName: "github",
   token: "",
   apiUrl: "",
@@ -58,6 +70,20 @@ export function githubFormToConfig(form: GitHubMcpFormData): McpServerConfig {
   const serverName = form.serverName.trim().toLowerCase() || "github";
   const token = form.token.trim();
   const apiUrl = form.apiUrl.trim();
+
+  if (form.method === "hosted") {
+    return {
+      name: serverName,
+      displayName: "GitHub MCP (Hosted)",
+      description: "GitHub's hosted Model Context Protocol server",
+      enabled: form.enabled,
+      transport: { type: "http", url: GITHUB_HOSTED_MCP_URL },
+      auth: { type: "bearer", token },
+      timeout: form.timeout || 30000,
+      maxRetries: 3,
+      retryDelay: 1000,
+    };
+  }
 
   if (form.method === "remote_http") {
     return {
@@ -159,7 +185,7 @@ export function configToGithubForm(config?: McpServerConfig): GitHubMcpFormData 
     return { ...DEFAULT_GITHUB_FORM_DATA };
   }
 
-  let method: GitHubIntegrationMethod = "npx";
+  let method: GitHubIntegrationMethod = "hosted";
   let token = "";
   let apiUrl = "";
   let dockerImage = "mcp/github";
@@ -168,8 +194,8 @@ export function configToGithubForm(config?: McpServerConfig): GitHubMcpFormData 
   let remoteUrl = "";
 
   if (config.transport.type === "http" || config.transport.type === "sse") {
-    method = "remote_http";
     remoteUrl = config.transport.url || "";
+    method = remoteUrl === GITHUB_HOSTED_MCP_URL ? "hosted" : "remote_http";
     if (config.auth.type === "bearer" && config.auth.token) {
       token = config.auth.token;
     } else if (config.auth.type === "apiKey" && config.auth.value) {
@@ -225,6 +251,10 @@ function isHttpUrl(value: string): boolean {
 }
 
 export function validateGitHubInputs(data: GitHubMcpFormData): string | null {
+  if (data.method === "hosted") {
+    return data.token.trim() ? null : "GitHub Personal Access Token is required to authenticate.";
+  }
+
   if (data.method === "remote_http") {
     if (!data.remoteUrl.trim()) {
       return "Endpoint URL is required for remote HTTP/SSE integration.";

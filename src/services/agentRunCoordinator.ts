@@ -167,20 +167,16 @@ export async function executeNode(
     })
     .filter((c): c is Exclude<typeof c, null> => c !== null);
 
-  // Also include MCP servers declared in the selected skill
-  if (selectedSkill && Array.isArray(selectedSkill.mcpServers)) {
-    for (const name of selectedSkill.mcpServers) {
-      if (!mcpContext.some((c) => c.server.name === name)) {
-        const server = mcpServersMap[name];
-        if (server) {
-          mcpContext.push({
-            server,
-            nodeId: undefined,
-            description: "",
-            nodeName: server.displayName || server.name,
-          });
-        }
-      }
+  // Also offer every other connected server; the session's execution policy
+  // decides which ones the selected skill actually gets (skillExecutionPolicy.ts).
+  for (const server of Object.values(mcpServersMap)) {
+    if (server.enabled && !mcpContext.some((c) => c.server.name === server.name)) {
+      mcpContext.push({
+        server,
+        nodeId: undefined,
+        description: "",
+        nodeName: server.displayName || server.name,
+      });
     }
   }
 

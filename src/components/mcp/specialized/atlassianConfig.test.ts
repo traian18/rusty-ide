@@ -25,60 +25,91 @@ describe("atlassianConfig", () => {
   });
 
   describe("atlassianFormToConfig", () => {
-    it("converts UVX form data into standard McpServerConfig", () => {
+    it("maps the hosted method to Atlassian's Rovo MCP server with Basic email:token auth", () => {
+      const config = atlassianFormToConfig({
+        ...DEFAULT_ATLASSIAN_FORM_DATA,
+        email: "dev@myteam.com",
+        apiToken: "scoped_token",
+      });
+
+      expect(config.transport).toEqual({ type: "http", url: "https://mcp.atlassian.com/v2/mcp" });
+      expect(config.auth.header).toBe("Authorization");
+      expect(config.auth.value).toBe(`Basic ${btoa("dev@myteam.com:scoped_token")}`);
+
+      const restored = configToAtlassianForm(config);
+      expect(restored.method).toBe("hosted");
+      expect(restored.email).toBe("dev@myteam.com");
+      expect(restored.apiToken).toBe("scoped_token");
+    });
+
+    it("converts UVX form data into the JIRA_*/CONFLUENCE_* variables mcp-atlassian reads", () => {
       const form: AtlassianMcpFormData = {
+        ...DEFAULT_ATLASSIAN_FORM_DATA,
         method: "uvx",
-        serverName: "atlassian",
         instanceUrl: "https://myteam.atlassian.net",
         email: "dev@myteam.com",
         apiToken: "atlassian_api_token_123",
-        enableJira: true,
-        enableConfluence: true,
-        dockerImage: "ghcr.io/soopk/mcp-atlassian",
-        remoteUrl: "",
-        timeout: 30000,
-        enabled: true,
       };
 
       const config = atlassianFormToConfig(form);
       expect(config.name).toBe("atlassian");
-      expect(config.transport.type).toBe("stdio");
       expect(config.transport.command).toBe("uvx");
       expect(config.transport.args).toEqual(["mcp-atlassian"]);
-      expect(config.transport.env?.ATLASSIAN_INSTANCE_URL).toBe("https://myteam.atlassian.net");
-      expect(config.transport.env?.ATLASSIAN_EMAIL).toBe("dev@myteam.com");
-      expect(config.transport.env?.ATLASSIAN_API_TOKEN).toBe("atlassian_api_token_123");
+      expect(config.transport.env).toEqual({
+        JIRA_URL: "https://myteam.atlassian.net",
+        JIRA_USERNAME: "dev@myteam.com",
+        JIRA_API_TOKEN: "atlassian_api_token_123",
+        CONFLUENCE_URL: "https://myteam.atlassian.net/wiki",
+        CONFLUENCE_USERNAME: "dev@myteam.com",
+        CONFLUENCE_API_TOKEN: "atlassian_api_token_123",
+      });
     });
 
-    it("adds --jira-only flag when confluence is disabled in uvx mode", () => {
-      const form: AtlassianMcpFormData = {
+    it("enables only Jira by leaving out every Confluence variable, with no CLI flags", () => {
+      const config = atlassianFormToConfig({
         ...DEFAULT_ATLASSIAN_FORM_DATA,
+        method: "uvx",
         instanceUrl: "https://myteam.atlassian.net",
         email: "dev@myteam.com",
         apiToken: "token",
-        enableJira: true,
         enableConfluence: false,
-      };
+      });
 
-      const config = atlassianFormToConfig(form);
-      expect(config.transport.args).toContain("--jira-only");
-      expect(config.transport.env?.CONFLUENCE_ENABLED).toBe("false");
+      expect(config.transport.args).toEqual(["mcp-atlassian"]);
+      expect(Object.keys(config.transport.env ?? {})).toEqual(["JIRA_URL", "JIRA_USERNAME", "JIRA_API_TOKEN"]);
     });
 
-    it("converts Docker mode into container run command", () => {
-      const form: AtlassianMcpFormData = {
+    it("does not double the /wiki suffix when the instance URL already has it", () => {
+      const config = atlassianFormToConfig({
+        ...DEFAULT_ATLASSIAN_FORM_DATA,
+        method: "uvx",
+        instanceUrl: "https://myteam.atlassian.net/wiki",
+        email: "dev@myteam.com",
+        apiToken: "token",
+      });
+
+      expect(config.transport.env?.JIRA_URL).toBe("https://myteam.atlassian.net");
+      expect(config.transport.env?.CONFLUENCE_URL).toBe("https://myteam.atlassian.net/wiki");
+    });
+
+    it("converts Docker mode into a run command forwarding each variable by name", () => {
+      const config = atlassianFormToConfig({
         ...DEFAULT_ATLASSIAN_FORM_DATA,
         method: "docker",
         instanceUrl: "https://myteam.atlassian.net",
         email: "dev@myteam.com",
-        apiToken: "token",
-        dockerImage: "custom-atlassian:latest",
-      };
+        apiToken: "secret-token",
+        enableConfluence: false,
+      });
 
-      const config = atlassianFormToConfig(form);
       expect(config.transport.command).toBe("docker");
-      expect(config.transport.args).toContain("custom-atlassian:latest");
-      expect(config.transport.env?.ATLASSIAN_EMAIL).toBe("dev@myteam.com");
+      expect(config.transport.args).toEqual([
+        "run", "-i", "--rm",
+        "-e", "JIRA_URL", "-e", "JIRA_USERNAME", "-e", "JIRA_API_TOKEN",
+        "ghcr.io/sooperset/mcp-atlassian",
+      ]);
+      expect(config.transport.args?.join(" ")).not.toContain("secret-token");
+      expect(config.transport.env?.JIRA_API_TOKEN).toBe("secret-token");
     });
 
     it("converts Remote HTTP mode with Basic auth header", () => {
@@ -100,18 +131,38 @@ describe("atlassianConfig", () => {
   });
 
   describe("configToAtlassianForm", () => {
-    it("restores uvx configuration from existing server", () => {
-      const config: McpServerConfig = {
-        name: "atlassian",
+    it("restores a uvx configuration", () => {
+      const config = atlassianFormToConfig({
+        ...DEFAULT_ATLASSIAN_FORM_DATA,
+        method: "uvx",
+        instanceUrl: "https://corp.atlassian.net",
+        email: "admin@corp.com",
+        apiToken: "secret_token",
+        enableJira: false,
+      });
+
+      const form = configToAtlassianForm(config);
+      expect(form.method).toBe("uvx");
+      expect(form.instanceUrl).toBe("https://corp.atlassian.net");
+      expect(form.email).toBe("admin@corp.com");
+      expect(form.apiToken).toBe("secret_token");
+      expect(form.enableJira).toBe(false);
+      expect(form.enableConfluence).toBe(true);
+    });
+
+    it("migrates a config saved with the old ATLASSIAN_* variables and --jira-only flag", () => {
+      const legacy: McpServerConfig = {
+        name: "attlasian",
         enabled: true,
         transport: {
           type: "stdio",
           command: "uvx",
-          args: ["mcp-atlassian"],
+          args: ["mcp-atlassian", "--jira-only"],
           env: {
             ATLASSIAN_INSTANCE_URL: "https://corp.atlassian.net",
             ATLASSIAN_EMAIL: "admin@corp.com",
             ATLASSIAN_API_TOKEN: "secret_token",
+            CONFLUENCE_ENABLED: "false",
           },
         },
         auth: { type: "none" },
@@ -120,13 +171,30 @@ describe("atlassianConfig", () => {
         retryDelay: 1000,
       };
 
-      const form = configToAtlassianForm(config);
-      expect(form.method).toBe("uvx");
-      expect(form.instanceUrl).toBe("https://corp.atlassian.net");
-      expect(form.email).toBe("admin@corp.com");
-      expect(form.apiToken).toBe("secret_token");
-      expect(form.enableJira).toBe(true);
-      expect(form.enableConfluence).toBe(true);
+      const resaved = atlassianFormToConfig(configToAtlassianForm(legacy));
+      expect(resaved.name).toBe("attlasian");
+      expect(resaved.transport.args).toEqual(["mcp-atlassian"]);
+      expect(resaved.transport.env).toEqual({
+        JIRA_URL: "https://corp.atlassian.net",
+        JIRA_USERNAME: "admin@corp.com",
+        JIRA_API_TOKEN: "secret_token",
+      });
+    });
+
+    it("moves configs from the unpublished npx package and soopk image onto working ones", () => {
+      const base = { name: "atlassian", enabled: true, auth: { type: "none" as const }, timeout: 30000, maxRetries: 3, retryDelay: 1000 };
+      const fromNpx = configToAtlassianForm({
+        ...base,
+        transport: { type: "stdio", command: "npx", args: ["-y", "@soopk/mcp-atlassian"], env: {} },
+      });
+      const fromOldImage = configToAtlassianForm({
+        ...base,
+        transport: { type: "stdio", command: "docker", args: ["run", "-i", "--rm", "ghcr.io/soopk/mcp-atlassian"], env: {} },
+      });
+
+      expect(fromNpx.method).toBe("uvx");
+      expect(fromOldImage.method).toBe("docker");
+      expect(fromOldImage.dockerImage).toBe("ghcr.io/sooperset/mcp-atlassian");
     });
 
     it("restores remote HTTP configuration and decodes Basic auth", () => {
@@ -157,9 +225,17 @@ describe("atlassianConfig", () => {
   });
 
   describe("validateAtlassianInputs", () => {
+    it("needs only email and token for the hosted method, not an instance URL", () => {
+      const hosted = { ...DEFAULT_ATLASSIAN_FORM_DATA, instanceUrl: "" };
+      expect(validateAtlassianInputs({ ...hosted, email: "", apiToken: "t" })).toContain("email is required");
+      expect(validateAtlassianInputs({ ...hosted, email: "a@b.com", apiToken: "" })).toContain("API Token is required");
+      expect(validateAtlassianInputs({ ...hosted, email: "a@b.com", apiToken: "t" })).toBeNull();
+    });
+
     it("fails when instance URL is missing", () => {
       const error = validateAtlassianInputs({
         ...DEFAULT_ATLASSIAN_FORM_DATA,
+        method: "uvx",
         instanceUrl: "",
         email: "user@test.com",
         apiToken: "token",
@@ -190,6 +266,7 @@ describe("atlassianConfig", () => {
     it("fails when both Jira and Confluence are disabled", () => {
       const error = validateAtlassianInputs({
         ...DEFAULT_ATLASSIAN_FORM_DATA,
+        method: "uvx",
         instanceUrl: "https://myteam.atlassian.net",
         email: "user@test.com",
         apiToken: "token",

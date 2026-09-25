@@ -217,11 +217,17 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
     };
   }),
 
-  updateSkill: (id, updates) => set((state) => ({
-    skills: state.skills.map((skill) => skill.id === id
-      ? { ...skill, ...updates, updatedAt: new Date().toISOString() }
-      : skill),
-  })),
+  updateSkill: (id, updates) => set((state) => {
+    // Built-in skills live only in memory; their MCP grants are the one edit
+    // persisted (with the secure config), since grants are what decide which
+    // servers a skill's sessions get.
+    if (state.skills.some((skill) => skill.id === id && skill.isBuiltIn)) scheduleSaveSecureConfig(get);
+    return {
+      skills: state.skills.map((skill) => skill.id === id
+        ? { ...skill, ...updates, updatedAt: new Date().toISOString() }
+        : skill),
+    };
+  }),
 
   deleteSkill: (id) => set((state) => ({
     skills: state.skills.filter((skill) => skill.id !== id),
@@ -318,6 +324,9 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
       activeModel: state.activeModel,
       lastWorkspacePath: state.rootPath,
       mcpServers: state.mcpServers,
+      builtInSkillMcpServers: Object.fromEntries(
+        state.skills.filter((skill) => skill.isBuiltIn).map((skill) => [skill.id, skill.mcpServers ?? []]),
+      ),
       webSearchApiKeys: state.webSearchApiKeys,
       lspSettings: { ...state.lspSettings, enabled: false },
     });
@@ -333,6 +342,7 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
       activeThemeId?: string;
       lastWorkspacePath?: string;
       mcpServers?: Record<string, McpServerConfig>;
+      builtInSkillMcpServers?: Record<string, string[]>;
       webSearchApiKeys?: Record<string, string>;
       lspSettings?: LspSettings;
     }>("rusty_secure_config");
@@ -389,6 +399,12 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
       updates.activeModel = normalizeStoredModelReference(config.activeModel, configVersion) || "";
     }
     if (config.mcpServers) updates.mcpServers = config.mcpServers;
+    const grants = config.builtInSkillMcpServers;
+    if (grants) {
+      updates.skills = get().skills.map((skill) =>
+        skill.isBuiltIn && Array.isArray(grants[skill.id]) ? { ...skill, mcpServers: grants[skill.id] } : skill,
+      );
+    }
     if (config.webSearchApiKeys) updates.webSearchApiKeys = config.webSearchApiKeys;
     if (config.lspSettings) updates.lspSettings = { ...config.lspSettings, enabled: false };
     const storedThemeId = loadStoredThemeId();

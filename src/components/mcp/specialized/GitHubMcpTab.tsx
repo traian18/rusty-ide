@@ -96,9 +96,11 @@ export const GitHubMcpTab: React.FC = () => {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      const requirements = GITHUB_PRESETS.find((preset) => preset.id === formData.method)?.requirements;
+      const hint = requirements && msg.includes("was not found on your PATH") ? ` ${requirements}` : "";
       setTestResult({
         status: "error",
-        message: `Connection failed: ${msg}`,
+        message: `Connection failed: ${msg}${hint}`,
       });
     } finally {
       setTesting(false);
@@ -131,6 +133,7 @@ export const GitHubMcpTab: React.FC = () => {
     setTestResult({ status: "idle", message: "" });
   };
 
+  const isLocalServer = formData.method === "npx" || formData.method === "docker" || formData.method === "custom";
   const isConfigured = Boolean(existingServer);
   const isEnabled = existingServer?.enabled ?? formData.enabled;
 
@@ -336,12 +339,15 @@ export const GitHubMcpTab: React.FC = () => {
               </button>
             </div>
             <span className={styles.fieldHint}>
-              Saved securely into your encrypted workspace configuration. Classic PAT requires{" "}
-              <code>repo</code> and <code>read:org</code> scopes. Supports <code>{"${ENV_VAR}"}</code> interpolation.
+              Saved into your encrypted workspace configuration. Classic PAT requires{" "}
+              <code>repo</code> and <code>read:org</code> scopes.
+              {formData.method === "hosted" &&
+                " The hosted server is github.com only; for GitHub Enterprise Cloud (ghe.com) use Remote HTTP with https://copilot-api.<your-subdomain>.ghe.com/mcp."}
             </span>
           </div>
 
-          {/* Optional GitHub Enterprise API URL */}
+          {/* Optional GitHub Enterprise API URL (only locally run servers read it) */}
+          {isLocalServer && (
           <div className={styles.field}>
             <label className={styles.fieldLabel}>
               <span>GitHub Enterprise API URL (Optional)</span>
@@ -359,6 +365,7 @@ export const GitHubMcpTab: React.FC = () => {
               Leave empty for standard GitHub.com. Fill only if using an on-premise GitHub Enterprise instance.
             </span>
           </div>
+          )}
 
           {/* Advanced row: Server name & Timeout */}
           <div className={styles.row}>
@@ -472,8 +479,13 @@ export const GitHubMcpTab: React.FC = () => {
             For workflows, enable <code>workflow</code>.
           </li>
           <li>
-            <strong>NPX Method:</strong> Runs the official Model Context Protocol GitHub server.
-            Requires Node.js 18+ on your host machine.
+            <strong>Hosted Method:</strong> Uses GitHub's official remote MCP server — nothing runs on your
+            machine. Available on every GitHub plan; members of Copilot Business/Enterprise orgs need the
+            "MCP servers in Copilot" policy enabled.
+          </li>
+          <li>
+            <strong>NPX Method:</strong> Runs <code>@modelcontextprotocol/server-github</code>, which npm marks as
+            no longer supported. Requires Node.js 18+ on your host machine.
           </li>
           <li>
             <strong>Docker Method:</strong> Useful if you want complete sandboxing without Node.js installed.

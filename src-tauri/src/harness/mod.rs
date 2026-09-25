@@ -27,6 +27,7 @@ mod managed_models;
 mod managed_quota;
 mod recipe;
 mod session;
+mod user_path;
 
 pub use bridge_event::BridgeEvent;
 pub use host_bridge::HostBridge;

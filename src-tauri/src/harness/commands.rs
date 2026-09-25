@@ -253,6 +253,15 @@ pub struct McpTestResult {
 #[tauri::command]
 pub async fn mcp_test_connection(server: harness_protocol::mcp::McpServerSpec) -> Result<McpTestResult, String> {
     let config = mcp_config_from_spec(server);
+    if let harness_engine::McpTransportConfig::Stdio { command, env, .. } = &config.transport {
+        let path = env.get("PATH").cloned().or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
+        if !super::user_path::resolves_on(command, &path) {
+            return Err(format!(
+                "`{command}` was not found on your PATH. Install it, or set the server's command to the \
+                 executable's full path. (Searched: {path})"
+            ));
+        }
+    }
     let executors = harness_tool_mcp::connect_and_discover(&config).await.map_err(|error| error.to_string())?;
     let tools: Vec<String> = executors.iter().map(|executor| executor.descriptor().name).collect();
     Ok(McpTestResult { tool_count: tools.len(), tools })

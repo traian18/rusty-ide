@@ -373,3 +373,30 @@ describe("createIntegrationSlice: loadSecureConfig's provider-merge, modelsFetch
     );
   });
 });
+
+describe("createIntegrationSlice: built-in skill MCP grants survive a restart", () => {
+  beforeEach(() => {
+    vi.mocked(SecureStorageService.loadSecureData).mockReset();
+    vi.mocked(SecureStorageService.saveSecureData).mockReset();
+  });
+
+  it("saves the servers ticked on a built-in skill and restores them on load", async () => {
+    vi.mocked(SecureStorageService.loadSecureData).mockResolvedValue(null);
+    const first = createIntegrationTestStore();
+    await first.getState().loadSecureConfig();
+    const plan = first.getState().skills.find((skill) => skill.isBuiltIn && skill.name === "plan")!;
+
+    first.getState().updateSkill(plan.id, { mcpServers: ["atlassian"] });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const saved = vi.mocked(SecureStorageService.saveSecureData).mock.calls.at(-1)?.[1] as {
+      builtInSkillMcpServers: Record<string, string[]>;
+    };
+    expect(saved.builtInSkillMcpServers[plan.id]).toEqual(["atlassian"]);
+
+    vi.mocked(SecureStorageService.loadSecureData).mockResolvedValue(saved);
+    const restarted = createIntegrationTestStore();
+    await restarted.getState().loadSecureConfig();
+    expect(restarted.getState().skills.find((skill) => skill.id === plan.id)?.mcpServers).toEqual(["atlassian"]);
+  });
+});

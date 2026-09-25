@@ -81,6 +81,7 @@ import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import { skillExecutionPolicy } from "../skillExecutionPolicy";
+import { mcpIntegrationsSection } from "../mcpPrompt";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -95,8 +96,15 @@ function asMcpServerConfigs(value: unknown): McpServerConfig[] {
 }
 
 interface SkillLike {
+  name?: unknown;
   enabledTools?: unknown;
   systemPrompt?: unknown;
+}
+
+function activeSkillLine(skill: SkillLike | undefined): string {
+  return typeof skill?.name === "string" && skill.name
+    ? `Active skill: ${skill.name}`
+    : "Active skill: none (default tools)";
 }
 
 function asSkill(skill: unknown): SkillLike | undefined {
@@ -238,14 +246,15 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   return [...structural, ...planTool, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
 }
 
-function systemPrompt(input: AgentChatInput, toolNames: string[]): string {
+function systemPrompt(input: AgentChatInput, toolNames: string[], mcpSection: string): string {
   const skill = asSkill(input.skill);
 
   const baseHeader = `You are an AI coding agent operating inside the Rusty spatial development canvas.
 You help the user analyze, modify, and implement code in their workspace.
 For analysis requests, present the findings, supporting file references, and actionable conclusions. Keep the answer concise unless the user requests detail. Do not narrate internal deliberation or repeat the source code you read.
 
-Workspace root: ${input.workspaceRoot || "unknown"}`;
+Workspace root: ${input.workspaceRoot || "unknown"}
+${activeSkillLine(skill)}`;
 
   const skillPromptText = typeof skill?.systemPrompt === "string" ? skill.systemPrompt : undefined;
   const skillGuidance = skillPromptText ? `\n\nActive skill guidance (adds to, does not replace, the defaults above):\n${skillPromptText}` : "";
@@ -258,7 +267,7 @@ Workspace root: ${input.workspaceRoot || "unknown"}`;
 Guidelines:
 - Be concise and focused. Only modify what is requested.
 - Output clean code without placeholder comments.
-- Once done, summarize the changes you made.${skillGuidance}${taskDependencySection}`;
+- Once done, summarize the changes you made.${mcpSection}${skillGuidance}${taskDependencySection}`;
   }
 
   const toolListText = toolNames.map((name) => TOOL_DESCRIPTIONS[name] ?? `- '${name}'`).join("\n");
@@ -267,9 +276,7 @@ Guidelines:
 
 
 You have access to tools:
-${toolListText}
-
-If any MCP integration tools appear in your tool list, call them for external data your other tools can't reach.
+${toolListText}${mcpSection}
 
 Guidelines:
 - Use 'read_file' to read a file before editing it.
@@ -407,10 +414,16 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     }
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly) };
     const toolSpecs = toolSpecsFor(asSkill(input.skill), mode);
-    const { specs: mcpServers, skipped } = mapMcpServerConfigs(asMcpServerConfigs(input.mcpServers));
+    const mcpConfigs = asMcpServerConfigs(input.mcpServers);
+    const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
     for (const { reason } of skipped) console.warn(`[agent_chat] ${reason}`);
+    const executionPolicy = skillExecutionPolicy(
+      input.skill,
+      mode.planOnly ? "plan" : mode.vfsOnly ? "virtual" : "execute",
+      mcpServers.map((spec) => spec.name),
+    );
     return {
-      execution_policy: skillExecutionPolicy(input.skill, mode.planOnly ? "plan" : mode.vfsOnly ? "virtual" : "execute"),
+      execution_policy: executionPolicy,
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
@@ -418,6 +431,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       system_prompt: systemPrompt(
         input,
         [...toolSpecs.map((spec) => spec.name), "web_fetch", "agent_spawn"],
+        mcpIntegrationsSection(mcpServers, mcpConfigs, executionPolicy),
       ),
       host_tools: toolSpecs,
       mcp_servers: mcpServers,

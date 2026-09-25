@@ -7,6 +7,7 @@ import { createTranscript } from "../transcript";
 import * as exploreTools from "./exploreTools";
 import * as runCommandTool from "./runCommandTool";
 import { agentChatDefinition } from "./agent_chat";
+import { BUILT_IN_SKILLS, BUILT_IN_SKILL_IDS, toSkillData } from "../../../config/skillDefinitions";
 
 vi.mock("./runCommandTool", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./runCommandTool")>();
@@ -151,6 +152,32 @@ describe("agentChatDefinition", () => {
     expect(recipe.mcp_servers).toEqual([
       { name: "filesystem", transport: { kind: "stdio", command: "npx", args: ["fs-mcp"], env: undefined }, request_timeout_secs: 30 },
     ]);
+  });
+
+  it("recipe() honors Atlassian ticked on the Plan skill: granted, read-only, and named with the skill", () => {
+    const atlassian = {
+      name: "atlassian",
+      displayName: "Atlassian MCP (Hosted)",
+      enabled: true,
+      transport: { type: "http", url: "https://mcp.atlassian.com/v2/mcp" },
+      auth: { type: "apiKey", header: "Authorization", value: "Basic abc" },
+      timeout: 30000,
+      maxRetries: 3,
+      retryDelay: 1000,
+    };
+    const plan = BUILT_IN_SKILLS.find((skill) => skill.id === BUILT_IN_SKILL_IDS.PLAN)!;
+    // Built exactly as AgentTab does, through toSkillData.
+    const skill = toSkillData({ ...plan, mcpServers: ["atlassian"] });
+
+    const recipe = agentChatDefinition.recipe!(input({ skill, planOnly: true, mcpServers: [atlassian] as any }));
+
+    expect(recipe.execution_policy).toMatchObject({ mode: "plan", allowed_mcp_servers: ["atlassian"] });
+    expect(recipe.system_prompt).toContain("Active skill: plan");
+    expect(recipe.system_prompt).toContain("- atlassian: Atlassian MCP (Hosted) (read-only tools only, because of plan mode)");
+
+    const unticked = agentChatDefinition.recipe!(input({ skill: toSkillData(plan), planOnly: true, mcpServers: [atlassian] as any }));
+    expect(unticked.execution_policy?.allowed_mcp_servers).toEqual([]);
+    expect(unticked.system_prompt).toContain("unavailable in this session");
   });
 
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
