@@ -12,7 +12,7 @@
 
 import { useEffect } from "react";
 
-export type SidePaneTab = "description" | "diff" | "chat" | "console" | "vfs";
+export type SidePaneTab = "description" | "diff" | "chat" | "console";
 
 /**
  * Resets `activeTab` to "chat" when the selected node changes.

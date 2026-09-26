@@ -45,7 +45,6 @@ import { DiffTabContent } from "./components/DiffTabContent";
 import { ConsoleTabContent } from "./components/ConsoleTabContent";
 import { ExplorerChatContent } from "./components/ExplorerChatContent";
 import { PromptChatContent } from "./components/PromptChatContent";
-import { VfsExplorer } from "./components/VfsExplorer";
 
 // Services
 import { canvasFileService } from "../tabs/canvas/services/canvasFileService";
@@ -385,20 +384,6 @@ const TabContent: React.FC<{
     return selectedNode.type === "globalChatNode"
       ? buildGlobalChatContent(selectedNode, nodeStatus, explorer, onCreateTaskNodes)
       : buildPromptChatContent(selectedNode, nodeStatus, explorer);
-  }
-
-  /* VFS explorer tab — task and global chat nodes. Was pinned to the
-     resize-`width` state (the RESTORE width, stale whenever the pane is
-     actually maximized) via an explicit px style; VfsExplorer itself takes
-     no width prop and is plain flex/h-full internally, so it was only ever
-     the wrapper narrowing it -- w-full lets it track the pane's real
-     current width (almost always full-screen now) instead. */
-  if (activeTab === "vfs") {
-    return (
-      <div className="h-full w-full">
-        <VfsExplorer tabId={tabId} />
-      </div>
-    );
   }
 
   return null;
