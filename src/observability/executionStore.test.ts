@@ -1,7 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AgentEvent, AgentEventEnvelope } from "@rusty/harness-sdk";
 import { ExecutionObservabilityStore } from "./executionStore";
+import { createMemoryPersistence, type ObservabilityPersistence } from "./persistence";
 import { sanitizeForObservability } from "./redaction";
+import { TrajectoryStore } from "./trajectoryStore";
 
 const INPUT = {
   tabId: "agent",
@@ -32,8 +34,25 @@ function envelope(event: AgentEvent, sequence: number, parentAgentId: string | n
   };
 }
 
+const STUCK_RECORD = {
+  id: "session-1:call-stuck",
+  callId: "call-stuck",
+  ideRunId: "stuck-run",
+  toolName: "bash.exec",
+  status: "running",
+  requestedAt: new Date(Date.now() - 60_000).toISOString(),
+  startedAt: new Date(Date.now() - 50_000).toISOString(),
+  origin: { surface: "agent", displayLabel: "Agent" },
+  context: { capability: "agent_chat", workspaceRoot: "/workspace" },
+  payloadState: "full",
+};
+
 describe("executionObservability", () => {
   let executionObservability: ExecutionObservabilityStore;
+  let persistence: ReturnType<typeof createMemoryPersistence>;
+  const storeWith = (p: ObservabilityPersistence = persistence) => new ExecutionObservabilityStore(p, new TrajectoryStore(p));
+  const diskText = () => JSON.stringify([...persistence.roots.values()].map((root) => root.executions));
+
   beforeAll(() => {
     const values = new Map<string, string>();
     Object.defineProperty(globalThis, "localStorage", {
@@ -51,10 +70,11 @@ describe("executionObservability", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    executionObservability = new ExecutionObservabilityStore();
+    persistence = createMemoryPersistence();
+    executionObservability = storeWith();
   });
 
-  it("projects a structured core tool lifecycle and redacts secrets before persistence", () => {
+  it("projects a structured core tool lifecycle and redacts secrets before persistence", async () => {
     executionObservability.startRun("ide-run", "agent_chat", INPUT, { displayLabel: "Agent" });
     executionObservability.ingest("ide-run", envelope({
       ToolCallRequested: { call: { id: "call-1", name: "http.request", arguments: { url: "https://example.test", authorization: "Bearer secret-value-123456" } } },
@@ -67,7 +87,10 @@ describe("executionObservability", () => {
     expect(record).toMatchObject({ toolName: "http.request", status: "succeeded", callId: "call-1", agentId: "agent-1" });
     expect(record.progress).toEqual({ status: "fetching", fraction: 0.5 });
     expect(record.arguments).toEqual({ url: "https://example.test", authorization: "[REDACTED]" });
-    expect(localStorage.getItem("rusty.execution-observability.v1")).not.toContain("secret-value");
+    await executionObservability.flush();
+    expect(diskText()).toContain("http.request");
+    expect(diskText()).not.toContain("secret-value");
+    expect(localStorage.getItem("rusty.execution-observability.v1")).toBeNull();
   });
 
   it("marks active calls cancelled with their enclosing IDE run", () => {
@@ -95,7 +118,7 @@ describe("executionObservability", () => {
     executionObservability.finishRun("ide-run", { status: "completed", result: { response: "", modifiedFiles: [], subagents: [] } });
   });
 
-  it("supports scoped and complete cache deletion", () => {
+  it("supports scoped and complete cache deletion, on disk too", async () => {
     executionObservability.startRun("ide-run", "agent_chat", INPUT);
     executionObservability.ingest("ide-run", envelope({
       ToolCallRequested: { call: { id: "call-1", name: "workspace.read", arguments: {} } },
@@ -103,55 +126,45 @@ describe("executionObservability", () => {
     executionObservability.ingest("ide-run", envelope({
       ToolCallCompleted: { call_id: "call-1", result: { has_error: false, output_preview: "done" } },
     }, 2));
-    executionObservability.deleteSession("session-1");
+    await executionObservability.flush();
+    await executionObservability.deleteSession("session-1");
     expect(executionObservability.getSnapshot().records).toEqual([]);
+
+    const reloaded = storeWith();
+    await reloaded.setWorkspace("/workspace");
+    expect(reloaded.getSnapshot().records).toEqual([]);
   });
 
-  it("heals stale active calls upon hydration so processes do not remain stuck in running", () => {
-    // Put a stuck "running" record in localStorage as if the browser crashed or reloaded while running
-    const stuckRecord = {
-      id: "session-1:call-stuck",
-      callId: "call-stuck",
-      ideRunId: "stuck-run",
-      toolName: "bash.exec",
-      status: "running",
-      requestedAt: new Date(Date.now() - 60_000).toISOString(),
-      startedAt: new Date(Date.now() - 50_000).toISOString(),
-      origin: { surface: "agent", displayLabel: "Agent" },
-      context: { capability: "agent_chat" },
-      payloadState: "full",
-    };
-    localStorage.setItem("rusty.execution-observability.v1", JSON.stringify([stuckRecord]));
+  it("heals stale active calls on load so processes do not remain stuck in running", async () => {
+    await persistence.append("/workspace", "executions", [STUCK_RECORD]);
 
-    const freshStore = new ExecutionObservabilityStore();
+    const freshStore = storeWith();
+    await freshStore.setWorkspace("/workspace");
     const records = freshStore.getSnapshot().records;
     expect(records).toHaveLength(1);
     expect(records[0].status).toBe("failed");
     expect(records[0].resultPreview).toContain("Interrupted");
     expect(records[0].durationMs).toBeGreaterThan(0);
+
+    await freshStore.flush();
+    const again = storeWith();
+    await again.setWorkspace("/workspace");
+    expect(again.getSnapshot().records[0].status).toBe("failed");
   });
 
-  it("clears history including stuck calls when there is no active in-memory run", () => {
-    // Put a stuck "running" record in localStorage
-    const stuckRecord = {
-      id: "session-1:call-stuck",
-      callId: "call-stuck",
-      ideRunId: "stuck-run",
-      toolName: "bash.exec",
-      status: "running",
-      requestedAt: new Date().toISOString(),
-      origin: { surface: "agent", displayLabel: "Agent" },
-      context: { capability: "agent_chat" },
-      payloadState: "full",
-    };
-    localStorage.setItem("rusty.execution-observability.v1", JSON.stringify([stuckRecord]));
-
-    const freshStore = new ExecutionObservabilityStore();
-    freshStore.clear();
+  it("clears history including stuck calls when there is no active in-memory run", async () => {
+    await persistence.append("/workspace", "executions", [STUCK_RECORD]);
+    const freshStore = storeWith();
+    await freshStore.setWorkspace("/workspace");
+    await freshStore.clear();
     expect(freshStore.getSnapshot().records).toEqual([]);
+
+    const reloaded = storeWith();
+    await reloaded.setWorkspace("/workspace");
+    expect(reloaded.getSnapshot().records).toEqual([]);
   });
 
-  it("restores saved history and degrades safely when persisted data is corrupt", () => {
+  it("restores saved history from disk in a new store", async () => {
     executionObservability.startRun("ide-run", "agent_chat", INPUT);
     executionObservability.ingest("ide-run", envelope({
       ToolCallRequested: { call: { id: "call-1", name: "workspace.read", arguments: {} } },
@@ -159,14 +172,63 @@ describe("executionObservability", () => {
     executionObservability.ingest("ide-run", envelope({
       ToolCallCompleted: { call_id: "call-1", result: { has_error: false, output_preview: "done" } },
     }, 2));
+    await executionObservability.flush();
 
-    const restored = new ExecutionObservabilityStore();
+    const restored = storeWith();
+    await restored.setWorkspace("/workspace");
+    expect(restored.getSnapshot().records).toHaveLength(1);
     expect(restored.getSnapshot().records[0]).toMatchObject({ callId: "call-1", status: "succeeded" });
+    expect(restored.getSnapshot().storageBytes).toBeGreaterThan(0);
+  });
+
+  it("migrates legacy localStorage history to disk and frees the quota", async () => {
+    localStorage.setItem("rusty.execution-observability.v1", JSON.stringify([STUCK_RECORD]));
+    const store = storeWith();
+    await store.setWorkspace("/workspace");
+    expect(localStorage.getItem("rusty.execution-observability.v1")).toBeNull();
+    expect(store.getSnapshot().records).toMatchObject([{ callId: "call-stuck", status: "failed" }]);
 
     localStorage.setItem("rusty.execution-observability.v1", "not-json");
-    const degraded = new ExecutionObservabilityStore().getSnapshot();
-    expect(degraded.records).toEqual([]);
-    expect(degraded.lastError).toBeTruthy();
+    const degraded = storeWith(createMemoryPersistence());
+    await degraded.setWorkspace("/workspace");
+    expect(degraded.getSnapshot().records).toEqual([]);
+    expect(localStorage.getItem("rusty.execution-observability.v1")).toBeNull();
+  });
+
+  it("keeps unsaved records and retries after a disk write failure", async () => {
+    let failing = true;
+    const flaky: ObservabilityPersistence = {
+      ...persistence,
+      append: async (...args) => {
+        if (failing) throw new Error("disk full");
+        return persistence.append(...args);
+      },
+    };
+    const store = storeWith(flaky);
+    store.startRun("ide-run", "agent_chat", INPUT);
+    store.ingest("ide-run", envelope({ ToolCallRequested: { call: { id: "call-1", name: "workspace.read", arguments: {} } } }, 1));
+    await store.flush();
+    expect(store.getSnapshot().lastError).toBe("disk full");
+    expect(store.getSnapshot().records).toHaveLength(1);
+
+    failing = false;
+    await store.flush();
+    expect(store.getSnapshot().lastError).toBeUndefined();
+    expect(diskText()).toContain("call-1");
+  });
+
+  it("never deletes disk history when the view window shrinks", async () => {
+    const old = { ...STUCK_RECORD, id: "old", status: "succeeded", requestedAt: new Date(Date.now() - 60 * 86_400_000).toISOString() };
+    await persistence.append("/workspace", "executions", [old]);
+    const store = storeWith();
+    await store.setRetention(null);
+    await store.setWorkspace("/workspace");
+    expect(store.getSnapshot().records.map((record) => record.id)).toEqual(["old"]);
+
+    await store.setRetention(7);
+    expect(store.getSnapshot().records).toEqual([]);
+    await store.setRetention(null);
+    expect(store.getSnapshot().records.map((record) => record.id)).toEqual(["old"]);
   });
 
   it("bounds a tool payload before writing it to the local cache", () => {

@@ -16,7 +16,8 @@ import { executionObservability } from "../../observability/executionStore";
 import { useTrajectories, type TrajectoryEntry } from "../../observability/trajectoryStore";
 import type { ExecutionTokensSnapshot, ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
 import { useExecutionObservability } from "../../observability/useExecutionObservability";
-import { useWorkspaceStore } from "../../store";
+import { useWorkspaceStore, type UsageTotals } from "../../store";
+import { usageMetricsService } from "../../services/usageMetricsService";
 import { CustomSelect } from "../CustomSelect";
 import styles from "./ToolExecutionPanel.module.css";
 
@@ -78,8 +79,44 @@ const RETENTION_OPTIONS = [
   { id: "7", name: "7 days" },
   { id: "30", name: "30 days" },
   { id: "90", name: "90 days" },
-  { id: "unlimited", name: "Forever" },
+  { id: "unlimited", name: "All" },
 ];
+
+function formatTokens(value: number): string {
+  return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)}M` : value >= 1_000 ? `${(value / 1_000).toFixed(1)}k` : String(Math.round(value));
+}
+
+function describeTotals(totals: UsageTotals): string {
+  const parts = [`${formatTokens(totals.input)} in`, `${formatTokens(totals.output)} out`];
+  if (totals.cacheRead) parts.push(`${formatTokens(totals.cacheRead)} cache read`);
+  if (totals.cacheWrite) parts.push(`${formatTokens(totals.cacheWrite)} cache write`);
+  if (totals.reasoning) parts.push(`${formatTokens(totals.reasoning)} reasoning`);
+  return `${parts.join(" · ")} · ${totals.calls.toLocaleString()} calls`;
+}
+
+function AllTimeUsage({ refreshKey }: { refreshKey: number }) {
+  const rootPath = useWorkspaceStore((state) => state.rootPath);
+  const rusty = useWorkspaceStore((state) => state.metricsSummary?.allTime.total);
+  const loadMetricsSummary = useWorkspaceStore((state) => state.loadMetricsSummary);
+  const [claudeCode, setClaudeCode] = useState<UsageTotals | null>(null);
+
+  useEffect(() => {
+    void loadMetricsSummary();
+    if (!rootPath) return;
+    let cancelled = false;
+    void usageMetricsService.loadClaudeCodeTotals(rootPath).then((totals) => { if (!cancelled) setClaudeCode(totals); });
+    return () => { cancelled = true; };
+  }, [rootPath, loadMetricsSummary, refreshKey]);
+
+  if (!rusty && !claudeCode) return null;
+  return (
+    <div className={styles.usageTotals} aria-label="All-time token usage">
+      <strong>All-time tokens</strong>
+      {rusty && <span title={describeTotals(rusty)}>Rusty agents: {formatTokens(rusty.totalTokens)} · {describeTotals(rusty)}</span>}
+      {claudeCode && <span title={describeTotals(claudeCode)}>Claude Code: {formatTokens(claudeCode.totalTokens)} · {describeTotals(claudeCode)}</span>}
+    </div>
+  );
+}
 
 function formatDuration(record: ToolExecutionRecord): string {
   if (record.durationMs === undefined) return record.status === "running" ? "Live" : "—";
@@ -1095,17 +1132,18 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
 
       <div className={styles.storageFooter}>
         <div>
-          <strong>Local history</strong>
-          <span>
-            {snapshot.records.length} calls across {groupedRuns.length} executions · {formatBytes(snapshot.storageBytes)}
+          <strong>History on disk</strong>
+          <span title="Saved under .rusty/observability in this workspace; limited only by disk space">
+            {snapshot.records.length} calls across {groupedRuns.length} executions shown · .rusty/observability · {formatBytes(snapshot.storageBytes)}
           </span>
         </div>
+        <AllTimeUsage refreshKey={snapshot.records.length} />
         <label className="flex items-center gap-1.5 text-[var(--color-fg-muted)] font-mono text-[var(--font-size-ui-xs)]">
-          <span>Keep</span>
+          <span>Show</span>
           <CustomSelect
             value={String(snapshot.retentionDays ?? "unlimited")}
             onChange={(val) =>
-              executionObservability.setRetention(
+              void executionObservability.setRetention(
                 val === "unlimited" ? null : (Number(val) as 7 | 30 | 90)
               )
             }
@@ -1118,8 +1156,8 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
           type="button"
           className={styles.dangerButton}
           onClick={() => {
-            if (window.confirm("Delete all saved execution history and run trajectories? Active runs will be kept.")) {
-              executionObservability.clear();
+            if (window.confirm("Permanently delete this workspace's saved execution history and run trajectories from .rusty/observability? Active runs will be kept. Token usage totals are not affected.")) {
+              void executionObservability.clear();
             }
           }}
         >

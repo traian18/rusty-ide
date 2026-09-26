@@ -15,6 +15,7 @@ export interface TokenUsage {
   output?: number;
   cacheRead?: number;
   cacheWrite?: number;
+  reasoning?: number;
 }
 
 export type CommonEvent =

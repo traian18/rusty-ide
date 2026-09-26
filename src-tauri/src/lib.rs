@@ -3,6 +3,7 @@ mod git;
 mod fs_watch;
 mod shell_exec;
 mod usage_tracking;
+mod observability_store;
 mod secure_key;
 #[cfg(feature = "core-harness")]
 mod harness;
@@ -1268,7 +1269,8 @@ pub fn run() {
         .manage(CurrentExecutingNode(Arc::new(Mutex::new(None))))
         .manage(TerminalState(Arc::new(Mutex::new(HashMap::new()))))
         .manage(fs_watch::WorkspaceWatcherState::default())
-        .manage(usage_tracking::UsageTrackingState::default());
+        .manage(usage_tracking::UsageTrackingState::default())
+        .manage(observability_store::ObservabilityState::default());
 
     // HARNESS_CONTRACT_PLAN.md Milestone B1: `Harness` itself is built
     // lazily on first real use (`HarnessState::harness()`), not here --
@@ -1330,6 +1332,10 @@ pub fn run() {
             shell_exec::run_shell_command,
             shell_exec::cancel_shell_command,
             usage_tracking::record_usage,
+            observability_store::observability_append,
+            observability_store::observability_load,
+            observability_store::observability_load_trajectory,
+            observability_store::observability_delete,
             git::git_status,
             git::git_init,
             git::git_stage_file,

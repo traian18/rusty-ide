@@ -1,14 +1,25 @@
-import { trajectories } from "./trajectoryStore";
+import { trajectories, type TrajectoryStore } from "./trajectoryStore";
 import type { AgentEvent, AgentEventEnvelope } from "@rusty/harness-sdk";
 import type { CapabilityInput, CapabilityName, RunOutcome } from "../harness/contract";
 import { createContextSnapshot, inferExecutionOrigin } from "./origin";
+import {
+  defaultPersistence,
+  readRetentionPreference,
+  sinceDayFor,
+  takeLegacyItem,
+  writeRetentionPreference,
+  type ObservabilityPersistence,
+} from "./persistence";
 import { sanitizeForObservability } from "./redaction";
 import type { ExecutionOrigin, ExecutionTokensSnapshot, ObservabilitySnapshot, ToolExecutionRecord } from "./types";
 
-const STORAGE_KEY = "rusty.execution-observability.v1";
-const RETENTION_KEY = "rusty.execution-observability.retention.v1";
+const LEGACY_KEY = "rusty.execution-observability.v1";
+// In-memory view window only; disk history is unbounded.
 const MAX_RECORDS = 1_000;
 const ACTIVE_STATUSES = new Set<ToolExecutionRecord["status"]>(["queued", "waiting-permission", "running"]);
+
+type Root = string | undefined;
+const rootOf = (record: ToolExecutionRecord): Root => record.context?.workspaceRoot || undefined;
 
 interface RunContext {
   capability: CapabilityName;
@@ -19,15 +30,6 @@ interface RunContext {
 }
 
 type Listener = () => void;
-
-function storage(): Storage | undefined {
-  try { return globalThis.localStorage; } catch { return undefined; }
-}
-
-function readRetention(): ObservabilitySnapshot["retentionDays"] {
-  const value = storage()?.getItem(RETENTION_KEY);
-  return value === "7" || value === "30" || value === "90" ? Number(value) as 7 | 30 | 90 : value === "unlimited" ? null : 30;
-}
 
 function iso(value?: string): string {
   return value || new Date().toISOString();
@@ -49,26 +51,116 @@ function parseTokenCount(val: unknown): number | undefined {
   return undefined;
 }
 
+function healInterrupted(record: ToolExecutionRecord): ToolExecutionRecord {
+  const finishedAt = record.finishedAt ?? new Date().toISOString();
+  return {
+    ...record,
+    status: "failed",
+    finishedAt,
+    durationMs: record.durationMs ?? duration(record, finishedAt),
+    resultPreview: record.resultPreview ?? "Interrupted: session was closed or IDE reloaded while call was active.",
+  };
+}
+
 export class ExecutionObservabilityStore {
   private listeners = new Set<Listener>();
   private runs = new Map<string, RunContext>();
-  private snapshot: ObservabilitySnapshot = { records: [], retentionDays: readRetention(), storageBytes: 0 };
-  private hydrated = false;
+  private snapshot: ObservabilitySnapshot = { records: [], retentionDays: readRetentionPreference(), storageBytes: 0 };
+  private dirty = new Map<string, ToolExecutionRecord>();
+  private timer?: ReturnType<typeof setTimeout>;
+  private roots: Root[] = [undefined];
+  private rootKey?: string;
+  private loadToken = 0;
+  private migrated = false;
+
+  constructor(
+    private persistence: ObservabilityPersistence = defaultPersistence(),
+    private trajectoryStore: TrajectoryStore = trajectories,
+  ) {}
 
   subscribe = (listener: Listener): (() => void) => {
-    this.hydrate();
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
 
-  getSnapshot = (): ObservabilitySnapshot => {
-    this.hydrate();
-    return this.snapshot;
-  };
+  getSnapshot = (): ObservabilitySnapshot => this.snapshot;
+
+  /** Points the view at a workspace's `.rusty/observability` (plus app-level history) and loads it. */
+  async setWorkspace(root: Root): Promise<void> {
+    const key = root ?? "";
+    if (this.rootKey === key) return;
+    this.rootKey = key;
+    this.roots = root ? [root, undefined] : [undefined];
+    await Promise.all([this.load(), this.trajectoryStore.setWorkspace(root)]);
+  }
+
+  async load(): Promise<void> {
+    const token = ++this.loadToken;
+    await this.migrateLegacy();
+    try {
+      const sinceDay = sinceDayFor(this.snapshot.retentionDays);
+      const results = await Promise.all(this.roots.map((root) =>
+        this.persistence.load(root, { sinceDay, limit: MAX_RECORDS, trajectoryLimit: 0 })));
+      if (token !== this.loadToken) return;
+      const loadedRoots = new Set(this.roots);
+      const unsaved = this.snapshot.records.filter((record) =>
+        this.runs.has(record.ideRunId) || this.dirty.has(record.id) || !loadedRoots.has(rootOf(record)));
+      const unsavedIds = new Set(unsaved.map((record) => record.id));
+      const loaded: ToolExecutionRecord[] = [];
+      for (const record of results.flatMap((result) => result.executions as ToolExecutionRecord[])) {
+        if (unsavedIds.has(record.id)) continue;
+        if (ACTIVE_STATUSES.has(record.status)) {
+          const healed = healInterrupted(record);
+          this.dirty.set(healed.id, healed);
+          loaded.push(healed);
+        } else {
+          loaded.push(record);
+        }
+      }
+      const records = [...unsaved, ...loaded]
+        .sort((a, b) => b.requestedAt.localeCompare(a.requestedAt))
+        .slice(0, MAX_RECORDS);
+      this.snapshot = {
+        ...this.snapshot,
+        records,
+        storageBytes: results.reduce((total, result) => total + result.bytes, 0),
+        lastError: undefined,
+      };
+      this.emit();
+      if (this.dirty.size) this.schedule();
+    } catch (error) {
+      this.setError(error);
+    }
+  }
+
+  private async migrateLegacy() {
+    if (this.migrated) return;
+    this.migrated = true;
+    const legacy = takeLegacyItem(LEGACY_KEY);
+    if (!legacy) return;
+    let records: ToolExecutionRecord[];
+    try {
+      const parsed = JSON.parse(legacy.raw);
+      records = Array.isArray(parsed) ? parsed.filter((record) => typeof record?.id === "string") : [];
+    } catch {
+      legacy.remove();
+      return;
+    }
+    try {
+      const byRoot = new Map<Root, ToolExecutionRecord[]>();
+      for (const record of records) {
+        const healed = ACTIVE_STATUSES.has(record.status) ? healInterrupted(record) : record;
+        byRoot.set(rootOf(healed), [...(byRoot.get(rootOf(healed)) ?? []), healed]);
+      }
+      for (const [root, rows] of byRoot) await this.persistence.append(root, "executions", rows);
+      legacy.remove();
+    } catch (error) {
+      this.setError(error);
+    }
+  }
 
   startRun<K extends CapabilityName>(runId: string, capability: K, input: CapabilityInput<K>, origin?: Partial<ExecutionOrigin>): void {
-    this.hydrate();
-    trajectories.start(runId, inferExecutionOrigin(capability, input, origin), createContextSnapshot(capability, input));
+    this.trajectoryStore.start(runId, inferExecutionOrigin(capability, input, origin), createContextSnapshot(capability, input));
     this.runs.set(runId, {
       capability,
       origin: inferExecutionOrigin(capability, input, origin),
@@ -77,7 +169,7 @@ export class ExecutionObservabilityStore {
   }
 
   bindSession(runId: string, sessionId: string): void {
-    trajectories.bind(runId, sessionId);
+    this.trajectoryStore.bind(runId, sessionId);
     const run = this.runs.get(runId);
     if (run) run.sessionId = sessionId;
   }
@@ -89,7 +181,7 @@ export class ExecutionObservabilityStore {
     if (envelope.session_id && !run.sessionId) {
       run.sessionId = envelope.session_id;
     }
-    trajectories.append(runId, Object.keys(event)[0], event, {
+    this.trajectoryStore.append(runId, Object.keys(event)[0], event, {
       id: envelope.event_id, timestamp: envelope.timestamp, agentId: envelope.agent_id,
       sequence: envelope.session_sequence ?? envelope.agent_sequence,
     });
@@ -216,7 +308,6 @@ export class ExecutionObservabilityStore {
   }
 
   recordUsage(runId: string, usage: unknown): void {
-    this.hydrate();
     const u = usage as Record<string, unknown> | undefined;
     if (!u) return;
     const totalTokens = parseTokenCount(u.totalTokens ?? u.total ?? u.total_tokens);
@@ -254,7 +345,7 @@ export class ExecutionObservabilityStore {
   }
 
   finishRun<K extends CapabilityName>(runId: string, outcome: RunOutcome<K>): void {
-    trajectories.finish(runId, outcome.status, outcome);
+    this.trajectoryStore.finish(runId, outcome.status, outcome);
     const finishedAt = new Date().toISOString();
     let changed = false;
     const run = this.runs.get(runId);
@@ -274,53 +365,89 @@ export class ExecutionObservabilityStore {
     });
     this.runs.delete(runId);
     if (changed) this.replace(records);
+    void this.flush();
   }
 
-  setRetention(days: ObservabilitySnapshot["retentionDays"]): void {
-    this.hydrate();
-    storage()?.setItem(RETENTION_KEY, days === null ? "unlimited" : String(days));
-    trajectories.setRetention(days);
+  /** Changes how many days the view loads; history on disk is never pruned. */
+  async setRetention(days: ObservabilitySnapshot["retentionDays"]): Promise<void> {
+    writeRetentionPreference(days);
     this.snapshot = { ...this.snapshot, retentionDays: days };
-    this.prune();
+    this.emit();
+    await Promise.all([this.load(), this.trajectoryStore.setRetention(days)]);
   }
 
-  deleteExecution(id: string): void { this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.id !== id)); }
-  deleteSession(sessionId: string): void { trajectories.remove((run) => run.sessionId === sessionId); this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.sessionId !== sessionId)); }
-  deleteWorkspace(workspaceId: string): void { trajectories.remove((run) => run.origin.workspaceId === workspaceId); this.hydrate(); this.replace(this.snapshot.records.filter((record) => record.origin.workspaceId !== workspaceId)); }
-  clear(): void { trajectories.remove(() => true); this.hydrate(); this.replace(this.snapshot.records.filter((record) => this.runs.has(record.ideRunId) && ACTIVE_STATUSES.has(record.status))); }
+  async deleteExecution(id: string): Promise<void> {
+    const record = this.snapshot.records.find((candidate) => candidate.id === id);
+    this.dirty.delete(id);
+    this.replace(this.snapshot.records.filter((candidate) => candidate.id !== id));
+    await this.persist((root) => this.persistence.delete(root, { kind: "execution", id }), [record ? rootOf(record) : undefined]);
+  }
 
-  private hydrate(): void {
-    if (this.hydrated) return;
-    this.hydrated = true;
+  async deleteSession(sessionId: string): Promise<void> {
+    const roots = this.knownRoots(this.snapshot.records.filter((record) => record.sessionId === sessionId));
+    this.trajectoryStore.remove((run) => run.sessionId === sessionId, { persist: false });
+    this.dropDirty((record) => record.sessionId === sessionId);
+    this.replace(this.snapshot.records.filter((record) => record.sessionId !== sessionId));
+    await this.persist((root) => this.persistence.delete(root, { kind: "session", id: sessionId }), roots);
+  }
+
+  async deleteWorkspace(workspaceId: string): Promise<void> {
+    this.trajectoryStore.remove((run) => run.origin.workspaceId === workspaceId, { persist: false });
+    this.dropDirty((record) => record.origin.workspaceId === workspaceId);
+    this.replace(this.snapshot.records.filter((record) => record.origin.workspaceId !== workspaceId));
+    await this.persist((root) => this.persistence.delete(root, { kind: "all" }), [workspaceId]);
+    this.trajectoryStore.repersistLive((run) => run.context?.workspaceRoot === workspaceId);
+  }
+
+  async clear(): Promise<void> {
+    const roots = this.knownRoots(this.snapshot.records);
+    this.trajectoryStore.remove(() => true, { persist: false });
+    const kept = this.snapshot.records.filter((record) => this.runs.has(record.ideRunId) && ACTIVE_STATUSES.has(record.status));
+    this.dirty.clear();
+    this.replace(kept);
+    await this.persist((root) => this.persistence.delete(root, { kind: "all" }), roots);
+    this.repersistActive();
+    this.snapshot = { ...this.snapshot, storageBytes: 0 };
+    this.emit();
+  }
+
+  flush = async (): Promise<void> => {
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    if (this.dirty.size === 0) return;
+    const batch = [...this.dirty.values()];
+    this.dirty.clear();
+    const byRoot = new Map<Root, ToolExecutionRecord[]>();
+    for (const record of batch) byRoot.set(rootOf(record), [...(byRoot.get(rootOf(record)) ?? []), record]);
     try {
-      const raw = storage()?.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      const records = (Array.isArray(parsed) ? parsed as ToolExecutionRecord[] : []).map((record) => {
-        if (ACTIVE_STATUSES.has(record.status)) {
-          const finishedAt = record.finishedAt ?? new Date().toISOString();
-          return {
-            ...record,
-            status: "failed" as const,
-            finishedAt,
-            durationMs: record.durationMs ?? duration(record, finishedAt),
-            resultPreview: record.resultPreview ?? "Interrupted: session was closed or IDE reloaded while call was active.",
-          };
-        }
-        return record;
-      });
-      this.snapshot = { ...this.snapshot, records, storageBytes: raw?.length ?? 0 };
-      this.prune();
+      for (const [root, rows] of byRoot) await this.persistence.append(root, "executions", rows);
+      if (this.snapshot.lastError) this.setError(undefined);
     } catch (error) {
-      this.snapshot = { ...this.snapshot, lastError: error instanceof Error ? error.message : String(error) };
+      for (const record of batch) if (!this.dirty.has(record.id)) this.dirty.set(record.id, record);
+      this.setError(error);
+    }
+  };
+
+  private knownRoots(records: ToolExecutionRecord[]): Root[] {
+    return [...new Set<Root>([...this.roots, ...records.map(rootOf)])];
+  }
+
+  private async persist(action: (root: Root) => Promise<void>, roots: Root[]): Promise<void> {
+    try {
+      for (const root of new Set(roots)) await action(root);
+    } catch (error) {
+      this.setError(error);
     }
   }
 
-  private prune(): void {
-    const cutoff = this.snapshot.retentionDays === null ? Number.NEGATIVE_INFINITY : Date.now() - this.snapshot.retentionDays * 86_400_000;
-    const records = this.snapshot.records
-      .filter((record) => ACTIVE_STATUSES.has(record.status) || Date.parse(record.requestedAt) >= cutoff)
-      .slice(0, MAX_RECORDS);
-    this.replace(records);
+  private dropDirty(matches: (record: ToolExecutionRecord) => boolean) {
+    for (const [id, record] of this.dirty) if (matches(record)) this.dirty.delete(id);
+  }
+
+  private repersistActive() {
+    for (const record of this.snapshot.records) this.dirty.set(record.id, record);
+    this.trajectoryStore.repersistLive();
+    this.schedule();
   }
 
   private upsert(record: ToolExecutionRecord): void {
@@ -331,16 +458,25 @@ export class ExecutionObservabilityStore {
     this.replace(records.slice(0, MAX_RECORDS));
   }
 
+  /** Every mutation builds new record objects, so identity tells which ones need writing. */
   private replace(records: ToolExecutionRecord[]): void {
-    let raw = "";
-    let lastError: string | undefined;
-    try {
-      raw = JSON.stringify(records);
-      storage()?.setItem(STORAGE_KEY, raw);
-    } catch (error) {
-      lastError = error instanceof Error ? error.message : String(error);
-    }
-    this.snapshot = { ...this.snapshot, records, storageBytes: raw.length, lastError };
+    const previous = new Set(this.snapshot.records);
+    for (const record of records) if (!previous.has(record)) this.dirty.set(record.id, record);
+    this.snapshot = { ...this.snapshot, records };
+    this.emit();
+    if (this.dirty.size) this.schedule();
+  }
+
+  private schedule() {
+    if (!this.timer) this.timer = setTimeout(() => void this.flush(), 1000);
+  }
+
+  private setError(error: unknown) {
+    this.snapshot = { ...this.snapshot, lastError: error === undefined ? undefined : error instanceof Error ? error.message : String(error) };
+    this.emit();
+  }
+
+  private emit() {
     for (const listener of this.listeners) listener();
   }
 }

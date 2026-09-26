@@ -244,6 +244,7 @@ export interface UsageTotals {
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  reasoning?: number;
   totalTokens: number;
   calls: number;
 }

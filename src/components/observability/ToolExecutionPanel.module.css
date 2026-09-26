@@ -177,6 +177,7 @@
 .storageFooter { display: flex; align-items: center; gap: var(--space-3); border-top: 1px solid var(--color-border-default); padding: var(--space-3); flex-shrink: 0; }
 .storageFooter > div { display: flex; min-width: 0; flex: 1; flex-direction: column; font-size: var(--font-size-ui-xs); }
 .storageFooter > div span { color: var(--color-fg-muted); }
+.storageFooter > .usageTotals span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .storageFooter label { display: flex; align-items: center; gap: .35rem; color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); }
 .dangerButton { color: var(--color-status-danger); }
 .dangerButton:disabled { opacity: .45; cursor: default; }

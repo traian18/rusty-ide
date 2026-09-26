@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { MetricsTimeframe, UsageSummary, UsageTotals } from "../store";
 
 const METRICS_SUMMARY_PATH = ".rusty/metrics/summary.json";
+// Written by the Claude Code Stop hook (~/.claude/scripts/token_usage.py --workspace).
+const CLAUDE_CODE_SUMMARY_PATH = ".rusty/metrics/claude-code/summary.json";
 
 function emptyTotals(): UsageTotals {
   return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, calls: 0 };
@@ -12,6 +14,15 @@ export const usageMetricsService = {
     try {
       const content = await invoke<string>("read_file_disk", { path: `${rootPath}/${METRICS_SUMMARY_PATH}` });
       return JSON.parse(content) as UsageSummary;
+    } catch {
+      return null;
+    }
+  },
+
+  async loadClaudeCodeTotals(rootPath: string): Promise<UsageTotals | null> {
+    try {
+      const content = await invoke<string>("read_file_disk", { path: `${rootPath}/${CLAUDE_CODE_SUMMARY_PATH}` });
+      return (JSON.parse(content) as { allTime?: UsageTotals }).allTime ?? null;
     } catch {
       return null;
     }

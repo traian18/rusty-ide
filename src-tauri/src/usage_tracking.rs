@@ -63,6 +63,8 @@ struct UsageTotals {
     cache_read: f64,
     #[serde(rename = "cacheWrite")]
     cache_write: f64,
+    #[serde(default)]
+    reasoning: f64,
     #[serde(rename = "totalTokens")]
     total_tokens: f64,
     calls: u64,
@@ -74,6 +76,7 @@ impl UsageTotals {
         self.output += sample.output;
         self.cache_read += sample.cache_read;
         self.cache_write += sample.cache_write;
+        self.reasoning += sample.reasoning.unwrap_or(0.0);
         // Mirrors usageTracking.ts's own fallback: `sample.totalTokens ||
         // (sample.input || 0) + (sample.output || 0)`.
         self.total_tokens += if sample.total_tokens != 0.0 { sample.total_tokens } else { sample.input + sample.output };
@@ -163,6 +166,7 @@ pub async fn record_usage_with_state(
 
     let line = serde_json::json!({
         "ts": now_iso8601,
+        "source": "rusty",
         "surface": entry.surface,
         "runId": entry.run_id,
         "tabId": entry.tab_id,
@@ -177,6 +181,10 @@ pub async fn record_usage_with_state(
     });
 
     fs::create_dir_all(&events_dir).await.map_err(|error| format!("failed to create metrics events dir: {error}"))?;
+    let gitignore = metrics_root.join(".gitignore");
+    if fs::metadata(&gitignore).await.is_err() {
+        let _ = fs::write(&gitignore, "*\n").await;
+    }
     let events_path = events_dir.join(format!("usage-{date}.jsonl"));
     {
         use tokio::io::AsyncWriteExt;
@@ -304,5 +312,26 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         let raw = tokio::fs::read_to_string(&summary_path).await.unwrap();
         let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
         assert_eq!(summary.all_time.total.total_tokens, 100.0);
+    }
+
+    #[tokio::test]
+    async fn accumulates_reasoning_tokens_and_tags_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = UsageTrackingState::default();
+        let mut input = entry("claude-opus", 100.0);
+        input.usage.reasoning = Some(25.0);
+        record_directly(&state, dir.path(), input.clone()).await;
+        record_directly(&state, dir.path(), input).await;
+
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
+        assert_eq!(summary.all_time.total.reasoning, 50.0);
+
+        let today = day_key(&crate::chrono_now_iso8601());
+        let events = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/events").join(format!("usage-{today}.jsonl"))).await.unwrap();
+        let first: serde_json::Value = serde_json::from_str(events.lines().next().unwrap()).unwrap();
+        assert_eq!(first["source"], "rusty");
+        assert_eq!(first["reasoning"], 25.0);
+        assert!(dir.path().join(".rusty/metrics/.gitignore").exists());
     }
 }

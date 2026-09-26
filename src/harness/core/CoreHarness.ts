@@ -228,12 +228,37 @@ function mapUsage(snapshot: AgentUsageSnapshot): TokenUsage {
   const output = parseTokenCount(metrics?.output_tokens);
   const cacheRead = parseTokenCount(metrics?.cache_read_tokens);
   const cacheWrite = parseTokenCount(metrics?.cache_write_tokens);
+  const reasoning = parseTokenCount(metrics?.reasoning_tokens);
   return {
     totalTokens: total ?? (input !== undefined || output !== undefined ? (input || 0) + (output || 0) : undefined),
     input,
     output,
     cacheRead,
     cacheWrite,
+    ...(reasoning !== undefined ? { reasoning } : {}),
+  };
+}
+
+function usageSample(
+  context: { workspaceRoot: string; model: string; provider?: string },
+  surface: string,
+  runId: string,
+  usage: TokenUsage,
+): UsageRecordSample {
+  return {
+    workspaceRoot: context.workspaceRoot,
+    surface,
+    runId,
+    provider: context.provider,
+    model: context.model,
+    usage: {
+      input: usage.input ?? 0,
+      output: usage.output ?? 0,
+      cacheRead: usage.cacheRead ?? 0,
+      cacheWrite: usage.cacheWrite ?? 0,
+      reasoning: usage.reasoning,
+      totalTokens: usage.totalTokens ?? ((usage.input ?? 0) + (usage.output ?? 0)),
+    },
   };
 }
 
@@ -388,22 +413,7 @@ export class CoreHarness implements AgentHarness {
     };
 
     const recordUsage = (usage: TokenUsage) => {
-      const context = definition.usageContext(input);
-      const sample: UsageRecordSample = {
-        workspaceRoot: context.workspaceRoot,
-        surface: capability,
-        runId,
-        provider: context.provider,
-        model: context.model,
-        usage: {
-          input: usage.input ?? 0,
-          output: usage.output ?? 0,
-          cacheRead: usage.cacheRead ?? 0,
-          cacheWrite: usage.cacheWrite ?? 0,
-          totalTokens: usage.totalTokens ?? ((usage.input ?? 0) + (usage.output ?? 0)),
-        },
-      };
-      void this.controlPlane.recordUsage(sample).catch(() => {});
+      void this.controlPlane.recordUsage(usageSample(definition.usageContext(input), capability, runId, usage)).catch(() => {});
     };
 
     const handlePermissionRequested = (request: {
@@ -738,7 +748,16 @@ export class CoreHarness implements AgentHarness {
         customProvider: input.customProvider,
         onToken: session.onToken,
         onLog: session.onLog,
-        onUsage: session.onUsage,
+        onUsage: (usage) => {
+          observe(() => {
+            const context = definition.usageContext(input);
+            const model = session.recipe.execution_params?.model ?? context.model;
+            void this.controlPlane
+              .recordUsage(usageSample({ ...context, model }, definition.capability, runId, usage))
+              .catch(() => {});
+          });
+          session.onUsage?.(usage);
+        },
         signal: controller.signal,
         ideRunId: runId,
       });
