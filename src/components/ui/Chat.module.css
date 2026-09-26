@@ -20,12 +20,12 @@
 }
 
 .userMessage {
-  border-left-color: var(--color-primary);
+  border-left-color: var(--color-status-success);
   background: color-mix(in srgb, var(--color-interaction-selected) 20%, transparent);
 }
 
 .agentMessage {
-  border-left-color: var(--color-border-strong);
+  border-left-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-surface-sidebar) 25%, transparent);
 }
 

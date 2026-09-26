@@ -93,7 +93,7 @@ export const RustyTabSaveModal: React.FC<RustyTabSaveModalProps> = ({
             onClick={onConfirm}
             className="px-4 py-1.5 bg-[var(--accent-color)] hover:bg-[var(--accent-color)]/90 text-[var(--color-primary-foreground)] rounded-lg text-xs font-semibold cursor-pointer transition-colors shadow-md hover:shadow-lg"
           >
-            Save Rusty
+            Save Solution
           </button>
         </div>
       </div>

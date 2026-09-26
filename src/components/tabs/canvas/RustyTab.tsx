@@ -24,19 +24,15 @@ import { useWorkspaceStore } from "../../../store";
 import { notify } from "../../../notificationStore";
 import type { TabOfType } from "../../../tabs/types";
 import { SidePane } from "../../sidepane/SidePane";
-import { ReconciliationGraphPane } from "../../sidepane/ReconciliationGraphPane";
 import { ContextNode } from "../../nodes/ContextNode";
 import { TaskNode } from "../../nodes/TaskNode";
 import { GlobalChatNode } from "../../nodes/globalChat/GlobalChatNode";
 import { McpNode } from "../../nodes/McpNode";
 import { StickyNode } from "../../nodes/sticky";
 import { BoundaryNode } from "../../nodes/boundary";
-import { VFS_CHANGED_EVENT, type VfsChangedDetail } from "../../../services/vfs";
 import { CanvasTabContext } from "./CanvasTabContext";
 import { canvasFileService } from "./services/canvasFileService";
 import { getNodeConfig } from "../../nodes/RustyNodeConfig";
-import { reconciliationService, withoutReconciliationFiles } from "../../../services/reconciliationService";
-import { buildReconciliationTaskFileRecords, normalizeReconciliationPath } from "../../../services/reconciliationPaths";
 import {
   CANVAS_NODE_FOCUS_EVENT,
   type CanvasNodeFocusDetail,
@@ -44,7 +40,6 @@ import {
 
 import { isValidConnection, getPossibleConnection } from "./helpers/connectionHelpers";
 import { buildFlowNodes } from "./helpers/canvasHelpers";
-import { reconcileAndApplyChanges, type TaskNodeRecord } from "./helpers/reconciliationHelpers";
 import { RustyTabToolbar } from "./components/RustyTabToolbar";
 import { RustyTabContextMenu, type ContextMenuPosition } from "./components/RustyTabContextMenu";
 import { RustyTabSaveModal } from "./components/RustyTabSaveModal";
@@ -100,7 +95,6 @@ export const RustyTab: React.FC<RustyTabProps> = (props) => {
  */
 const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopExecution }) => {
   /* ---- Store state ---- */
-  const rootPath = useWorkspaceStore((state) => state.rootPath);
   const context = useWorkspaceStore(
     (state) => state.canvasContexts[tab.id]
   ) || {
@@ -113,9 +107,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
 
   const nodes = context.nodes || [];
   const edges = context.edges || [];
-  const isPipelineApplied = !!context.isPipelineApplied;
-  const isReconciliationRunning =
-    context.nodeStatus?.[`__reconciliation__:${tab.id}`] === "running";
   const hasGlobalChatNode = nodes.some(
     (node: { type?: string }) => node.type === "globalChatNode"
   );
@@ -131,8 +122,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
   /* ---- Local state ---- */
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveTitle, setSaveTitle] = useState(tab.title);
-  const [showReconciliationGraphPane, setShowReconciliationGraphPane] = useState(false);
-  const [hasOpenedReconciliationGraphPane, setHasOpenedReconciliationGraphPane] = useState(false);
   const [rfInstance, setRfInstance] = useState<any>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuPosition | null>(null);
 
@@ -451,59 +440,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
   /*  Business Logic Handlers                                          */
   /* ================================================================ */
 
-  /** Opens the reconciliation graph pane. */
-  const handleReconcileCode = useCallback(() => {
-    setHasOpenedReconciliationGraphPane(true);
-    setShowReconciliationGraphPane(true);
-  }, []);
-
-  /** Applies VFS changes to disk via the reconciliation pipeline. */
-  const handleApplyChanges = useCallback(async () => {
-    const result = await reconcileAndApplyChanges(
-      tab.id,
-      rootPath,
-      isReconciliationRunning,
-      context.reconciliationSnapshot,
-      buildTaskNodeRecords(nodes)
-    );
-
-    if (!result.success) {
-      notify("Info", result.message, result.notificationType);
-
-      // If the failure is due to unreconciled or stale files, open the
-      // reconciliation pane to guide the user.
-      if (
-        result.message.includes("Reconciliation Required") ||
-        result.message.includes("Reconciliation Out of Date")
-      ) {
-        handleReconcileCode();
-      }
-      return;
-    }
-
-    // Success: update store state and auto-save
-    useWorkspaceStore
-      .getState()
-      .updateCanvasContext(tab.id, { isPipelineApplied: true });
-    void canvasFileService.autoSaveCanvas(tab.id);
-
-    notify("Applied", result.message, "success");
-
-    // Refresh file tree and git status
-    if (rootPath) {
-      try {
-        const { invoke } = await import("@tauri-apps/api/core");
-        const tree: any[] = await invoke("get_directory_structure", {
-          rootDir: rootPath,
-        });
-        useWorkspaceStore.getState().setFileTree(tree);
-        await useWorkspaceStore.getState().loadGitStatus();
-      } catch (e: any) {
-        console.error("[RustyTab] Failed to refresh file tree after apply:", e);
-      }
-    }
-  }, [tab.id, rootPath, isReconciliationRunning, context.reconciliationSnapshot, nodes, handleReconcileCode]);
-
   /** Opens the save modal. */
   const handleSavePipeline = useCallback(() => {
     setShowSaveModal(true);
@@ -561,18 +497,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
   /* ================================================================ */
   /*  Effects                                                           */
   /* ================================================================ */
-
-  /* ---- Invalidate reconciliation on TaskNode VFS writes ---- */
-  useEffect(() => {
-    return registerVfsInvalidationEffect(tab.id, rootPath);
-  }, [rootPath, tab.id]);
-
-  /* ---- Audit reconciliation ledger on mount / nodes change ---- */
-  useEffect(() => {
-    return registerReconciliationAuditEffect(tab.id, rootPath, context, nodes);
-    // Intentionally re-run when reconciliationSnapshot or nodes change
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [context.reconciliationSnapshot, nodes, rootPath, tab.id]);
 
   /* ---- Handle canvas node focus events ---- */
   useEffect(() => {
@@ -644,8 +568,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
             boundaryNodes={boundaryNodes}
             globalChatNode={globalChatNode}
             hasGlobalChatNode={hasGlobalChatNode}
-            isReconciliationRunning={isReconciliationRunning}
-            isPipelineApplied={isPipelineApplied}
             rfInstance={rfInstance}
             contextNodesHidden={contextNodesHidden}
             onToggleContextNodesHidden={handleToggleContextNodesHidden}
@@ -661,9 +583,7 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
             onAddGlobalChatNode={(x, y) =>
               storeActions.addGlobalChatNode(x, y, tab.id)
             }
-            onReconcileCode={handleReconcileCode}
             onSavePipeline={handleSavePipeline}
-            onApplyChanges={handleApplyChanges}
           />
 
           {/* Bottom Left Controls */}
@@ -756,14 +676,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
           />
         )}
 
-        {hasOpenedReconciliationGraphPane && (
-          <ReconciliationGraphPane
-            onClose={() => setShowReconciliationGraphPane(false)}
-            tabId={tab.id}
-            isOpen={showReconciliationGraphPane}
-          />
-        )}
-
         {/* Save Modal */}
         {showSaveModal && (
           <RustyTabSaveModal
@@ -781,131 +693,6 @@ const RustyTabContent: React.FC<RustyTabProps> = ({ tab, onExecuteNode, onStopEx
 /* ================================================================ */
 /*  Extracted Standalone Effects (registered via useEffect)          */
 /* ================================================================ */
-
-/**
- * Listens for VFS changes from TaskNode writes and removes affected
- * files from the reconciliation ledger so they can be re-reconciled.
- */
-function registerVfsInvalidationEffect(
-  tabId: string,
-  rootPath: string
-): () => void {
-  const handleTaskVfsChange = (event: Event) => {
-    const detail = (event as CustomEvent<VfsChangedDetail>).detail;
-    if (
-      !detail ||
-      detail.tabId !== tabId ||
-      !detail.nodeId ||
-      detail.nodeId.startsWith("__reconciliation_node__:")
-    )
-      return;
-
-    const currentContext = useWorkspaceStore.getState().canvasContexts[tabId];
-    if (
-      !currentContext?.nodes.some(
-        (node: { type?: string; id: string }) =>
-          node.type === "taskNode" && node.id === detail.nodeId
-      )
-    )
-      return;
-
-    const ledger = currentContext.reconciliationSnapshot?.ledger || {};
-    const affected = (detail.paths || [])
-      .map((filePath: string) => {
-        try {
-          return normalizeReconciliationPath(rootPath, filePath);
-        } catch {
-          return filePath;
-        }
-      })
-      .filter(
-        (filePath: string) =>
-          !!ledger[filePath] ||
-          currentContext.reconciliationSnapshot?.files?.includes(filePath)
-      );
-
-    if (affected.length === 0) return;
-
-    void (async () => {
-      await reconciliationService.removeFiles(tabId, affected);
-      const latestContext =
-        useWorkspaceStore.getState().canvasContexts[tabId];
-      useWorkspaceStore
-        .getState()
-        .updateCanvasContext(tabId, {
-          reconciliationSnapshot: withoutReconciliationFiles(
-            latestContext?.reconciliationSnapshot,
-            affected
-          ),
-          isPipelineApplied: false,
-        });
-      await canvasFileService.autoSaveCanvas(tabId);
-    })().catch((err) =>
-      console.error("[RustyTab] Failed to invalidate reconciled files:", err)
-    );
-  };
-
-  window.addEventListener(VFS_CHANGED_EVENT, handleTaskVfsChange);
-  return () => window.removeEventListener(VFS_CHANGED_EVENT, handleTaskVfsChange);
-}
-
-/**
- * Audits the reconciliation ledger on canvas mount and when TaskNode
- * state changes, removing stale entries whose source signature no
- * longer matches the current generated content.
- */
-function registerReconciliationAuditEffect(
-  tabId: string,
-  rootPath: string,
-  context: any,
-  nodes: any[]
-): () => void {
-  const snapshot = context.reconciliationSnapshot;
-  if (!snapshot || snapshot.files.length === 0) return () => {};
-
-  const taskFileRecords = buildReconciliationTaskFileRecords(
-    rootPath,
-    nodes
-      .filter((node: { type?: string }) => node.type === "taskNode")
-      .map((node: { id: string; data?: { modifiedFiles?: string[]; generatedFileContents?: Record<string, string> } }) => ({
-        id: node.id,
-        modifiedFiles: Array.isArray(node.data?.modifiedFiles)
-          ? (node.data.modifiedFiles as string[])
-          : [],
-        generatedFileContents:
-          (node.data?.generatedFileContents as Record<string, string>) || {},
-      })),
-    snapshot.files
-  );
-
-  const ledger = snapshot.ledger || {};
-  const invalidFiles = snapshot.files.filter(
-    (filePath: string) =>
-      !ledger[filePath] ||
-      !taskFileRecords[filePath] ||
-      ledger[filePath].sourceSignature !== taskFileRecords[filePath].sourceSignature
-  );
-
-  if (invalidFiles.length === 0) return () => {};
-
-  void (async () => {
-    await reconciliationService.removeFiles(tabId, invalidFiles);
-    const latest =
-      useWorkspaceStore.getState().canvasContexts[tabId]
-        ?.reconciliationSnapshot;
-    useWorkspaceStore
-      .getState()
-      .updateCanvasContext(tabId, {
-        reconciliationSnapshot: withoutReconciliationFiles(latest, invalidFiles),
-        isPipelineApplied: false,
-      });
-    await canvasFileService.autoSaveCanvas(tabId);
-  })().catch((err) =>
-    console.error("[RustyTab] Failed to audit reconciliation ledger:", err)
-  );
-
-  return () => {};
-}
 
 /**
  * Listens for CANVAS_NODE_FOCUS_EVENT and animates the viewport to
@@ -969,23 +756,6 @@ function registerUndoRedoShortcut(tabId: string): () => void {
 /* ================================================================ */
 /*  Extracted Helper Functions                                       */
 /* ================================================================ */
-
-/**
- * Builds a list of TaskNodeRecord objects from the canvas nodes array,
- * suitable for passing to reconciliation helpers.
- */
-function buildTaskNodeRecords(nodes: any[]): TaskNodeRecord[] {
-  return nodes
-    .filter((node: { type?: string }) => node.type === "taskNode")
-    .map((node: { id: string; data?: { modifiedFiles?: string[]; generatedFileContents?: Record<string, string> } }) => ({
-      id: node.id,
-      modifiedFiles: Array.isArray(node.data?.modifiedFiles)
-        ? (node.data.modifiedFiles as string[])
-        : [],
-      generatedFileContents:
-        (node.data?.generatedFileContents as Record<string, string>) || {},
-    }));
-}
 
 /**
  * Extracts store action creators into a single memoized object so they

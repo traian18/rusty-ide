@@ -8,8 +8,6 @@ import styles from "./RustyTabToolbar.module.css";
 interface RustyTabToolbarProps {
   tabId: string; boundaryNodes: Node[]; globalChatNode: Node | undefined; hasGlobalChatNode: boolean; rfInstance: ReactFlowInstance | null; contextNodesHidden: boolean; onToggleContextNodesHidden: () => void;
   onAddTaskNode: (x: number, y: number) => void; onAddContextNode: (x: number, y: number) => void; onAddMcpNode: (x: number, y: number) => void; onAddStickyNode: (x: number, y: number) => void; onAddBoundaryNode: (x: number, y: number) => void; onAddGlobalChatNode: (x: number, y: number) => void; onSavePipeline: () => void;
-  /** Legacy props accepted while the dormant reconciliation caller remains in source. */
-  isReconciliationRunning?: boolean; isPipelineApplied?: boolean; onReconcileCode?: () => void; onApplyChanges?: () => void;
 }
 export const RustyTabToolbar: React.FC<RustyTabToolbarProps> = (props) => {
   const [boundariesOpen, setBoundariesOpen] = useState(false); const [nodesOpen, setNodesOpen] = useState(false); const ref = useRef<HTMLDivElement>(null);
