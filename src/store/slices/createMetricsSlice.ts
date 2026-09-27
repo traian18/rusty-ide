@@ -59,6 +59,16 @@ export const createMetricsSlice: WorkspaceSliceCreator = (set, get) => ({
 
   setMetricsTimeframe: (timeframe) => set({ metricsTimeframe: timeframe }),
 
+  resetMetricsDay: async (day) => {
+    const { rootPath } = get();
+    if (!rootPath) return;
+    await usageMetricsService.resetDay(rootPath, day);
+    // Runs still in flight keep their last-seen totals in lastCumulativeByRun,
+    // so only tokens spent after the reset are added back to today.
+    if (day === todayKey()) set({ metricsTodayTotal: 0 });
+    await get().loadMetricsSummary();
+  },
+
   /** Optimistically bumps today's running total on a live `usage_update` event, then debounces a full refresh. */
   applyUsageUpdate: (runKey, cumulativeTotal) => {
     const previous = lastCumulativeByRun.get(runKey) || 0;

@@ -42,6 +42,29 @@ describe("run trajectories", () => {
     expect(changed.mock.calls.length).toBeLessThan(20);
     expect(run.omittedEntries).toBe(0);
   });
+  it("keeps a burst of tool events cheap: bounded notifications and no whole-history re-serialization", async () => {
+    const store = new TrajectoryStore(persistence);
+    // Fill memory near its budget with other runs' history.
+    for (let r = 0; r < 20; r++) {
+      store.start(`old-${r}`, { surface: "agent-tab", displayLabel: "Agent" }, { capability: "agent_chat", inputKeys: [], fileReferences: [], mcpServers: [] });
+      for (let i = 0; i < 200; i++) store.append(`old-${r}`, "ToolCallCompleted", { output: "x".repeat(400) });
+      store.finish(`old-${r}`, "completed", {});
+    }
+    start(store);
+    const changed = vi.fn(); store.subscribe(changed);
+    const stringify = vi.spyOn(JSON, "stringify");
+    const began = performance.now();
+    for (let i = 0; i < 1000; i++) store.append("run", "ToolCallRequested", { call: { id: `c${i}`, name: "read_file", arguments: { path: "a.ts" } } });
+    const elapsed = performance.now() - began;
+    // One serialization per new entry (its own size), never the whole history.
+    expect(stringify.mock.calls.length).toBeLessThan(2_100);
+    stringify.mockRestore();
+    expect(elapsed).toBeLessThan(1_000);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(changed.mock.calls.length).toBeLessThan(5);
+    expect(JSON.stringify(store.getSnapshot().runs).length).toBeLessThanOrEqual(2_100_000);
+  });
+
   it("coalesces consecutive ReasoningDelta events sharing a message_id into one entry", async () => {
     const store = new TrajectoryStore(persistence); start(store);
     for (let i = 0; i < 5; i++) store.append("run", "ReasoningDelta", {

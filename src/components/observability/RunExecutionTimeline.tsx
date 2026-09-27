@@ -1,42 +1,15 @@
 import React from "react";
 import { Loader2, Clock, AlertTriangle, FileCode2, Bot, MessageSquare, Brain } from "lucide-react";
 import type { ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
-import { extractCallSummary, formatCompactCallLabel } from "./callSummary";
+import { describeCallModels, extractCallSummary, formatCompactCallLabel } from "./callSummary";
 import styles from "./ToolExecutionPanel.module.css";
 
 export type TimelineItem =
-  | {
-      kind: "tool";
-      id: string;
-      record: ToolExecutionRecord;
-      timestamp: string;
-    }
-  | {
-      kind: "assistant_text";
-      id: string;
-      messageId: string;
-      text: string;
-      timestamp: string;
-      agentId?: string;
-    }
-  | {
-      kind: "reasoning";
-      id: string;
-      messageId: string;
-      text: string;
-      timestamp: string;
-      agentId?: string;
-    };
+  | { kind: "tool"; id: string; record: ToolExecutionRecord; timestamp: string }
+  | { kind: "assistant_text"; id: string; messageId: string; text: string; timestamp: string; agentId?: string }
+  | { kind: "reasoning"; id: string; messageId: string; text: string; timestamp: string; agentId?: string };
 
-/** Character-based estimate, not an exact token count -- there is no
-    per-segment token count on the wire (only a cumulative, run-level
-    reasoningTokens from UsageUpdated). Shared by the collapsed timeline
-    pill and ToolExecutionPanel's ReasoningDetail so both agree on one
-    formula; always rendered with a leading "~" so it never looks like it
-    contradicts the exact run-level total shown elsewhere in the panel. */
-export function estimateTokens(text: string): number {
-  return Math.max(1, Math.round(text.length / 4));
-}
+export function estimateTokens(text: string): number { return Math.max(1, Math.round(text.length / 4)); }
 
 export interface RunExecutionTimelineProps {
   items?: TimelineItem[];
@@ -53,192 +26,68 @@ function formatDuration(ms?: number, status?: ToolExecutionStatus): string {
   if (ms < 1_000) return `${ms}ms`;
   return `${(ms / 1_000).toFixed(ms < 10_000 ? 1 : 0)}s`;
 }
-
 function formatRelativeOffset(itemTime: string, runStartTime?: string): string {
   if (!runStartTime) return "";
   const diffMs = Date.parse(itemTime) - Date.parse(runStartTime);
   if (isNaN(diffMs) || diffMs < 0) return "0.0s";
-  if (diffMs < 1_000) return `+${diffMs}ms`;
-  return `+${(diffMs / 1_000).toFixed(1)}s`;
+  return diffMs < 1_000 ? `+${diffMs}ms` : `+${(diffMs / 1_000).toFixed(1)}s`;
+}
+function getStatusIcon(status: ToolExecutionStatus, delegated: boolean) {
+  const className = delegated ? styles.nodeIconSuccess : undefined;
+  if (status === "running") return <Loader2 size={13} className={`${className ?? styles.nodeIconRunning} animate-spin`} />;
+  if (status === "waiting-permission") return <AlertTriangle size={13} className={styles.nodeIconWarning} />;
+  if (status === "queued") return <Clock size={13} className={styles.nodeIconQueued} />;
+  return <FileCode2 size={11} className={className ?? styles.nodeToolIcon} />;
 }
 
-function getStatusIcon(status: ToolExecutionStatus) {
-  switch (status) {
-    case "running":
-      return <Loader2 size={13} className={`${styles.nodeIconRunning} animate-spin`} />;
-    case "waiting-permission":
-      return <AlertTriangle size={13} className={styles.nodeIconWarning} />;
-    case "queued":
-      return <Clock size={13} className={styles.nodeIconQueued} />;
-    case "succeeded":
-    case "failed":
-    case "cancelled":
-    default:
-      return <FileCode2 size={11} className={styles.nodeToolIcon} />;
-  }
-}
-
-export const RunExecutionTimeline: React.FC<RunExecutionTimelineProps> = ({
-  items,
-  records,
-  selectedItemId,
-  selectedRecordId,
-  onSelectItem,
-  onSelectRecord,
-  runStartedAt,
-}) => {
-  const effectiveItems: TimelineItem[] = items ?? (records || []).map((r) => ({
-    kind: "tool" as const,
-    id: r.id,
-    record: r,
-    timestamp: r.startedAt || r.requestedAt,
-  }));
-
+export const RunExecutionTimeline: React.FC<RunExecutionTimelineProps> = ({ items, records, selectedItemId, selectedRecordId, onSelectItem, onSelectRecord, runStartedAt }) => {
+  const effectiveItems: TimelineItem[] = items ?? (records || []).map((record) => ({ kind: "tool", id: record.id, record, timestamp: record.startedAt || record.requestedAt }));
   const selectedId = selectedItemId ?? selectedRecordId ?? null;
   const handleSelect = onSelectItem ?? onSelectRecord ?? (() => {});
-
-  if (!effectiveItems || effectiveItems.length === 0) {
-    return (
-      <div className={styles.emptyTimeline}>
-        <span>No execution events recorded in this run.</span>
-      </div>
-    );
-  }
-
+  if (!effectiveItems.length) return <div className={styles.emptyTimeline}><span>No execution events recorded in this run.</span></div>;
   const effectiveStart = runStartedAt || effectiveItems[0]?.timestamp;
 
-  return (
-    <div className={styles.timelineContainer}>
-      <div className={styles.timelineTrack}>
-        {effectiveItems.map((item, index) => {
-          const isSelected = selectedId === item.id;
-          const isLast = index === effectiveItems.length - 1;
-          const offsetLabel = formatRelativeOffset(item.timestamp, effectiveStart);
+  return <div className={styles.timelineContainer}><div className={styles.timelineTrack}>
+    {effectiveItems.map((item, index) => {
+      const isSelected = selectedId === item.id;
+      const isLast = index === effectiveItems.length - 1;
+      const offsetLabel = formatRelativeOffset(item.timestamp, effectiveStart);
+      if (item.kind === "assistant_text" || item.kind === "reasoning") {
+        const reasoning = item.kind === "reasoning";
+        const count = reasoning ? estimateTokens(item.text) : item.text.trim().split(/\s+/).filter(Boolean).length;
+        const preview = item.text.replace(/\s+/g, " ").trim().slice(0, 30);
+        const Icon = reasoning ? Brain : Bot;
+        const label = reasoning ? "Reasoning" : "Assistant";
+        return <React.Fragment key={item.id}>
+          <button id={`timeline-item-${item.id}`} type="button" className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`} onClick={() => handleSelect(item.id)} title={`Click to inspect ${label}: "${preview}..."`} aria-pressed={isSelected} aria-label={`${label} ${index + 1}`}>
+            <span className={styles.nodeTimeOffset}>{offsetLabel || `#${index + 1}`}</span>
+            <div className={styles.nodeMarkerWrapper}><div className={`${styles.nodeMarker} ${reasoning ? styles.nodeMarkerReasoning : styles.nodeMarkerText}`}><Icon size={13} className={reasoning ? styles.nodeIconReasoning : styles.nodeIconText} /></div></div>
+            <div className={`${styles.nodePill} ${reasoning ? styles.nodePillReasoning : styles.nodePillText}`}>
+              {reasoning ? <Brain size={11} className={styles.nodeReasoningIcon} /> : <MessageSquare size={11} className={styles.nodeTextIcon} />}
+              <strong className={styles.nodeToolName}>{label}</strong><span className={styles.nodeDuration}>{reasoning ? `~${count} tok` : `${count}w`}</span>
+            </div>
+            {isSelected && <div className={styles.nodeSelectedCaret} />}
+          </button>
+          {!isLast && <div className={styles.timelineConnector} aria-hidden="true" />}
+        </React.Fragment>;
+      }
 
-          if (item.kind === "assistant_text") {
-            const wordCount = item.text.trim().split(/\s+/).filter(Boolean).length;
-            const preview = item.text.replace(/\s+/g, " ").trim().slice(0, 30);
-
-            return (
-              <React.Fragment key={item.id}>
-                <button
-                  type="button"
-                  className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`}
-                  onClick={() => handleSelect(item.id)}
-                  title={`Click to inspect Assistant Response (${wordCount} words): "${preview}..."`}
-                  aria-pressed={isSelected}
-                  aria-label={`Assistant response ${index + 1}: ${wordCount} words, "${preview}"`}
-                >
-                  <span className={styles.nodeTimeOffset}>
-                    {offsetLabel || `#${index + 1}`}
-                  </span>
-                  <div className={styles.nodeMarkerWrapper}>
-                    <div className={`${styles.nodeMarker} ${styles.nodeMarkerText}`}>
-                      <Bot size={13} className={styles.nodeIconText} />
-                    </div>
-                  </div>
-                  <div className={`${styles.nodePill} ${styles.nodePillText}`}>
-                    <MessageSquare size={11} className={styles.nodeTextIcon} />
-                    <strong className={styles.nodeToolName}>Assistant</strong>
-                    <span className={styles.nodeDuration}>{wordCount}w</span>
-                  </div>
-                  {isSelected && <div className={styles.nodeSelectedCaret} />}
-                </button>
-
-                {!isLast && (
-                  <div className={styles.timelineConnector} aria-hidden="true" />
-                )}
-              </React.Fragment>
-            );
-          }
-
-          if (item.kind === "reasoning") {
-            const tokenEstimate = estimateTokens(item.text);
-            const preview = item.text.replace(/\s+/g, " ").trim().slice(0, 30);
-
-            return (
-              <React.Fragment key={item.id}>
-                <button
-                  type="button"
-                  className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`}
-                  onClick={() => handleSelect(item.id)}
-                  title={`Click to inspect Reasoning (~${tokenEstimate} tokens): "${preview}..."`}
-                  aria-pressed={isSelected}
-                  aria-label={`Reasoning ${index + 1}: approximately ${tokenEstimate} tokens, "${preview}"`}
-                >
-                  <span className={styles.nodeTimeOffset}>
-                    {offsetLabel || `#${index + 1}`}
-                  </span>
-                  <div className={styles.nodeMarkerWrapper}>
-                    <div className={`${styles.nodeMarker} ${styles.nodeMarkerReasoning}`}>
-                      <Brain size={13} className={styles.nodeIconReasoning} />
-                    </div>
-                  </div>
-                  <div className={`${styles.nodePill} ${styles.nodePillReasoning}`}>
-                    <Brain size={11} className={styles.nodeReasoningIcon} />
-                    <strong className={styles.nodeToolName}>Reasoning</strong>
-                    <span className={styles.nodeDuration}>~{tokenEstimate} tok</span>
-                  </div>
-                  {isSelected && <div className={styles.nodeSelectedCaret} />}
-                </button>
-
-                {!isLast && (
-                  <div className={styles.timelineConnector} aria-hidden="true" />
-                )}
-              </React.Fragment>
-            );
-          }
-
-          // Tool call item
-          const record = item.record;
-          const durationLabel = formatDuration(record.durationMs, record.status);
-          const callSummary = extractCallSummary(record);
-          const compactLabel = formatCompactCallLabel(record);
-
-          return (
-            <React.Fragment key={record.id}>
-              <button
-                type="button"
-                className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`}
-                onClick={() => handleSelect(record.id)}
-                title={`Click to inspect: ${callSummary.actionLabel} (${durationLabel})`}
-                aria-pressed={isSelected}
-                aria-label={`Tool execution ${index + 1}: ${compactLabel}, duration ${durationLabel}`}
-              >
-                {/* Node Time Marker */}
-                <span className={styles.nodeTimeOffset}>
-                  {offsetLabel || `#${index + 1}`}
-                </span>
-
-                {/* Node Circular Marker on the Rail */}
-                <div className={styles.nodeMarkerWrapper}>
-                  <div className={styles.nodeMarker}>
-                    {getStatusIcon(record.status)}
-                  </div>
-                </div>
-
-                {/* Node Label Capsule */}
-                <div className={styles.nodePill}>
-                  <FileCode2 size={11} className={styles.nodeToolIcon} />
-                  <strong className={styles.nodeToolName}>{compactLabel}</strong>
-                  <span className={styles.nodeDuration}>{durationLabel}</span>
-                </div>
-
-                {/* Selected Indicator Arrow */}
-                {isSelected && <div className={styles.nodeSelectedCaret} />}
-              </button>
-
-              {/* Connecting Rail Segment between Nodes */}
-              {!isLast && (
-                <div
-                  className={`${styles.timelineConnector} ${record.status === "running" ? styles.timelineConnectorRunning : ""}`}
-                  aria-hidden="true"
-                />
-              )}
-            </React.Fragment>
-          );
-        })}
-      </div>
-    </div>
-  );
+      const record = item.record;
+      const models = describeCallModels(record);
+      const delegated = models.delegated;
+      const durationLabel = formatDuration(record.durationMs, record.status);
+      const callSummary = extractCallSummary(record);
+      const compactLabel = formatCompactCallLabel(record);
+      const modelDescription = ` Requested by ${models.requestedBy}. Executed by ${models.executedBy}.`;
+      return <React.Fragment key={record.id}>
+        <button id={`timeline-tool-${record.id}`} type="button" className={`${styles.timelineNode} ${isSelected ? styles.timelineNodeSelected : ""}`} onClick={() => handleSelect(record.id)} title={`Click to inspect: ${callSummary.actionLabel} (${durationLabel}).${modelDescription}`} aria-pressed={isSelected} aria-label={`Tool execution ${index + 1}: ${compactLabel}, duration ${durationLabel}${modelDescription}`}>
+          <span className={styles.nodeTimeOffset}>{offsetLabel || `#${index + 1}`}</span>
+          <div className={styles.nodeMarkerWrapper}><div className={styles.nodeMarker}>{getStatusIcon(record.status, delegated)}</div></div>
+          <div className={styles.nodePill}><FileCode2 size={11} className={delegated ? styles.nodeIconSuccess : styles.nodeToolIcon} /><strong className={styles.nodeToolName}>{compactLabel}</strong><span className={styles.nodeDuration}>{durationLabel}</span></div>
+          {isSelected && <div className={styles.nodeSelectedCaret} />}
+        </button>
+        {!isLast && <div className={`${styles.timelineConnector} ${record.status === "running" ? styles.timelineConnectorRunning : ""}`} aria-hidden="true" />}
+      </React.Fragment>;
+    })}
+  </div></div>;
 };

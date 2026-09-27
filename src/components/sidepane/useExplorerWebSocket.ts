@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { useWorkspaceStore } from "../../store";
 import { VfsRegistry } from "../../services/vfs";
 import { notify } from "../../notificationStore";
@@ -485,6 +486,7 @@ export const useExplorerWebSocket = (selectedNode: any) => {
         planOnly: !isTaskNodeChat,
         vfsOnly: isTaskNodeChat,
         lspSettings: { ...useWorkspaceStore.getState().lspSettings, enabled: false },
+        smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
       },
       host,
       (event) => {

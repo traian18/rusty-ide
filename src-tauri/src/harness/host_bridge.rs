@@ -76,6 +76,7 @@ impl HostBridge {
             call_id: call_id.clone(),
             tool: tool.to_string(),
             input,
+            tool_call_id: harness_tools::current_tool_call_id(),
         });
         if sent.is_err() {
             self.pending.lock().unwrap().remove(&call_id);
@@ -188,7 +189,7 @@ mod tests {
             event = outbound.recv() => event.expect("bridge emitted a HostToolCall"),
             _ = &mut call_future => panic!("call resolved before it was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input } = event else {
+        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "workspace.read");

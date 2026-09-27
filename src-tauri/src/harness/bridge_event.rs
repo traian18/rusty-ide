@@ -30,6 +30,14 @@ pub enum BridgeEvent {
         call_id: String,
         tool: String,
         input: serde_json::Value,
+        /// The model-facing tool call this host request serves (the
+        /// `ToolCallRequested` event's `call.id`), when it was issued from
+        /// inside a runtime tool execution. Lets the IDE attribute its own
+        /// work -- e.g. a delegated model -- to that call's observability
+        /// record. Distinct from `call_id`, which is the bridge's own
+        /// request/answer correlation key.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_call_id: Option<String>,
     },
     /// `HostExecutionBackend::execute` is asking the host (the IDE) to run
     /// one model turn (`input` is an `ExecutionRequest`) and will await any

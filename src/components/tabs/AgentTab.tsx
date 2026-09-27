@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
 import { useWorkspaceStore, AgentMessage } from "../../store";
 import { resolveSkill, toSkillData, DEFAULT_SKILL_ID } from "../../config/skillDefinitions";
@@ -455,6 +456,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         planOnly: false,
         vfsOnly: false,
         lspSettings: { ...useWorkspaceStore.getState().lspSettings, enabled: false },
+        smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
       },
       host,
       (event) => {

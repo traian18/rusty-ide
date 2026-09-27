@@ -57,3 +57,39 @@ it("bounds rendering of a large saved response without removing the full text", 
     expect(markdownRender).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
 });
+
+it("keeps showing the live end of a streamed response longer than the render limit", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  const line = (n: number) => `line ${n} ${"x".repeat(40)}\n`;
+  let content = "";
+  let n = 0;
+  while (content.length < CHAT_PREVIEW_CHARS * 1.6) content += line(n++);
+  const lastLine = `line ${n - 1} `;
+  try {
+    await act(async () => root.render(<Chat messages={[
+      { id: "q", role: "user", content: "write a lot", timestamp: "" },
+      { id: "live", role: "assistant", content, timestamp: "" },
+    ]} isStreaming />));
+    const shown = mount.querySelector("pre")!.textContent!;
+    expect(content.length).toBeGreaterThan(50_000);
+    expect(shown).toContain(lastLine);
+    expect(shown.length).toBeLessThanOrEqual(CHAT_PREVIEW_CHARS);
+    expect(shown.startsWith("line ")).toBe(true);
+    expect(mount.textContent).toContain(`Long response: ${content.length.toLocaleString()} characters so far`);
+  } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+});
+
+it("renders responses up to double the previous 16k limit as Markdown", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  markdownRender.mockClear();
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  const content = "word ".repeat(6_000); // 30,000 characters
+  try {
+    await act(async () => root.render(<Chat messages={[{ id: "done", role: "assistant", content, timestamp: "" }]} />));
+    expect(CHAT_PREVIEW_CHARS).toBeGreaterThanOrEqual(32_000);
+    expect(markdownRender).toHaveBeenCalledWith(content);
+  } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+});

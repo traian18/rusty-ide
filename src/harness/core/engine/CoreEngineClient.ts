@@ -21,6 +21,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AgentEventEnvelope, MutationCommand } from "@rusty/harness-sdk";
 
 import type { SessionRecipe } from "../SessionRecipe";
+import { logExecutionDiagnostic } from "../executionDiagnostics";
 import type { ExecutionEvent, ExecutionResult, ExecutionError, ExecutionRequest } from "./ExecutionProtocol";
 
 /**
@@ -51,7 +52,7 @@ export interface CoreEngine {
 export type BridgeEvent =
   | { kind: "event"; data: AgentEventEnvelope }
   | { kind: "gap"; data: { last_delivered_sequence: number | null; dropped: number } }
-  | { kind: "host_tool_call"; data: { call_id: string; tool: string; input: unknown } }
+  | { kind: "host_tool_call"; data: { call_id: string; tool: string; input: unknown; tool_call_id?: string } }
   | { kind: "host_execute_call"; data: { call_id: string; tool: string; input: ExecutionRequest } }
   | { kind: "closed"; data: { reason: string } };
 
@@ -73,6 +74,24 @@ export type HostToolOutcome = { ok: true; output: unknown } | { ok: false; error
 
 export type HostExecuteOutcome = { ok: true; result: ExecutionResult } | { ok: false; error: ExecutionError };
 
+const sessionWorkspaceRoots = new Map<string, string>();
+
+function truncateForLog(value: unknown, maxChars = 2_000): unknown {
+  if (typeof value === "string") return value.length > maxChars ? `${value.slice(0, maxChars)}… [truncated ${value.length - maxChars} chars]` : value;
+  if (value === null || typeof value !== "object") return value;
+  try {
+    const json = JSON.stringify(value);
+    return json.length > maxChars ? `${json.slice(0, maxChars)}… [truncated ${json.length - maxChars} chars]` : value;
+  } catch {
+    return String(value);
+  }
+}
+
+function logHarnessBridgeFailure(sessionId: string, message: string, details: Record<string, unknown>): void {
+  const sanitized = Object.fromEntries(Object.entries(details).map(([key, value]) => [key, truncateForLog(value)]));
+  logExecutionDiagnostic(sessionWorkspaceRoots.get(sessionId), "warn", "CoreHarness", message, sanitized);
+}
+
 export class CoreEngineClient implements CoreEngine {
   hello(): Promise<HarnessHello> {
     return invoke("harness_hello");
@@ -82,7 +101,9 @@ export class CoreEngineClient implements CoreEngine {
     if (recipe.execution_policy && !(await this.hello()).capabilities.includes("execution_policy")) {
       throw new Error("This harness cannot enforce skill permissions. Update the application before running this skill.");
     }
-    return invoke("harness_create_session", { recipe });
+    const sessionId = await invoke<string>("harness_create_session", { recipe });
+    sessionWorkspaceRoots.set(sessionId, recipe.workspace.root);
+    return sessionId;
   }
 
   /**
@@ -106,6 +127,9 @@ export class CoreEngineClient implements CoreEngine {
   /** Delivers the IDE's answer for a previously issued `{kind:
    * "host_tool_call"}` event. */
   hostToolResult(sessionId: string, callId: string, outcome: HostToolOutcome): Promise<void> {
+    if (!outcome.ok) {
+      logHarnessBridgeFailure(sessionId, "host tool returned an error", { sessionId, callId, error: outcome.error });
+    }
     return invoke("harness_host_tool_result", {
       sessionId,
       callId,
@@ -123,6 +147,9 @@ export class CoreEngineClient implements CoreEngine {
 
   /** Delivers the terminal result for a `{kind: "host_execute_call"}`. */
   hostExecuteResult(sessionId: string, callId: string, outcome: HostExecuteOutcome): Promise<void> {
+    if (!outcome.ok) {
+      logHarnessBridgeFailure(sessionId, "host model execution returned an error", { sessionId, callId, error: outcome.error });
+    }
     return invoke("harness_host_execute_result", {
       sessionId,
       callId,
@@ -137,12 +164,13 @@ export class CoreEngineClient implements CoreEngine {
   }
 
   closeSession(sessionId: string): Promise<void> {
+    sessionWorkspaceRoots.delete(sessionId);
     return invoke("harness_close_session", { sessionId });
   }
 
   /**
-   * Loosely typed on purpose: the full `ProviderDescriptor`/
-   * `ModelDescriptor` shapes (rusty-core/crates/harness-engine/src/
+   * Loosely typed on purpose: the full `ProviderDescriptor`/`ModelDescriptor`
+   * shapes (rusty-core/crates/harness-engine/src/
    * providers.rs) pull in `ProviderKey`/`AdapterKind`/`AuthMethod`, none of
    * which any capability needs yet (they're Milestone C's provider-picker
    * concern) -- hand-mirroring them now would have no consumer to keep

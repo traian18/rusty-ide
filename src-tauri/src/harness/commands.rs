@@ -267,6 +267,45 @@ pub async fn mcp_test_connection(server: harness_protocol::mcp::McpServerSpec) -
     Ok(McpTestResult { tool_count: tools.len(), tools })
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct WebFetchContent {
+    pub content_type: String,
+    pub content: String,
+}
+
+/// Fetches a page for IDE-side host tools (`web_extract`) through the exact
+/// executor behind the model's own `web_fetch`, so both share its SSRF
+/// guard, redirect refusal, timeout, response-size cap, and HTML-to-text
+/// conversion. The page is returned to the IDE only, never to a model.
+#[tauri::command]
+pub async fn harness_web_fetch(url: String) -> Result<WebFetchContent, String> {
+    let result = harness_tool_web::FetchTool::new()
+        .execute(
+            harness_tools::ToolInput { arguments: serde_json::json!({ "url": url }) },
+            harness_tools::CancellationToken::new(),
+        )
+        .await
+        .map_err(|error| format!("{error:?}"))?;
+    let field = |name: &str| result.output.get(name).and_then(|value| value.as_str()).unwrap_or_default().to_string();
+    if result.is_error {
+        return Err(field("error"));
+    }
+    Ok(WebFetchContent { content_type: field("content_type"), content: field("content") })
+}
+
+#[cfg(test)]
+mod web_fetch_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn applies_the_web_fetch_safety_rules() {
+        let loopback = harness_web_fetch("http://127.0.0.1:9/".to_string()).await;
+        assert!(loopback.unwrap_err().contains("disallowed address"));
+        let scheme = harness_web_fetch("file:///etc/passwd".to_string()).await;
+        assert!(scheme.unwrap_err().contains("unsupported scheme"));
+    }
+}
+
 #[cfg(test)]
 mod mcp_test_connection_tests {
     use super::*;

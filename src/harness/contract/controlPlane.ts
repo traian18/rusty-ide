@@ -63,6 +63,9 @@ export interface UsageRecordSample {
     reasoning?: number;
     totalTokens: number;
   };
+  /** `false` when the sample continues a model request an earlier sample
+   * already counted, so the metrics count requests, not samples. */
+  newRequest?: boolean;
 }
 
 export interface HarnessControlPlane {

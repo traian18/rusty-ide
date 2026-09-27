@@ -28,6 +28,10 @@ export const usageMetricsService = {
     }
   },
 
+  async resetDay(rootPath: string, day: string): Promise<void> {
+    await invoke("reset_usage_day", { workspaceRoot: rootPath, day });
+  },
+
   todayTotal(summary: UsageSummary | null): number {
     if (!summary) return 0;
     const today = new Date().toISOString().slice(0, 10);

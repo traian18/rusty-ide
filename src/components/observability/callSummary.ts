@@ -1,4 +1,4 @@
-import type { ToolExecutionRecord } from "../../observability/types";
+import type { ToolExecutionRecord, ToolExecutor } from "../../observability/types";
 
 export interface CallSummary {
   actionLabel: string;
@@ -107,7 +107,9 @@ export function extractCallSummary(record: ToolExecutionRecord): CallSummary {
     const query =
       (typeof args.Query === "string" && args.Query) ||
       (typeof args.query === "string" && args.query) ||
-      (typeof args.pattern === "string" && args.pattern);
+      (typeof args.pattern === "string" && args.pattern) ||
+      // Smart search_codebase describes what to find instead of a pattern.
+      (record.toolName === "search_codebase" && typeof args.request === "string" && args.request);
 
     if (query) {
       target = query;
@@ -116,13 +118,20 @@ export function extractCallSummary(record: ToolExecutionRecord): CallSummary {
       if (typeof args.SearchPath === "string") {
         keyParams.push({ label: "Search In", value: args.SearchPath });
       }
+      if (record.toolName === "search_codebase") {
+        if (typeof args.path === "string" && args.path) keyParams.push({ label: "Search In", value: args.path });
+        if (typeof args.include === "string" && args.include) keyParams.push({ label: "Include", value: args.include });
+      }
+    } else if (typeof args.request === "string" && args.request) {
+      // Smart read_file: the path is the target; the request says what was needed from it.
+      keyParams.push({ label: "Request", value: args.request });
     }
 
     // URL
     if (typeof args.Url === "string" || typeof args.url === "string") {
       const url = String(args.Url || args.url);
       target = url;
-      actionLabel = `Fetch: ${url}`;
+      actionLabel = record.toolName === "web_extract" ? `Extract: ${url}` : `Fetch: ${url}`;
       keyParams.push({ label: "URL", value: url });
     }
 
@@ -167,4 +176,32 @@ export function formatCompactCallLabel(record: ToolExecutionRecord): string {
     return `${record.toolName}: ${shortTarget}`;
   }
   return record.toolName;
+}
+
+/** "claude-haiku (Anthropic)" for a model, "tavily" for a service. */
+export function formatToolExecutor(executor: ToolExecutor): string {
+  if (executor.model) return executor.provider ? `${executor.model} (${executor.provider})` : executor.model;
+  return executor.provider ?? executor.purpose;
+}
+
+export interface CallModels {
+  /** The model that issued the call. */
+  requestedBy: string;
+  /** The model or service that did the work, or why there is none. */
+  executedBy: string;
+  /** True when something other than the requesting model did the work. */
+  delegated: boolean;
+}
+
+const ACTIVE = new Set(["queued", "waiting-permission", "running"]);
+
+/** Which models a tool call involved, for every tool: a delegated model or
+ * service when the tool reported one, otherwise an explicit "no model". */
+export function describeCallModels(record: ToolExecutionRecord): CallModels {
+  const requester = record.requestedBy?.model ?? record.context.model ?? "unknown model";
+  const requestedBy = record.requestedBy?.subagent ? `${requester} (subagent)` : requester;
+  const executor = record.execution?.executor;
+  if (executor) return { requestedBy, executedBy: `${formatToolExecutor(executor)} · ${executor.purpose}`, delegated: true };
+  const executedBy = ACTIVE.has(record.status) ? "Not reported yet" : "No model (tool runs as code)";
+  return { requestedBy, executedBy, delegated: false };
 }

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { defaultPersistence, readRetentionPreference, sinceDayFor, takeLegacyItem, type ObservabilityPersistence } from "./persistence";
 import { sanitizeForObservability } from "./redaction";
-import type { ExecutionContextSnapshot, ExecutionOrigin } from "./types";
+import type { ExecutionContextSnapshot, ExecutionOrigin, ExecutionTokensSnapshot, ModelUsageEntry, RunUsage } from "./types";
 
 export interface TrajectoryEntry {
   id: string;
@@ -24,6 +24,8 @@ export interface RunTrajectory {
   status: "running" | "completed" | "failed" | "cancelled" | "interrupted";
   entries: TrajectoryEntry[];
   omittedEntries: number;
+  /** Tokens per model: the run's own model(s) and any model a tool delegated to. */
+  usage?: RunUsage;
 }
 interface Snapshot { runs: RunTrajectory[]; error?: string }
 const LEGACY_KEY = "rusty.run-trajectories.v1";
@@ -31,6 +33,32 @@ const LEGACY_KEY = "rusty.run-trajectories.v1";
 const MEMORY_BYTES = 2_000_000;
 const MAX_ENTRIES_IN_MEMORY = 1500;
 const MAX_RUNS = 100;
+/** Coalesces change notifications while a session streams: the snapshot
+ * itself is always current, subscribers (React) just re-render at most
+ * this often instead of once per event. */
+const NOTIFY_INTERVAL_MS = 120;
+const TOKEN_FIELDS = ["totalTokens", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"] as const;
+
+const entryBytes = new WeakMap<TrajectoryEntry, number>();
+const runBytes = new WeakMap<RunTrajectory, number>();
+function sizeOfEntry(entry: TrajectoryEntry): number {
+  let size = entryBytes.get(entry);
+  if (size === undefined) {
+    size = JSON.stringify(entry).length;
+    entryBytes.set(entry, size);
+  }
+  return size;
+}
+/** Entry sizes are measured once and cached, so a new event costs one
+ * entry's serialization instead of re-serializing every run in memory. */
+function sizeOfRun(run: RunTrajectory): number {
+  let size = runBytes.get(run);
+  if (size === undefined) {
+    size = 512 + run.entries.reduce((total, entry) => total + sizeOfEntry(entry), 0);
+    runBytes.set(run, size);
+  }
+  return size;
+}
 type EntryMetadata = Partial<Pick<TrajectoryEntry, "id" | "timestamp" | "agentId" | "sequence" | "eventCount" | "lastSequence">>;
 interface PendingText {
   runId: string;
@@ -48,6 +76,7 @@ export class TrajectoryStore {
   private snapshot: Snapshot = { runs: [] };
   private listeners = new Set<() => void>();
   private timer?: ReturnType<typeof setTimeout>;
+  private notifyTimer?: ReturnType<typeof setTimeout>;
   private streamTimer?: ReturnType<typeof setTimeout>;
   private pendingText?: PendingText;
   private retentionDays: number | null = readRetentionPreference();
@@ -213,6 +242,27 @@ export class TrajectoryStore {
       return { ...item, entries: entries.slice(omitted), omittedEntries: item.omittedEntries + omitted };
     }));
   }
+  /** Replaces one model's usage within a run (e.g. the run model's running total). */
+  setUsage(id: string, key: string, entry: ModelUsageEntry) {
+    this.updateUsage(id, (usage) => ({ ...usage, [key]: entry }));
+  }
+  /** Adds an increment to one model's usage within a run (e.g. one delegated tool request). */
+  addUsage(id: string, key: string, entry: Omit<ModelUsageEntry, "tokens">, delta: ExecutionTokensSnapshot) {
+    this.updateUsage(id, (usage) => {
+      const tokens: ExecutionTokensSnapshot = { ...usage[key]?.tokens };
+      for (const field of TOKEN_FIELDS) {
+        if (delta[field] !== undefined) tokens[field] = (tokens[field] ?? 0) + delta[field]!;
+      }
+      return { ...usage, [key]: { ...usage[key], ...entry, tokens } };
+    });
+  }
+  private updateUsage(id: string, change: (usage: RunUsage) => RunUsage) {
+    const run = this.snapshot.runs.find((item) => item.id === id);
+    if (!run) return;
+    this.dirtyRuns.add(id);
+    const usage = change(run.usage ?? {});
+    this.update(this.snapshot.runs.map((item) => item.id === id ? { ...item, usage } : item));
+  }
   finish(id: string, status: "completed" | "failed" | "cancelled", outcome: unknown) {
     this.append(id, "Run finished", outcome);
     const finishedAt = new Date().toISOString();
@@ -290,19 +340,23 @@ export class TrajectoryStore {
     this.snapshot = { ...this.snapshot, error: message };
     this.emit();
   }
-  private emit() { for (const listener of this.listeners) listener(); }
+  private emit() {
+    if (this.notifyTimer) return;
+    this.notifyTimer = setTimeout(() => {
+      this.notifyTimer = undefined;
+      for (const listener of this.listeners) listener();
+    }, NOTIFY_INTERVAL_MS);
+  }
   private update(runs: RunTrajectory[], persist = true) {
     const cutoff = this.retentionDays === null ? -Infinity : Date.now() - this.retentionDays * 86_400_000;
     runs = runs.filter((run) => this.live.has(run.id) || Date.parse(run.startedAt) >= cutoff).slice(0, MAX_RUNS);
-    let size = JSON.stringify(runs).length;
-    while (size > MEMORY_BYTES) {
-      let index = runs.length - 1;
-      while (index >= 0 && runs[index].entries.length === 0) index--;
-      if (index < 0) break;
+    let excess = runs.reduce((total, run) => total + sizeOfRun(run), 0) - MEMORY_BYTES;
+    // Evict the oldest entries of the oldest runs first, one slice per run.
+    for (let index = runs.length - 1; excess > 0 && index >= 0; index--) {
       const run = runs[index];
-      const removed = run.entries[0];
-      runs = runs.map((item, i) => i === index ? { ...item, entries: item.entries.slice(1), omittedEntries: item.omittedEntries + 1 } : item);
-      size -= JSON.stringify(removed).length;
+      let drop = 0;
+      while (drop < run.entries.length && excess > 0) excess -= sizeOfEntry(run.entries[drop++]);
+      if (drop > 0) runs = runs.map((item, i) => i === index ? { ...item, entries: item.entries.slice(drop), omittedEntries: item.omittedEntries + drop } : item);
     }
     this.snapshot = { ...this.snapshot, runs };
     this.emit();

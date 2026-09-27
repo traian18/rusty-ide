@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type ObservabilityStream = "executions" | "trajectory-index" | "trajectory-entries";
+export type ObservabilityStream = "executions" | "trajectory-index" | "trajectory-entries" | "diagnostics";
 
 export type DeleteScope =
   | { kind: "all" }
@@ -59,7 +59,7 @@ export function createMemoryPersistence(): ObservabilityPersistence & { roots: M
     const key = workspaceRoot ?? "";
     let root = roots.get(key);
     if (!root) {
-      root = { executions: [], index: [], entries: new Map(), deleted: { executions: new Set(), sessions: new Set(), runs: new Set() } };
+      root = { executions: [], diagnostics: [], index: [], entries: new Map(), deleted: { executions: new Set(), sessions: new Set(), runs: new Set() } };
       roots.set(key, root);
     }
     return root;
@@ -71,6 +71,7 @@ export function createMemoryPersistence(): ObservabilityPersistence & { roots: M
       const root = rootFor(workspaceRoot);
       const rows = clone(lines) as Row[];
       if (stream === "executions") root.executions.push(...rows);
+      else if (stream === "diagnostics") root.diagnostics.push(...rows);
       else if (stream === "trajectory-index") root.index.push(...rows);
       else {
         if (!runId) throw new Error("invalid or missing run id");
@@ -93,7 +94,7 @@ export function createMemoryPersistence(): ObservabilityPersistence & { roots: M
           && !root.deleted.sessions.has(String(row.sessionId)))
         .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)))
         .slice(0, trajectoryLimit);
-      const bytes = JSON.stringify([root.executions, root.index, [...root.entries.values()]]).length;
+      const bytes = JSON.stringify([root.executions, root.diagnostics, root.index, [...root.entries.values()]]).length;
       return clone({ executions, trajectories, bytes });
     },
     async loadTrajectory(workspaceRoot, runId) {
@@ -118,6 +119,7 @@ export function createMemoryPersistence(): ObservabilityPersistence & { roots: M
 
 interface MemoryRoot {
   executions: Row[];
+  diagnostics: Row[];
   index: Row[];
   entries: Map<string, Row[]>;
   deleted: { executions: Set<string>; sessions: Set<string>; runs: Set<string> };

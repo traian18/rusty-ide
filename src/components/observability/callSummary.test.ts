@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractCallSummary, formatCompactCallLabel, truncateCommand } from "./callSummary";
+import { describeCallModels, extractCallSummary, formatCompactCallLabel, truncateCommand } from "./callSummary";
 import type { ToolExecutionRecord } from "../../observability/types";
 
 describe("callSummary", () => {
@@ -67,6 +67,53 @@ describe("callSummary", () => {
 
       const compact = formatCompactCallLabel(record);
       expect(compact).toBe("run_command: git status");
+    });
+  });
+});
+
+describe("smart retrieval call summaries", () => {
+  const base = {
+    id: "c", callId: "c", ideRunId: "r", status: "succeeded" as const, requestedAt: new Date().toISOString(),
+    origin: { surface: "agent-tab" as const, displayLabel: "Agent" },
+    context: { capability: "agent_chat" as const, inputKeys: [], fileReferences: [], mcpServers: [] },
+    payloadState: "full" as const,
+  };
+
+  it("labels a smart search by its request and shows its scope", () => {
+    const record: ToolExecutionRecord = { ...base, toolName: "search_codebase", arguments: { request: "auth errors", path: "src", include: "*.ts" } };
+    const summary = extractCallSummary(record);
+    expect(summary.actionLabel).toBe('Search: "auth errors"');
+    expect(summary.keyParams).toEqual(expect.arrayContaining([{ label: "Search In", value: "src" }, { label: "Include", value: "*.ts" }]));
+    expect(formatCompactCallLabel(record)).toBe("search_codebase: auth errors");
+  });
+
+  it("shows a smart read's request alongside its path", () => {
+    const record: ToolExecutionRecord = { ...base, toolName: "read_file", arguments: { path: "src/a.ts", request: "the validator" } };
+    expect(extractCallSummary(record).keyParams).toContainEqual({ label: "Request", value: "the validator" });
+  });
+
+  it("labels a web extraction by its URL and shows the request", () => {
+    const record: ToolExecutionRecord = { ...base, toolName: "web_extract", arguments: { url: "https://docs.example.com", request: "rate limits" } };
+    const summary = extractCallSummary(record);
+    expect(summary.actionLabel).toBe("Extract: https://docs.example.com");
+    expect(summary.keyParams).toContainEqual({ label: "Request", value: "rate limits" });
+  });
+
+  it("names the models of every call, including tools that use none", () => {
+    const deterministic: ToolExecutionRecord = { ...base, toolName: "list_files", requestedBy: { model: "gpt-4o" } };
+    expect(describeCallModels(deterministic)).toEqual({ requestedBy: "gpt-4o", executedBy: "No model (tool runs as code)", delegated: false });
+    expect(describeCallModels({ ...deterministic, status: "running" }).executedBy).toBe("Not reported yet");
+
+    const subagentCall: ToolExecutionRecord = {
+      ...base,
+      toolName: "read_file",
+      requestedBy: { model: "claude-haiku-4-5", subagent: true },
+      execution: { executor: { kind: "model", purpose: "Smart Read selector", model: "selector-mini", provider: "Sel" }, steps: [] },
+    };
+    expect(describeCallModels(subagentCall)).toEqual({
+      requestedBy: "claude-haiku-4-5 (subagent)",
+      executedBy: "selector-mini (Sel) · Smart Read selector",
+      delegated: true,
     });
   });
 });

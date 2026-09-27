@@ -78,6 +78,9 @@ import type { CustomProvider } from "../../../store/types";
 import type { AgentChatInput, CapabilityEvent, CapabilityResult } from "../../contract";
 import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
+import { NOOP_TOOL_EXECUTION_OBSERVER } from "../../contract/observability";
+import { CHAT_RENDER_CHARS } from "../../../config/chatLimits";
+import { hasTokens } from "../usageAccumulator";
 import { mapMcpServerConfigs } from "../mcpServerMapping";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import { skillExecutionPolicy } from "../skillExecutionPolicy";
@@ -246,6 +249,19 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   return [...structural, ...planTool, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
 }
 
+/** The chat shows about CHAT_RENDER_CHARS of one response; anything longer
+ * belongs in a file, with a short summary in chat. */
+export function longResponseGuideline(toolNames: string[]): string {
+  const limit = `${CHAT_RENDER_CHARS.toLocaleString("en-US")} characters`;
+  if (toolNames.includes("write_file")) {
+    return `- Long responses: if a response would exceed about ${limit} (a full document, report, specification, or large code listing), write the complete content to a Markdown file in the workspace with 'write_file' instead of the chat. This applies even when no file was requested. Then reply with a brief summary and the file path.`;
+  }
+  if (toolNames.includes("write_plan")) {
+    return `- Long responses: if a response would exceed about ${limit}, save the complete content with 'write_plan' and reply with a brief summary and the plan's filename.`;
+  }
+  return `- Long responses: keep each response under about ${limit}. If the full answer would be longer, give a condensed answer and offer to continue with the remaining parts.`;
+}
+
 function systemPrompt(input: AgentChatInput, toolNames: string[], mcpSection: string): string {
   const skill = asSkill(input.skill);
 
@@ -267,7 +283,8 @@ ${activeSkillLine(skill)}`;
 Guidelines:
 - Be concise and focused. Only modify what is requested.
 - Output clean code without placeholder comments.
-- Once done, summarize the changes you made.${mcpSection}${skillGuidance}${taskDependencySection}`;
+- Once done, summarize the changes you made.
+${longResponseGuideline(toolNames)}${mcpSection}${skillGuidance}${taskDependencySection}`;
   }
 
   const toolListText = toolNames.map((name) => TOOL_DESCRIPTIONS[name] ?? `- '${name}'`).join("\n");
@@ -284,7 +301,8 @@ Guidelines:
 - Be concise and focused. Only modify what is requested.
 - Output clean code without placeholder comments.
 - Once done, summarize the changes you made.
-- For an analysis or overview request, deliver the findings directly in chat. Only create a document file if requested. A progress update or promise to provide an answer is not a final answer.
+- For an analysis or overview request, deliver the findings directly in chat. Only create a document file if requested or if the response is too long for the chat (below). A progress update or promise to provide an answer is not a final answer.
+${longResponseGuideline(toolNames)}
 - When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.
 `;
 
@@ -364,7 +382,7 @@ function writePlanTool(host: RunHost): HostToolHandler {
 }
 
 function webSearchTool(apiKeys: WebSearchApiKeys, onEvent: (event: CapabilityEvent<"agent_chat">) => void): HostToolHandler {
-  return async (args, signal) => {
+  return async (args, signal, observer = NOOP_TOOL_EXECUTION_OBSERVER) => {
     const parsed = args as { query?: unknown; numResults?: unknown; recencyFilter?: unknown; domainFilter?: unknown; provider?: unknown } | undefined;
     const query = typeof parsed?.query === "string" ? parsed.query.trim() : "";
     if (!query) return { ok: false, error: "A web search query is required." };
@@ -380,6 +398,13 @@ function webSearchTool(apiKeys: WebSearchApiKeys, onEvent: (event: CapabilityEve
     onEvent({ kind: "log", message: `Searching the web: ${query}` });
     try {
       const response = await runWebSearch(query, options, apiKeys);
+      // OpenAI, Perplexity, and Gemini answer with their own LLM: attribute the
+      // call and its tokens to that model. Plain search APIs are a service.
+      observer.executedBy(response.model
+        ? { kind: "model", purpose: "Web search", model: response.model, provider: response.provider }
+        : { kind: "service", purpose: "Web search", provider: response.provider });
+      if (response.usage && hasTokens(response.usage)) observer.usage(response.usage);
+      observer.step("info", "web search completed", { provider: response.provider, model: response.model, results: response.results.length });
       const sources = response.results.map((r, i) => `${i + 1}. ${r.title}\n   ${r.url}${r.snippet ? `\n   ${r.snippet}` : ""}`).join("\n");
       onEvent({ kind: "log", message: `Web search completed via ${response.provider}: ${response.results.length} source(s).` });
       return {
@@ -393,6 +418,7 @@ function webSearchTool(apiKeys: WebSearchApiKeys, onEvent: (event: CapabilityEve
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       onEvent({ kind: "log", message: `Web search failed for "${query}": ${message}` });
+      observer.step("error", "web search failed", { query, error: message });
       return { ok: false, error: message };
     }
   };

@@ -24,6 +24,7 @@ pub enum Stream {
     Executions,
     TrajectoryIndex,
     TrajectoryEntries,
+    Diagnostics,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -225,6 +226,21 @@ pub async fn append_at(
             let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
             append_lines(&dir.join(format!("{run_id}.jsonl")), &lines).await?;
         }
+        Stream::Diagnostics => {
+            let dir = base.join("diagnostics");
+            ensure_dir(&dir).await?;
+            let mut by_day: HashMap<String, Vec<String>> = HashMap::new();
+            for line in lines {
+                if line.get("id").and_then(Value::as_str).is_none() {
+                    return Err("diagnostic record is missing an id".into());
+                }
+                let day = day_of(&line, "timestamp").unwrap_or_else(today);
+                by_day.entry(day).or_default().push(line.to_string());
+            }
+            for (day, day_lines) in by_day {
+                append_lines(&dir.join(format!("{day}.jsonl")), &day_lines).await?;
+            }
+        }
     }
     Ok(())
 }
@@ -281,7 +297,7 @@ pub async fn load_at(
         .filter(|run| {
             let id = run.get("id").and_then(Value::as_str).unwrap_or_default();
             !run_tombstones.runs.contains(id)
-                && session_of(run).map_or(true, |s| !run_tombstones.sessions.contains(s))
+                && session_of(run).map_or(true, |s| !tombstones.sessions.contains(s))
                 && since_day.as_deref().map_or(true, |since| day_of(run, "startedAt").map_or(true, |d| d.as_str() >= since))
         })
         .collect();
@@ -431,6 +447,19 @@ mod tests {
         assert!(dir.path().join("observability/executions/2026-09-01.jsonl").exists());
         assert!(dir.path().join("observability/.gitignore").exists());
         assert!(loaded.bytes > 0);
+    }
+
+    #[tokio::test]
+    async fn appends_diagnostics_by_day() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ObservabilityState::default();
+        append_at(&state, dir.path(), Stream::Diagnostics, None, vec![
+            json!({ "id": "d1", "timestamp": "2026-09-01T10:00:00Z", "level": "warn", "message": "failed" }),
+        ]).await.unwrap();
+        let path = dir.path().join("observability/diagnostics/2026-09-01.jsonl");
+        assert!(path.exists());
+        let raw = std::fs::read_to_string(path).unwrap();
+        assert!(raw.contains("failed"));
     }
 
     #[tokio::test]

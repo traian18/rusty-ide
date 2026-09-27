@@ -1332,6 +1332,7 @@ pub fn run() {
             shell_exec::run_shell_command,
             shell_exec::cancel_shell_command,
             usage_tracking::record_usage,
+            usage_tracking::reset_usage_day,
             observability_store::observability_append,
             observability_store::observability_load,
             observability_store::observability_load_trajectory,
@@ -1394,6 +1395,8 @@ pub fn run() {
             harness::commands::harness_close_session,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_list_providers,
+            #[cfg(feature = "core-harness")]
+            harness::commands::harness_web_fetch,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_list_models,
             #[cfg(feature = "core-harness")]

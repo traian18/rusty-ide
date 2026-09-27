@@ -53,6 +53,16 @@ pub struct UsageRecordInput {
     pub provider: Option<String>,
     pub model: String,
     pub usage: TokenUsageSample,
+    /// `false` when this sample continues a model request that an earlier
+    /// sample already counted (providers report usage several times per
+    /// request), so `calls` counts requests rather than samples. Absent in
+    /// older callers, which always meant one sample per call.
+    #[serde(rename = "newRequest", default = "default_true")]
+    pub new_request: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -71,7 +81,7 @@ struct UsageTotals {
 }
 
 impl UsageTotals {
-    fn add(&mut self, sample: &TokenUsageSample) {
+    fn add(&mut self, sample: &TokenUsageSample, new_request: bool) {
         self.input += sample.input;
         self.output += sample.output;
         self.cache_read += sample.cache_read;
@@ -80,7 +90,9 @@ impl UsageTotals {
         // Mirrors usageTracking.ts's own fallback: `sample.totalTokens ||
         // (sample.input || 0) + (sample.output || 0)`.
         self.total_tokens += if sample.total_tokens != 0.0 { sample.total_tokens } else { sample.input + sample.output };
-        self.calls += 1;
+        if new_request {
+            self.calls += 1;
+        }
     }
 }
 
@@ -207,16 +219,65 @@ pub async fn record_usage_with_state(
 
     let day = summary.by_day.entry(date).or_default();
     let day_model = day.by_model.entry(entry.model.clone()).or_default();
-    day_model.add(&entry.usage);
-    day.total.add(&entry.usage);
+    day_model.add(&entry.usage, entry.new_request);
+    day.total.add(&entry.usage, entry.new_request);
     let all_time_model = summary.all_time.by_model.entry(entry.model).or_default();
-    all_time_model.add(&entry.usage);
-    summary.all_time.total.add(&entry.usage);
+    all_time_model.add(&entry.usage, entry.new_request);
+    summary.all_time.total.add(&entry.usage, entry.new_request);
 
-    let serialized = serde_json::to_string_pretty(&summary).map_err(|error| format!("failed to serialize usage summary: {error}"))?;
-    fs::write(&summary_path, serialized).await.map_err(|error| format!("failed to write usage summary: {error}"))?;
-    set_owner_only_permissions(&summary_path).await;
+    write_summary(&summary_path, &summary).await
+}
 
+async fn write_summary(summary_path: &std::path::Path, summary: &UsageSummary) -> Result<(), String> {
+    let serialized = serde_json::to_string_pretty(summary).map_err(|error| format!("failed to serialize usage summary: {error}"))?;
+    fs::write(summary_path, serialized).await.map_err(|error| format!("failed to write usage summary: {error}"))?;
+    set_owner_only_permissions(summary_path).await;
+    Ok(())
+}
+
+/// Clears one day's totals back to zero. All-time totals keep their history,
+/// and the raw event log is kept too, with a `day_reset` line appended so the
+/// reset itself is on record.
+#[tauri::command]
+pub async fn reset_usage_day(
+    state: tauri::State<'_, UsageTrackingState>,
+    workspace_root: String,
+    day: String,
+) -> Result<(), String> {
+    reset_usage_day_with_state(&state, workspace_root, day).await
+}
+
+pub async fn reset_usage_day_with_state(state: &UsageTrackingState, workspace_root: String, day: String) -> Result<(), String> {
+    let valid_day = day.len() == 10
+        && day.chars().enumerate().all(|(index, c)| if index == 4 || index == 7 { c == '-' } else { c.is_ascii_digit() });
+    if !valid_day {
+        return Err(format!("invalid day {day:?}; expected YYYY-MM-DD"));
+    }
+    let _guard = state.write_lock.lock().await;
+    let metrics_root = PathBuf::from(&workspace_root).join(".rusty").join("metrics");
+    let summary_path = metrics_root.join("summary.json");
+    let mut summary: UsageSummary = match fs::read_to_string(&summary_path).await {
+        Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
+        Err(_) => return Ok(()),
+    };
+    if summary.by_day.remove(&day).is_none() {
+        return Ok(());
+    }
+    write_summary(&summary_path, &summary).await?;
+
+    let events_dir = metrics_root.join("events");
+    if fs::create_dir_all(&events_dir).await.is_ok() {
+        use tokio::io::AsyncWriteExt;
+        let line = serde_json::json!({ "ts": crate::chrono_now_iso8601(), "source": "rusty", "event": "day_reset", "day": day });
+        if let Ok(mut file) = tokio::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(events_dir.join(format!("usage-{day}.jsonl")))
+            .await
+        {
+            let _ = file.write_all(format!("{line}\n").as_bytes()).await;
+        }
+    }
     Ok(())
 }
 
@@ -236,6 +297,7 @@ mod tests {
             provider: Some("anthropic".to_string()),
             model: model.to_string(),
             usage: sample(total),
+            new_request: true,
         }
     }
 
@@ -333,5 +395,56 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         assert_eq!(first["source"], "rusty");
         assert_eq!(first["reasoning"], 25.0);
         assert!(dir.path().join(".rusty/metrics/.gitignore").exists());
+    }
+
+    #[tokio::test]
+    async fn continuation_samples_add_tokens_without_counting_another_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = UsageTrackingState::default();
+        record_directly(&state, dir.path(), entry("claude-opus", 100.0)).await;
+        let mut continuation = entry("claude-opus", 20.0);
+        continuation.new_request = false;
+        record_directly(&state, dir.path(), continuation).await;
+
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
+        assert_eq!(summary.all_time.total.total_tokens, 120.0);
+        assert_eq!(summary.all_time.total.calls, 1);
+    }
+
+    #[tokio::test]
+    async fn older_callers_without_new_request_still_count_each_sample() {
+        let input: UsageRecordInput = serde_json::from_value(serde_json::json!({
+            "surface": "agent_chat", "model": "m",
+            "usage": { "input": 1.0, "output": 1.0, "cacheRead": 0.0, "cacheWrite": 0.0, "totalTokens": 2.0 }
+        }))
+        .unwrap();
+        assert!(input.new_request);
+    }
+
+    #[tokio::test]
+    async fn resetting_a_day_zeroes_only_that_day_and_keeps_all_time_history() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = UsageTrackingState::default();
+        record_directly(&state, dir.path(), entry("claude-opus", 100.0)).await;
+        let today = day_key(&crate::chrono_now_iso8601());
+        let root = dir.path().to_string_lossy().to_string();
+
+        reset_usage_day_with_state(&state, root.clone(), today.clone()).await.unwrap();
+
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
+        assert!(!summary.by_day.contains_key(&today));
+        assert_eq!(summary.all_time.total.total_tokens, 100.0);
+        let events = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/events").join(format!("usage-{today}.jsonl"))).await.unwrap();
+        assert!(events.lines().last().unwrap().contains("\"day_reset\""));
+
+        // Usage after the reset starts the day from zero.
+        record_directly(&state, dir.path(), entry("claude-opus", 7.0)).await;
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
+        assert_eq!(summary.by_day[&today].total.total_tokens, 7.0);
+
+        assert!(reset_usage_day_with_state(&state, root, "../../etc".to_string()).await.is_err());
     }
 }

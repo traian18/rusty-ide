@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Gauge, RefreshCw } from "lucide-react";
+import { Gauge, RefreshCw, RotateCcw } from "lucide-react";
 import { useWorkspaceStore } from "../../store";
 import type { MetricsTimeframe } from "../../store";
 import { Callout } from "../ui";
+import { useConfirm } from "../useConfirm";
 import { formatCompactTokenCount } from "../../services/tokenFormat";
 import { byDayForTimeframe, byModelForTimeframe, totalsForTimeframe } from "../../services/usageMetricsService";
 
@@ -57,7 +58,10 @@ export const MetricsTab: React.FC = () => {
   const metricsSummary = useWorkspaceStore((state) => state.metricsSummary);
   const metricsLoading = useWorkspaceStore((state) => state.metricsLoading);
   const loadMetricsSummary = useWorkspaceStore((state) => state.loadMetricsSummary);
+  const resetMetricsDay = useWorkspaceStore((state) => state.resetMetricsDay);
   const rootPath = useWorkspaceStore((state) => state.rootPath);
+  const { confirm, ConfirmModalComponent } = useConfirm();
+  const [resetError, setResetError] = useState<string | null>(null);
 
   const [preset, setPreset] = useState<PresetId>("today");
   const [customFrom, setCustomFrom] = useState(daysAgo(6));
@@ -76,6 +80,23 @@ export const MetricsTab: React.FC = () => {
   const byModel = useMemo(() => byModelForTimeframe(metricsSummary, timeframe), [metricsSummary, timeframe]);
   const byDay = useMemo(() => byDayForTimeframe(metricsSummary, timeframe), [metricsSummary, timeframe]);
   const hasUsage = totals.calls > 0;
+  const resettableDay = timeframe.mode === "day" && hasUsage ? timeframe.day : null;
+
+  const resetDay = async (day: string) => {
+    const confirmed = await confirm({
+      title: `Reset token usage for ${day}?`,
+      message: `This sets ${day}'s token totals back to zero. All-time totals and the raw usage log are kept. This can't be undone.`,
+      confirmLabel: "Reset day",
+      kind: "danger",
+    });
+    if (!confirmed) return;
+    setResetError(null);
+    try {
+      await resetMetricsDay(day);
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   return (
     <div className="w-full h-full p-8 max-w-5xl mx-auto flex flex-col space-y-6 font-sans text-[var(--text-normal)] overflow-y-auto">
@@ -86,9 +107,20 @@ export const MetricsTab: React.FC = () => {
             <span>Token Metrics</span>
           </h2>
           <p className="text-xs text-[var(--text-muted)] font-mono">
-            Track how many tokens you spend, per model and over time, across Agent Chat, sub-agents, canvas nodes, and reconciliation.
+            Track how many tokens you spend, per model and over time, across Agent Chat, sub-agents, canvas nodes, reconciliation, and the models smart tools use internally.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+        {resettableDay && (
+          <button
+            id="metrics-reset-day"
+            onClick={() => void resetDay(resettableDay)}
+            className="flex items-center space-x-1.5 text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-light)] transition-colors px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] hover:border-[var(--border-active)]"
+          >
+            <RotateCcw size={12} />
+            <span>Reset day</span>
+          </button>
+        )}
         <button
           onClick={() => void loadMetricsSummary()}
           className="flex items-center space-x-1.5 text-[10px] font-bold text-[var(--text-muted)] hover:text-[var(--text-light)] transition-colors px-2.5 py-1.5 rounded-lg border border-[var(--border-color)] hover:border-[var(--border-active)]"
@@ -96,7 +128,10 @@ export const MetricsTab: React.FC = () => {
           <RefreshCw size={12} className={metricsLoading ? "animate-spin" : ""} />
           <span>Refresh</span>
         </button>
+        </div>
       </div>
+      {resetError && <Callout variant="danger">Could not reset usage: {resetError}</Callout>}
+      {ConfirmModalComponent}
 
       <div className="flex flex-wrap items-center gap-2">
         {PRESETS.map((item) => (
@@ -144,7 +179,7 @@ export const MetricsTab: React.FC = () => {
             <StatTile label="Total tokens" value={formatCompactTokenCount(totals.totalTokens)} />
             <StatTile label="Input" value={formatCompactTokenCount(totals.input)} />
             <StatTile label="Output" value={formatCompactTokenCount(totals.output)} />
-            <StatTile label="Runs" value={String(totals.calls)} />
+            <StatTile label="Model requests" value={String(totals.calls)} />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

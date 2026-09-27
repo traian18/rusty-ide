@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { snapshotSmartToolSettings } from "../store/smartToolSettingsSnapshot";
 import { useWorkspaceStore } from "../store";
 import { resolveSkill, toSkillData, BUILT_IN_SKILL_IDS } from "../config/skillDefinitions";
 import { notify } from "../notificationStore";
@@ -101,6 +102,7 @@ export async function executeNode(nodeId: string, customPrompt?: string, attachm
     globalContext: state.globalContextSummary || "", contextDescriptions, mcpContext: [], upstreamTaskContext: upstreamTasks,
     chatHistory: [{ role: "user", content: instruction }], customProvider: resolution.provider, skill,
     lspSettings: { ...state.lspSettings, enabled: false },
+    smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
   }, host, (event) => {
     if (event.kind === "command_output" || event.kind === "token") { consoleText = appendBoundedText(consoleText, event.content); flushConsole(); }
     if (event.kind === "log") { useWorkspaceStore.getState().addLog(nodeId, event.message); consoleText = appendBoundedText(consoleText, `${event.message}\n`); flushConsole(); }

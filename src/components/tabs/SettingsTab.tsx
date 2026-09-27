@@ -3,6 +3,7 @@ import { AppearanceSettings } from "../settings/AppearanceSettings";
 import { TypographySettings } from "../settings/TypographySettings";
 import { EditorFileSafetySettings } from "../settings/EditorFileSafetySettings";
 import { WebSearchSettings } from "../settings/WebSearchSettings";
+import { SmartReadSettings, SmartSearchSettings, SmartWebExtractSettings } from "../settings/SmartReadSettings";
 import { StorageSettings } from "../settings/StorageSettings";
 import { KeyboardShortcutsSettings } from "../settings/KeyboardShortcutsSettings";
 import { UpdateSettings } from "../settings/UpdateSettings";
@@ -22,6 +23,9 @@ export const SettingsTab: React.FC = () => {
         <div className={styles.panel}><TypographySettings /></div>
         <div className={styles.panel}><EditorFileSafetySettings /></div>
         <div className={styles.panel}><WebSearchSettings /></div>
+        <div className={styles.panel}><SmartReadSettings /></div>
+        <div className={styles.panel}><SmartSearchSettings /></div>
+        <div className={styles.panel}><SmartWebExtractSettings /></div>
         <div className={styles.panel}><StorageSettings /></div>
         <div className={styles.panel}><KeyboardShortcutsSettings /></div>
         <div className={styles.panel}><UpdateSettings /></div>

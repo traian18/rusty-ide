@@ -29,6 +29,8 @@
 //    agent_chat.ts's own web_search tool actually surfaces to the model.
 // ============================================================
 
+import type { TokenUsage } from "../../contract";
+
 export type WebSearchProvider = "auto" | "openai" | "brave" | "parallel" | "tavily" | "exa" | "perplexity" | "gemini";
 export type ResolvedWebSearchProvider = Exclude<WebSearchProvider, "auto">;
 
@@ -40,10 +42,26 @@ export interface WebSearchResult {
   snippet: string;
 }
 
-export interface WebSearchResponse {
-  provider: ResolvedWebSearchProvider;
+/** What one provider call produced. Providers that answer with an LLM
+ * (OpenAI, Perplexity, Gemini) also say which model ran and what it cost,
+ * so the call can be attributed to that model in observability and metrics. */
+interface ProviderResult {
   answer: string;
   results: WebSearchResult[];
+  model?: string;
+  usage?: TokenUsage;
+}
+
+export interface WebSearchResponse extends ProviderResult {
+  provider: ResolvedWebSearchProvider;
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {};
 }
 
 export interface WebSearchOptions {
@@ -204,7 +222,7 @@ function checkPerplexityRateLimit(): void {
   perplexityRequestTimestamps.push(now);
 }
 
-async function searchWithPerplexity(query: string, options: PlainSearchOptions, apiKey: string): Promise<{ answer: string; results: WebSearchResult[] }> {
+async function searchWithPerplexity(query: string, options: PlainSearchOptions, apiKey: string): Promise<ProviderResult> {
   checkPerplexityRateLimit();
   const numResults = normalizeCount(options.numResults);
   const requestBody: Record<string, unknown> = { model: "sonar", messages: [{ role: "user", content: query }], max_tokens: 1024, return_related_questions: false };
@@ -223,7 +241,7 @@ async function searchWithPerplexity(query: string, options: PlainSearchOptions, 
     const errorText = await response.text();
     throw new Error(`Perplexity API error ${response.status}: ${errorText}`);
   }
-  const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }>; citations?: unknown[] };
+  const data = (await response.json()) as { model?: string; usage?: unknown; choices?: Array<{ message?: { content?: string } }>; citations?: unknown[] };
   const answer = data.choices?.[0]?.message?.content || "";
   const citations = Array.isArray(data.citations) ? data.citations : [];
   const results: WebSearchResult[] = [];
@@ -235,12 +253,23 @@ async function searchWithPerplexity(query: string, options: PlainSearchOptions, 
       results.push({ title: c.title || `Source ${i + 1}`, url: c.url, snippet: "" });
     }
   }
-  return { answer, results };
+  const usage = record(data.usage);
+  return {
+    answer,
+    results,
+    model: data.model || "sonar",
+    usage: {
+      input: tokenCount(usage.prompt_tokens),
+      output: tokenCount(usage.completion_tokens),
+      totalTokens: tokenCount(usage.total_tokens),
+      ...(tokenCount(usage.reasoning_tokens) !== undefined ? { reasoning: tokenCount(usage.reasoning_tokens) } : {}),
+    },
+  };
 }
 
 // --- Gemini (API-key path only -- see module doc for the dropped fallback) ---
 
-async function searchWithGemini(query: string, options: PlainSearchOptions, apiKey: string): Promise<{ answer: string; results: WebSearchResult[] } | null> {
+async function searchWithGemini(query: string, options: PlainSearchOptions, apiKey: string): Promise<ProviderResult | null> {
   const body = { contents: [{ role: "user", parts: [{ text: query }] }], tools: [{ google_search: {} }] };
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
     method: "POST",
@@ -253,6 +282,8 @@ async function searchWithGemini(query: string, options: PlainSearchOptions, apiK
     throw new Error(`Gemini API error ${response.status}: ${errorText.slice(0, 300)}`);
   }
   const data = (await response.json()) as {
+    modelVersion?: string;
+    usageMetadata?: unknown;
     candidates?: Array<{
       content?: { parts?: Array<{ text?: string }> };
       groundingMetadata?: { groundingChunks?: Array<{ web?: { uri?: string; title?: string } }> };
@@ -263,7 +294,19 @@ async function searchWithGemini(query: string, options: PlainSearchOptions, apiK
     .filter((chunk): chunk is { web: { uri?: string; title?: string } } => !!chunk.web?.uri)
     .map((chunk) => ({ title: chunk.web.title || "", url: chunk.web.uri!, snippet: "" }));
   if (!answer && results.length === 0) return null;
-  return { answer, results };
+  const usage = record(data.usageMetadata);
+  return {
+    answer,
+    results,
+    model: data.modelVersion || "gemini-3-flash-preview",
+    usage: {
+      input: tokenCount(usage.promptTokenCount),
+      output: tokenCount(usage.candidatesTokenCount),
+      cacheRead: tokenCount(usage.cachedContentTokenCount),
+      totalTokens: tokenCount(usage.totalTokenCount),
+      ...(tokenCount(usage.thoughtsTokenCount) !== undefined ? { reasoning: tokenCount(usage.thoughtsTokenCount) } : {}),
+    },
+  };
 }
 
 // --- Exa (with key: Answer/Search APIs; no key: public MCP endpoint) -------
@@ -431,7 +474,7 @@ async function searchWithParallel(query: string, options: PlainSearchOptions, ap
 
 // --- OpenAI (plain API key only -- see module doc for the dropped Codex-ctx branch) ---
 
-async function searchWithOpenAI(query: string, options: PlainSearchOptions, apiKey: string): Promise<{ answer: string; results: WebSearchResult[] }> {
+async function searchWithOpenAI(query: string, options: PlainSearchOptions, apiKey: string): Promise<ProviderResult> {
   const { include, exclude } = splitDomainFilter(options.domainFilter);
   const instructionLines = ["Search the web and return a concise answer grounded only in the web results.", "Include clickable source citations in the response text when possible."];
   if (options.recencyFilter) {
@@ -529,7 +572,20 @@ async function searchWithOpenAI(query: string, options: PlainSearchOptions, apiK
   const limitedResults = typeof numResults === "number" && Number.isFinite(numResults) && numResults > 0 ? results.slice(0, Math.min(Math.floor(numResults), 20)) : results;
   const answer = answerParts.join("\n").trim();
   if (!answer && limitedResults.length === 0) throw new Error("OpenAI web_search returned no answer or sources");
-  return { answer, results: limitedResults };
+  const usage = record(completedResponse?.usage);
+  const reasoning = tokenCount(record(usage.output_tokens_details).reasoning_tokens);
+  return {
+    answer,
+    results: limitedResults,
+    model: typeof completedResponse?.model === "string" ? completedResponse.model : "gpt-5.4",
+    usage: {
+      input: tokenCount(usage.input_tokens),
+      output: tokenCount(usage.output_tokens),
+      cacheRead: tokenCount(record(usage.input_tokens_details).cached_tokens),
+      totalTokens: tokenCount(usage.total_tokens),
+      ...(reasoning !== undefined ? { reasoning } : {}),
+    },
+  };
 }
 
 // --- master dispatch ------------------------------------------------------

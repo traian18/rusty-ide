@@ -96,4 +96,55 @@ describe("runWebSearch", () => {
 
     await expect(runWebSearch("query", {}, {})).rejects.toThrow(/Web search failed:\n {2}- Exa:/);
   });
+
+  it("reports Perplexity's model and token usage", async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse({
+      model: "sonar",
+      usage: { prompt_tokens: 12, completion_tokens: 80, total_tokens: 92 },
+      choices: [{ message: { content: "Answer." } }],
+      citations: ["https://p.test"],
+    })) as unknown as typeof fetch;
+
+    const response = await runWebSearch("q", { provider: "perplexity" }, { perplexity: "k" });
+
+    expect(response.model).toBe("sonar");
+    expect(response.usage).toEqual({ input: 12, output: 80, totalTokens: 92 });
+  });
+
+  it("reports Gemini's model version and token usage, including thinking tokens", async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse({
+      modelVersion: "gemini-3-flash-preview-09",
+      usageMetadata: { promptTokenCount: 30, candidatesTokenCount: 120, thoughtsTokenCount: 40, totalTokenCount: 190 },
+      candidates: [{ content: { parts: [{ text: "Grounded answer." }] } }],
+    })) as unknown as typeof fetch;
+
+    const response = await runWebSearch("q", { provider: "gemini" }, { gemini: "k" });
+
+    expect(response.model).toBe("gemini-3-flash-preview-09");
+    expect(response.usage).toEqual({ input: 30, output: 120, cacheRead: undefined, totalTokens: 190, reasoning: 40 });
+  });
+
+  it("reports OpenAI's model and token usage from the completed response", async () => {
+    const completed = {
+      type: "response.completed",
+      response: {
+        model: "gpt-5.4-2026-03-01",
+        usage: { input_tokens: 900, input_tokens_details: { cached_tokens: 100 }, output_tokens: 250, output_tokens_details: { reasoning_tokens: 60 }, total_tokens: 1150 },
+        output: [{ type: "message", content: [{ type: "output_text", text: "Answer.", annotations: [] }] }],
+      },
+    };
+    globalThis.fetch = vi.fn(async () => textResponse(`data: ${JSON.stringify(completed)}\n\n`)) as unknown as typeof fetch;
+
+    const response = await runWebSearch("q", { provider: "openai" }, { openai: "k" });
+
+    expect(response.model).toBe("gpt-5.4-2026-03-01");
+    expect(response.usage).toEqual({ input: 900, output: 250, cacheRead: 100, totalTokens: 1150, reasoning: 60 });
+  });
+
+  it("reports no model for plain search APIs", async () => {
+    globalThis.fetch = vi.fn(async () => jsonResponse({ web: { results: [] } })) as unknown as typeof fetch;
+    const response = await runWebSearch("q", { provider: "brave" }, { brave: "k" });
+    expect(response.model).toBeUndefined();
+    expect(response.usage).toBeUndefined();
+  });
 });

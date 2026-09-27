@@ -1,5 +1,5 @@
 import { RunExecutionTimeline, estimateTokens, type TimelineItem } from "./RunExecutionTimeline";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   Bot,
@@ -11,10 +11,10 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { extractCallSummary } from "./callSummary";
+import { describeCallModels, extractCallSummary, formatToolExecutor } from "./callSummary";
 import { executionObservability } from "../../observability/executionStore";
-import { useTrajectories, type TrajectoryEntry } from "../../observability/trajectoryStore";
-import type { ExecutionTokensSnapshot, ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
+import { useTrajectories, type RunTrajectory, type TrajectoryEntry } from "../../observability/trajectoryStore";
+import type { ExecutionTokensSnapshot, ModelUsageEntry, RunUsage, ToolExecutionDetail, ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
 import { useExecutionObservability } from "../../observability/useExecutionObservability";
 import { useWorkspaceStore, type UsageTotals } from "../../store";
 import { usageMetricsService } from "../../services/usageMetricsService";
@@ -61,6 +61,7 @@ interface GroupedRun {
   requestPrompt?: string;
   totalTokens?: number;
   runTokens?: ExecutionTokensSnapshot;
+  usage?: RunUsage;
   records: ToolExecutionRecord[];
   timelineItems: TimelineItem[];
   entries: TrajectoryEntry[];
@@ -152,22 +153,155 @@ function JsonValue({ value }: { value: unknown }) {
   return <pre className={styles.code}>{JSON.stringify(value, null, 2) ?? "—"}</pre>;
 }
 
-function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; runTokens?: ExecutionTokensSnapshot }) {
+const TOKEN_FIELDS: { key: keyof ExecutionTokensSnapshot; label: string }[] = [
+  { key: "inputTokens", label: "Input (Prompt)" },
+  { key: "outputTokens", label: "Output (Completion)" },
+  { key: "cacheReadTokens", label: "Cache Read" },
+  { key: "cacheWriteTokens", label: "Cache Write" },
+  { key: "reasoningTokens", label: "Reasoning" },
+];
+
+function TokenGrid({ tokens }: { tokens: ExecutionTokensSnapshot }) {
+  return (
+    <div className={styles.tokenGrid}>
+      <div className={`${styles.tokenCard} ${styles.tokenCardHighlight}`}>
+        <span className={styles.tokenLabel}>Total Tokens</span>
+        <strong className={styles.tokenValue}>{tokens.totalTokens?.toLocaleString() ?? "—"}</strong>
+      </div>
+      {TOKEN_FIELDS.map(({ key, label }) => tokens[key] !== undefined && (
+        <div key={key} className={styles.tokenCard}>
+          <span className={styles.tokenLabel}>{label}</span>
+          <span className={styles.tokenValue}>{tokens[key]!.toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const USAGE_COLUMNS: { key: keyof ExecutionTokensSnapshot; label: string }[] = [
+  { key: "inputTokens", label: "Input" },
+  { key: "outputTokens", label: "Output" },
+  { key: "cacheReadTokens", label: "Cache read" },
+  { key: "cacheWriteTokens", label: "Cache write" },
+  { key: "reasoningTokens", label: "Reasoning" },
+  { key: "totalTokens", label: "Total" },
+];
+
+function sumUsage(entries: ModelUsageEntry[]): ExecutionTokensSnapshot {
+  const total: ExecutionTokensSnapshot = {};
+  for (const entry of entries) {
+    for (const { key } of USAGE_COLUMNS) {
+      const value = entry.tokens[key];
+      if (value !== undefined) total[key] = (total[key] ?? 0) + value;
+    }
+  }
+  return total;
+}
+
+/** Every model's tokens in the run, including models tools delegated to. */
+export function runUsageTotal(usage: RunUsage | undefined): ExecutionTokensSnapshot | undefined {
+  const entries = Object.values(usage ?? {});
+  return entries.length ? sumUsage(entries) : undefined;
+}
+
+/** Token usage for the whole run, one row per model: the run's own model(s)
+ * and any model a tool delegated work to, so the total can be traced. Runs
+ * recorded before per-model tracking fall back to the single total. */
+function RunTokenUsage({ usage, tokens }: { usage?: RunUsage; tokens?: ExecutionTokensSnapshot }) {
+  const entries = Object.values(usage ?? {}).sort((a, b) =>
+    (a.role === b.role ? 0 : a.role === "run" ? -1 : 1) || (b.tokens.totalTokens ?? 0) - (a.tokens.totalTokens ?? 0));
+  if (entries.length === 0) {
+    const legacy = tokens && (tokens.totalTokens !== undefined || tokens.inputTokens !== undefined || tokens.outputTokens !== undefined);
+    return (
+      <section className={styles.detailSection}>
+        <h4>Run Token Usage <small>(Model Total)</small></h4>
+        {legacy ? <TokenGrid tokens={tokens!} /> : <p className={styles.tokenEmpty}>Token count not reported for this run</p>}
+      </section>
+    );
+  }
+  const columns = USAGE_COLUMNS.filter(({ key }) => entries.some((entry) => entry.tokens[key] !== undefined));
+  const cell = (value: number | undefined) => (value === undefined ? "—" : value.toLocaleString());
+  return (
+    <section className={styles.detailSection} aria-label="Run token usage by model">
+      <h4>Run Token Usage <small>by model</small></h4>
+      <div className={styles.usageTableWrap}>
+        <table className={styles.usageTable}>
+          <thead>
+            <tr>
+              <th scope="col">Model</th>
+              {columns.map(({ key, label }) => <th key={key} scope="col">{label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => (
+              <tr key={`${entry.role}:${entry.model}`}>
+                <th scope="row">
+                  <span className={styles.usageModel} title={entry.model}>{entry.model}</span>
+                  <small>{entry.role === "run" ? "Run model" : entry.role === "subagent" ? "Subagent model" : entry.purpose ?? "Tool model"}{entry.provider ? ` · ${entry.provider}` : ""}</small>
+                </th>
+                {columns.map(({ key }) => <td key={key}>{cell(entry.tokens[key])}</td>)}
+              </tr>
+            ))}
+          </tbody>
+          {entries.length > 1 && (
+            <tfoot>
+              <tr>
+                <th scope="row">All models</th>
+                {columns.map(({ key }) => <td key={key}>{cell(sumUsage(entries)[key])}</td>)}
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </section>
+  );
+}
+
+/** What the tool itself reported through its ToolExecutionObserver. */
+function ToolExecutionSection({ execution }: { execution: ToolExecutionDetail }) {
+  const { executor, tokens, steps } = execution;
+  return (
+    <section className={styles.detailSection} aria-label="Tool execution">
+      <h4>Tool Execution {executor && <small>{executor.purpose}</small>}</h4>
+      {executor && (
+        <dl className={styles.metadata}>
+          {executor.model && <div><dt>Executed by model</dt><dd title={executor.model}>{executor.model}</dd></div>}
+          {executor.provider && <div><dt>{executor.kind === "service" ? "Executed by service" : "Provider"}</dt><dd title={executor.provider}>{executor.provider}</dd></div>}
+        </dl>
+      )}
+      {tokens && <TokenGrid tokens={tokens} />}
+      {steps.length > 0 && (
+        <ol className={styles.executionSteps}>
+          {steps.map((step, index) => (
+            <li key={`${step.at}-${index}`} className={step.level === "info" ? undefined : styles[`executionStep_${step.level}`]}>
+              <span className={styles.executionStepTime}>{formatTime(step.at)}</span>
+              {step.details === undefined ? (
+                <span>{step.message}</span>
+              ) : (
+                <details>
+                  <summary>{step.message}</summary>
+                  <JsonValue value={step.details} />
+                </details>
+              )}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function ExecutionDetail({ record, runTokens, runUsage }: { record: ToolExecutionRecord; runTokens?: ExecutionTokensSnapshot; runUsage?: RunUsage }) {
   const active = ["queued", "waiting-permission", "running"].includes(record.status);
   const sourceTabId = record.origin.tabId ?? record.origin.canvasId;
   const canOpenSource = useWorkspaceStore((state) => Boolean(sourceTabId && state.tabs.some((tab) => tab.id === sourceTabId)));
   const activateTab = useWorkspaceStore((state) => state.activateTab);
   const setSelectedNodeId = useWorkspaceStore((state) => state.setSelectedNodeId);
   const callSummary = extractCallSummary(record);
+  const executor = record.execution?.executor;
+  const models = describeCallModels(record);
 
   const tokens = runTokens ?? record.tokens;
-  const hasTokens = Boolean(
-    tokens && (
-      tokens.totalTokens !== undefined ||
-      tokens.inputTokens !== undefined ||
-      tokens.outputTokens !== undefined
-    )
-  );
 
   return (
     <div className={styles.detail}>
@@ -177,6 +311,14 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
           <span className={styles.callBannerBadge}>
             <FileCode2 size={15} className="text-[var(--color-primary)]" />
             {record.toolName}
+          </span>
+          <span className={styles.callParamPill} title={`Executed by ${models.executedBy}`}>
+            <strong>Executed by:</strong>
+            <span>{executor ? formatToolExecutor(executor) : models.executedBy}</span>
+          </span>
+          <span className={styles.callParamPill} title={`Requested by ${models.requestedBy}`}>
+            <strong>Requested by:</strong>
+            <span>{models.requestedBy}</span>
           </span>
           {record.status === "running" && (
             <span className={`${styles.status} ${styles.status_running}`} />
@@ -238,6 +380,8 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
         </section>
       )}
 
+      {record.execution && <ToolExecutionSection execution={record.execution} />}
+
       {/* Run Request Context (Initiating Prompt) */}
       {(record.context.requestPrompt || record.context.selection) && (
         <section className={styles.detailSection}>
@@ -280,50 +424,7 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
         </section>
       )}
 
-      {/* Token Usage Breakdown */}
-      <section className={styles.detailSection}>
-        <h4>Run Token Usage <small>(Model Total)</small></h4>
-        {hasTokens && tokens ? (
-          <div className={styles.tokenGrid}>
-            <div className={`${styles.tokenCard} ${styles.tokenCardHighlight}`}>
-              <span className={styles.tokenLabel}>Total Tokens</span>
-              <strong className={styles.tokenValue}>{tokens.totalTokens?.toLocaleString() ?? "—"}</strong>
-            </div>
-            {tokens.inputTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Input (Prompt)</span>
-                <span className={styles.tokenValue}>{tokens.inputTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.outputTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Output (Completion)</span>
-                <span className={styles.tokenValue}>{tokens.outputTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.cacheReadTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Cache Read</span>
-                <span className={styles.tokenValue}>{tokens.cacheReadTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.cacheWriteTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Cache Write</span>
-                <span className={styles.tokenValue}>{tokens.cacheWriteTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.reasoningTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Reasoning</span>
-                <span className={styles.tokenValue}>{tokens.reasoningTokens.toLocaleString()}</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className={styles.tokenEmpty}>Token count not reported for this run</p>
-        )}
-      </section>
+      <RunTokenUsage usage={runUsage} tokens={tokens} />
 
       {record.progress && (
         <section className={styles.detailSection}>
@@ -341,8 +442,9 @@ function ExecutionDetail({ record, runTokens }: { record: ToolExecutionRecord; r
           {record.origin.canvasId && <div><dt>Canvas</dt><dd>{record.origin.canvasId}</dd></div>}
           {record.origin.nodeId && <div><dt>Node</dt><dd>{record.origin.nodeId}</dd></div>}
           <div><dt>Capability</dt><dd>{record.context.capability}</dd></div>
-          {record.context.model && <div><dt>Model</dt><dd>{record.context.model}</dd></div>}
-          {record.context.provider && <div><dt>Provider</dt><dd>{record.context.provider}</dd></div>}
+          <div><dt>Executed by</dt><dd title={models.executedBy}>{models.executedBy}</dd></div>
+          <div><dt>Requested by model</dt><dd title={models.requestedBy}>{models.requestedBy}</dd></div>
+          {(record.requestedBy?.provider ?? record.context.provider) && <div><dt>Requesting provider</dt><dd>{record.requestedBy?.provider ?? record.context.provider}</dd></div>}
           <div><dt>Session</dt><dd>{record.sessionId ?? "—"}</dd></div>
           <div><dt>Agent</dt><dd>{record.agentId ?? "—"}</dd></div>
           {record.parentAgentId && <div><dt>Parent agent</dt><dd>{record.parentAgentId}</dd></div>}
@@ -372,6 +474,7 @@ function AssistantTextDetail({
   item,
   requestPrompt,
   tokens,
+  usage,
   model,
   originLabel,
   surface,
@@ -379,6 +482,7 @@ function AssistantTextDetail({
   item: TimelineAssistantTextItem;
   requestPrompt?: string;
   tokens?: ExecutionTokensSnapshot;
+  usage?: RunUsage;
   model?: string;
   originLabel: string;
   surface: string;
@@ -467,44 +571,7 @@ function AssistantTextDetail({
         </section>
       )}
 
-      {/* Run Token Usage */}
-      <section className={styles.detailSection}>
-        <h4>Run Token Usage <small>(Model Total)</small></h4>
-        {tokens && tokens.totalTokens !== undefined ? (
-          <div className={styles.tokenGrid}>
-            <div className={`${styles.tokenCard} ${styles.tokenCardHighlight}`}>
-              <span className={styles.tokenLabel}>Total Tokens</span>
-              <strong className={styles.tokenValue}>{tokens.totalTokens.toLocaleString()}</strong>
-            </div>
-            {tokens.inputTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Input (Prompt)</span>
-                <span className={styles.tokenValue}>{tokens.inputTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.outputTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Output (Completion)</span>
-                <span className={styles.tokenValue}>{tokens.outputTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.cacheReadTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Cache Read</span>
-                <span className={styles.tokenValue}>{tokens.cacheReadTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.cacheWriteTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Cache Write</span>
-                <span className={styles.tokenValue}>{tokens.cacheWriteTokens.toLocaleString()}</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className={styles.tokenEmpty}>Token count not reported for this run</p>
-        )}
-      </section>
+      <RunTokenUsage usage={usage} tokens={tokens} />
 
       {/* Metadata */}
       <section className={styles.detailSection}>
@@ -524,6 +591,7 @@ function ReasoningDetail({
   item,
   requestPrompt,
   tokens,
+  usage,
   model,
   originLabel,
   surface,
@@ -531,6 +599,7 @@ function ReasoningDetail({
   item: TimelineReasoningItem;
   requestPrompt?: string;
   tokens?: ExecutionTokensSnapshot;
+  usage?: RunUsage;
   model?: string;
   originLabel: string;
   surface: string;
@@ -619,38 +688,7 @@ function ReasoningDetail({
         </section>
       )}
 
-      {/* Run Token Usage */}
-      <section className={styles.detailSection}>
-        <h4>Run Token Usage <small>(Model Total)</small></h4>
-        {tokens && tokens.totalTokens !== undefined ? (
-          <div className={styles.tokenGrid}>
-            <div className={`${styles.tokenCard} ${styles.tokenCardHighlight}`}>
-              <span className={styles.tokenLabel}>Total Tokens</span>
-              <strong className={styles.tokenValue}>{tokens.totalTokens.toLocaleString()}</strong>
-            </div>
-            {tokens.inputTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Input (Prompt)</span>
-                <span className={styles.tokenValue}>{tokens.inputTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.outputTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Output (Completion)</span>
-                <span className={styles.tokenValue}>{tokens.outputTokens.toLocaleString()}</span>
-              </div>
-            )}
-            {tokens.reasoningTokens !== undefined && (
-              <div className={styles.tokenCard}>
-                <span className={styles.tokenLabel}>Reasoning</span>
-                <span className={styles.tokenValue}>{tokens.reasoningTokens.toLocaleString()}</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className={styles.tokenEmpty}>Token count not reported for this run</p>
-        )}
-      </section>
+      <RunTokenUsage usage={usage} tokens={tokens} />
 
       {/* Metadata */}
       <section className={styles.detailSection}>
@@ -664,6 +702,248 @@ function ReasoningDetail({
       </section>
     </div>
   );
+}
+
+/** Re-renders only when its own run, selection, or active state changes, so
+ * a streaming session doesn't re-render every other run on each update. */
+const RunCard = memo(function RunCard({
+  run,
+  active,
+  selectedItemId,
+  onSelectItem,
+}: {
+  run: GroupedRun;
+  active: boolean;
+  selectedItemId: string | null;
+  onSelectItem: (id: string) => void;
+}) {
+  return (
+    <article className={`${styles.runCard} ${active ? styles.runCardActive : ""}`}>
+      <div className={styles.runCardHeader}>
+        <div className={styles.runIdentity}>
+          {run.status === "running" && (
+            <span className={`${styles.runStatusBadge} ${styles.runStatus_running}`}>
+              Running
+            </span>
+          )}
+          {run.status === "cancelled" && (
+            <span className={`${styles.runStatusBadge} ${styles.runStatus_cancelled}`}>
+              Cancelled
+            </span>
+          )}
+          <strong className={styles.runPromptPreview} title={run.requestPrompt || run.originLabel}>
+            {run.requestPrompt ? `"${run.requestPrompt}"` : run.originLabel}
+          </strong>
+          {run.capability && <span className={styles.runMetaPill}>{run.capability}</span>}
+          {run.model && <span className={styles.runMetaPill}>{run.model}</span>}
+          <span className={styles.runMetaPill}>{run.surface}</span>
+        </div>
+        <div className={styles.runStats}>
+          <span>{formatTime(run.startedAt)}</span>
+          <span>{run.records.length} {run.records.length === 1 ? "call" : "calls"}</span>
+          {run.durationMs !== undefined && <span>{(run.durationMs / 1000).toFixed(1)}s</span>}
+          {run.totalTokens !== undefined && (
+            <span title={Object.values(run.usage ?? {}).map((entry) => `${entry.model}${entry.role === "run" ? "" : ` (${entry.purpose ?? entry.role})`}: ${(entry.tokens.totalTokens ?? 0).toLocaleString()}`).join("\n") || undefined}>
+              {run.totalTokens.toLocaleString()} tok
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Horizontal Time Series Execution Chart */}
+      <RunExecutionTimeline
+        items={run.timelineItems}
+        selectedItemId={selectedItemId}
+        onSelectItem={onSelectItem}
+        runStartedAt={run.startedAt}
+      />
+
+      {/* Inline Collapsible Event Trace */}
+      {run.entries.length > 0 && <RunTrace entries={run.entries} />}
+    </article>
+  );
+});
+
+/** The raw event trace: nothing is rendered until it is opened, and each
+ * payload is formatted only when its own entry is expanded. */
+function RunTrace({ entries }: { entries: TrajectoryEntry[] }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className={styles.runTraceDetails} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>Event Trace ({entries.length} raw events)</summary>
+      {open && (
+        <div className={styles.runTraceList}>
+          {entries.map((entry, index) => <TraceEntry key={entry.id} entry={entry} index={index} />)}
+        </div>
+      )}
+    </details>
+  );
+}
+
+function TraceEntry({ entry, index }: { entry: TrajectoryEntry; index: number }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details className={styles.trajectoryEntry} onToggle={(event) => setOpen(event.currentTarget.open)}>
+      <summary>
+        <span>{entry.sequence ?? index + 1} · {entry.source}</span>
+        <small>{formatTime(entry.timestamp)} · {entry.payloadState}</small>
+      </summary>
+      {open && (
+        <div className={styles.detail}>
+          {entry.agentId && <p className="text-xs text-[var(--color-fg-muted)] m-0">Agent: {entry.agentId}</p>}
+          {(entry.eventCount ?? 0) > 1 && (
+            <p className="text-xs text-[var(--color-fg-muted)] m-0">
+              {entry.eventCount} streamed chunks grouped in order
+            </p>
+          )}
+          <pre className={styles.code}>{JSON.stringify(entry.payload, null, 2)}</pre>
+        </div>
+      )}
+    </details>
+  );
+}
+
+/** Builds one run's view model. Pure, so the panel can cache it per run
+ * and rebuild only runs whose trajectory or records actually changed. */
+function buildGroupedRun(runId: string, traj: RunTrajectory | undefined, records: ToolExecutionRecord[]): GroupedRun {
+  const sortedRecords = [...records].sort(
+    (a, b) =>
+      getTimestampMs(a.startedAt || a.requestedAt) -
+      getTimestampMs(b.startedAt || b.requestedAt)
+  );
+  const trajFinished = traj && traj.status !== "running";
+  const sanitizedRecords = sortedRecords.map((r) => {
+    if (trajFinished && ["queued", "waiting-permission", "running"].includes(r.status)) {
+      const resolvedStatus: ToolExecutionRecord["status"] = traj.status === "cancelled" ? "cancelled" : "failed";
+      const finishedAtTime = traj.finishedAt || r.finishedAt || new Date().toISOString();
+      return {
+        ...r,
+        status: resolvedStatus,
+        finishedAt: finishedAtTime,
+        durationMs: r.durationMs ?? (r.startedAt ? Math.max(0, getTimestampMs(finishedAtTime) - getTimestampMs(r.startedAt)) : undefined),
+        resultPreview: r.resultPreview ?? "Process ended before a terminal tool event was recorded.",
+      };
+    }
+    return r;
+  });
+
+  const firstRecord = sanitizedRecords[0];
+  const lastRecord = sanitizedRecords[sanitizedRecords.length - 1];
+
+  const startedAt = traj?.startedAt || firstRecord?.startedAt || firstRecord?.requestedAt || new Date().toISOString();
+  const finishedAt = traj?.finishedAt || lastRecord?.finishedAt;
+  const durationMs =
+    startedAt && finishedAt
+      ? Math.max(0, getTimestampMs(finishedAt) - getTimestampMs(startedAt))
+      : undefined;
+
+  const hasRunning =
+    sanitizedRecords.some((r) =>
+      ["queued", "waiting-permission", "running"].includes(r.status)
+    ) || traj?.status === "running";
+  const hasFailed =
+    sanitizedRecords.some((r) => r.status === "failed") || traj?.status === "failed";
+  const allCancelled =
+    (sanitizedRecords.length > 0 && sanitizedRecords.every((r) => r.status === "cancelled")) ||
+    traj?.status === "cancelled";
+
+  const runStatus: GroupedRun["status"] = hasRunning
+    ? "running"
+    : hasFailed
+    ? "failed"
+    : allCancelled
+    ? "cancelled"
+    : "succeeded";
+
+  // Per-model usage recorded on the run; runs recorded before per-model
+  // tracking fall back to the largest token snapshot on their records.
+  const runTokens = runUsageTotal(traj?.usage) ?? sanitizedRecords.reduce<ExecutionTokensSnapshot | undefined>((acc, r) => {
+    if (!r.tokens?.totalTokens) return acc;
+    if (!acc || (r.tokens.totalTokens > (acc.totalTokens ?? 0))) return r.tokens;
+    return acc;
+  }, undefined);
+
+  const trajEntries = traj?.entries ?? [];
+
+  // Extract AssistantTextDelta events from trajectory
+  const textItems: TimelineAssistantTextItem[] = [];
+  for (const entry of trajEntries) {
+    if (entry.source === "AssistantTextDelta") {
+      const p = entry.payload as Record<string, any> | undefined;
+      const block = p?.AssistantTextDelta ?? p;
+      const delta = typeof block?.delta === "string" ? block.delta : typeof block?.text === "string" ? block.text : "";
+      if (delta.trim()) {
+        textItems.push({
+          kind: "assistant_text",
+          id: `text-${entry.id}`,
+          timestamp: entry.timestamp,
+          messageId: String(block?.message_id ?? entry.id),
+          text: delta,
+          agentId: entry.agentId,
+        });
+      }
+    }
+  }
+
+  // Extract ReasoningDelta events from trajectory -- same shape and
+  // coalescing as AssistantTextDelta above (trajectoryStore.ts's
+  // append() special-cases both sources identically).
+  const reasoningItems: TimelineReasoningItem[] = [];
+  for (const entry of trajEntries) {
+    if (entry.source === "ReasoningDelta") {
+      const p = entry.payload as Record<string, any> | undefined;
+      const block = p?.ReasoningDelta ?? p;
+      const delta = typeof block?.delta === "string" ? block.delta : typeof block?.text === "string" ? block.text : "";
+      if (delta.trim()) {
+        reasoningItems.push({
+          kind: "reasoning",
+          id: `reasoning-${entry.id}`,
+          timestamp: entry.timestamp,
+          messageId: String(block?.message_id ?? entry.id),
+          text: delta,
+          agentId: entry.agentId,
+        });
+      }
+    }
+  }
+
+  const toolItems: TimelineToolItem[] = sanitizedRecords.map((record) => ({
+    kind: "tool",
+    id: record.id,
+    timestamp: record.startedAt || record.requestedAt,
+    record,
+  }));
+
+  const timelineItems: TimelineItem[] = [...toolItems, ...textItems, ...reasoningItems].sort(
+    (a, b) => getTimestampMs(a.timestamp) - getTimestampMs(b.timestamp)
+  );
+
+  return {
+    runId,
+    sessionId: traj?.sessionId || firstRecord?.sessionId,
+    status: runStatus,
+    startedAt,
+    finishedAt,
+    durationMs,
+    originLabel: traj?.origin?.displayLabel || firstRecord?.origin?.displayLabel || "Execution",
+    surface: traj?.origin?.surface || firstRecord?.origin?.surface || "agent",
+    capability: traj?.context?.capability || firstRecord?.context?.capability,
+    model: traj?.context?.model || firstRecord?.context?.model,
+    provider: traj?.context?.provider || firstRecord?.context?.provider,
+    requestPrompt:
+      traj?.context?.requestPrompt ||
+      sanitizedRecords.find((r) => r.context?.requestPrompt)?.context?.requestPrompt,
+    totalTokens: runTokens?.totalTokens,
+    runTokens,
+    usage: traj?.usage,
+    records: sanitizedRecords,
+    timelineItems,
+    entries: trajEntries,
+  };
+}
+
+function sameRecords(a: ToolExecutionRecord[], b: ToolExecutionRecord[]): boolean {
+  return a.length === b.length && a.every((record, index) => record === b[index]);
 }
 
 export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
@@ -703,168 +983,33 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
     [surfaces]
   );
 
+  // Runs are cached by identity: the stores create new objects only for what
+  // changed, so while one session streams only that run is rebuilt.
+  const runCache = useRef(new Map<string, { traj?: RunTrajectory; records: ToolExecutionRecord[]; run: GroupedRun }>());
   const groupedRuns = useMemo<GroupedRun[]>(() => {
-    // 1. Group records by exact ideRunId when present, or fallback
     const runRecordsMap = new Map<string, ToolExecutionRecord[]>();
-
     for (const record of snapshot.records) {
       const key = record.ideRunId || (record.sessionId ? `legacy-${record.sessionId}` : `adhoc-${record.id}`);
       const group = runRecordsMap.get(key) ?? [];
       group.push(record);
       runRecordsMap.set(key, group);
     }
+    // Strictly match trajectory by exact id (never by loose sessionId which conflates multiple runs)
+    const trajectoriesById = new Map(trajectorySnapshot.runs.map((run) => [run.id, run]));
+    const allRunIds = new Set<string>([...trajectoriesById.keys(), ...runRecordsMap.keys()]);
 
-    // 2. Gather all unique run IDs from trajectory runs first, plus any from records
-    const allRunIds = new Set<string>();
-    for (const traj of trajectorySnapshot.runs) {
-      allRunIds.add(traj.id);
-    }
-    for (const key of runRecordsMap.keys()) {
-      allRunIds.add(key);
-    }
-
+    const nextCache = new Map<string, { traj?: RunTrajectory; records: ToolExecutionRecord[]; run: GroupedRun }>();
     const runs: GroupedRun[] = [];
-
     for (const runId of allRunIds) {
-      // Strictly match trajectory by exact id (never by loose sessionId which conflates multiple runs)
-      const traj = trajectorySnapshot.runs.find((r) => r.id === runId);
+      const traj = trajectoriesById.get(runId);
       const records = runRecordsMap.get(runId) ?? [];
-
       if (!traj && records.length === 0) continue;
-
-      const sortedRecords = [...records].sort(
-        (a, b) =>
-          getTimestampMs(a.startedAt || a.requestedAt) -
-          getTimestampMs(b.startedAt || b.requestedAt)
-      );
-      const trajFinished = traj && traj.status !== "running";
-      const sanitizedRecords = sortedRecords.map((r) => {
-        if (trajFinished && ["queued", "waiting-permission", "running"].includes(r.status)) {
-          const resolvedStatus: ToolExecutionRecord["status"] = traj.status === "cancelled" ? "cancelled" : "failed";
-          const finishedAtTime = traj.finishedAt || r.finishedAt || new Date().toISOString();
-          return {
-            ...r,
-            status: resolvedStatus,
-            finishedAt: finishedAtTime,
-            durationMs: r.durationMs ?? (r.startedAt ? Math.max(0, getTimestampMs(finishedAtTime) - getTimestampMs(r.startedAt)) : undefined),
-            resultPreview: r.resultPreview ?? "Process ended before a terminal tool event was recorded.",
-          };
-        }
-        return r;
-      });
-
-      const firstRecord = sanitizedRecords[0];
-      const lastRecord = sanitizedRecords[sanitizedRecords.length - 1];
-
-      const startedAt = traj?.startedAt || firstRecord?.startedAt || firstRecord?.requestedAt || new Date().toISOString();
-      const finishedAt = traj?.finishedAt || lastRecord?.finishedAt;
-      const durationMs =
-        startedAt && finishedAt
-          ? Math.max(0, getTimestampMs(finishedAt) - getTimestampMs(startedAt))
-          : undefined;
-
-      const hasRunning =
-        sanitizedRecords.some((r) =>
-          ["queued", "waiting-permission", "running"].includes(r.status)
-        ) || traj?.status === "running";
-      const hasFailed =
-        sanitizedRecords.some((r) => r.status === "failed") || traj?.status === "failed";
-      const allCancelled =
-        (sanitizedRecords.length > 0 && sanitizedRecords.every((r) => r.status === "cancelled")) ||
-        traj?.status === "cancelled";
-
-      const runStatus: GroupedRun["status"] = hasRunning
-        ? "running"
-        : hasFailed
-        ? "failed"
-        : allCancelled
-        ? "cancelled"
-        : "succeeded";
-
-      // Calculate max run tokens rather than summing duplicates
-      const runTokens = sanitizedRecords.reduce<ExecutionTokensSnapshot | undefined>((acc, r) => {
-        if (!r.tokens?.totalTokens) return acc;
-        if (!acc || (r.tokens.totalTokens > (acc.totalTokens ?? 0))) return r.tokens;
-        return acc;
-      }, undefined);
-
-      const trajEntries = traj?.entries ?? [];
-
-      // Extract AssistantTextDelta events from trajectory
-      const textItems: TimelineAssistantTextItem[] = [];
-      for (const entry of trajEntries) {
-        if (entry.source === "AssistantTextDelta") {
-          const p = entry.payload as Record<string, any> | undefined;
-          const block = p?.AssistantTextDelta ?? p;
-          const delta = typeof block?.delta === "string" ? block.delta : typeof block?.text === "string" ? block.text : "";
-          if (delta.trim()) {
-            textItems.push({
-              kind: "assistant_text",
-              id: `text-${entry.id}`,
-              timestamp: entry.timestamp,
-              messageId: String(block?.message_id ?? entry.id),
-              text: delta,
-              agentId: entry.agentId,
-            });
-          }
-        }
-      }
-
-      // Extract ReasoningDelta events from trajectory -- same shape and
-      // coalescing as AssistantTextDelta above (trajectoryStore.ts's
-      // append() special-cases both sources identically).
-      const reasoningItems: TimelineReasoningItem[] = [];
-      for (const entry of trajEntries) {
-        if (entry.source === "ReasoningDelta") {
-          const p = entry.payload as Record<string, any> | undefined;
-          const block = p?.ReasoningDelta ?? p;
-          const delta = typeof block?.delta === "string" ? block.delta : typeof block?.text === "string" ? block.text : "";
-          if (delta.trim()) {
-            reasoningItems.push({
-              kind: "reasoning",
-              id: `reasoning-${entry.id}`,
-              timestamp: entry.timestamp,
-              messageId: String(block?.message_id ?? entry.id),
-              text: delta,
-              agentId: entry.agentId,
-            });
-          }
-        }
-      }
-
-      const toolItems: TimelineToolItem[] = sanitizedRecords.map((record) => ({
-        kind: "tool",
-        id: record.id,
-        timestamp: record.startedAt || record.requestedAt,
-        record,
-      }));
-
-      const timelineItems: TimelineItem[] = [...toolItems, ...textItems, ...reasoningItems].sort(
-        (a, b) => getTimestampMs(a.timestamp) - getTimestampMs(b.timestamp)
-      );
-
-      runs.push({
-        runId,
-        sessionId: traj?.sessionId || firstRecord?.sessionId,
-        status: runStatus,
-        startedAt,
-        finishedAt,
-        durationMs,
-        originLabel: traj?.origin?.displayLabel || firstRecord?.origin?.displayLabel || "Execution",
-        surface: traj?.origin?.surface || firstRecord?.origin?.surface || "agent",
-        capability: traj?.context?.capability || firstRecord?.context?.capability,
-        model: traj?.context?.model || firstRecord?.context?.model,
-        provider: traj?.context?.provider || firstRecord?.context?.provider,
-        requestPrompt:
-          traj?.context?.requestPrompt ||
-          sanitizedRecords.find((r) => r.context?.requestPrompt)?.context?.requestPrompt,
-        totalTokens: runTokens?.totalTokens,
-        runTokens,
-        records: sanitizedRecords,
-        timelineItems,
-        entries: trajEntries,
-      });
+      const cached = runCache.current.get(runId);
+      const run = cached && cached.traj === traj && sameRecords(cached.records, records) ? cached.run : buildGroupedRun(runId, traj, records);
+      nextCache.set(runId, { traj, records, run });
+      runs.push(run);
     }
+    runCache.current = nextCache;
 
     // Sort descending by startedAt: newest on top, scrolling towards older at bottom
     runs.sort((a, b) => getTimestampMs(b.startedAt) - getTimestampMs(a.startedAt));
@@ -906,9 +1051,9 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
     return null;
   }, [groupedRuns, selectedItemId]);
 
-  const handleSelectItem = (itemId: string) => {
+  const handleSelectItem = useCallback((itemId: string) => {
     setSelectedItemId((prev) => (prev === itemId ? null : itemId));
-  };
+  }, []);
 
   return (
     <div
@@ -974,73 +1119,15 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
             </div>
           ) : (
             filteredRuns.map((run) => {
-              const isRunActive = selectedInfo && selectedInfo.run.runId === run.runId;
+              const active = selectedInfo?.run.runId === run.runId;
               return (
-                <article
+                <RunCard
                   key={run.runId}
-                  className={`${styles.runCard} ${isRunActive ? styles.runCardActive : ""}`}
-                >
-                  <div className={styles.runCardHeader}>
-                    <div className={styles.runIdentity}>
-                      {run.status === "running" && (
-                        <span className={`${styles.runStatusBadge} ${styles.runStatus_running}`}>
-                          Running
-                        </span>
-                      )}
-                      {run.status === "cancelled" && (
-                        <span className={`${styles.runStatusBadge} ${styles.runStatus_cancelled}`}>
-                          Cancelled
-                        </span>
-                      )}
-                      <strong className={styles.runPromptPreview} title={run.requestPrompt || run.originLabel}>
-                        {run.requestPrompt ? `"${run.requestPrompt}"` : run.originLabel}
-                      </strong>
-                      {run.capability && <span className={styles.runMetaPill}>{run.capability}</span>}
-                      {run.model && <span className={styles.runMetaPill}>{run.model}</span>}
-                      <span className={styles.runMetaPill}>{run.surface}</span>
-                    </div>
-                    <div className={styles.runStats}>
-                      <span>{formatTime(run.startedAt)}</span>
-                      <span>{run.records.length} {run.records.length === 1 ? "call" : "calls"}</span>
-                      {run.durationMs !== undefined && <span>{(run.durationMs / 1000).toFixed(1)}s</span>}
-                      {run.totalTokens !== undefined && <span>{run.totalTokens.toLocaleString()} tok</span>}
-                    </div>
-                  </div>
-
-                  {/* Horizontal Time Series Execution Chart */}
-                  <RunExecutionTimeline
-                    items={run.timelineItems}
-                    selectedItemId={selectedItemId}
-                    onSelectItem={handleSelectItem}
-                    runStartedAt={run.startedAt}
-                  />
-
-                  {/* Inline Collapsible Event Trace */}
-                  {run.entries.length > 0 && (
-                    <details className={styles.runTraceDetails}>
-                      <summary>Event Trace ({run.entries.length} raw events)</summary>
-                      <div className={styles.runTraceList}>
-                        {run.entries.map((entry, index) => (
-                          <details key={entry.id} className={styles.trajectoryEntry}>
-                            <summary>
-                              <span>{entry.sequence ?? index + 1} · {entry.source}</span>
-                              <small>{formatTime(entry.timestamp)} · {entry.payloadState}</small>
-                            </summary>
-                            <div className={styles.detail}>
-                              {entry.agentId && <p className="text-xs text-[var(--color-fg-muted)] m-0">Agent: {entry.agentId}</p>}
-                              {(entry.eventCount ?? 0) > 1 && (
-                                <p className="text-xs text-[var(--color-fg-muted)] m-0">
-                                  {entry.eventCount} streamed chunks grouped in order
-                                </p>
-                              )}
-                              <pre className={styles.code}>{JSON.stringify(entry.payload, null, 2)}</pre>
-                            </div>
-                          </details>
-                        ))}
-                      </div>
-                    </details>
-                  )}
-                </article>
+                  run={run}
+                  active={active}
+                  selectedItemId={active ? selectedItemId : null}
+                  onSelectItem={handleSelectItem}
+                />
               );
             })
           )}
@@ -1099,12 +1186,13 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
               </div>
 
               {selectedInfo.item.kind === "tool" ? (
-                <ExecutionDetail record={selectedInfo.item.record} runTokens={selectedInfo.run.runTokens} />
+                <ExecutionDetail record={selectedInfo.item.record} runTokens={selectedInfo.run.runTokens} runUsage={selectedInfo.run.usage} />
               ) : selectedInfo.item.kind === "reasoning" ? (
                 <ReasoningDetail
                   item={selectedInfo.item}
                   requestPrompt={selectedInfo.run.requestPrompt}
                   tokens={selectedInfo.run.runTokens}
+                  usage={selectedInfo.run.usage}
                   model={selectedInfo.run.model}
                   originLabel={selectedInfo.run.originLabel}
                   surface={selectedInfo.run.surface}
@@ -1114,6 +1202,7 @@ export function ToolExecutionPanel({ onClose }: { onClose: () => void }) {
                   item={selectedInfo.item}
                   requestPrompt={selectedInfo.run.requestPrompt}
                   tokens={selectedInfo.run.runTokens}
+                  usage={selectedInfo.run.usage}
                   model={selectedInfo.run.model}
                   originLabel={selectedInfo.run.originLabel}
                   surface={selectedInfo.run.surface}

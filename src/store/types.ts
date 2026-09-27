@@ -463,6 +463,8 @@ export interface WorkspaceState {
   loadMetricsSummary: () => Promise<void>;
   setMetricsTimeframe: (timeframe: MetricsTimeframe) => void;
   applyUsageUpdate: (runKey: string, cumulativeTotal: number) => void;
+  /** Clears one day's token totals (YYYY-MM-DD) back to zero; all-time totals are kept. */
+  resetMetricsDay: (day: string) => Promise<void>;
 
   mcpServers: Record<string, McpServerConfig>;
   setMcpServers: (servers: Record<string, McpServerConfig>) => void;

@@ -89,7 +89,7 @@ mod tests {
             event = outbound.recv() => event.expect("execute() issued a HostToolCall"),
             _ = &mut execute_future => panic!("resolved before it was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input } = event else {
+        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "ask_user_question");
@@ -147,5 +147,30 @@ mod tests {
             .expect("cancellation is Ok(ToolResult{is_error:true}), not Err");
         assert!(result.is_error);
         assert_eq!(result.output, json!({"error": "cancelled"}));
+    }
+
+    #[tokio::test]
+    async fn the_runtime_scoped_tool_call_id_is_forwarded_to_the_host() {
+        let (tx, mut outbound) = mpsc::unbounded_channel();
+        let bridge = Arc::new(HostBridge::new(tx));
+        let executor = HostToolExecutor::new(descriptor("read_file"), bridge.clone());
+
+        let execute_future = harness_tools::with_tool_call_id(
+            "model-call-7".to_string(),
+            executor.execute(ToolInput { arguments: json!({"path": "a.ts"}) }, CancellationToken::new()),
+        );
+        tokio::pin!(execute_future);
+
+        let event = tokio::select! {
+            event = outbound.recv() => event.expect("execute() issued a HostToolCall"),
+            _ = &mut execute_future => panic!("resolved before it was answered"),
+        };
+        let BridgeEvent::HostToolCall { call_id, tool_call_id, .. } = event else {
+            panic!("expected a HostToolCall event");
+        };
+        assert_eq!(tool_call_id.as_deref(), Some("model-call-7"));
+
+        bridge.complete(&call_id, Ok(json!("contents")));
+        assert!(!execute_future.await.unwrap().is_error);
     }
 }

@@ -121,6 +121,93 @@ describe("ToolExecutionPanel", () => {
     }
   });
 
+  it("shows the model that executed a delegated tool call, labelled apart from the model that requested it", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    executionObservability.startRun("run-abc", "agent_chat", INPUT, { displayLabel: "Agent Chat" });
+    const observer = executionObservability.toolObserver("run-abc", "sess-1", "call-1");
+    executionObservability.ingest("run-abc", envelope({
+      ToolCallRequested: { call: { id: "call-1", name: "read_file", arguments: { path: "src/auth.ts", request: "login errors" } } },
+    }, 1));
+    observer.executedBy({ kind: "model", purpose: "Smart Read selector", model: "selector-mini", provider: "Selector Co" });
+    observer.usage({ input_tokens: 321, output_tokens: 12, total_tokens: 333 });
+    observer.step("info", "selector ranges accepted", { ranges: [{ startLine: 10, endLine: 20 }] });
+    executionObservability.ingest("run-abc", envelope({
+      ToolCallCompleted: { call_id: "call-1", result: { has_error: false, output_preview: "[lines 10-20]" } },
+    }, 2));
+    executionObservability.finishRun("run-abc", { status: "completed", result: { response: "Done", modifiedFiles: [], subagents: [] } });
+
+    try {
+      await act(async () => {
+        root.render(<ToolExecutionPanel onClose={() => {}} />);
+      });
+      const toolButton = Array.from(container.querySelectorAll("button")).find((b) => b.getAttribute("aria-label")?.includes("Executed by selector-mini (Selector Co)"));
+      expect(toolButton).toBeDefined();
+      await act(async () => {
+        toolButton!.click();
+      });
+
+      const metadata = Array.from(container.querySelectorAll("dl")).map((dl) => dl.textContent).join(" | ");
+      expect(metadata).toContain("Executed byselector-mini (Selector Co) · Smart Read selector");
+      // The requesting model stays visible, clearly labelled as such.
+      expect(metadata).toContain("Requested by modelgpt-4o");
+      const execution = container.querySelector('[aria-label="Tool execution"]');
+      expect(execution?.textContent).toContain("Smart Read selector");
+      expect(execution?.textContent).toContain("333");
+      expect(execution?.textContent).toContain("selector ranges accepted");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("breaks run token usage down by model, including models tools delegated to", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    executionObservability.startRun("run-abc", "agent_chat", INPUT, { displayLabel: "Agent Chat" });
+    const observer = executionObservability.toolObserver("run-abc", "sess-1", "call-1");
+    executionObservability.ingest("run-abc", envelope({
+      ToolCallRequested: { call: { id: "call-1", name: "read_file", arguments: { path: "src/a.ts", request: "x" } } },
+    }, 1));
+    observer.executedBy({ kind: "model", purpose: "Smart Read selector", model: "selector-mini", provider: "Selector Co" });
+    observer.usage({ input: 500, output: 20, totalTokens: 520 });
+    observer.usage({ input: 300, output: 10, totalTokens: 310 });
+    executionObservability.recordUsage("run-abc", { totalTokens: 4000, input: 3500, output: 500 }, { model: "gpt-4o" });
+    executionObservability.ingest("run-abc", envelope({
+      ToolCallCompleted: { call_id: "call-1", result: { has_error: false, output_preview: "ok" } },
+    }, 2));
+    executionObservability.finishRun("run-abc", { status: "completed", result: { response: "Done", modifiedFiles: [], subagents: [] } });
+
+    try {
+      await act(async () => {
+        root.render(<ToolExecutionPanel onClose={() => {}} />);
+      });
+      // The run's headline total includes the delegated model's tokens.
+      expect(container.textContent).toContain("4,830 tok");
+      const button = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("read_file"));
+      await act(async () => {
+        button!.click();
+      });
+
+      const table = container.querySelector('[aria-label="Run token usage by model"] table')!;
+      const rows = Array.from(table.querySelectorAll("tbody tr")).map((row) => row.textContent);
+      expect(rows[0]).toMatch(/^gpt-4oRun model.*3,500500.*4,000$/);
+      expect(rows[1]).toMatch(/^selector-miniSmart Read selector · Selector Co80030830$/);
+      expect(table.querySelector("tfoot")?.textContent).toBe("All models4,3005304,830");
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("displays right-side inspector with distinct call action and shared run context notice", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const container = document.createElement("div");
@@ -230,20 +317,8 @@ describe("ToolExecutionPanel", () => {
       ToolCallCompleted: { call_id: "call-tree", result: { has_error: false, output_preview: "components, services" } }
     }, 4));
 
-    // Step 3: Usage updated with token metrics
-    executionObservability.ingest("run-assistant", envelope({
-      UsageUpdated: {
-        usage: {
-          agent_id: "agent-1",
-          timestamp: new Date().toISOString(),
-          metrics: {
-            total_tokens: 3200,
-            input_tokens: 2800,
-            output_tokens: 400,
-          },
-        } as never,
-      }
-    }, 5));
+    // Step 3: The harness reports the run model's accumulated usage
+    executionObservability.recordUsage("run-assistant", { totalTokens: 3200, input: 2800, output: 400 }, { model: "gpt-4o" });
 
     // Step 4: Assistant text delta follow-up
     executionObservability.ingest("run-assistant", envelope({

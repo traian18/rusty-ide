@@ -22,8 +22,8 @@ import { inlineChatDefinition } from "./core/definitions/inline_chat";
 import { generateSkillDefinition } from "./core/definitions/generate_skill";
 import { generateTaskNodesDefinition } from "./core/definitions/generate_task_nodes";
 import { globalExploreDefinition } from "./core/definitions/global_explore";
-import { executeNodeDefinition } from "./core/definitions/execute_node";
-import { agentChatDefinition } from "./core/definitions/agent_chat";
+import { smartExecuteNodeDefinition } from "./core/definitions/smart_execute_node";
+import { smartAgentChatDefinition } from "./core/definitions/smart_agent_chat";
 import { reconciliateEdgeDefinition } from "./core/definitions/reconciliate_edge";
 import { reconciliateGraphDefinition } from "./core/definitions/reconciliate_graph";
 import { testBuildDefinition } from "./core/definitions/test_build";
@@ -37,8 +37,8 @@ export const harness: AgentHarness = new CoreHarness({
     generate_skill: generateSkillDefinition,
     generate_task_nodes: generateTaskNodesDefinition,
     global_explore: globalExploreDefinition,
-    execute_node: executeNodeDefinition,
-    agent_chat: agentChatDefinition,
+    execute_node: smartExecuteNodeDefinition,
+    agent_chat: smartAgentChatDefinition,
     reconciliate_edge: reconciliateEdgeDefinition,
     reconciliate_graph: reconciliateGraphDefinition,
     test_build: testBuildDefinition,

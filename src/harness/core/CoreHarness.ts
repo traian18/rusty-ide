@@ -14,7 +14,7 @@
 import { trajectories } from "../../observability/trajectoryStore";
 import { IncompleteAgentRun, CONTINUE_AGENT_PROMPT } from "./incompleteAgentRun";
 import { changedPathsFromTool } from "./fileChangeTracking";
-import type { AgentEvent, AgentEventEnvelope, AgentUsageSnapshot, PermissionDecision } from "@rusty/harness-sdk";
+import type { AgentEvent, AgentEventEnvelope, PermissionDecision } from "@rusty/harness-sdk";
 
 import type {
   AgentHarness,
@@ -34,6 +34,9 @@ import type { SessionRecipe } from "./SessionRecipe";
 import { createTranscript, type Transcript } from "./transcript";
 import { executionObservability } from "../../observability/executionStore";
 import type { ExecutionOrigin } from "../../observability/types";
+import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../contract/observability";
+import { parseUsageTokens } from "../../observability/executionStore";
+import { addUsage, hasTokens, mapAgentUsage, UsageAccumulator, usageRequestKey } from "./usageAccumulator";
 
 /**
  * Answers one `HostExecuteCall` -- a single model turn -- on behalf of
@@ -72,8 +75,11 @@ function toExecutionError(error: unknown): ExecutionError {
 
 /** One model-facing tool a capability registers on its own recipe's
  * `host_tools`, executed IDE-side. See `CoreCapabilityDefinition.hostTools`'s
- * own doc comment. */
-export type HostToolHandler = (args: unknown, signal: AbortSignal) => Promise<HostToolOutcome>;
+ * own doc comment. `observer` reports what happens inside this one call
+ * (e.g. which model actually executed it) to Tool Execution Observability;
+ * CoreHarness always supplies it, so it is optional only for direct calls
+ * such as tests. */
+export type HostToolHandler = (args: unknown, signal: AbortSignal, observer?: ToolExecutionObserver) => Promise<HostToolOutcome>;
 
 /** Per-run mutable scratch space, fresh for every `run()` call and shared
  * across a definition's own `hostTools`/`toResult`/`onCompleted` calls --
@@ -211,41 +217,21 @@ function observe(action: () => void): void {
   }
 }
 
-function parseTokenCount(val: unknown): number | undefined {
-  if (typeof val === "number" && !isNaN(val)) return val;
-  if (Array.isArray(val) && typeof val[0] === "number" && !isNaN(val[0])) return val[0];
-  if (val && typeof val === "object") {
-    const raw = (val as Record<string, unknown>)[0] ?? (val as Record<string, unknown>).value;
-    if (typeof raw === "number" && !isNaN(raw)) return raw;
-  }
-  return undefined;
-}
-
-function mapUsage(snapshot: AgentUsageSnapshot): TokenUsage {
-  const metrics = snapshot.metrics as Record<string, unknown> | undefined;
-  const total = parseTokenCount(metrics?.total_tokens);
-  const input = parseTokenCount(metrics?.input_tokens);
-  const output = parseTokenCount(metrics?.output_tokens);
-  const cacheRead = parseTokenCount(metrics?.cache_read_tokens);
-  const cacheWrite = parseTokenCount(metrics?.cache_write_tokens);
-  const reasoning = parseTokenCount(metrics?.reasoning_tokens);
-  return {
-    totalTokens: total ?? (input !== undefined || output !== undefined ? (input || 0) + (output || 0) : undefined),
-    input,
-    output,
-    cacheRead,
-    cacheWrite,
-    ...(reasoning !== undefined ? { reasoning } : {}),
-  };
+interface UsageContext {
+  workspaceRoot: string;
+  model: string;
+  provider?: string;
 }
 
 function usageSample(
-  context: { workspaceRoot: string; model: string; provider?: string },
+  context: UsageContext,
   surface: string,
   runId: string,
   usage: TokenUsage,
+  newRequest = true,
 ): UsageRecordSample {
   return {
+    newRequest,
     workspaceRoot: context.workspaceRoot,
     surface,
     runId,
@@ -412,9 +398,7 @@ export class CoreHarness implements AgentHarness {
       }
     };
 
-    const recordUsage = (usage: TokenUsage) => {
-      void this.controlPlane.recordUsage(usageSample(definition.usageContext(input), capability, runId, usage)).catch(() => {});
-    };
+    const usage = this.usageTracker(runId, capability, definition.usageContext(input));
 
     const handlePermissionRequested = (request: {
       id: string;
@@ -456,7 +440,7 @@ export class CoreHarness implements AgentHarness {
         .catch(() => {});
     };
 
-    const handleHostToolCall = (data: { call_id: string; tool: string; input: unknown }) => {
+    const handleHostToolCall = (data: { call_id: string; tool: string; input: unknown; tool_call_id?: string }) => {
       if (!sessionId) return;
       const sid = sessionId;
       if (data.tool === "workspace.read") {
@@ -484,7 +468,7 @@ export class CoreHarness implements AgentHarness {
       // hostTools's own doc comment on CoreCapabilityDefinition).
       const handler = getHostToolHandlers()[data.tool];
       if (handler) {
-        handler(data.input, controller.signal)
+        handler(data.input, controller.signal, usage.tool(sid, data.tool_call_id, data.tool))
           .then((outcome) => this.engine.hostToolResult(sid, data.call_id, outcome))
           .catch((error: unknown) => this.engine.hostToolResult(sid, data.call_id, { ok: false, error: errorMessage(error) }))
           .catch(() => {});
@@ -556,11 +540,9 @@ export class CoreHarness implements AgentHarness {
         return;
       }
       if ("UsageUpdated" in event) {
-        const usage = mapUsage(event.UsageUpdated.usage);
-        observe(() => executionObservability.recordUsage(runId, usage));
-        onEvent({ kind: "usage", usage } as CapabilityEvent<K>);
-        for (const listener of this.usageListeners) listener(runId, usage);
-        recordUsage(usage);
+        usage.session(envelope, event.UsageUpdated.usage);
+        // The run's own display counts everything its agents spent, subagents included.
+        onEvent({ kind: "usage", usage: usage.runTotal() } as CapabilityEvent<K>);
         return;
       }
       if ("ToolCallRequested" in event) {
@@ -678,7 +660,7 @@ export class CoreHarness implements AgentHarness {
           return;
         }
         sessionId = id;
-        observe(() => executionObservability.bindSession(runId, id));
+        observe(() => executionObservability.bindSession(runId, id, definition.usageContext(input).model));
         await this.engine.subscribe(id, handleBridgeEvent);
         resolveStarted();
         await this.engine.mutate(id, { type: "prompt", payload: { text: definition.promptText!(input), attachments: [] } });
@@ -732,6 +714,7 @@ export class CoreHarness implements AgentHarness {
       resolveDone(outcome);
     };
 
+    const usage = this.usageTracker(runId, definition.capability, definition.usageContext(input));
     const runSession = (session: {
       recipe: SessionRecipe;
       promptText: string;
@@ -748,16 +731,11 @@ export class CoreHarness implements AgentHarness {
         customProvider: input.customProvider,
         onToken: session.onToken,
         onLog: session.onLog,
-        onUsage: (usage) => {
-          observe(() => {
-            const context = definition.usageContext(input);
-            const model = session.recipe.execution_params?.model ?? context.model;
-            void this.controlPlane
-              .recordUsage(usageSample({ ...context, model }, definition.capability, runId, usage))
-              .catch(() => {});
-          });
-          session.onUsage?.(usage);
+        onUsage: (envelope, snapshot) => {
+          const model = session.recipe.execution_params?.model ?? definition.usageContext(input).model;
+          session.onUsage?.(usage.session(envelope, snapshot, model));
         },
+        toolObserver: usage.tool,
         signal: controller.signal,
         ideRunId: runId,
       });
@@ -814,11 +792,13 @@ export class CoreHarness implements AgentHarness {
     customProvider: unknown;
     onToken?: (content: string) => void;
     onLog?: (message: string) => void;
-    onUsage?: (usage: TokenUsage) => void;
+    /** Each raw `UsageUpdated` snapshot; accounting is the caller's. */
+    onUsage?: (envelope: AgentEventEnvelope, snapshot: unknown) => void;
+    toolObserver?: (sessionId: string, toolCallId: string | undefined, toolName: string) => ToolExecutionObserver;
     signal: AbortSignal;
     ideRunId: string;
   }): Promise<Transcript> {
-    const { recipe, promptText, hostTools, host, customProvider, onToken, onLog, onUsage, signal, ideRunId } = options;
+    const { recipe, promptText, hostTools, host, customProvider, onToken, onLog, onUsage, toolObserver, signal, ideRunId } = options;
     const transcript = createTranscript();
     let sessionId: string | undefined;
     let settled = false;
@@ -834,7 +814,7 @@ export class CoreHarness implements AgentHarness {
 
       const abortListener = () => finish(() => reject(new DOMException("Aborted", "AbortError")));
 
-      const handleHostToolCall = (data: { call_id: string; tool: string; input: unknown }) => {
+      const handleHostToolCall = (data: { call_id: string; tool: string; input: unknown; tool_call_id?: string }) => {
         if (!sessionId) return;
         const sid = sessionId;
         if (data.tool === "workspace.read") {
@@ -859,7 +839,7 @@ export class CoreHarness implements AgentHarness {
         }
         const handler = hostTools[data.tool];
         if (handler) {
-          handler(data.input, signal)
+          handler(data.input, signal, toolObserver?.(sid, data.tool_call_id, data.tool) ?? NOOP_TOOL_EXECUTION_OBSERVER)
             .then((outcome) => this.engine.hostToolResult(sid, data.call_id, outcome))
             .catch((error: unknown) => this.engine.hostToolResult(sid, data.call_id, { ok: false, error: errorMessage(error) }))
             .catch(() => {});
@@ -933,9 +913,7 @@ export class CoreHarness implements AgentHarness {
           return;
         }
         if ("UsageUpdated" in event) {
-          const usage = mapUsage(event.UsageUpdated.usage);
-          observe(() => executionObservability.recordUsage(ideRunId, usage));
-          onUsage?.(usage);
+          onUsage?.(envelope, event.UsageUpdated.usage);
           return;
         }
         if ("ToolCallRequested" in event) {
@@ -1011,7 +989,7 @@ export class CoreHarness implements AgentHarness {
             return;
           }
           sessionId = id;
-          observe(() => executionObservability.bindSession(ideRunId, id));
+          observe(() => executionObservability.bindSession(ideRunId, id, recipe.execution_params?.model));
           await this.engine.subscribe(id, handleBridgeEvent);
           await this.engine.mutate(id, { type: "prompt", payload: { text: promptText, attachments: [] } });
         } catch (error: unknown) {
@@ -1019,6 +997,80 @@ export class CoreHarness implements AgentHarness {
         }
       })();
     });
+  }
+
+  /**
+   * One run's usage accounting, shared by every session and tool call in it.
+   * rusty-core reports usage as repeated per-request snapshots; the tracker
+   * turns them into per-model running totals for displays (Tool Execution
+   * Observability, `usage` events, live metrics listeners) and into
+   * increments for Token Metrics, so no request is counted twice. Tokens a
+   * tool spends on its own delegated model are recorded the same way,
+   * under that model.
+   */
+  private usageTracker(runId: string, surface: string, context: UsageContext) {
+    const byModel = new Map<string, UsageAccumulator>();
+    const record = (sample: UsageRecordSample) =>
+      observe(() => void this.controlPlane.recordUsage(sample).catch(() => {}));
+    const notify = (key: string, total: TokenUsage) => {
+      for (const listener of this.usageListeners) listener(key, total);
+    };
+    return {
+      /** Every run and subagent model's tokens so far (tool models excluded). */
+      runTotal: (): TokenUsage => [...byModel.values()].reduce<TokenUsage>((sum, accumulator) => addUsage(sum, accumulator.total()), {}),
+      /** One `UsageUpdated` from `envelope`, in a session whose default model
+       * is `sessionModel`. The snapshot names the model the agent actually
+       * runs on (a subagent may use another); usage is attributed to it.
+       * Returns that model's running total for the run. */
+      session: (envelope: AgentEventEnvelope, snapshot: unknown, sessionModel: string = context.model): TokenUsage => {
+        const stamped = (snapshot as { model?: unknown } | null)?.model;
+        const model = typeof stamped === "string" && stamped ? stamped : sessionModel;
+        const role = envelope.parent_agent_id ? "subagent" as const : "run" as const;
+        const key = `${role}:${model}`;
+        let accumulator = byModel.get(key);
+        if (!accumulator) byModel.set(key, (accumulator = new UsageAccumulator()));
+        const { delta, total, newRequest } = accumulator.apply(usageRequestKey(snapshot), mapAgentUsage(snapshot));
+        observe(() => executionObservability.recordUsage(runId, total, { model, provider: context.provider, role, agentId: envelope.agent_id, delta }));
+        notify(`${runId}:${key}`, total);
+        if (hasTokens(delta)) record(usageSample({ ...context, model }, surface, runId, delta, newRequest));
+        return total;
+      },
+      /** The observer a host tool handler gets: reports to observability and
+       * records any delegated usage into Token Metrics. */
+      tool: (sessionId: string, toolCallId: string | undefined, toolName: string): ToolExecutionObserver => {
+        let base = NOOP_TOOL_EXECUTION_OBSERVER;
+        observe(() => {
+          base = executionObservability.toolObserver(runId, sessionId, toolCallId);
+        });
+        let executor: ToolExecutor | undefined;
+        let callTotal: TokenUsage = {};
+        const callKey = `${runId}:tool:${toolCallId ?? crypto.randomUUID()}`;
+        return {
+          executedBy: (value) => {
+            executor = value;
+            base.executedBy(value);
+          },
+          step: (level, message, details) => base.step(level, message, details),
+          usage: (usage) => {
+            base.usage(usage);
+            const tokens = parseUsageTokens(usage);
+            const delta: TokenUsage = {
+              totalTokens: tokens.totalTokens ?? ((tokens.inputTokens ?? 0) + (tokens.outputTokens ?? 0)),
+              input: tokens.inputTokens,
+              output: tokens.outputTokens,
+              cacheRead: tokens.cacheReadTokens,
+              cacheWrite: tokens.cacheWriteTokens,
+              ...(tokens.reasoningTokens !== undefined ? { reasoning: tokens.reasoningTokens } : {}),
+            };
+            if (!hasTokens(delta)) return;
+            callTotal = addUsage(callTotal, delta);
+            notify(callKey, callTotal);
+            const model = executor?.model ?? executor?.provider ?? "unknown";
+            record(usageSample({ workspaceRoot: context.workspaceRoot, model, provider: executor?.provider }, `${surface}/${toolName}`, runId, delta));
+          },
+        };
+      },
+    };
   }
 
   subscribeUsage(listener: (runId: string, usage: TokenUsage) => void): () => void {

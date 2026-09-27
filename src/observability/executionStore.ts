@@ -1,6 +1,11 @@
 import { trajectories, type TrajectoryStore } from "./trajectoryStore";
 import type { AgentEvent, AgentEventEnvelope } from "@rusty/harness-sdk";
 import type { CapabilityInput, CapabilityName, RunOutcome } from "../harness/contract";
+import {
+  NOOP_TOOL_EXECUTION_OBSERVER,
+  type ToolExecutionObserver,
+  type ToolExecutionStepLevel,
+} from "../harness/contract/observability";
 import { createContextSnapshot, inferExecutionOrigin } from "./origin";
 import {
   defaultPersistence,
@@ -11,12 +16,19 @@ import {
   type ObservabilityPersistence,
 } from "./persistence";
 import { sanitizeForObservability } from "./redaction";
-import type { ExecutionOrigin, ExecutionTokensSnapshot, ObservabilitySnapshot, ToolExecutionRecord } from "./types";
+import type {
+  ExecutionOrigin,
+  ExecutionTokensSnapshot,
+  ObservabilitySnapshot,
+  ToolExecutionDetail,
+  ToolExecutionRecord,
+} from "./types";
 
 const LEGACY_KEY = "rusty.execution-observability.v1";
 // In-memory view window only; disk history is unbounded.
 const MAX_RECORDS = 1_000;
 const ACTIVE_STATUSES = new Set<ToolExecutionRecord["status"]>(["queued", "waiting-permission", "running"]);
+const MAX_EXECUTION_STEPS = 100;
 
 type Root = string | undefined;
 const rootOf = (record: ToolExecutionRecord): Root => record.context?.workspaceRoot || undefined;
@@ -26,7 +38,46 @@ interface RunContext {
   origin: ExecutionOrigin;
   context: ToolExecutionRecord["context"];
   sessionId?: string;
+  /** The run's own model(s), summed: what a record captures when requested. */
   tokens?: ExecutionTokensSnapshot;
+  tokensByModel: Map<string, ExecutionTokensSnapshot>;
+  /** Which model each session and agent runs on, for `requestedBy`. */
+  sessionModels: Map<string, string>;
+  agentModels: Map<string, string>;
+  /** agent_spawn call record id -> the `model` it asked for, if any. */
+  spawnModels: Map<string, string | undefined>;
+  /** Child agent id -> the agent_spawn call record that created it. */
+  childSpawnCalls: Map<string, string>;
+}
+
+const AGENT_SPAWN_TOOL = "agent_spawn";
+
+/** rusty-core names MCP tools `mcp__<server>__<tool>`. */
+function mcpServerOf(toolName: string): string | undefined {
+  const match = /^mcp__(.+?)__/.exec(toolName);
+  return match?.[1];
+}
+
+/** Which model a usage report belongs to. */
+export interface UsageSource {
+  model?: string;
+  provider?: string;
+  role?: "run" | "subagent";
+  /** The agent that spent it, and this report's increment: a subagent's
+   * increments are also credited to the agent_spawn call that created it. */
+  agentId?: string;
+  delta?: unknown;
+}
+
+const NOTIFY_INTERVAL_MS = 120;
+const TOKEN_FIELDS = ["totalTokens", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"] as const;
+
+function addTokens(target: ExecutionTokensSnapshot | undefined, delta: ExecutionTokensSnapshot): ExecutionTokensSnapshot {
+  const sum: ExecutionTokensSnapshot = { ...target };
+  for (const field of TOKEN_FIELDS) {
+    if (delta[field] !== undefined) sum[field] = (sum[field] ?? 0) + delta[field]!;
+  }
+  return sum;
 }
 
 type Listener = () => void;
@@ -51,6 +102,26 @@ function parseTokenCount(val: unknown): number | undefined {
   return undefined;
 }
 
+/** Normalizes any usage shape we receive (rusty-core `UsageUpdated`, with or
+ * without its `metrics` wrapper, `ModelUsage`, or the IDE's camelCase
+ * `TokenUsage`) into one snapshot. */
+export function parseUsageTokens(usage: unknown): ExecutionTokensSnapshot {
+  const outer = usage && typeof usage === "object" ? usage as Record<string, unknown> : {};
+  const u = outer.metrics && typeof outer.metrics === "object" ? outer.metrics as Record<string, unknown> : outer;
+  return {
+    totalTokens: parseTokenCount(u.total_tokens ?? u.totalTokens ?? u.total),
+    inputTokens: parseTokenCount(u.input_tokens ?? u.inputTokens ?? u.input),
+    outputTokens: parseTokenCount(u.output_tokens ?? u.outputTokens ?? u.output),
+    cacheReadTokens: parseTokenCount(u.cache_read_tokens ?? u.cacheReadTokens ?? u.cacheRead),
+    cacheWriteTokens: parseTokenCount(u.cache_write_tokens ?? u.cacheWriteTokens ?? u.cacheWrite),
+    reasoningTokens: parseTokenCount(u.reasoning_tokens ?? u.reasoningTokens ?? u.reasoning),
+  };
+}
+
+function definedTokens(tokens: ExecutionTokensSnapshot): ExecutionTokensSnapshot {
+  return Object.fromEntries(Object.entries(tokens).filter(([, value]) => value !== undefined));
+}
+
 function healInterrupted(record: ToolExecutionRecord): ToolExecutionRecord {
   const finishedAt = record.finishedAt ?? new Date().toISOString();
   return {
@@ -65,6 +136,11 @@ function healInterrupted(record: ToolExecutionRecord): ToolExecutionRecord {
 export class ExecutionObservabilityStore {
   private listeners = new Set<Listener>();
   private runs = new Map<string, RunContext>();
+  /** Execution details tools reported, keyed by record id. Held separately
+   * because a tool's first report can arrive before the `ToolCallRequested`
+   * event that creates its record; `upsert` attaches them either way. */
+  private toolDetails = new Map<string, { runId: string; detail: ToolExecutionDetail }>();
+  private notifyTimer?: ReturnType<typeof setTimeout>;
   private snapshot: ObservabilitySnapshot = { records: [], retentionDays: readRetentionPreference(), storageBytes: 0 };
   private dirty = new Map<string, ToolExecutionRecord>();
   private timer?: ReturnType<typeof setTimeout>;
@@ -165,13 +241,30 @@ export class ExecutionObservabilityStore {
       capability,
       origin: inferExecutionOrigin(capability, input, origin),
       context: createContextSnapshot(capability, input),
+      tokensByModel: new Map(),
+      sessionModels: new Map(),
+      agentModels: new Map(),
+      spawnModels: new Map(),
+      childSpawnCalls: new Map(),
     });
   }
 
-  bindSession(runId: string, sessionId: string): void {
+  /** `model` is the model the session runs on (orchestrated runs may use a
+   * different one per session). */
+  bindSession(runId: string, sessionId: string, model?: string): void {
     this.trajectoryStore.bind(runId, sessionId);
     const run = this.runs.get(runId);
-    if (run) run.sessionId = sessionId;
+    if (!run) return;
+    run.sessionId ??= sessionId;
+    if (model) run.sessionModels.set(sessionId, model);
+  }
+
+  private requestingModel(run: RunContext, envelope: AgentEventEnvelope): ToolExecutionRecord["requestedBy"] {
+    const subagent = Boolean(envelope.parent_agent_id);
+    const model = run.agentModels.get(envelope.agent_id)
+      ?? (envelope.session_id ? run.sessionModels.get(envelope.session_id) : undefined)
+      ?? run.context.model;
+    return { model, provider: run.context.provider, ...(subagent ? { subagent } : {}) };
   }
 
   ingest(runId: string, envelope: AgentEventEnvelope): void {
@@ -194,39 +287,29 @@ export class ExecutionObservabilityStore {
       sessionSequence: envelope.session_sequence ?? undefined,
     };
 
+    // Usage arrives through recordUsage(), already accumulated per model by
+    // the harness; a raw UsageUpdated is only one request's snapshot. It does
+    // name the model the agent runs on, which later calls are attributed to.
     if ("UsageUpdated" in event) {
-      const usagePayload = (event.UsageUpdated as unknown as { usage?: { metrics?: unknown } })?.usage;
-      const metrics = (usagePayload && typeof usagePayload === "object" && "metrics" in usagePayload
-        ? usagePayload.metrics
-        : usagePayload) as Record<string, unknown> | undefined;
+      const model = (event.UsageUpdated.usage as { model?: unknown }).model;
+      if (typeof model === "string" && model) run.agentModels.set(envelope.agent_id, model);
+      return;
+    }
 
-      const totalTokens = parseTokenCount(metrics?.total_tokens ?? metrics?.total ?? metrics?.totalTokens);
-      const inputTokens = parseTokenCount(metrics?.input_tokens ?? metrics?.input ?? metrics?.inputTokens);
-      const outputTokens = parseTokenCount(metrics?.output_tokens ?? metrics?.output ?? metrics?.outputTokens);
-      const cacheReadTokens = parseTokenCount(metrics?.cache_read_tokens ?? metrics?.cacheRead ?? metrics?.cacheReadTokens);
-      const cacheWriteTokens = parseTokenCount(metrics?.cache_write_tokens ?? metrics?.cacheWrite ?? metrics?.cacheWriteTokens);
-      const reasoningTokens = parseTokenCount(metrics?.reasoning_tokens ?? metrics?.reasoning ?? metrics?.reasoningTokens);
-
-      const tokens: ExecutionTokensSnapshot = {
-        totalTokens,
-        inputTokens,
-        outputTokens,
-        cacheReadTokens,
-        cacheWriteTokens,
-        reasoningTokens,
-      };
-
-      run.tokens = { ...run.tokens, ...tokens };
-
-      let changed = false;
-      const records = this.snapshot.records.map((record) => {
-        if (record.ideRunId === runId || (envelope.session_id && record.sessionId === envelope.session_id)) {
-          changed = true;
-          return { ...record, tokens: { ...record.tokens, ...tokens } };
-        }
-        return record;
-      });
-      if (changed) this.replace(records);
+    if ("ChildAgentSpawned" in event) {
+      const spawned = event.ChildAgentSpawned as { agent_id: string; tool_call_id?: string | null };
+      if (!spawned.tool_call_id || !envelope.session_id) return;
+      const spawnId = `${envelope.session_id}:${spawned.tool_call_id}`;
+      const model = run.spawnModels.get(spawnId)
+        ?? run.agentModels.get(envelope.agent_id)
+        ?? run.sessionModels.get(envelope.session_id)
+        ?? run.context.model;
+      run.childSpawnCalls.set(spawned.agent_id, spawnId);
+      if (model && !run.agentModels.has(spawned.agent_id)) run.agentModels.set(spawned.agent_id, model);
+      this.reportToolExecution(runId, spawnId, (detail) => ({
+        ...detail,
+        executor: { kind: "model", purpose: "Subagent", model, provider: run.context.provider },
+      }));
       return;
     }
 
@@ -234,12 +317,21 @@ export class ExecutionObservabilityStore {
       const call = event.ToolCallRequested.call;
       const sanitized = sanitizeForObservability(call.arguments);
       const id = `${envelope.session_id}:${call.id}`;
+      if (call.name === AGENT_SPAWN_TOOL) {
+        const requested = (call.arguments as { model?: unknown } | null)?.model;
+        run.spawnModels.set(id, typeof requested === "string" && requested ? requested : undefined);
+      }
+      const server = mcpServerOf(call.name);
+      if (server) {
+        this.reportToolExecution(runId, id, (detail) => ({ ...detail, executor: detail.executor ?? { kind: "service", purpose: "MCP tool", provider: server } }));
+      }
       this.upsert({
         id,
         callId: call.id,
         ideRunId: runId,
         ...metadata,
         toolName: call.name,
+        requestedBy: this.requestingModel(run, envelope),
         status: "queued",
         requestedAt: iso(envelope.timestamp),
         tokens: run.tokens ? { ...run.tokens } : undefined,
@@ -264,6 +356,7 @@ export class ExecutionObservabilityStore {
       ideRunId: runId,
       ...metadata,
       toolName: "PermissionRequested" in event ? event.PermissionRequested.request.tool_call.name : "Unknown tool",
+      requestedBy: this.requestingModel(run, envelope),
       status: "queued" as const,
       requestedAt: iso(envelope.timestamp),
       tokens: run.tokens ? { ...run.tokens } : undefined,
@@ -307,40 +400,76 @@ export class ExecutionObservabilityStore {
     }
   }
 
-  recordUsage(runId: string, usage: unknown): void {
-    const u = usage as Record<string, unknown> | undefined;
-    if (!u) return;
-    const totalTokens = parseTokenCount(u.totalTokens ?? u.total ?? u.total_tokens);
-    const inputTokens = parseTokenCount(u.inputTokens ?? u.input ?? u.input_tokens);
-    const outputTokens = parseTokenCount(u.outputTokens ?? u.output ?? u.output_tokens);
-    const cacheReadTokens = parseTokenCount(u.cacheReadTokens ?? u.cacheRead ?? u.cache_read_tokens);
-    const cacheWriteTokens = parseTokenCount(u.cacheWriteTokens ?? u.cacheWrite ?? u.cache_write_tokens);
-    const reasoningTokens = parseTokenCount(u.reasoningTokens ?? u.reasoning ?? u.reasoning_tokens);
-
-    const tokens: ExecutionTokensSnapshot = {
-      totalTokens,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheWriteTokens,
-      reasoningTokens,
-    };
-
-    const run = this.runs.get(runId);
-    if (run) {
-      run.tokens = { ...run.tokens, ...tokens };
-    }
-
-    let changed = false;
-    const records = this.snapshot.records.map((record) => {
-      if (record.ideRunId === runId) {
-        changed = true;
-        return { ...record, tokens: { ...record.tokens, ...tokens } };
+  /** The observer a host tool handler receives for one call. `toolCallId`
+   * is the model-facing call id (the bridge forwards it); without it the
+   * call can't be matched to its record, so reports are dropped. */
+  toolObserver(runId: string, sessionId: string, toolCallId: string | undefined): ToolExecutionObserver {
+    if (!toolCallId) return NOOP_TOOL_EXECUTION_OBSERVER;
+    const id = `${sessionId}:${toolCallId}`;
+    const report = (update: (detail: ToolExecutionDetail) => ToolExecutionDetail) => {
+      try {
+        this.reportToolExecution(runId, id, update);
+      } catch (error) {
+        console.warn("Tool execution observability failed without affecting the tool:", error);
       }
-      return record;
+    };
+    return {
+      executedBy: (executor) => report((detail) => ({ ...detail, executor: { ...executor } })),
+      usage: (usage) => report((detail) => {
+        const delta = definedTokens(parseUsageTokens(usage));
+        const executor = detail.executor;
+        const model = executor?.model ?? executor?.provider ?? "unknown";
+        this.trajectoryStore.addUsage(runId, `tool:${model}`, {
+          model,
+          provider: executor?.provider,
+          role: "tool",
+          purpose: executor?.purpose,
+        }, delta);
+        return { ...detail, tokens: addTokens(detail.tokens, delta) };
+      }),
+      step: (level: ToolExecutionStepLevel, message: string, details?: unknown) =>
+        report((detail) => ({
+          ...detail,
+          steps: [
+            ...detail.steps,
+            { at: new Date().toISOString(), level, message, ...(details === undefined ? {} : { details: sanitizeForObservability(details).value }) },
+          ].slice(-MAX_EXECUTION_STEPS),
+        })),
+    };
+  }
+
+  private reportToolExecution(runId: string, id: string, update: (detail: ToolExecutionDetail) => ToolExecutionDetail): void {
+    const detail = update(this.toolDetails.get(id)?.detail ?? { steps: [] });
+    this.toolDetails.set(id, { runId, detail });
+    const existing = this.snapshot.records.find((record) => record.id === id);
+    if (existing) this.upsert(existing);
+  }
+
+  /** `usage` is the run's running total for `source.model` (all requests so
+   * far). Kept on the run, not copied into every record, so a streaming
+   * session doesn't rewrite and re-persist its whole call history per event. */
+  recordUsage(runId: string, usage: unknown, source: UsageSource = {}): void {
+    const run = this.runs.get(runId);
+    if (!usage || !run) return;
+    const model = source.model ?? run.context.model ?? "unknown";
+    const role = source.role ?? "run";
+    const tokens = definedTokens(parseUsageTokens(usage));
+    run.tokensByModel.set(`${role}:${model}`, tokens);
+    run.tokens = [...run.tokensByModel.values()].reduce<ExecutionTokensSnapshot>((sum, entry) => addTokens(sum, entry), {});
+    this.trajectoryStore.setUsage(runId, `${role}:${model}`, {
+      model,
+      provider: source.provider ?? run.context.provider,
+      role,
+      ...(role === "subagent" ? { purpose: "Subagent" } : {}),
+      tokens,
     });
-    if (changed) {
-      this.replace(records);
+    if (source.agentId) {
+      if (source.model) run.agentModels.set(source.agentId, source.model);
+      const spawnId = run.childSpawnCalls.get(source.agentId);
+      const delta = source.delta ? definedTokens(parseUsageTokens(source.delta)) : undefined;
+      if (spawnId && delta && Object.keys(delta).length) {
+        this.reportToolExecution(runId, spawnId, (detail) => ({ ...detail, tokens: addTokens(detail.tokens, delta) }));
+      }
     }
   }
 
@@ -364,6 +493,7 @@ export class ExecutionObservabilityStore {
       };
     });
     this.runs.delete(runId);
+    for (const [id, entry] of this.toolDetails) if (entry.runId === runId) this.toolDetails.delete(id);
     if (changed) this.replace(records);
     void this.flush();
   }
@@ -450,7 +580,9 @@ export class ExecutionObservabilityStore {
     this.schedule();
   }
 
-  private upsert(record: ToolExecutionRecord): void {
+  private upsert(incoming: ToolExecutionRecord): void {
+    const reported = this.toolDetails.get(incoming.id)?.detail;
+    const record = reported ? { ...incoming, execution: reported } : incoming;
     const index = this.snapshot.records.findIndex((candidate) => candidate.id === record.id);
     const records = [...this.snapshot.records];
     if (index === -1) records.unshift(record);
@@ -476,8 +608,14 @@ export class ExecutionObservabilityStore {
     this.emit();
   }
 
+  /** The snapshot is always current; subscribers are notified at most every
+   * NOTIFY_INTERVAL_MS so a streaming session doesn't re-render per event. */
   private emit() {
-    for (const listener of this.listeners) listener();
+    if (this.notifyTimer) return;
+    this.notifyTimer = setTimeout(() => {
+      this.notifyTimer = undefined;
+      for (const listener of this.listeners) listener();
+    }, NOTIFY_INTERVAL_MS);
   }
 }
 

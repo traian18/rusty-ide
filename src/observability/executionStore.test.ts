@@ -283,65 +283,111 @@ describe("executionObservability", () => {
     });
   });
 
-  it("captures token usage from UsageUpdated envelope and attaches it to tool records", () => {
+  it("keeps run usage per model on the run and snapshots it onto records when they are requested", () => {
+    const trajectoryStore = new TrajectoryStore(persistence);
+    executionObservability = new ExecutionObservabilityStore(persistence, trajectoryStore);
     executionObservability.startRun("ide-run", "agent_chat", INPUT);
     executionObservability.ingest("ide-run", envelope({
       ToolCallRequested: { call: { id: "call-1", name: "bash.exec", arguments: { command: "cargo check" } } },
     }, 1));
-
-    // Initially tokens are undefined
     expect(executionObservability.getSnapshot().records[0].tokens).toBeUndefined();
 
-    // Ingest UsageUpdated event
+    // A raw UsageUpdated is one request's snapshot; the harness accumulates it,
+    // so ingesting it alone must not touch records (nor rewrite them per event).
+    const before = executionObservability.getSnapshot().records[0];
     executionObservability.ingest("ide-run", envelope({
-      UsageUpdated: {
-        usage: {
-          agent_id: "agent-1",
-          timestamp: new Date().toISOString(),
-          metrics: {
-            total_tokens: 1450,
-            input_tokens: 1200,
-            output_tokens: 250,
-            cache_read_tokens: 400,
-          },
-        } as never,
-      },
+      UsageUpdated: { usage: { agent_id: "agent-1", timestamp: new Date().toISOString(), metrics: { total_tokens: 1450 } } as never },
     }, 2));
+    expect(executionObservability.getSnapshot().records[0]).toBe(before);
 
-    const recordWithTokens = executionObservability.getSnapshot().records[0];
-    expect(recordWithTokens.tokens).toEqual({
-      totalTokens: 1450,
-      inputTokens: 1200,
-      outputTokens: 250,
-      cacheReadTokens: 400,
-      cacheWriteTokens: undefined,
-      reasoningTokens: undefined,
-    });
-
-    // Subsequent tool call in the same run inherits current tokens
+    executionObservability.recordUsage("ide-run", { totalTokens: 1450, input: 1200, output: 250, cacheRead: 400 }, { model: "model-a" });
     executionObservability.ingest("ide-run", envelope({
       ToolCallRequested: { call: { id: "call-2", name: "workspace.write", arguments: { path: "res.txt" } } },
     }, 3));
-
     const secondRecord = executionObservability.getSnapshot().records.find((r) => r.callId === "call-2");
-    expect(secondRecord?.tokens?.totalTokens).toBe(1450);
+    expect(secondRecord?.tokens).toEqual({ totalTokens: 1450, inputTokens: 1200, outputTokens: 250, cacheReadTokens: 400 });
 
-    // Direct usage update via recordUsage method
-    executionObservability.recordUsage("ide-run", {
-      totalTokens: 1800,
-      input: 1400,
-      output: 400,
+    // Running totals replace (they already include earlier requests).
+    executionObservability.recordUsage("ide-run", { totalTokens: 1800, input: 1400, output: 400 }, { model: "model-a" });
+    const run = trajectoryStore.getSnapshot().runs.find((candidate) => candidate.id === "ide-run");
+    expect(run?.usage).toEqual({
+      "run:model-a": { model: "model-a", provider: "provider-a", role: "run", tokens: { totalTokens: 1800, inputTokens: 1400, outputTokens: 400 } },
     });
 
-    const updatedRecord = executionObservability.getSnapshot().records.find((r) => r.callId === "call-2");
-    expect(updatedRecord?.tokens?.totalTokens).toBe(1800);
-    expect(updatedRecord?.tokens?.inputTokens).toBe(1400);
-
-    // finishRun preserves tokens
     executionObservability.finishRun("ide-run", { status: "completed", result: { response: "ok", modifiedFiles: [], subagents: [] } });
     const finishedRecord = executionObservability.getSnapshot().records.find((r) => r.callId === "call-2");
     expect(finishedRecord?.status).toBe("failed");
     expect(finishedRecord?.resultPreview).toContain("tool success is unknown");
-    expect(finishedRecord?.tokens?.totalTokens).toBe(1800);
+  });
+
+  it("attaches what a tool reports through its observer to that call's record, even when the report arrives first", () => {
+    executionObservability.startRun("ide-run", "agent_chat", INPUT, { displayLabel: "Agent" });
+    const observer = executionObservability.toolObserver("ide-run", "session-1", "call-1");
+    observer.executedBy({ kind: "model", purpose: "Smart Read selector", model: "selector-model", provider: "Selector Co", providerId: "p-sel" });
+
+    executionObservability.ingest("ide-run", envelope({ ToolCallRequested: { call: { id: "call-1", name: "read_file", arguments: { path: "a.ts", request: "auth" } } } }, 1));
+    executionObservability.recordUsage("ide-run", { input: 900, output: 90, totalTokens: 990 }, { model: "model-a" });
+    observer.usage({ input_tokens: 100, output_tokens: 20, total_tokens: 120 });
+    observer.usage({ input_tokens: 20, output_tokens: 10, total_tokens: 30 });
+    observer.step("info", "selector ranges accepted", { ranges: [{ startLine: 1, endLine: 4 }], apiKey: "sk-should-be-redacted-0000" });
+    executionObservability.ingest("ide-run", envelope({ ToolCallCompleted: { call_id: "call-1", result: { has_error: false, output_preview: "excerpt" } } }, 3));
+
+    const [record] = executionObservability.getSnapshot().records;
+    expect(record.execution?.executor).toEqual({ kind: "model", purpose: "Smart Read selector", model: "selector-model", provider: "Selector Co", providerId: "p-sel" });
+    // The executor's increments are summed on the call, separate from the
+    // requesting model's tokens that the record picked up when it completed.
+    expect(record.execution?.tokens).toEqual({ inputTokens: 120, outputTokens: 30, totalTokens: 150 });
+    expect(record.tokens?.totalTokens).toBe(990);
+    expect(record.execution?.steps.map((step) => step.message)).toEqual(["selector ranges accepted"]);
+    expect(JSON.stringify(record.execution)).not.toContain("sk-should-be-redacted-0000");
+    expect(record.status).toBe("succeeded");
+  });
+
+  it("drops observer reports it cannot correlate and never lets them fail the tool", () => {
+    executionObservability.startRun("ide-run", "agent_chat", INPUT, { displayLabel: "Agent" });
+    const observer = executionObservability.toolObserver("ide-run", "session-1", undefined);
+    expect(() => {
+      observer.executedBy({ kind: "service", purpose: "Web search", provider: "tavily" });
+      observer.step("info", "ignored");
+    }).not.toThrow();
+    executionObservability.ingest("ide-run", envelope({ ToolCallRequested: { call: { id: "call-1", name: "web_search", arguments: {} } } }, 1));
+    expect(executionObservability.getSnapshot().records[0].execution).toBeUndefined();
+  });
+
+  it("attributes a subagent's model, calls, and tokens to the agent_spawn call that created it", () => {
+    executionObservability.startRun("ide-run", "agent_chat", INPUT, { displayLabel: "Agent" });
+    executionObservability.bindSession("ide-run", "session-1", "model-a");
+    executionObservability.ingest("ide-run", envelope({
+      ToolCallRequested: { call: { id: "spawn-1", name: "agent_spawn", arguments: { task: "review", model: "claude-haiku-4-5" } } },
+    }, 1));
+    executionObservability.ingest("ide-run", envelope({ ChildAgentSpawned: { agent_id: "child-1", tool_call_id: "spawn-1" } } as unknown as AgentEvent, 2));
+    // The child's own tool call.
+    executionObservability.ingest("ide-run", { ...envelope({
+      ToolCallRequested: { call: { id: "child-call", name: "read_file", arguments: { path: "a.ts" } } },
+    }, 3), agent_id: "child-1", parent_agent_id: "agent-1" });
+    executionObservability.recordUsage("ide-run", { totalTokens: 500 }, { model: "claude-haiku-4-5", role: "subagent", agentId: "child-1", delta: { totalTokens: 500, input: 450, output: 50 } });
+
+    const records = executionObservability.getSnapshot().records;
+    const spawn = records.find((record) => record.callId === "spawn-1")!;
+    expect(spawn.requestedBy).toEqual({ model: "model-a", provider: "provider-a" });
+    expect(spawn.execution?.executor).toEqual({ kind: "model", purpose: "Subagent", model: "claude-haiku-4-5", provider: "provider-a" });
+    expect(spawn.execution?.tokens).toEqual({ totalTokens: 500, inputTokens: 450, outputTokens: 50 });
+    const childCall = records.find((record) => record.callId === "child-call")!;
+    expect(childCall.requestedBy).toEqual({ model: "claude-haiku-4-5", provider: "provider-a", subagent: true });
+  });
+
+  it("names the MCP server that executed an MCP tool call", () => {
+    executionObservability.startRun("ide-run", "agent_chat", INPUT, { displayLabel: "Agent" });
+    executionObservability.ingest("ide-run", envelope({
+      ToolCallRequested: { call: { id: "call-1", name: "mcp__github__list_issues", arguments: {} } },
+    }, 1));
+    expect(executionObservability.getSnapshot().records[0].execution?.executor).toEqual({ kind: "service", purpose: "MCP tool", provider: "github" });
+  });
+
+  it("learns each agent's model from its stamped usage", () => {
+    executionObservability.startRun("ide-run", "agent_chat", INPUT, { displayLabel: "Agent" });
+    executionObservability.ingest("ide-run", envelope({ UsageUpdated: { usage: { agent_id: "agent-1", model: "model-b", metrics: {} } } } as unknown as AgentEvent, 1));
+    executionObservability.ingest("ide-run", envelope({ ToolCallRequested: { call: { id: "call-1", name: "list_files", arguments: {} } } }, 2));
+    expect(executionObservability.getSnapshot().records[0].requestedBy?.model).toBe("model-b");
   });
 });

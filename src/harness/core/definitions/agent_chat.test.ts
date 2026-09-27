@@ -6,7 +6,7 @@ import type { RunContext } from "../CoreHarness";
 import { createTranscript } from "../transcript";
 import * as exploreTools from "./exploreTools";
 import * as runCommandTool from "./runCommandTool";
-import { agentChatDefinition } from "./agent_chat";
+import { agentChatDefinition, longResponseGuideline } from "./agent_chat";
 import { BUILT_IN_SKILLS, BUILT_IN_SKILL_IDS, toSkillData } from "../../../config/skillDefinitions";
 
 vi.mock("./runCommandTool", async (importOriginal) => {
@@ -379,5 +379,38 @@ describe("agentChatDefinition", () => {
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
     expect(recipe.system_prompt).toContain("You have access to tools:");
     expect(recipe.system_prompt).toContain("'read_file'");
+  });
+
+  it("web_search reports the search provider's model and tokens as the call's executor", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({
+      model: "sonar",
+      usage: { prompt_tokens: 10, completion_tokens: 90, total_tokens: 100 },
+      choices: [{ message: { content: "Answer." } }],
+      citations: [],
+    }), { status: 200 })) as unknown as typeof fetch;
+    try {
+      const tools = agentChatDefinition.hostTools!(input({ webSearchApiKeys: { perplexity: "k" } }), fakeHost(), ctx(), () => {});
+      const observer = { executedBy: vi.fn(), usage: vi.fn(), step: vi.fn() };
+
+      const outcome = await tools.web_search({ query: "q", provider: "perplexity" }, new AbortController().signal, observer);
+
+      expect(outcome.ok).toBe(true);
+      expect(observer.executedBy).toHaveBeenCalledWith({ kind: "model", purpose: "Web search", model: "sonar", provider: "perplexity" });
+      expect(observer.usage).toHaveBeenCalledWith({ input: 10, output: 90, totalTokens: 100 });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("tells the agent to put responses too long for the chat into a file, with the tool it actually has", () => {
+    const prompt = agentChatDefinition.recipe!(input()).system_prompt ?? "";
+    expect(prompt).toContain("if a response would exceed about 32,000 characters");
+    expect(prompt).toContain("with 'write_file' instead of the chat");
+
+    const planPrompt = agentChatDefinition.recipe!(input({ planOnly: true })).system_prompt ?? "";
+    expect(planPrompt).toContain("save the complete content with 'write_plan'");
+
+    expect(longResponseGuideline([])).toContain("give a condensed answer and offer to continue");
   });
 });

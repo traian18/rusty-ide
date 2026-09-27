@@ -197,3 +197,21 @@
 .trajectoryEntry { border-bottom: 1px solid var(--color-border-subtle); }
 .trajectoryEntry summary { cursor: pointer; padding: var(--space-3); font-size: var(--font-size-ui-xs); overflow-wrap: anywhere; }
 .trajectoryEntry summary small { display: block; color: var(--color-fg-muted); margin-top: .3rem; }
+
+.executionSteps { display: flex; flex-direction: column; gap: .3rem; margin: .5rem 0 0; padding: 0; list-style: none; font-size: var(--font-size-ui-xs); }
+.executionSteps li { display: flex; gap: var(--space-2); align-items: baseline; min-width: 0; }
+.executionSteps details { flex: 1; min-width: 0; }
+.executionSteps summary { cursor: pointer; }
+.executionStepTime { flex-shrink: 0; color: var(--color-fg-muted); font-family: var(--font-family-mono); font-size: .65rem; }
+.executionStep_warn { color: var(--color-warning, #b7791f); }
+.executionStep_error { color: var(--color-danger, #c53030); }
+
+.usageTableWrap { overflow-x: auto; }
+.usageTable { width: 100%; border-collapse: collapse; font-size: var(--font-size-ui-xs); font-variant-numeric: tabular-nums; }
+.usageTable th, .usageTable td { padding: .3rem .5rem; border-bottom: 1px solid var(--color-border-subtle); text-align: right; white-space: nowrap; }
+.usageTable thead th { color: var(--color-fg-muted); font-size: .65rem; font-weight: 600; text-transform: uppercase; }
+.usageTable th[scope="row"], .usageTable thead th:first-child { text-align: left; }
+.usageTable th[scope="row"] { display: flex; flex-direction: column; max-width: 16rem; font-weight: 500; }
+.usageTable th[scope="row"] small { color: var(--color-fg-muted); font-size: .65rem; font-weight: 400; }
+.usageModel { overflow: hidden; font-family: var(--font-family-mono); text-overflow: ellipsis; }
+.usageTable tfoot th, .usageTable tfoot td { border-bottom: none; font-weight: 700; }

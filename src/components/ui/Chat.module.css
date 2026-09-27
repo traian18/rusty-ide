@@ -159,3 +159,4 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: var(--font-size-chat-sm);
 }
+.responseNote { margin: 0 0 var(--space-2); color: var(--color-fg-muted); font-size: var(--font-size-chat-xs, .75rem); font-style: italic; }

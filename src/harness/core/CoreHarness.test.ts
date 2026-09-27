@@ -394,12 +394,105 @@ describe("CoreHarness-specific behavior", () => {
     });
     await Promise.resolve();
     await Promise.resolve();
-    expect(handler).toHaveBeenCalledWith({ x: 1 }, expect.any(AbortSignal));
+    expect(handler).toHaveBeenCalledWith({ x: 1 }, expect.any(AbortSignal), expect.anything());
     expect(engine.hostToolResults).toContainEqual({
       sessionId: "session-1",
       callId: "call-1",
       outcome: { ok: true, output: "42" },
     });
+  });
+
+  it("gives a host tool handler an observer bound to the model's tool call, so its reports land on that call's record", async () => {
+    const definition: CoreCapabilityDefinition<"inline_chat"> = {
+      ...inlineChatDefinition,
+      hostTools: () => ({
+        "my.tool": async (_args, _signal, observer) => {
+          observer?.executedBy({ kind: "model", purpose: "Delegated work", model: "worker-model", provider: "Worker Co" });
+          return { ok: true, output: "done" };
+        },
+      }),
+    };
+    const engine = new FakeCoreEngine();
+    const harness = new CoreHarness({
+      engine,
+      controlPlane: fakeControlPlane(),
+      executionAnswerer: new FakeExecutionAnswerer(),
+      definitions: { inline_chat: definition },
+    });
+    const { host } = createRecordingHost();
+    const handle = harness.run("inline_chat", { ...INPUT }, host, () => {});
+    await handle.started;
+    const sessionId = engine.lastSessionId();
+    engine.emit(sessionId, {
+      kind: "event",
+      data: { ...envelope({ ToolCallRequested: { call: { id: "model-call-9", name: "my.tool", arguments: {} } } } as AgentEvent), session_id: sessionId },
+    });
+    engine.emit(sessionId, {
+      kind: "host_tool_call",
+      data: { call_id: "host-1", tool: "my.tool", input: {}, tool_call_id: "model-call-9" },
+    });
+    await flush();
+
+    const record = executionObservability.getSnapshot().records.find((candidate) => candidate.id === `${sessionId}:model-call-9`);
+    expect(record?.execution?.executor).toEqual({ kind: "model", purpose: "Delegated work", model: "worker-model", provider: "Worker Co" });
+    handle.cancel();
+  });
+
+  it("records a subagent's usage under the model it actually runs on", async () => {
+    const { controlPlane, engine, driver, events } = startRun();
+    await driver.acceptStart();
+    const usage = (agent: string, parent: string | null, model: string | undefined, total: number) => ({
+      ...envelope({ UsageUpdated: { usage: { agent_id: agent, ...(model ? { model } : {}), timestamp: "", metrics: { total_requests: 0, total_tokens: total } } } as never }),
+      agent_id: agent,
+      parent_agent_id: parent,
+    });
+    engine.emit(engine.lastSessionId(), { kind: "event", data: usage("agent-1", null, undefined, 100) });
+    engine.emit(engine.lastSessionId(), { kind: "event", data: usage("child-1", "agent-1", "claude-haiku-4-5", 40) });
+    await Promise.resolve();
+
+    expect(controlPlane.recorded.map((sample) => [sample.model, sample.usage.totalTokens])).toEqual([
+      ["claude-opus-4-20250514", 100],
+      ["claude-haiku-4-5", 40],
+    ]);
+    // The run's own usage display includes what its subagent spent.
+    const last = events.filter((event) => event.kind === "usage").at(-1) as { usage: { totalTokens?: number } };
+    expect(last.usage.totalTokens).toBe(140);
+  });
+
+  it("records a tool's delegated model usage into Token Metrics under that model", async () => {
+    const definition: CoreCapabilityDefinition<"inline_chat"> = {
+      ...inlineChatDefinition,
+      hostTools: () => ({
+        "my.tool": async (_args, _signal, observer) => {
+          observer?.executedBy({ kind: "model", purpose: "Smart Read selector", model: "selector-mini", provider: "Selector Co" });
+          observer?.usage({ input: 300, output: 20, totalTokens: 320 });
+          return { ok: true, output: "done" };
+        },
+      }),
+    };
+    const engine = new FakeCoreEngine();
+    const controlPlane = fakeControlPlane();
+    const harness = new CoreHarness({ engine, controlPlane, executionAnswerer: new FakeExecutionAnswerer(), definitions: { inline_chat: definition } });
+    const live: Array<[string, number | undefined]> = [];
+    const unsubscribe = harness.subscribeUsage((key, usage) => live.push([key, usage.totalTokens]));
+    const { host } = createRecordingHost();
+    const handle = harness.run("inline_chat", { ...INPUT }, host, () => {});
+    await handle.started;
+    engine.emit(engine.lastSessionId(), { kind: "host_tool_call", data: { call_id: "host-1", tool: "my.tool", input: {}, tool_call_id: "model-call-3" } });
+    await flush();
+
+    expect(controlPlane.recorded).toEqual([
+      expect.objectContaining({
+        surface: "inline_chat/my.tool",
+        model: "selector-mini",
+        provider: "Selector Co",
+        newRequest: true,
+        usage: expect.objectContaining({ input: 300, output: 20, totalTokens: 320 }),
+      }),
+    ]);
+    expect(live).toEqual([[`${handle.runId}:tool:model-call-3`, 320]]);
+    unsubscribe();
+    handle.cancel();
   });
 
   it("reports a hostTools handler's rejection back as a failed host_tool_call outcome", async () => {
@@ -680,7 +773,29 @@ describe("CoreHarness-specific behavior", () => {
     await Promise.resolve();
 
     expect(events).toContainEqual({ kind: "usage", usage: { totalTokens: 42 } });
-    expect(seen).toEqual([[handle.runId, 42]]);
+    expect(seen).toEqual([[`${handle.runId}:run:claude-opus-4-20250514`, 42]]);
+    unsubscribe();
+  });
+
+  it("counts a request's repeated usage snapshots once and sums separate requests", async () => {
+    const { harness, controlPlane, engine, driver, events } = startRun();
+    const seen: number[] = [];
+    const unsubscribe = harness.subscribeUsage((_key, usage) => seen.push(usage.totalTokens ?? -1));
+    await driver.acceptStart();
+    const snapshot = (requestsDone: number, input: number, output: number) => envelope({
+      UsageUpdated: { usage: { agent_id: "agent-1", timestamp: new Date().toISOString(), metrics: { total_requests: requestsDone, input_tokens: input, output_tokens: output, total_tokens: input + output } } as never },
+    });
+    // Anthropic-style: message_start, then message_delta's running total, for request 1; then request 2.
+    for (const data of [snapshot(0, 1000, 1), snapshot(0, 1000, 200), snapshot(1, 1300, 50)]) {
+      engine.emit(engine.lastSessionId(), { kind: "event", data });
+      await Promise.resolve();
+    }
+
+    expect(controlPlane.recorded.map((sample) => [sample.usage.totalTokens, sample.newRequest])).toEqual([[1001, true], [199, false], [1350, true]]);
+    expect(controlPlane.recorded.reduce((sum, sample) => sum + sample.usage.input, 0)).toBe(2300);
+    const usageEvents = events.filter((event) => event.kind === "usage").map((event) => (event as { usage: { totalTokens?: number } }).usage.totalTokens);
+    expect(usageEvents).toEqual([1001, 1200, 2550]);
+    expect(seen).toEqual([1001, 1200, 2550]);
     unsubscribe();
   });
 
@@ -701,6 +816,7 @@ describe("CoreHarness-specific behavior", () => {
         provider: undefined,
         model: "claude-opus-4-20250514",
         usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 7 },
+        newRequest: true,
       },
     ]);
   });

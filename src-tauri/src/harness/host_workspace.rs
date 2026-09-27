@@ -122,7 +122,7 @@ mod tests {
             event = outbound.recv() => event.expect("read() issued a HostToolCall"),
             _ = &mut read_future => panic!("read() resolved before its call was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input } = event else {
+        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "workspace.read");
@@ -151,7 +151,7 @@ mod tests {
             event = outbound.recv() => event.expect("write() issued a HostToolCall"),
             _ = &mut write_future => panic!("write() resolved before its call was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input } = event else {
+        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "workspace.write");
