@@ -9,7 +9,7 @@ import { isExecutionError } from "../engine/ExecutionProtocol";
 import type { ExecutionAnswerer } from "../CoreHarness";
 import type { CustomProvider } from "../../../store/types";
 import type { TokenUsage } from "../../contract";
-import { hasTokens, mapAgentUsage, mapModelUsage, UsageAccumulator, usageRequestKey } from "../usageAccumulator";
+import { addUsage, hasTokens, mapAgentUsage, mapModelUsage, UsageAccumulator, usageRequestKey } from "../usageAccumulator";
 
 export interface SelectorModelRequest {
   providerId: string;
@@ -130,6 +130,9 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
     let settled = false;
     let text = "";
     const usage = new UsageAccumulator();
+    let hostResultUsage: TokenUsage = {};
+    let pendingHostExecutions = 0;
+    let pendingCompletion: (() => void) | undefined;
 
     if (request.signal.aborted) controller.abort();
     request.signal.addEventListener("abort", abortFromParent);
@@ -138,9 +141,11 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
       const finish = (fn: () => void) => {
         if (settled) return;
         settled = true;
-        // A selector session is one model request: report what it spent
-        // once, whether it succeeded, failed, or was cancelled.
-        const spent = usage.total();
+        // Prefer core's request-aware snapshots. Some host-routed providers
+        // do not emit one even though their terminal result contains usage,
+        // so retain that result as a non-duplicating fallback.
+        const sessionUsage = usage.total();
+        const spent = hasTokens(sessionUsage) ? sessionUsage : hostResultUsage;
         if (hasTokens(spent)) request.onUsage?.(spent);
         request.signal.removeEventListener("abort", abortFromParent);
         controller.signal.removeEventListener("abort", abortListener);
@@ -151,9 +156,16 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
       const abortListener = () => finish(() => reject(new DOMException("Aborted", "AbortError")));
       controller.signal.addEventListener("abort", abortListener);
 
+      const finishSuccessfulRun = () => {
+        const complete = () => finish(() => resolve(text));
+        if (pendingHostExecutions === 0) complete();
+        else pendingCompletion = complete;
+      };
+
       const handleHostExecuteCall = (data: { call_id: string; tool: string; input: ExecutionRequest }) => {
         if (!sessionId) return;
         const sid = sessionId;
+        pendingHostExecutions += 1;
         let delivery: Promise<void> = Promise.resolve();
         const enqueue = (send: () => Promise<void>) => {
           delivery = delivery.then(send).catch(() => {});
@@ -169,10 +181,22 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
             controller.signal,
           )
           .then(
-            (result: ExecutionResult) => enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: true, result })),
+            (result: ExecutionResult) => {
+              const resultUsage = mapModelUsage(result.usage);
+              if (hasTokens(resultUsage)) hostResultUsage = addUsage(hostResultUsage, resultUsage);
+              return enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: true, result }));
+            },
             (error: unknown) => enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: false, error: toExecutionError(error) })),
           )
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => {
+            pendingHostExecutions = Math.max(0, pendingHostExecutions - 1);
+            if (pendingHostExecutions === 0 && pendingCompletion) {
+              const complete = pendingCompletion;
+              pendingCompletion = undefined;
+              complete();
+            }
+          });
       };
 
       const handleAgentEvent = (envelope: AgentEventEnvelope) => {
@@ -192,7 +216,7 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
         if ("Completed" in event) {
           const outcome = event.Completed.outcome;
           if (outcome === "Success") {
-            finish(() => resolve(text));
+            finishSuccessfulRun();
           } else if (outcome === "Cancelled") {
             finish(() => reject(new DOMException("Aborted", "AbortError")));
           } else {

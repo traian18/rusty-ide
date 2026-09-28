@@ -43,6 +43,7 @@ import type {
   ExecutionResult,
   ModelUsage,
 } from "./ExecutionProtocol";
+import { recoverOpenRouterUsage } from "./openRouterUsageRecovery";
 
 /** The `LlmApiType` values `directExecution.ts` ports pi-ai's own request
  * module for -- the three this app's own default providers actually use
@@ -386,7 +387,16 @@ export async function runDirectExecution(
     }
     result ||= await stream.result();
 
-    const usage = toExecutionUsage(result?.usage);
+    let usage = toExecutionUsage(result?.usage);
+    const recoveredUsage = await recoverOpenRouterUsage(
+      runtime.providerId,
+      runtime.model.baseUrl,
+      runtime.apiKey,
+      result?.responseId,
+      usage,
+      controller.signal,
+    );
+    if (recoveredUsage) usage = toExecutionUsage(recoveredUsage);
     onEvent({ UsageUpdate: { request_id: requestId, usage } });
 
     const toolCalls = (result?.content || []).filter((part: any) => part?.type === "toolCall");

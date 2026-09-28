@@ -101,6 +101,23 @@ function validateHttpUrl(rawUrl: string): string {
   return parsed.toString();
 }
 
+function useOpenRouterUserCatalog(provider: CustomProvider, catalogUrl: URL, apiKey: string): void {
+  if (
+    provider.id === "openrouter"
+    && apiKey
+    && catalogUrl.hostname === "openrouter.ai"
+    && catalogUrl.pathname.replace(/\/+$/, "") === "/api/v1/models"
+  ) {
+    // `/models` is OpenRouter's public, global catalog. `/models/user` is
+    // filtered for the bearer key's provider preferences, privacy policy,
+    // and guardrails. Rewrite only the official default URL so a custom
+    // proxy or deliberately customized catalog remains untouched. This
+    // also repairs older saved provider configs that still persist the
+    // public URL.
+    catalogUrl.pathname = "/api/v1/models/user";
+  }
+}
+
 function catalogRequest(provider: CustomProvider): { url: string; headers: Record<string, string> } {
   const defaults = PROVIDER_DEFAULTS[provider.id];
   const baseUrl = provider.baseUrl?.trim() || defaults?.baseUrl || "";
@@ -109,11 +126,12 @@ function catalogRequest(provider: CustomProvider): { url: string; headers: Recor
     || `${trimTrailingSlash(baseUrl)}/models`;
   const validatedUrl = validateHttpUrl(catalogUrl);
   const parsedCatalogUrl = new URL(validatedUrl);
+  const apiKey = resolveDirectApiKey(provider);
+  useOpenRouterUserCatalog(provider, parsedCatalogUrl, apiKey);
   if (provider.id === "anthropic" && !parsedCatalogUrl.searchParams.has("limit")) {
     parsedCatalogUrl.searchParams.set("limit", "1000");
   }
   const url = parsedCatalogUrl.toString();
-  const apiKey = resolveDirectApiKey(provider);
   const authType = provider.authType || defaults?.authType || (apiKey ? "bearer" : "none");
   const headers: Record<string, string> = { Accept: "application/json" };
 

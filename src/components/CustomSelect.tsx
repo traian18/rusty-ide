@@ -15,6 +15,7 @@ interface CustomSelectProps {
   id?: string;
   value: string;
   onChange: (val: string) => void;
+  onOpen?: () => void;
   options?: Option[];
   groups?: OptionGroup[];
   placeholder?: string;
@@ -30,6 +31,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   id,
   value,
   onChange,
+  onOpen,
   options,
   groups,
   placeholder = "Select option...",
@@ -134,6 +136,11 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     ? (filteredGroups && filteredGroups.length > 0)
     : filteredOptions.length > 0;
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && !isOpen) onOpen?.();
+    setIsOpen(nextOpen);
+  };
+
   return (
     <CustomSelectView
       id={controlId}
@@ -145,7 +152,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       chevronClassName={chevronClassName}
       icon={icon}
       isOpen={isOpen}
-      setIsOpen={setIsOpen}
+      setIsOpen={handleOpenChange}
       searchQuery={searchQuery}
       setSearchQuery={setSearchQuery}
       pos={pos}
