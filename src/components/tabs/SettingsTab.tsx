@@ -57,7 +57,9 @@ export const SettingsTab: React.FC = () => {
   const activeCategory = settingsCategories.find((category) => category.id === activeCategoryId) || settingsCategories[0];
   const selectAdjacentCategory = (direction: number) => {
     const currentIndex = settingsCategories.findIndex((category) => category.id === activeCategoryId);
-    setActiveCategoryId(settingsCategories[(currentIndex + direction + settingsCategories.length) % settingsCategories.length].id);
+    const nextCategory = settingsCategories[(currentIndex + direction + settingsCategories.length) % settingsCategories.length];
+    setActiveCategoryId(nextCategory.id);
+    document.getElementById(`settings-tab-${nextCategory.id}`)?.focus();
   };
   return (
     <main className={styles.page}>

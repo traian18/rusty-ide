@@ -18,8 +18,24 @@ import { createWorkspaceSlice } from "./store/slices/createWorkspaceSlice";
 import type { WorkspaceState } from "./store/types";
 
 export * from "./store/types";
+export * from "./store/smartReadTypes";
 export * from "./store/intelligentModelSelectionTypes";
 
 export const useWorkspaceStore = create<WorkspaceState>()((...args) => ({
-  ...createWorkspaceSlice(...args), ...createGitSlice(...args), ...createTerminalSlice(...args), ...createUiSlice(...args), ...createTabUiSlice(...args), ...createTabsSlice(...args), ...createCanvasSlice(...args), ...createAgentSlice(...args), ...createIntegrationSlice(...args), ...createMetricsSlice(...args), ...createPreferencesSlice(...args), ...createProviderRegistrySlice(...args), ...createSmartReadSlice(...args), ...createIntelligentModelSelectionSlice(...args), ...createStartupSlice(...args), ...createUpdateSlice(...args),
+  ...createWorkspaceSlice(...args),
+  ...createGitSlice(...args),
+  ...createTerminalSlice(...args),
+  ...createUiSlice(...args),
+  ...createTabUiSlice(...args),
+  ...createTabsSlice(...args),
+  ...createCanvasSlice(...args),
+  ...createAgentSlice(...args),
+  ...createIntegrationSlice(...args),
+  ...createMetricsSlice(...args),
+  ...createPreferencesSlice(...args),
+  ...createProviderRegistrySlice(...args),
+  ...createSmartReadSlice(...args),
+  ...createIntelligentModelSelectionSlice(...args),
+  ...createStartupSlice(...args),
+  ...createUpdateSlice(...args),
 }) as WorkspaceState);
