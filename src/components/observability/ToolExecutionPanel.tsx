@@ -149,8 +149,21 @@ function formatTime(isoString?: string): string {
   return Number.isNaN(date.getTime()) ? "—" : date.toLocaleTimeString();
 }
 
+/** Strings (tool output previews) are shown as-is, pretty-printed when they
+ * hold JSON, rather than re-encoded into one escaped line. */
+function formatJsonValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return JSON.stringify(value, null, 2);
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (parsed !== null && typeof parsed === "object") return JSON.stringify(parsed, null, 2);
+  } catch {
+    // Not JSON: plain text output.
+  }
+  return value;
+}
+
 function JsonValue({ value }: { value: unknown }) {
-  return <pre className={styles.code}>{JSON.stringify(value, null, 2) ?? "—"}</pre>;
+  return <pre className={styles.code}>{formatJsonValue(value) ?? "—"}</pre>;
 }
 
 const TOKEN_FIELDS: { key: keyof ExecutionTokensSnapshot; label: string }[] = [

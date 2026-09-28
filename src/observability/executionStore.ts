@@ -445,6 +445,12 @@ export class ExecutionObservabilityStore {
     if (existing) this.upsert(existing);
   }
 
+  /** Records a call made outside any harness run (e.g. AUTO's JEV model
+   * selection), already complete, as its own entry. */
+  recordStandalone(record: ToolExecutionRecord): void {
+    this.upsert(record);
+  }
+
   /** `usage` is the run's running total for `source.model` (all requests so
    * far). Kept on the run, not copied into every record, so a streaming
    * session doesn't rewrite and re-persist its whole call history per event. */

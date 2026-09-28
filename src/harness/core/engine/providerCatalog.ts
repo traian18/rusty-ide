@@ -116,6 +116,17 @@ function useOpenRouterUserCatalog(provider: CustomProvider, catalogUrl: URL, api
     // public URL.
     catalogUrl.pathname = "/api/v1/models/user";
   }
+  if (
+    provider.id === "openrouter"
+    && catalogUrl.hostname === "openrouter.ai"
+    && !catalogUrl.searchParams.has("output_modalities")
+  ) {
+    // OpenRouter's catalogue defaults to text-output models only, which
+    // hides the JEV Decisions API models (output modality `decisions`).
+    // Request every modality; `openRouterModelSupported` still keeps
+    // non-text entries out of the chat pickers.
+    catalogUrl.searchParams.set("output_modalities", "all");
+  }
 }
 
 function catalogRequest(provider: CustomProvider): { url: string; headers: Record<string, string> } {
@@ -206,6 +217,19 @@ function providerModelId(providerId: string, remoteId: string): string {
   return `${providerId}/${remoteId}`;
 }
 
+/** Extract output modalities from OpenRouter raw model metadata. */
+function extractOutputModalities(raw: any): string[] | undefined {
+  if (Array.isArray(raw?.architecture?.output_modalities)) {
+    return raw.architecture.output_modalities;
+  }
+  if (typeof raw?.architecture?.modality === "string") {
+    // Modality format: "text->text", "text->decisions", etc.
+    const parts = raw.architecture.modality.split("->");
+    return parts.length > 1 ? [parts[parts.length - 1]] : undefined;
+  }
+  return undefined;
+}
+
 /** Direct twin of `discoverProviderModels` (llmProviders.ts) for the
  * `customProvider` this app always has -- see this file's own top doc
  * comment for what's intentionally not ported (pi-ai metadata
@@ -261,6 +285,9 @@ export async function discoverProviderModelsDirect(provider: CustomProvider): Pr
         : raw?.capabilities?.image_input?.supported === true
           ? ["text", "image"]
           : (raw?.architecture?.input_modalities || raw?.supported_input_modalities || ["text"]).filter((item: string) => item === "text" || item === "image");
+      const outputModalities = provider.id === "openrouter"
+        ? extractOutputModalities(raw)
+        : undefined;
       return {
         id: providerModelId(provider.id, remoteId),
         remoteId,
@@ -269,6 +296,7 @@ export async function discoverProviderModelsDirect(provider: CustomProvider): Pr
         baseUrl: providerBaseUrl,
         supported,
         capabilities,
+        outputModalities,
         reasoning: inferredReasoning,
         input: inferredInput,
         contextWindow: raw?.context_length || raw?.limits?.max_input_tokens || raw?.max_input_tokens,

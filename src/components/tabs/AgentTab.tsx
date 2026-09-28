@@ -22,6 +22,17 @@ import { AgentChatSaveQueue, readModifiedFiles } from "../../services/agentChatP
 import { AgentChatResponseStream } from "../../services/agentChatResponseStream";
 import { buildAttachmentContext } from "../../services/contextAttachmentService";
 import type { TabOfType } from "../../tabs/types";
+import { executionObservability } from "../../observability/executionStore";
+import { jevSelectionRecord } from "../../observability/modelSelectionRecord";
+import {
+  AUTO_MODEL_ID,
+  AUTO_LEVEL_LABELS,
+  resolveLevelCandidates,
+  type LevelCandidates,
+  selectIntelligentModel,
+  findOpenRouterJevProvider,
+  IntelligentModelSelectionError,
+} from "../../services/intelligentModelSelector";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -52,6 +63,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const activeSkillId = useWorkspaceStore((state) => state.activeSkillId);
   const setActiveSkill = useWorkspaceStore((state) => state.setActiveSkill);
   const setAgentTabBusy = useWorkspaceStore((state) => state.setAgentTabBusy);
+  const intelligentModelSelectionSettings = useWorkspaceStore(
+    (state) => state.intelligentModelSelectionSettings,
+  );
 
   const [selectedModel, setSelectedModel] = useState(activeModel);
   const [selectedSkillId, setSelectedSkillId] = useState<string>(activeSkillId || DEFAULT_SKILL_ID);
@@ -92,12 +106,32 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const lastUserMessageIdRef = useRef<string | null>(null);
   const lastConsoleMessageIdRef = useRef<string | null>(null);
 
-  const { options: modelOptions, unauthenticatedProviders } = useSelectableModels(
+  const { options: baseModelOptions, unauthenticatedProviders } = useSelectableModels(
     customProviders,
     providerStatus,
     activeCustomProviderId,
   );
-  const modelPlaceholder = modelOptions.length === 0 && unauthenticatedProviders.length > 0
+
+  // Build model options including AUTO if intelligent selection is enabled
+  const modelOptions = useCallback(() => {
+    if (!intelligentModelSelectionSettings.enabled) return baseModelOptions;
+    if (!findOpenRouterJevProvider(customProviders, intelligentModelSelectionSettings.jevModelId)) {
+      return baseModelOptions;
+    }
+    const { missing } = resolveLevelCandidates(
+      customProviders,
+      providerStatus,
+      activeCustomProviderId,
+      intelligentModelSelectionSettings.levelModels,
+    );
+    if (missing.length > 0) return baseModelOptions;
+    return [
+      { id: AUTO_MODEL_ID, name: "AUTO — Intelligent model selection" },
+      ...baseModelOptions,
+    ];
+  }, [activeCustomProviderId, baseModelOptions, customProviders, intelligentModelSelectionSettings, providerStatus]);
+
+  const modelPlaceholder = baseModelOptions.length === 0 && unauthenticatedProviders.length > 0
     ? `Sign in to ${unauthenticatedProviders.map((p) => p.name).join(", ")} to see more models`
     : "Select model";
 
@@ -109,11 +143,12 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   // when the global activeModel changes (e.g. from LlmSetupTab, the
   // canonical setter), this still re-derives selectedModel from it.
   useEffect(() => {
-    const nextModel = modelOptions.some((option) => option.id === activeModel)
+    const currentOptions = modelOptions();
+    const nextModel = currentOptions.some((option) => option.id === activeModel)
       ? activeModel
-      : modelOptions[0]?.id || "";
+      : currentOptions[0]?.id || "";
     setSelectedModel(nextModel);
-  }, [activeCustomProviderId, activeModel, customProviders, providerStatus]);
+  }, [activeCustomProviderId, activeModel, customProviders, providerStatus, intelligentModelSelectionSettings, modelOptions]);
 
   useEffect(() => {
     // Always ensure a skill is selected. Resolution order:
@@ -391,11 +426,71 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const currentProviders = useWorkspaceStore.getState().customProviders;
     const currentActiveProviderId = useWorkspaceStore.getState().activeCustomProviderId;
     const currentProviderStatus = useWorkspaceStore.getState().providerStatus;
+
+    // Resolve AUTO to a concrete model before execution
+    let concreteModelId = selectedModel;
+    if (selectedModel === AUTO_MODEL_ID) {
+      setStreamingLabel("Selecting the best model…");
+      const jevProvider = findOpenRouterJevProvider(currentProviders, intelligentModelSelectionSettings.jevModelId);
+      if (!jevProvider) {
+        addAgentMessage(tab.id, {
+          id: `msg_${Date.now()}`,
+          role: "assistant" as const,
+          content: "OpenRouter JEV provider not available for intelligent model selection.",
+          timestamp: new Date().toISOString(),
+        });
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        notify("Model Selection Failed", "OpenRouter provider is not configured.", "error");
+        return;
+      }
+
+      const { candidates, missing } = resolveLevelCandidates(
+        currentProviders,
+        currentProviderStatus,
+        currentActiveProviderId,
+        intelligentModelSelectionSettings.levelModels,
+      );
+      try {
+        if (missing.length > 0) {
+          throw new IntelligentModelSelectionError(
+            `No available model is set for ${missing.map((level) => AUTO_LEVEL_LABELS[level]).join(", ")}. Choose one in Settings → Intelligence.`,
+          );
+        }
+        const selection = await selectIntelligentModel(
+          messageToSend,
+          jevProvider,
+          candidates as LevelCandidates,
+          intelligentModelSelectionSettings.jevModelId,
+          (trace) => executionObservability.recordStandalone(
+            jevSelectionRecord(trace, { tabId: tab.id, workspaceRoot: wsRootPath || undefined }),
+          ),
+        );
+        concreteModelId = selection.candidate.model.id;
+        const confidence = (selection.confidence * 100).toFixed(0);
+        setStreamingLabel(`${AUTO_LEVEL_LABELS[selection.level]} task${selection.escalated ? " (stepped up)" : ""} · ${selection.candidate.model.name} (${confidence}% confidence)…`);
+      } catch (error) {
+        const errorMessage = error instanceof IntelligentModelSelectionError
+          ? error.message
+          : "An unexpected error occurred during model selection.";
+        addAgentMessage(tab.id, {
+          id: `msg_${Date.now()}`,
+          role: "assistant" as const,
+          content: `Model selection error: ${errorMessage}\n\nPlease select a model manually.`,
+          timestamp: new Date().toISOString(),
+        });
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        notify("Model Selection Failed", errorMessage, "error");
+        return;
+      }
+    }
+
     const resolution = resolveExecutionProvider(
       currentProviders,
       currentProviderStatus,
       currentActiveProviderId,
-      selectedModel,
+      concreteModelId,
     );
     if (!resolution.ok) {
       addAgentMessage(tab.id, {
@@ -438,7 +533,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       {
         tabId: tab.id,
         message: messageToSend,
-        model: selectedModel,
+        model: concreteModelId,
         workspaceRoot: wsRootPath,
         chatHistory: chatHistory
           .filter((m: any) => m.id !== userMessage.id && (m.role === "user" || m.role === "assistant"))
@@ -547,8 +642,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         files.forEach((filePath) => {
           const path = filePath.startsWith("/") || !rootPath
             ? filePath
-            : `${rootPath.replace(/[\\/]$/, "")}/${filePath.replace(/^\.\//, "")}`;
-          const fileName = path.split(/[\\/]/).pop() || path;
+            : `${rootPath.replace(/[\\\/]$/, "")}/${filePath.replace(/^\.\//, "")}`;
+          const fileName = path.split(/[\\\/]/).pop() || path;
           openTab({ type: "file", path, title: fileName });
         });
         // Refresh after opening the returned files.  The agent may have
@@ -615,7 +710,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   };
 
   const handleOpenModifiedFile = (filePath: string) => {
-    const fileName = filePath.split(/[\\/]/).pop() || filePath;
+    const fileName = filePath.split(/[\\\/]/).pop() || filePath;
     openTab({ type: "file", path: filePath, title: fileName });
   };
 
@@ -634,6 +729,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       notify("Chat not saved", "Could not save this conversation. Please check workspace access.", "error");
     }
   };
+
+  const currentModelOptions = modelOptions();
 
   return (
     <div className="w-full h-full flex bg-[var(--bg-app)] text-[var(--text-normal)] font-mono relative terminal-theme-tab">
@@ -739,9 +836,12 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               value={selectedModel}
               onChange={(model) => {
                 setSelectedModel(model);
-                setActiveModel(model);
+                // Don't update global activeModel for AUTO; keep it local to this tab
+                if (model !== AUTO_MODEL_ID) {
+                  setActiveModel(model);
+                }
               }}
-              options={modelOptions}
+              options={currentModelOptions}
               placeholder={modelPlaceholder}
               className="w-64"
             />

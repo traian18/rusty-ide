@@ -33,7 +33,7 @@ describe("OpenRouter account-aware model discovery", () => {
 
   it("uses the authenticated user catalog so guardrails and privacy settings filter models", async () => {
     globalThis.fetch = vi.fn(async (input, init) => {
-      expect(String(input)).toBe("https://openrouter.ai/api/v1/models/user");
+      expect(String(input)).toBe("https://openrouter.ai/api/v1/models/user?output_modalities=all");
       expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer or-key");
       return emptyCatalog();
     }) as typeof fetch;
@@ -43,7 +43,7 @@ describe("OpenRouter account-aware model discovery", () => {
 
   it("keeps the public catalog when no API key is available", async () => {
     globalThis.fetch = vi.fn(async (input) => {
-      expect(String(input)).toBe("https://openrouter.ai/api/v1/models");
+      expect(String(input)).toBe("https://openrouter.ai/api/v1/models?output_modalities=all");
       return emptyCatalog();
     }) as typeof fetch;
 
