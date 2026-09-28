@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
+import { snapshotJevDecisionTool, snapshotJevRiskReview } from "../../services/jevDecisionToolSnapshot";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
 import { useWorkspaceStore, AgentMessage } from "../../store";
 import { resolveSkill, toSkillData, DEFAULT_SKILL_ID } from "../../config/skillDefinitions";
@@ -33,6 +34,7 @@ import {
   findOpenRouterJevProvider,
   IntelligentModelSelectionError,
 } from "../../services/intelligentModelSelector";
+import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -429,6 +431,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
 
     // Resolve AUTO to a concrete model before execution
     let concreteModelId = selectedModel;
+    // With AUTO, JEV decisions can later step the run up to a higher level's model.
+    let autoStepUp: DecideStepUpConfig | undefined;
     if (selectedModel === AUTO_MODEL_ID) {
       setStreamingLabel("Selecting the best model…");
       const jevProvider = findOpenRouterJevProvider(currentProviders, intelligentModelSelectionSettings.jevModelId);
@@ -467,6 +471,14 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           ),
         );
         concreteModelId = selection.candidate.model.id;
+        const levelCandidates = candidates as LevelCandidates;
+        autoStepUp = {
+          level: selection.level,
+          levels: Object.fromEntries(Object.entries(levelCandidates).map(([level, candidate]) => [
+            level,
+            { providerId: candidate.provider.id, model: candidate.model.id, name: candidate.model.name },
+          ])),
+        };
         const confidence = (selection.confidence * 100).toFixed(0);
         setStreamingLabel(`${AUTO_LEVEL_LABELS[selection.level]} task${selection.escalated ? " (stepped up)" : ""} · ${selection.candidate.model.name} (${confidence}% confidence)…`);
       } catch (error) {
@@ -552,6 +564,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         vfsOnly: false,
         lspSettings: { ...useWorkspaceStore.getState().lspSettings, enabled: false },
         smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
+        jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState(), autoStepUp),
+        jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
       },
       host,
       (event) => {

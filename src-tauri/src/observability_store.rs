@@ -213,7 +213,7 @@ pub async fn append_at(
         Stream::TrajectoryIndex => {
             let dir = base.join("trajectories");
             ensure_dir(&dir).await?;
-            if lines.iter().any(|l| l.get("id").and_then(Value::as_str).map_or(true, |id| !valid_run_id(id))) {
+            if lines.iter().any(|l| l.get("id").and_then(Value::as_str).is_none_or(|id| !valid_run_id(id))) {
                 return Err("trajectory index line has an invalid id".into());
             }
             let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
@@ -266,7 +266,7 @@ pub async fn load_at(
         while let Ok(Some(entry)) = entries.next_entry().await {
             let name = entry.file_name().to_string_lossy().to_string();
             if let Some(day) = name.strip_suffix(".jsonl") {
-                if day != "tombstones" && since_day.as_deref().map_or(true, |since| day >= since) {
+                if day != "tombstones" && since_day.as_deref().is_none_or(|since| day >= since) {
                     days.push(day.to_string());
                 }
             }
@@ -281,7 +281,7 @@ pub async fn load_at(
         .into_iter()
         .filter(|record| {
             let id = record.get("id").and_then(Value::as_str).unwrap_or_default();
-            !tombstones.executions.contains(id) && session_of(record).map_or(true, |s| !tombstones.sessions.contains(s))
+            !tombstones.executions.contains(id) && session_of(record).is_none_or(|s| !tombstones.sessions.contains(s))
         })
         .collect();
     executions.sort_by(|a, b| {
@@ -297,8 +297,8 @@ pub async fn load_at(
         .filter(|run| {
             let id = run.get("id").and_then(Value::as_str).unwrap_or_default();
             !run_tombstones.runs.contains(id)
-                && session_of(run).map_or(true, |s| !tombstones.sessions.contains(s))
-                && since_day.as_deref().map_or(true, |since| day_of(run, "startedAt").map_or(true, |d| d.as_str() >= since))
+                && session_of(run).is_none_or(|s| !tombstones.sessions.contains(s))
+                && since_day.as_deref().is_none_or(|since| day_of(run, "startedAt").is_none_or(|d| d.as_str() >= since))
         })
         .collect();
     trajectories.sort_by(|a, b| {

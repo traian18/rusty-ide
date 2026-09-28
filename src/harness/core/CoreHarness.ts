@@ -30,8 +30,9 @@ import type {
 import type { HarnessControlPlane, UsageRecordSample } from "../contract/controlPlane";
 import { CoreEngineClient, type BridgeEvent, type CoreEngine, type HostToolOutcome } from "./engine/CoreEngineClient";
 import { isExecutionError, type ExecutionError, type ExecutionEvent, type ExecutionRequest, type ExecutionResult } from "./engine/ExecutionProtocol";
-import type { SessionRecipe } from "./SessionRecipe";
+import type { ExecutionParams, SessionRecipe } from "./SessionRecipe";
 import { createTranscript, type Transcript } from "./transcript";
+import { toolDecisionObserver } from "./toolDecisionObserver";
 import { executionObservability } from "../../observability/executionStore";
 import type { ExecutionOrigin } from "../../observability/types";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../contract/observability";
@@ -79,7 +80,21 @@ function toExecutionError(error: unknown): ExecutionError {
  * (e.g. which model actually executed it) to Tool Execution Observability;
  * CoreHarness always supplies it, so it is optional only for direct calls
  * such as tests. */
-export type HostToolHandler = (args: unknown, signal: AbortSignal, observer?: ToolExecutionObserver) => Promise<HostToolOutcome>;
+export type HostToolHandler = (args: unknown, signal: AbortSignal, observer?: ToolExecutionObserver, call?: HostToolCall) => Promise<HostToolOutcome>;
+
+/** Which tool call a handler is serving, for a tool that needs the calling
+ * agent's own context (e.g. `decide` reads the agent's earlier steps). */
+export interface HostToolCall {
+  /** The IDE run id, as the `ToolDecisionObserver` sees it. */
+  runId: string;
+  sessionId: string;
+  /** The model's tool call id, matching `ToolCallRequested.call.id`. */
+  toolCallId?: string;
+  /** Updates this session's execution params (e.g. its model). Applies
+   * from the session's next model request; await it before returning the
+   * tool result so that request already uses it. */
+  configureExecution(params: ExecutionParams): Promise<void>;
+}
 
 /** Per-run mutable scratch space, fresh for every `run()` call and shared
  * across a definition's own `hostTools`/`toResult`/`onCompleted` calls --
@@ -332,6 +347,7 @@ export class CoreHarness implements AgentHarness {
       settled = true;
       controller.abort();
       observe(() => executionObservability.finishRun(runId, outcome));
+      observe(() => toolDecisionObserver()?.endRun(runId));
       resolveDone(outcome);
       if (sessionId) void this.engine.closeSession(sessionId).catch(() => {});
     };
@@ -468,7 +484,12 @@ export class CoreHarness implements AgentHarness {
       // hostTools's own doc comment on CoreCapabilityDefinition).
       const handler = getHostToolHandlers()[data.tool];
       if (handler) {
-        handler(data.input, controller.signal, usage.tool(sid, data.tool_call_id, data.tool))
+        handler(data.input, controller.signal, usage.tool(sid, data.tool_call_id, data.tool), {
+          runId,
+          sessionId: sid,
+          toolCallId: data.tool_call_id,
+          configureExecution: (params) => this.engine.mutate(sid, { type: "configure_execution", payload: { params } }),
+        })
           .then((outcome) => this.engine.hostToolResult(sid, data.call_id, outcome))
           .catch((error: unknown) => this.engine.hostToolResult(sid, data.call_id, { ok: false, error: errorMessage(error) }))
           .catch(() => {});
@@ -522,6 +543,7 @@ export class CoreHarness implements AgentHarness {
 
     const handleAgentEvent = (envelope: AgentEventEnvelope) => {
       observe(() => executionObservability.ingest(runId, envelope));
+      observe(() => toolDecisionObserver()?.observe(runId, envelope));
       const event = envelope.event as AgentEvent;
       if (settled) return;
       // Child terminal events belong to the child; they must not settle the
@@ -661,6 +683,9 @@ export class CoreHarness implements AgentHarness {
         }
         sessionId = id;
         observe(() => executionObservability.bindSession(runId, id, definition.usageContext(input).model));
+        observe(() => toolDecisionObserver()?.beginSession(runId, id, {
+          capability, prompt: definition.promptText!(input), model: definition.usageContext(input).model,
+        }));
         await this.engine.subscribe(id, handleBridgeEvent);
         resolveStarted();
         await this.engine.mutate(id, { type: "prompt", payload: { text: definition.promptText!(input), attachments: [] } });
@@ -711,6 +736,7 @@ export class CoreHarness implements AgentHarness {
       if (settled) return;
       settled = true;
       observe(() => executionObservability.finishRun(runId, outcome));
+      observe(() => toolDecisionObserver()?.endRun(runId));
       resolveDone(outcome);
     };
 
@@ -738,6 +764,7 @@ export class CoreHarness implements AgentHarness {
         toolObserver: usage.tool,
         signal: controller.signal,
         ideRunId: runId,
+        capability: definition.capability,
       });
 
     void (async () => {
@@ -797,8 +824,9 @@ export class CoreHarness implements AgentHarness {
     toolObserver?: (sessionId: string, toolCallId: string | undefined, toolName: string) => ToolExecutionObserver;
     signal: AbortSignal;
     ideRunId: string;
+    capability: CapabilityName;
   }): Promise<Transcript> {
-    const { recipe, promptText, hostTools, host, customProvider, onToken, onLog, onUsage, toolObserver, signal, ideRunId } = options;
+    const { recipe, promptText, hostTools, host, customProvider, onToken, onLog, onUsage, toolObserver, signal, ideRunId, capability } = options;
     const transcript = createTranscript();
     let sessionId: string | undefined;
     let settled = false;
@@ -839,7 +867,12 @@ export class CoreHarness implements AgentHarness {
         }
         const handler = hostTools[data.tool];
         if (handler) {
-          handler(data.input, signal, toolObserver?.(sid, data.tool_call_id, data.tool) ?? NOOP_TOOL_EXECUTION_OBSERVER)
+          handler(data.input, signal, toolObserver?.(sid, data.tool_call_id, data.tool) ?? NOOP_TOOL_EXECUTION_OBSERVER, {
+            runId: ideRunId,
+            sessionId: sid,
+            toolCallId: data.tool_call_id,
+            configureExecution: (params) => this.engine.mutate(sid, { type: "configure_execution", payload: { params } }),
+          })
             .then((outcome) => this.engine.hostToolResult(sid, data.call_id, outcome))
             .catch((error: unknown) => this.engine.hostToolResult(sid, data.call_id, { ok: false, error: errorMessage(error) }))
             .catch(() => {});
@@ -906,6 +939,7 @@ export class CoreHarness implements AgentHarness {
 
       const handleAgentEvent = (envelope: AgentEventEnvelope) => {
         observe(() => executionObservability.ingest(ideRunId, envelope));
+        observe(() => toolDecisionObserver()?.observe(ideRunId, envelope));
         const event = envelope.event as AgentEvent;
         if ("AssistantTextDelta" in event) {
           transcript.push(event.AssistantTextDelta.message_id, event.AssistantTextDelta.delta);
@@ -990,6 +1024,9 @@ export class CoreHarness implements AgentHarness {
           }
           sessionId = id;
           observe(() => executionObservability.bindSession(ideRunId, id, recipe.execution_params?.model));
+          observe(() => toolDecisionObserver()?.beginSession(ideRunId, id, {
+            capability, prompt: promptText, model: recipe.execution_params?.model ?? undefined,
+          }));
           await this.engine.subscribe(id, handleBridgeEvent);
           await this.engine.mutate(id, { type: "prompt", payload: { text: promptText, attachments: [] } });
         } catch (error: unknown) {

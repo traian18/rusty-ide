@@ -1,6 +1,8 @@
 import type { ExecuteNodeInput } from "../../contract";
 import type { CoreCapabilityDefinition } from "../CoreHarness";
 import { executeNodeDefinition } from "./execute_node";
+import { applyDecideToolHandler, applyDecideToolToRecipe } from "./decideTool";
+import { createRiskReview } from "./riskReview";
 import { applySmartToolHandlers, applySmartToolsToRecipe, type SmartToolDescriptions } from "./smartTools";
 
 const DESCRIPTIONS: SmartToolDescriptions = {
@@ -18,8 +20,28 @@ const DESCRIPTIONS: SmartToolDescriptions = {
   },
 };
 
+/** The base handlers, with risky writes reviewed by JEV when the run enables it. */
+function reviewedHostTools(...[input, host, ctx, onEvent]: Parameters<NonNullable<typeof executeNodeDefinition.hostTools>>) {
+  if (!input.jevRiskReview) return executeNodeDefinition.hostTools!(input, host, ctx, onEvent);
+  const review = createRiskReview({
+    config: input.jevRiskReview,
+    userRequest: input.instructions,
+    capability: "execute_node",
+    model: input.model,
+    workspaceRoot: input.workspaceRoot,
+    inputFiles: input.inputFiles,
+  });
+  return review.wrap(executeNodeDefinition.hostTools!(input, review.host(host), ctx, onEvent), host);
+}
+
 export const smartExecuteNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
   ...executeNodeDefinition,
-  recipe: (input: ExecuteNodeInput) => applySmartToolsToRecipe(executeNodeDefinition.recipe!(input), input, DESCRIPTIONS),
-  hostTools: (input, host, ctx, onEvent) => applySmartToolHandlers(executeNodeDefinition.hostTools!(input, host, ctx, onEvent), input, host),
+  recipe: (input: ExecuteNodeInput) => applyDecideToolToRecipe(
+    applySmartToolsToRecipe(executeNodeDefinition.recipe!(input), input, DESCRIPTIONS),
+    input.jevDecisionTool,
+  ),
+  hostTools: (input, host, ctx, onEvent) => applyDecideToolHandler(
+    applySmartToolHandlers(reviewedHostTools(input, host, ctx, onEvent), input, host),
+    { config: input.jevDecisionTool, userRequest: input.instructions, capability: "execute_node", model: input.model, host, ctx },
+  ),
 };

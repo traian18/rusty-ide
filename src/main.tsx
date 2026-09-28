@@ -7,6 +7,7 @@ import { TypographyRuntime } from "./components/runtime/TypographyRuntime";
 import { applyThemeProperties, resolveTheme } from "./theme";
 import { applyTypographyProperties } from "./preferences/typography";
 import { useWorkspaceStore } from "./store";
+import { installJevShadowGate } from "./services/installJevShadowGate";
 import "./index.css";
 
 // Slices initialize activeThemeId/typographyPreferences/keyboardShortcuts
@@ -22,6 +23,7 @@ store.hydrateTypography();
 store.hydrateShortcuts();
 store.hydrateEditorFileSafety();
 store.hydrateTabs();
+installJevShadowGate();
 
 const hydratedState = useWorkspaceStore.getState();
 applyThemeProperties(resolveTheme(hydratedState.activeThemeId));

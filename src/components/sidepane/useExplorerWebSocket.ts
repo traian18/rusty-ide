@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
+import { snapshotJevDecisionTool, snapshotJevRiskReview } from "../../services/jevDecisionToolSnapshot";
 import { useWorkspaceStore } from "../../store";
 import { VfsRegistry } from "../../services/vfs";
 import { notify } from "../../notificationStore";
@@ -487,6 +488,8 @@ export const useExplorerWebSocket = (selectedNode: any) => {
         vfsOnly: isTaskNodeChat,
         lspSettings: { ...useWorkspaceStore.getState().lspSettings, enabled: false },
         smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
+        jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState()),
+        jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
       },
       host,
       (event) => {

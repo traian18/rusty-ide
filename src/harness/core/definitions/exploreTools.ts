@@ -233,13 +233,17 @@ export function readTool(workspaceRoot: string, host: RunHost, inputFiles?: unkn
  * latent sidecar bug rather than intentional behavior -- a failed write
  * changed nothing, so reporting it as modified would show a bogus diff
  * for an unchanged file -- and is fixed here rather than replicated. */
+/** The absolute path a `write_file` call with these arguments writes to. */
+export function resolveWriteTarget(workspaceRoot: string, args: unknown, inputFiles?: unknown): string {
+  const filePath = String((args as { path?: unknown } | undefined)?.path ?? "");
+  return resolveWorkspacePath(workspaceRoot, resolveWithInputFiles(filePath, inputFiles));
+}
+
 export function writeTool(workspaceRoot: string, host: RunHost, modifiedFiles: Set<string>, inputFiles?: unknown): HostToolHandler {
   return async (args, signal) => {
     const input = args as { path?: unknown; content?: unknown } | undefined;
-    const filePath = String(input?.path ?? "");
     const content = String(input?.content ?? "");
-    const targetPath = resolveWithInputFiles(filePath, inputFiles);
-    const absolute = resolveWorkspacePath(workspaceRoot, targetPath);
+    const absolute = resolveWriteTarget(workspaceRoot, args, inputFiles);
     try {
       await host.writeFile(absolute, content, signal);
       modifiedFiles.add(absolute);

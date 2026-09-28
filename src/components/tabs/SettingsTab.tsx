@@ -6,6 +6,9 @@ import { EditorFileSafetySettings } from "../settings/EditorFileSafetySettings";
 import { WebSearchSettings } from "../settings/WebSearchSettings";
 import { SmartReadSettings, SmartSearchSettings, SmartWebExtractSettings } from "../settings/SmartReadSettings";
 import { IntelligentModelSelectionSettings } from "../settings/IntelligentModelSelectionSettings";
+import { JevDecisionShadowSettings } from "../settings/JevDecisionShadowSettings";
+import { JevDecisionToolSettings } from "../settings/JevDecisionToolSettings";
+import { JevRiskReviewSettings } from "../settings/JevRiskReviewSettings";
 import { KeyboardShortcutsSettings } from "../settings/KeyboardShortcutsSettings";
 import { UpdateSettings } from "../settings/UpdateSettings";
 import { StorageSettings } from "../settings/StorageSettings";
@@ -39,6 +42,9 @@ const CategorySettings: React.FC<{ categoryId: SettingsCategoryId }> = ({ catego
     case "intelligence":
       return <>
         <div className={styles.panel}><IntelligentModelSelectionSettings /></div>
+        <div className={styles.panel}><JevDecisionToolSettings /></div>
+        <div className={styles.panel}><JevRiskReviewSettings /></div>
+        <div className={styles.panel}><JevDecisionShadowSettings /></div>
         <div className={styles.panel}><WebSearchSettings /></div>
         <div className={styles.panel}><SmartReadSettings /></div>
         <div className={styles.panel}><SmartSearchSettings /></div>

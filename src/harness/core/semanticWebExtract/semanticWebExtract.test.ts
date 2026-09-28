@@ -21,7 +21,7 @@ function selector(ranges: unknown, onRequest?: (request: SelectorModelRequest) =
   return {
     invoke: vi.fn(async (request: SelectorModelRequest) => {
       onRequest?.(request);
-      request.onUsage?.({ input_tokens: 70, output_tokens: 9 });
+      request.onUsage?.({ input: 70, output: 9 });
       return JSON.stringify({ ranges });
     }),
   };
@@ -82,7 +82,7 @@ describe("semanticWebExtract", () => {
     const observer: ToolExecutionObserver = { executedBy: vi.fn(), usage: vi.fn(), step: vi.fn() };
     await semanticWebExtract(options({ observer, invoker: selector([{ startLine: 5, endLine: 5 }]) }));
 
-    expect(observer.usage).toHaveBeenCalledWith({ input_tokens: 70, output_tokens: 9 });
+    expect(observer.usage).toHaveBeenCalledWith({ input: 70, output: 9 });
     expect(vi.mocked(observer.step).mock.calls.map(([, message]) => message)).toEqual(["page fetched", "selector ranges accepted", "excerpts returned"]);
   });
 

@@ -451,9 +451,12 @@ describe("ToolExecutionPanel", () => {
 
     // Run 1: Oldest run
     const timeRun1 = new Date(1700000000000).toISOString();
-    trajectories.start("run-1", { surface: "agent", displayLabel: "Run 1" }, {
+    trajectories.start("run-1", { surface: "agent-tab", displayLabel: "Run 1" }, {
       capability: "agent_chat",
       requestPrompt: "First task: read documentation",
+      inputKeys: [],
+      fileReferences: [],
+      mcpServers: [],
     });
     // Override startedAt to guarantee deterministic timestamp
     (trajectories.getSnapshot().runs.find(r => r.id === "run-1") as any).startedAt = timeRun1;
@@ -475,13 +478,16 @@ describe("ToolExecutionPanel", () => {
       timestamp: timeRun1,
       run_id: "run-1",
     });
-    executionObservability.finishRun("run-1", { status: "completed" });
+    executionObservability.finishRun("run-1", { status: "completed", result: { response: "", modifiedFiles: [], subagents: [] } });
 
     // Run 2: Middle run (same session)
     const timeRun2 = new Date(1700000060000).toISOString();
-    trajectories.start("run-2", { surface: "agent", displayLabel: "Run 2" }, {
+    trajectories.start("run-2", { surface: "agent-tab", displayLabel: "Run 2" }, {
       capability: "agent_chat",
       requestPrompt: "Second task: write unit test",
+      inputKeys: [],
+      fileReferences: [],
+      mcpServers: [],
     });
     (trajectories.getSnapshot().runs.find(r => r.id === "run-2") as any).startedAt = timeRun2;
     executionObservability.startRun("run-2", "agent_chat", {
@@ -502,13 +508,16 @@ describe("ToolExecutionPanel", () => {
       timestamp: timeRun2,
       run_id: "run-2",
     });
-    executionObservability.finishRun("run-2", { status: "completed" });
+    executionObservability.finishRun("run-2", { status: "completed", result: { response: "", modifiedFiles: [], subagents: [] } });
 
     // Run 3: Newest run
     const timeRun3 = new Date(1700000120000).toISOString();
-    trajectories.start("run-3", { surface: "agent", displayLabel: "Run 3" }, {
+    trajectories.start("run-3", { surface: "agent-tab", displayLabel: "Run 3" }, {
       capability: "agent_chat",
       requestPrompt: "Third task: run integration suite",
+      inputKeys: [],
+      fileReferences: [],
+      mcpServers: [],
     });
     (trajectories.getSnapshot().runs.find(r => r.id === "run-3") as any).startedAt = timeRun3;
     executionObservability.startRun("run-3", "agent_chat", {
@@ -529,7 +538,7 @@ describe("ToolExecutionPanel", () => {
       timestamp: timeRun3,
       run_id: "run-3",
     });
-    executionObservability.finishRun("run-3", { status: "completed" });
+    executionObservability.finishRun("run-3", { status: "completed", result: { response: "", modifiedFiles: [], subagents: [] } });
 
     try {
       await act(async () => {

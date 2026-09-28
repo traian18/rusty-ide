@@ -27,8 +27,8 @@ describe("callSummary", () => {
         toolName: "run_command",
         status: "succeeded",
         requestedAt: new Date().toISOString(),
-        origin: { surface: "agent", displayLabel: "Agent" },
-        context: { capability: "agent_chat" },
+        origin: { surface: "agent-tab", displayLabel: "Agent" },
+        context: { capability: "agent_chat", inputKeys: [], fileReferences: [], mcpServers: [] },
         arguments: {
           CommandLine: "cargo test --test leak_test -- --nocapture",
           Cwd: "/workspace/rusty",
@@ -53,8 +53,8 @@ describe("callSummary", () => {
         toolName: "run_command",
         status: "succeeded",
         requestedAt: new Date().toISOString(),
-        origin: { surface: "agent", displayLabel: "Agent" },
-        context: { capability: "agent_chat" },
+        origin: { surface: "agent-tab", displayLabel: "Agent" },
+        context: { capability: "agent_chat", inputKeys: [], fileReferences: [], mcpServers: [] },
         arguments: {
           CommandLine: "git status",
         },

@@ -266,7 +266,7 @@ fn restore_rusty_stash_for_branch(root_dir: &str, branch: &str) -> Result<bool, 
         return Ok(false);
     };
     let output = Command::new("git")
-        .args(&["stash", "pop", &stash_ref])
+        .args(["stash", "pop", &stash_ref])
         .current_dir(root_dir)
         .output()
         .map_err(|e| GitError {
@@ -297,7 +297,7 @@ fn checkout_branch(root_dir: &str, branch_name: &str) -> Result<(), GitError> {
     let args: Vec<&str> = if branch_name.starts_with("origin/") {
         let local_name = branch_name.strip_prefix("origin/").unwrap_or(branch_name);
         let local_exists = Command::new("git")
-            .args(&["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", local_name)])
+            .args(["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", local_name)])
             .current_dir(root_dir)
             .output()
             .map(|o| o.status.success())
@@ -317,7 +317,7 @@ fn checkout_branch(root_dir: &str, branch_name: &str) -> Result<(), GitError> {
 /// Helper function to check if the given directory contains a git work tree.
 fn check_is_git_repo(root_dir: &str) -> bool {
     let output = Command::new("git")
-        .args(&["rev-parse", "--is-inside-work-tree"])
+        .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(root_dir)
         .output();
     
@@ -355,7 +355,7 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
 
     // 1. Get the current active branch name
     let branch_output = Command::new("git")
-        .args(&["rev-parse", "--abbrev-ref", "HEAD"])
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(&root_dir)
         .output();
         
@@ -366,7 +366,7 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
         } else {
             // Check if it's a new repo that hasn't made its first commit yet
             let show_branch = Command::new("git")
-                .args(&["branch", "--show-current"])
+                .args(["branch", "--show-current"])
                 .current_dir(&root_dir)
                 .output();
             if let Ok(sb_out) = show_branch {
@@ -389,7 +389,7 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
     // rename entirely: `R  old -> new` was sliced at a fixed offset and the
     // whole `"old -> new"` string, arrow included, was stored as one path.
     let status_output = Command::new("git")
-        .args(&["status", "--porcelain=v1", "-u", "-z"])
+        .args(["status", "--porcelain=v1", "-u", "-z"])
         .current_dir(&root_dir)
         .output()
         .map_err(|e| GitError {
@@ -519,7 +519,7 @@ pub async fn git_unstage_file(root_dir: String, file_path: String) -> Result<(),
 
     // Determine if HEAD commit exists
     let has_head = Command::new("git")
-        .args(&["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .current_dir(&root_dir)
         .output()
         .map(|o| o.status.success())
@@ -569,7 +569,7 @@ pub async fn git_add_to_gitignore(root_dir: String, file_path: String) -> Result
     // its future edits — untrack it (keeping the file on disk) so it fully
     // drops out of status.
     let is_tracked = Command::new("git")
-        .args(&["ls-files", "--error-unmatch", &relative])
+        .args(["ls-files", "--error-unmatch", &relative])
         .current_dir(&root_dir)
         .output()
         .map(|o| o.status.success())
@@ -591,7 +591,7 @@ pub async fn git_discard_changes(root_dir: String, file_path: String) -> Result<
 
     // Try traditional checkout first
     let output = Command::new("git")
-        .args(&["checkout", "--", &relative])
+        .args(["checkout", "--", &relative])
         .current_dir(&root_dir)
         .output();
 
@@ -603,7 +603,7 @@ pub async fn git_discard_changes(root_dir: String, file_path: String) -> Result<
     if !success {
         // Fallback to git restore
         let restore_output = Command::new("git")
-            .args(&["restore", &relative])
+            .args(["restore", &relative])
             .current_dir(&root_dir)
             .output();
 
@@ -616,7 +616,7 @@ pub async fn git_discard_changes(root_dir: String, file_path: String) -> Result<
             // Delete untracked files
             let path_buf = PathBuf::from(&file_path);
             if path_buf.exists() && !Command::new("git")
-                .args(&["ls-files", "--error-unmatch", &relative])
+                .args(["ls-files", "--error-unmatch", &relative])
                 .current_dir(&root_dir)
                 .output()
                 .map(|o| o.status.success())
@@ -659,7 +659,7 @@ pub async fn git_get_head_content(root_dir: String, file_path: String) -> Result
     let relative = relative_to_root(&root_dir, &file_path, "git_get_head_content")?;
 
     let output = Command::new("git")
-        .args(&["show", &format!("HEAD:{}", relative)])
+        .args(["show", &format!("HEAD:{}", relative)])
         .current_dir(&root_dir)
         .output();
 
@@ -877,7 +877,7 @@ pub async fn git_get_index_content(root_dir: String, file_path: String) -> Resul
     let relative = relative_to_root(&root_dir, &file_path, "git_get_index_content")?;
 
     let output = Command::new("git")
-        .args(&["show", &format!(":{}", relative)])
+        .args(["show", &format!(":{}", relative)])
         .current_dir(&root_dir)
         .output();
 
@@ -956,7 +956,7 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
 
     // 1. Find all local commits that are not present in any remote tracking branches (unpushed)
     let unpushed_output = Command::new("git")
-        .args(&["log", "--branches", "--not", "--remotes", "--format=%H"])
+        .args(["log", "--branches", "--not", "--remotes", "--format=%H"])
         .current_dir(&root_dir)
         .output();
     
@@ -986,7 +986,7 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
     // recorded so this checklist item isn't mistaken for skipped or
     // "fixed" by a redundant flag with no observable effect.
     let log_output = match Command::new("git")
-        .args(&[
+        .args([
             "log",
             "--format=%H|%P|%an|%cr|%s|%d",
             "--max-count=100",
@@ -1016,7 +1016,7 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
         let author = parts[2].trim().to_string();
         let date = parts[3].trim().to_string();
         let subject = parts[4].trim().to_string();
-        let decorations = parts.get(5).cloned().unwrap_or(&"").trim().to_string();
+        let decorations = parts.get(5).cloned().unwrap_or("").trim().to_string();
 
         let is_unpushed = unpushed_hashes.contains(&hash);
 
@@ -1103,7 +1103,7 @@ pub async fn git_get_file_content_at_rev(root_dir: String, revision: String, fil
     let relative = relative_to_root(&root_dir, &file_path, "git_get_file_content_at_rev")?;
 
     let output = Command::new("git")
-        .args(&["show", &format!("{}:{}", revision, relative)])
+        .args(["show", &format!("{}:{}", revision, relative)])
         .current_dir(&root_dir)
         .output();
 
@@ -1252,7 +1252,7 @@ pub async fn git_get_file_commit_history(root_dir: String, file_path: String) ->
         let author = parts[2].trim().to_string();
         let date = parts[3].trim().to_string();
         let subject = parts[4].trim().to_string();
-        let decorations = parts.get(5).cloned().unwrap_or(&"").trim().to_string();
+        let decorations = parts.get(5).cloned().unwrap_or("").trim().to_string();
 
         history.push(GitCommitInfo {
             hash,
@@ -1342,7 +1342,7 @@ pub struct SubmoduleState {
 /// output at all -- verified directly).
 fn classify_submodule_state(parent_root: &str, submodule_relative_path: &str) -> SubmoduleState {
     let output = Command::new("git")
-        .args(&["status", "--porcelain=v2", "-z", "--", submodule_relative_path])
+        .args(["status", "--porcelain=v2", "-z", "--", submodule_relative_path])
         .current_dir(parent_root)
         .output();
     let Ok(output) = output else { return SubmoduleState::default() };
@@ -1374,7 +1374,7 @@ fn classify_submodule_state(parent_root: &str, submodule_relative_path: &str) ->
 
 fn resolve_head_state(root_dir: &str) -> GitHeadState {
     let branch = Command::new("git")
-        .args(&["symbolic-ref", "--short", "-q", "HEAD"])
+        .args(["symbolic-ref", "--short", "-q", "HEAD"])
         .current_dir(root_dir)
         .output()
         .ok()
@@ -1383,7 +1383,7 @@ fn resolve_head_state(root_dir: &str) -> GitHeadState {
         .filter(|s| !s.is_empty());
 
     let oid = Command::new("git")
-        .args(&["rev-parse", "HEAD"])
+        .args(["rev-parse", "HEAD"])
         .current_dir(root_dir)
         .output()
         .ok()

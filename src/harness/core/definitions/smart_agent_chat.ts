@@ -1,6 +1,9 @@
 import type { AgentChatInput } from "../../contract";
+import type { CustomProvider } from "../../../store/types";
 import type { CoreCapabilityDefinition } from "../CoreHarness";
 import { agentChatDefinition } from "./agent_chat";
+import { applyDecideToolHandler, applyDecideToolToRecipe } from "./decideTool";
+import { createRiskReview } from "./riskReview";
 import { applySmartToolHandlers, applySmartToolsToRecipe, type SmartToolDescriptions } from "./smartTools";
 
 const DESCRIPTIONS: SmartToolDescriptions = {
@@ -18,8 +21,39 @@ const DESCRIPTIONS: SmartToolDescriptions = {
   },
 };
 
+/** The base handlers, with risky writes and commands reviewed by JEV when the run enables it. */
+function reviewedHostTools(...[input, host, ctx, onEvent]: Parameters<NonNullable<typeof agentChatDefinition.hostTools>>) {
+  if (!input.jevRiskReview) return agentChatDefinition.hostTools!(input, host, ctx, onEvent);
+  const review = createRiskReview({
+    config: input.jevRiskReview,
+    userRequest: input.message,
+    capability: "agent_chat",
+    model: input.model,
+    workspaceRoot: input.workspaceRoot,
+  });
+  return review.wrap(agentChatDefinition.hostTools!(input, review.host(host), ctx, onEvent), host);
+}
+
+/** Planning-only chat produces a plan, not decisions to act on. */
+const decideConfig = (input: AgentChatInput) => (input.planOnly ? undefined : input.jevDecisionTool);
+
 export const smartAgentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
   ...agentChatDefinition,
-  recipe: (input: AgentChatInput) => applySmartToolsToRecipe(agentChatDefinition.recipe!(input), input, DESCRIPTIONS),
-  hostTools: (input, host, ctx, onEvent) => applySmartToolHandlers(agentChatDefinition.hostTools!(input, host, ctx, onEvent), input, host),
+  recipe: (input: AgentChatInput) => applyDecideToolToRecipe(
+    applySmartToolsToRecipe(agentChatDefinition.recipe!(input), input, DESCRIPTIONS),
+    decideConfig(input),
+  ),
+  hostTools: (input, host, ctx, onEvent) => applyDecideToolHandler(
+    applySmartToolHandlers(reviewedHostTools(input, host, ctx, onEvent), input, host),
+    {
+      config: decideConfig(input),
+      userRequest: input.message,
+      capability: "agent_chat",
+      model: input.model,
+      host,
+      ctx,
+      provider: input.customProvider as CustomProvider | undefined,
+      log: (message) => onEvent({ kind: "log", message }),
+    },
+  ),
 };

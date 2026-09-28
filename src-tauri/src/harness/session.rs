@@ -87,6 +87,7 @@ impl HarnessState {
             MutationCommand::ResolvePermission { id, decision } => {
                 handle.resolve_permission(id, decision).await
             }
+            MutationCommand::ConfigureExecution { params } => handle.set_execution_params(*params).await,
             MutationCommand::CloseSession => {
                 let outcome = handle.close().await;
                 self.close_session(session_id).await.ok();

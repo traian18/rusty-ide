@@ -30,7 +30,9 @@ pub struct FileEntry {
 }
 
 pub struct VfsState(pub Arc<Mutex<HashMap<String, HashMap<String, String>>>>);
-pub struct NodeFileTracker(pub Arc<Mutex<HashMap<String, HashMap<String, Vec<String>>>>>);
+/// Files each node touched, per tab: tab id -> node id -> paths.
+type NodeFilesByTab = HashMap<String, HashMap<String, Vec<String>>>;
+pub struct NodeFileTracker(pub Arc<Mutex<NodeFilesByTab>>);
 pub struct CurrentExecutingNode(pub Arc<Mutex<Option<String>>>);
 
 pub struct TerminalSession {
@@ -58,7 +60,7 @@ fn terminal_shell_command() -> (String, Vec<&'static str>) {
             .ok()
             .filter(|candidate| Path::new(candidate).is_file())
             .unwrap_or_else(|| "/bin/zsh".to_string());
-        return (shell, vec!["-l"]);
+        (shell, vec!["-l"])
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -1115,7 +1117,7 @@ async fn search_project(
                     .into_owned();
 
                 // 1. Fuzzy match filename
-                let filename_score = matcher.fuzzy_match(&rel_path, &*query).unwrap_or(0);
+                let filename_score = matcher.fuzzy_match(&rel_path, &query).unwrap_or(0);
                 if filename_score > 0 {
                     let mut lock = results.lock().unwrap();
                     lock.push(ScoredSearchMatch {
@@ -1132,8 +1134,7 @@ async fn search_project(
 
                 // 2. Scan file content
                 if let Some(content) = read_and_check_text_file(path) {
-                    let mut line_num = 1;
-                    for raw_line in content.lines() {
+                    for (line_index, raw_line) in content.lines().enumerate() {
                         let is_match = if let Some(ref re) = regex_matcher {
                             re.is_match(raw_line)
                         } else if match_case {
@@ -1158,14 +1159,13 @@ async fn search_project(
                                 match_val: SearchMatch {
                                     path: path.to_string_lossy().into_owned(),
                                     name: name.clone(),
-                                    line: line_num,
+                                    line: line_index + 1,
                                     content: raw_line.trim().to_string(),
                                     is_content_match: true,
                                 },
                                 score: 0,
                             });
                         }
-                        line_num += 1;
                     }
                 }
             }

@@ -6,11 +6,12 @@ import type { HarnessControlPlane, UsageRecordSample } from "../contract/control
 import { createRecordingHost } from "../testing/recordingHost";
 import { describeAgentHarnessContract, type ContractRun } from "../testing/contractTests";
 import type { BridgeEvent, CoreEngine, HostExecuteOutcome, HostToolOutcome } from "./engine/CoreEngineClient";
-import { CoreHarness, type CoreCapabilityDefinition, type ExecutionAnswerer, type HostToolHandler } from "./CoreHarness";
+import { CoreHarness, type CoreCapabilityDefinition, type ExecutionAnswerer, type HostToolCall, type HostToolHandler } from "./CoreHarness";
 import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "./engine/ExecutionProtocol";
 import { inlineChatDefinition } from "./definitions/inline_chat";
 import type { SessionRecipe } from "./SessionRecipe";
 import { executionObservability } from "../../observability/executionStore";
+import { setToolDecisionObserver, type ToolDecisionObserver } from "./toolDecisionObserver";
 
 /**
  * Mirrors SidecarHarness.test.ts's own FakeTransport: an in-memory stand-in
@@ -265,6 +266,35 @@ describe("CoreHarness-specific behavior", () => {
     }
   });
 
+  it("forwards the session's request and every agent event to the installed decision observer, and never lets it break the run", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const observer: ToolDecisionObserver = {
+      beginSession: vi.fn(),
+      observe: vi.fn(() => {
+        throw new Error("observer bug");
+      }),
+      endRun: vi.fn(),
+    };
+    setToolDecisionObserver(observer);
+    try {
+      const run = startRun();
+      await run.driver.acceptStart();
+      run.driver.finishWithResult("answer");
+      await expect(run.handle.done).resolves.toMatchObject({ status: "completed" });
+      expect(observer.beginSession).toHaveBeenCalledWith(run.handle.runId, "session-1", expect.objectContaining({
+        capability: "inline_chat",
+        prompt: expect.stringContaining("What does this do?"),
+      }));
+      expect(observer.observe).toHaveBeenCalledWith(run.handle.runId, expect.objectContaining({
+        event: expect.objectContaining({ Completed: { outcome: "Success" } }),
+      }));
+      expect(observer.endRun).toHaveBeenCalledWith(run.handle.runId);
+    } finally {
+      setToolDecisionObserver(undefined);
+      warning.mockRestore();
+    }
+  });
+
   it("supports() is false when no definition is registered for the capability", () => {
     const harness = new CoreHarness({
       engine: new FakeCoreEngine(),
@@ -394,7 +424,11 @@ describe("CoreHarness-specific behavior", () => {
     });
     await Promise.resolve();
     await Promise.resolve();
-    expect(handler).toHaveBeenCalledWith({ x: 1 }, expect.any(AbortSignal), expect.anything());
+    expect(handler).toHaveBeenCalledWith({ x: 1 }, expect.any(AbortSignal), expect.anything(), expect.objectContaining({
+      runId: handle.runId,
+      sessionId: engine.lastSessionId(),
+      toolCallId: undefined,
+    }));
     expect(engine.hostToolResults).toContainEqual({
       sessionId: "session-1",
       callId: "call-1",
@@ -403,10 +437,12 @@ describe("CoreHarness-specific behavior", () => {
   });
 
   it("gives a host tool handler an observer bound to the model's tool call, so its reports land on that call's record", async () => {
+    let call: unknown;
     const definition: CoreCapabilityDefinition<"inline_chat"> = {
       ...inlineChatDefinition,
       hostTools: () => ({
-        "my.tool": async (_args, _signal, observer) => {
+        "my.tool": async (_args, _signal, observer, context) => {
+          call = context;
           observer?.executedBy({ kind: "model", purpose: "Delegated work", model: "worker-model", provider: "Worker Co" });
           return { ok: true, output: "done" };
         },
@@ -435,6 +471,14 @@ describe("CoreHarness-specific behavior", () => {
 
     const record = executionObservability.getSnapshot().records.find((candidate) => candidate.id === `${sessionId}:model-call-9`);
     expect(record?.execution?.executor).toEqual({ kind: "model", purpose: "Delegated work", model: "worker-model", provider: "Worker Co" });
+    // ...and says which call it serves, keyed the way the tool decision observer sees it...
+    expect(call).toEqual({ runId: expect.any(String), sessionId, toolCallId: "model-call-9", configureExecution: expect.any(Function) });
+    // ...with a way to reconfigure its own session.
+    await (call as HostToolCall).configureExecution({ model: "claude-opus-4-1" });
+    expect(engine.mutations.at(-1)).toEqual({
+      sessionId,
+      command: { type: "configure_execution", payload: { params: { model: "claude-opus-4-1" } } },
+    });
     handle.cancel();
   });
 

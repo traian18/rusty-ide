@@ -7,6 +7,9 @@ use serde::Serialize;
 
 /// One message the Rust side of the bridge sends to the frontend for a
 /// given session.
+// Nearly every message is an `Event` (one per session event), so boxing the
+// large variant would add an allocation per event and save nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", content = "data", rename_all = "snake_case")]
 pub enum BridgeEvent {

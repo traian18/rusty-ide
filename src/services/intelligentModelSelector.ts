@@ -222,6 +222,44 @@ export interface JevDecisionTrace {
   error?: string;
 }
 
+/** One Decisions API exchange. `result` is the parsed JSON body, if it was
+ * JSON; `text` is the raw body either way. Network failures throw. */
+export interface JevDecisionResponse<T> {
+  status: number;
+  ok: boolean;
+  result?: T;
+  text: string;
+}
+
+export async function postJevDecision<T>(apiKey: string, body: unknown, signal?: AbortSignal): Promise<JevDecisionResponse<T>> {
+  const response = await fetch("https://openrouter.ai/api/alpha/decisions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://rusty.dev",
+      "X-Title": "Rusty",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  const text = await response.text().catch(() => "");
+  let result: T | undefined;
+  try {
+    result = JSON.parse(text) as T;
+  } catch {
+    result = undefined;
+  }
+  return { status: response.status, ok: response.ok, result, text };
+}
+
+/** A `score` answer: `probabilities` is keyed by criterion position ("0" is the first). */
+export interface JevScoreAnswer {
+  type?: string;
+  confidence?: number;
+  probabilities?: Record<string, number>;
+}
+
 export interface IntelligentSelection {
   level: AutoLevel;
   escalated: boolean;
@@ -270,35 +308,16 @@ export async function selectIntelligentModel(
   };
 
   try {
-    let response: Response;
+    let response: JevDecisionResponse<{ answers?: { level?: JevScoreAnswer }; usage?: { cost?: number } }>;
     try {
-      response = await fetch("https://openrouter.ai/api/alpha/decisions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://rusty.dev",
-          "X-Title": "Rusty",
-        },
-        body: JSON.stringify(body),
-      });
+      response = await postJevDecision(apiKey, body);
     } catch (error) {
       const detail = error instanceof Error ? `: ${error.message}` : ".";
       return fail(`OpenRouter JEV selection could not be reached${detail}`);
     }
     trace.httpStatus = response.status;
-
-    const text = await response.text().catch(() => "");
-    let result: {
-      answers?: { level?: { type?: string; confidence?: number; probabilities?: Record<string, number> } };
-      usage?: { cost?: number };
-    } | undefined;
-    try {
-      result = JSON.parse(text) as typeof result;
-      trace.response = result;
-    } catch {
-      trace.response = text;
-    }
+    const result = response.result;
+    trace.response = result ?? response.text;
 
     if (!response.ok) {
       return fail(`OpenRouter JEV selection failed (${response.status}).`);

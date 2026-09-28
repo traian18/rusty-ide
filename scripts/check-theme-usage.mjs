@@ -110,8 +110,6 @@ const protectedMonacoTypographyConsumers = [
   "components/tabs/TaskTab.tsx",
   "components/edgeinspector/components/EdgeDiffTabContent.tsx",
   "components/sidepane/components/DiffTabContent.tsx",
-  "components/sidepane/components/ManualReconciliationEditor.tsx",
-  "components/sidepane/components/PRDiffView.tsx",
 ];
 
 for (const displayPath of protectedMonacoTypographyConsumers) {

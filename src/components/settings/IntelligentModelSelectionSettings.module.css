@@ -222,6 +222,50 @@
   color: var(--color-fg-default);
 }
 
+.shadowTableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.shadowTable {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--color-surface-sunken);
+  font-size: var(--font-size-ui-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.shadowTable th,
+.shadowTable td {
+  padding: var(--space-2) var(--space-3);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.shadowTable thead th {
+  color: var(--color-fg-muted);
+  font-weight: 650;
+}
+
+.shadowTable tbody th {
+  color: var(--color-fg-strong);
+  font-weight: 650;
+  text-align: left;
+}
+
+.shadowTable thead th:first-child {
+  text-align: left;
+}
+
+.shadowTable tbody tr {
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.shadowTable td {
+  color: var(--color-fg-default);
+}
+
 @media (max-width: 36rem) {
   .heading {
     flex-direction: column;
