@@ -1,4 +1,5 @@
 import React from "react";
+import { FlaskConical } from "lucide-react";
 import { Tooltip } from "../ui";
 import { preloadDrawerContent } from "../drawer/drawerContents";
 import type {
@@ -40,14 +41,15 @@ export const NavigationRailView: React.FC<NavigationRailViewProps> = ({
           const active = isItemActive(item.id);
           const badge = item.badgeCount ? item.badgeCount(store) : 0;
           const badgeText = item.badgeText?.(store);
+          const label = item.beta ? `${item.label} (Beta)` : item.label;
           return (
-            <Tooltip key={item.id} id={`rail-tooltip-${item.id}`} label={item.label} placement="right">
+            <Tooltip key={item.id} id={`rail-tooltip-${item.id}`} label={label} placement="right">
               <button
                 id={`sidebar-${item.id}`}
                 type="button"
                 onClick={() => item.onClick(store)}
                 className={`${styles.railButton} ${active ? styles.railButtonActive : ""}`}
-                aria-label={item.label}
+                aria-label={label}
                 {...preloadHandlersFor(item.id)}
               >
                 <Icon size={20} />
@@ -59,6 +61,11 @@ export const NavigationRailView: React.FC<NavigationRailViewProps> = ({
                 {badgeText && (
                   <span className={styles.badgeText}>
                     {badgeText}
+                  </span>
+                )}
+                {item.beta && (
+                  <span className={styles.betaBadge} aria-hidden="true">
+                    <FlaskConical size={10} />
                   </span>
                 )}
               </button>

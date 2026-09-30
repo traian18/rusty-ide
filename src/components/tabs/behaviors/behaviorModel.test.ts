@@ -88,12 +88,12 @@ describe("workflows", () => {
     };
     const created = newWorkflow("mine", template);
     expect(created).toMatchObject({ id: "mine", status: "draft", revision: 1 });
-    expect((stepsOf(created)[0].config as JsonObject).structured_output).toBe("host_validated_fallback");
+    expect((stepsOf(created)[0].config as JsonObject).structured_output).toBe("host_validated");
     expect((stepsOf(template)[0].config as JsonObject).structured_output).toBe("require");
 
     const added = addStep(base(), "agent", { x: 0, y: 0 }).workflow;
     const step = stepsOf(added)[0];
-    expect((step.config as JsonObject).structured_output).toBe("host_validated_fallback");
+    expect((step.config as JsonObject).structured_output).toBe("host_validated");
     expect(step.output_schema).toMatchObject({ type: "inline", name: "agent_output" });
   });
 

@@ -41,6 +41,7 @@ import {
   workflowId,
 } from "./behaviorModel";
 import { behaviorService, profilePath, workflowPath, type LoadFailure } from "./behaviorService";
+import { ensureStarterFlow } from "./starterFlow";
 import { JsonField } from "./InspectorFields";
 import { ProfileInspector } from "./ProfileInspector";
 import { WorkflowInspector, type WorkflowSelection } from "./WorkflowInspector";
@@ -98,6 +99,8 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
     if (!rootPath) return;
     setLoading(true);
     try {
+      // A workspace without workflows opens on the Plan → Build → Verify flow.
+      await ensureStarterFlow(rootPath);
       const [loadedProfiles, loadedWorkflows, templates, workspaceDefault] = await Promise.all([
         behaviorService.loadProfiles(rootPath),
         behaviorService.loadWorkflows(rootPath),

@@ -257,7 +257,8 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
                 onChange={(e) => setConfig("structured_output", e.target.value)}
                 options={[
                   { value: "require", label: "Require the provider's structured output" },
-                  { value: "host_validated_fallback", label: "Fall back to host validation" },
+                  { value: "host_validated_fallback", label: "Provider's, else host validation" },
+                  { value: "host_validated", label: "Always host validation (works with tools on any model)" },
                 ]}
               />
             </Field>

@@ -16,6 +16,8 @@ export interface NavigationRailIconItem {
   onClick: (storeState: NavigationRailStoreState) => void;
   badgeCount?: (storeState: NavigationRailStoreState) => number;
   badgeText?: (storeState: NavigationRailStoreState) => string | undefined;
+  /** Marks the feature as beta: a flask badge on the icon and "(Beta)" in its tooltip and accessible name. */
+  beta?: boolean;
 }
 
 export const NAVIGATION_RAIL_ICONS: NavigationRailIconItem[] = [
@@ -62,6 +64,7 @@ export const NAVIGATION_RAIL_ICONS: NavigationRailIconItem[] = [
     id: "rusty",
     label: "Rusty Canvas",
     icon: RustyIcon,
+    beta: true,
     onClick: (store) => {
       store.openTab({ type: "canvas" });
     },

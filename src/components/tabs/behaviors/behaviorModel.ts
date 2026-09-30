@@ -287,9 +287,10 @@ export function defaultStepConfig(type: StepType, workflow: Json): JsonObject {
         instructions: "",
         tools: { type: "inherit" },
         context_mode: "isolated_child",
-        // Most IDE providers are host-routed without native structured
-        // output; the step's JSON is validated by the harness instead.
-        structured_output: "host_validated_fallback",
+        // The step's JSON is validated by the harness, never constrained
+        // natively: a native schema rides on every request of a tool-using
+        // step, and some models (Gemini) reject that combination.
+        structured_output: "host_validated",
       };
     case "verify":
       return { checks: [{ type: "schema" }] };
@@ -385,12 +386,13 @@ export const DEFAULT_AGENT_OUTPUT: JsonObject = {
 /**
  * A new workflow from `template` (the built-in default). Its agent steps are
  * switched to host-validated JSON output: the default asks for the
- * provider's native structured output, which host-routed providers lack.
+ * provider's native structured output, which host-routed providers lack and
+ * which models that cannot combine tools with a constrained response reject.
  */
 export function newWorkflow(id: string, template: JsonObject | undefined): JsonObject {
   const base = template ? clone(template) : { schema_version: 1, nodes: [], edges: [] };
   const nodes = stepsOf(base).map((step) =>
-    step.type === "agent" ? { ...step, config: { ...stepConfig(step), structured_output: "host_validated_fallback" } } : step,
+    step.type === "agent" ? { ...step, config: { ...stepConfig(step), structured_output: "host_validated" } } : step,
   );
   return { ...base, nodes, id, revision: 1, name: id, status: "draft" };
 }

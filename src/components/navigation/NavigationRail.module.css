@@ -78,6 +78,23 @@
   box-shadow: 0 2px 5px color-mix(in srgb, var(--color-surface-overlay) 35%, transparent);
 }
 
+/* Beta marker: same footprint as `.badge`, in the warning palette so it reads
+ * as "changing" rather than as a count, matching the guide's Beta badge. */
+.betaBadge {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+  border: 1px solid var(--color-surface-sidebar);
+  border-radius: 50%;
+  background: var(--color-status-warning-solid);
+  color: var(--color-status-warning-solid-foreground);
+  box-shadow: 0 2px 5px color-mix(in srgb, var(--color-surface-overlay) 35%, transparent);
+}
+
 .badgeText {
   position: absolute;
   bottom: 2px;

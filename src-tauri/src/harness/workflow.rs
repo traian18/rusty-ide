@@ -326,4 +326,161 @@ mod tests {
         let error = state.create_session(recipe).await.expect_err("rejected");
         assert!(error.contains("orchestration definition"), "{error}");
     }
+
+    // The Plan → Build → Verify flow the IDE seeds into a workspace's
+    // `.rusty/` folder, read from the same files the frontend imports.
+    const STARTER_WORKFLOW: &str =
+        include_str!("../../../src/components/tabs/behaviors/starter/plan-build-verify.workflow.json");
+    const STARTER_PLAN: &str = include_str!("../../../src/components/tabs/behaviors/starter/plan.profile.json");
+    const STARTER_BUILD: &str = include_str!("../../../src/components/tabs/behaviors/starter/build.profile.json");
+
+    fn starter(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).expect("a starter document is valid JSON")
+    }
+
+    #[test]
+    fn the_starter_flow_compiles_without_issues() {
+        let library = vec![starter(STARTER_PLAN), starter(STARTER_BUILD)];
+        for profile in &library {
+            let issues = harness_engine::validation::validate_profile(profile, &library);
+            assert!(issues.is_empty(), "{issues:?}");
+        }
+        let issues = harness_engine::validation::validate_orchestration(&starter(STARTER_WORKFLOW), &library);
+        assert!(issues.is_empty(), "{issues:?}");
+    }
+
+    /// `host_validated_fallback` would still send the provider's native schema
+    /// whenever the integration advertises one (OpenRouter always does), on
+    /// every request of a tool-using step -- which Gemini rejects. The starter
+    /// flow must keep the schema out of the request; the executor test
+    /// `host_validated_steps_never_send_a_native_schema` in rusty-core covers
+    /// what that mode does.
+    #[test]
+    fn the_starter_flow_never_asks_for_a_native_schema() {
+        let workflow = starter(STARTER_WORKFLOW);
+        let agents: Vec<_> = workflow["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|node| node["type"] == "agent")
+            .collect();
+        assert_eq!(agents.len(), 2, "plan and build");
+        for node in agents {
+            assert_eq!(node["config"]["structured_output"], "host_validated", "{}", node["id"]);
+        }
+    }
+
+    /// Runs the seeded files as a user would get them: profiles loaded from
+    /// `.rusty/profiles`, Plan's result handed to Build, and Verify checking
+    /// on disk that the file Build claims to have changed exists.
+    #[tokio::test]
+    async fn the_starter_flow_plans_builds_and_verifies() {
+        let root = std::env::temp_dir().join(format!("rusty-starter-flow-{}", uuid_like()));
+        std::fs::create_dir_all(root.join(".rusty/profiles")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join(".rusty/profiles/plan.json"), STARTER_PLAN).unwrap();
+        std::fs::write(root.join(".rusty/profiles/build.json"), STARTER_BUILD).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "pub fn answer() -> u32 { 42 }\n").unwrap();
+
+        let plan = json!({
+            "summary": "Add answer()",
+            "steps": [{ "title": "Add the function", "detail": "Edit src/lib.rs" }],
+            "filesToChange": ["src/lib.rs"],
+            "risks": []
+        });
+        let built = json!({
+            "summary": "Added answer()",
+            "status": "completed",
+            "artifacts": [{ "kind": "file", "reference": "src/lib.rs" }],
+            "claimsToVerify": []
+        });
+
+        let state = HarnessState::new();
+        let recipe: SessionRecipe = serde_json::from_value(json!({
+            "workspace": { "root": root, "binding": "disk" },
+            "integration": "host",
+            "host_tools": [
+                { "name": "read_file", "description": "Read a file" },
+                { "name": "write_file", "description": "Write a file" },
+                { "name": "list_files", "description": "List files" },
+            ],
+            "workflow": starter(STARTER_WORKFLOW),
+        }))
+        .unwrap();
+        let session_id = state.create_session(recipe).await.expect("session with the starter flow");
+        let mut inbox = state.take_inbox(session_id).unwrap();
+        state.start_workflow(session_id, json!({ "request": "add answer()" })).await.expect("run starts");
+
+        // One scripted model turn per step-turn: Plan looks around, then
+        // plans; Build reads, edits, checks its edit, then reports.
+        let script = |turn: usize| -> (&'static str, serde_json::Value) {
+            match turn {
+                1 => ("list_files", json!({ "path": "." })),
+                3 => ("read_file", json!({ "path": "src/lib.rs" })),
+                4 => ("write_file", json!({ "path": "src/lib.rs", "content": "pub fn answer() -> u32 { 42 }\n" })),
+                5 => ("read_file", json!({ "path": "src/lib.rs" })),
+                _ => ("", serde_json::Value::Null),
+            }
+        };
+        let mut turns = 0;
+        let mut started = Vec::new();
+        let mut offered: Vec<(usize, serde_json::Value)> = Vec::new();
+        let final_state = loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv())
+                .await
+                .expect("the run must not stall")
+                .expect("the inbox stays open");
+            match event {
+                BridgeEvent::HostExecuteCall { call_id, input, .. } => {
+                    turns += 1;
+                    offered.push((turns, input.clone()));
+                    let request_id = RequestId::new();
+                    let (tool, arguments) = script(turns);
+                    let (event, finish) = if !tool.is_empty() {
+                        let call = ToolCall { id: ToolCallId::new(), name: tool.into(), arguments };
+                        (ExecutionEvent::ToolCallRequested { request_id, call }, "tool_use")
+                    } else {
+                        let reply = if turns == 2 { plan.clone() } else { built.clone() };
+                        (ExecutionEvent::TextDelta { request_id, delta: reply.to_string() }, "end_turn")
+                    };
+                    state.host_execute_event(session_id, &call_id, event).unwrap();
+                    let result = ExecutionResult {
+                        request_id,
+                        usage: ModelUsage::default(),
+                        cost: Cost::default(),
+                        finish_reason: finish.into(),
+                    };
+                    state.host_execute_result(session_id, &call_id, Ok(result)).unwrap();
+                }
+                BridgeEvent::HostToolCall { call_id, .. } => {
+                    state.host_tool_result(session_id, &call_id, Ok(json!({ "content": "ok" }))).unwrap();
+                }
+                BridgeEvent::WorkflowEvent(envelope) => {
+                    if envelope["event"]["type"] == "step_started" {
+                        started.push(envelope["event"]["node_id"].as_str().unwrap_or_default().to_string());
+                    }
+                }
+                BridgeEvent::WorkflowFinished { state } => break state,
+                _ => {}
+            }
+        };
+
+        assert_eq!(final_state["status"], "completed", "{final_state}");
+        assert_eq!(final_state["final_output"], built);
+        assert_eq!(started, ["input", "plan", "build", "verify", "output"]);
+        assert_eq!(turns, 6, "two Plan turns and four Build turns");
+
+        // Plan is read-only: it is never even offered a tool that edits or
+        // runs. Build is offered the full set.
+        let tools_offered = |turn: usize| -> String {
+            let (_, input) = offered.iter().find(|(number, _)| *number == turn).expect("turn happened");
+            input.to_string()
+        };
+        assert!(!tools_offered(1).contains("write_file"), "Plan must not be offered write_file");
+        assert!(tools_offered(1).contains("list_files"), "Plan keeps its read tools");
+        assert!(tools_offered(3).contains("write_file"), "Build is offered write_file");
+
+        state.close_session(session_id).await.unwrap();
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }

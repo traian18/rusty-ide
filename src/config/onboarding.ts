@@ -16,7 +16,7 @@ export const ONBOARDING_RELEASES = {
     id: "developer_preview",
     label: "Developer Preview",
     appVersion: packageMetadata.version,
-    description: "An early guide to Rusty's context-driven development workflow.",
+    description: "An early guide to Rusty's automatic model selection, smart tools, and workflow orchestration.",
   },
 } as const satisfies Record<string, OnboardingRelease>;
 

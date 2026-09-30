@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { snapshotJevDecisionTool, snapshotJevRiskReview } from "../../services/jevDecisionToolSnapshot";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
@@ -37,6 +37,8 @@ import {
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
 import { workflowInputFor } from "../../harness/core/workflowRun";
 import { behaviorService } from "./behaviors/behaviorService";
+import { ensureStarterFlow, isStarterWorkflowPath } from "./behaviors/starterFlow";
+import { loadAgentWorkflowOptOut, saveAgentWorkflowOptOut } from "../../preferences/agentWorkflowDefault";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
 import type { JsonObject } from "./behaviors/behaviorModel";
@@ -136,19 +138,33 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       return;
     }
     let cancelled = false;
-    void behaviorService.loadWorkflows(rootPath).then(({ documents }) => {
-      if (cancelled) return;
-      setWorkflowOptions(
-        documents.map(({ path, document }) => ({
-          path,
-          name: String(document.name ?? document.id ?? path.split("/").pop()),
-        })),
-      );
-    });
+    // A workspace without workflows starts with the Plan → Build → Verify flow.
+    void ensureStarterFlow(rootPath)
+      .then(() => behaviorService.loadWorkflows(rootPath))
+      .then(({ documents }) => {
+        if (cancelled) return;
+        setWorkflowOptions(
+          documents.map(({ path, document }) => ({
+            path,
+            name: String(document.name ?? document.id ?? path.split("/").pop()),
+          })),
+        );
+      });
     return () => {
       cancelled = true;
     };
   }, [rootPath, workflowCatalogVersion]);
+
+  // New chats follow the starter flow. `explicitWorkflowChoiceRef` is set once
+  // the user picks (or is sent) a workflow for this chat, so the default never
+  // overrides a choice, and `starterWorkflowPathRef` serves callbacks.
+  const explicitWorkflowChoiceRef = useRef(false);
+  const starterWorkflowPath = useMemo(
+    () => workflowOptions.find((option) => isStarterWorkflowPath(option.path))?.path,
+    [workflowOptions],
+  );
+  const starterWorkflowPathRef = useRef<string | undefined>(undefined);
+  starterWorkflowPathRef.current = starterWorkflowPath;
 
   // The followed workflow's document, for the bar's step list.
   useEffect(() => {
@@ -318,7 +334,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setActiveChatPath(null);
     chatSaveQueueRef.current = new AgentChatSaveQueue();
     setModifiedFiles([]);
-    setChatWorkflow(undefined, { persist: false });
+    explicitWorkflowChoiceRef.current = false;
+    setChatWorkflow(loadAgentWorkflowOptOut() ? undefined : starterWorkflowPathRef.current, { persist: false });
     setSubagents([]);
   };
 
@@ -856,6 +873,16 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     if (persist && (useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) void saveChatHistory();
   };
 
+  // A brand-new chat follows the starter flow, unless the user opted out (chose
+  // "Single agent") or already picked something for this chat. A chat with
+  // messages, or one loaded from history, keeps what it has.
+  useEffect(() => {
+    if (!starterWorkflowPath || chatWorkflowRef.current || explicitWorkflowChoiceRef.current) return;
+    if (activeChatPath || agentChats.length > 0 || loadAgentWorkflowOptOut()) return;
+    setChatWorkflow(starterWorkflowPath, { persist: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [starterWorkflowPath, activeChatPath, agentChats.length]);
+
   // "Run in Agent Mode" from the Behaviors tab: follow that workflow in a
   // fresh chat (or this one, when it is still empty).
   useEffect(() => {
@@ -863,6 +890,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const path = useWorkflowRunStore.getState().takeAgentRequest();
     if (!path) return;
     if ((useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) handleNewChat();
+    explicitWorkflowChoiceRef.current = true;
     setChatWorkflow(path, { persist: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentWorkflowRequest, isAgentBusy]);
@@ -1047,7 +1075,12 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               run={workflowDocument ? workflowRuns[String(workflowDocument.id ?? "")] : undefined}
               running={workflowRunning}
               disabled={isAgentBusy}
-              onSelect={(path) => setChatWorkflow(path)}
+              onSelect={(path) => {
+                explicitWorkflowChoiceRef.current = true;
+                // "Single agent" is the opt-out from the starter flow; any workflow clears it.
+                saveAgentWorkflowOptOut(path === undefined);
+                setChatWorkflow(path);
+              }}
               onEdit={(path) => {
                 if (path) useWorkflowRunStore.getState().requestBehaviorsWorkflow(path);
                 openTab({ type: "behaviors" });
