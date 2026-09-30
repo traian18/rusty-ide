@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "id": "build",
+  "revision": 2,
+  "name": "Build",
+  "description": "Implements a plan in the workspace: reads before editing, writes complete files, and checks its work before reporting.",
+  "status": "draft",
+  "instructions": {
+    "mode": "append",
+    "text": "You are in BUILD mode. Execute the supplied plan as an ordered checklist. Use its findings to target reads; read before editing, write complete contents without placeholders, and follow existing conventions. Continue from inspection into implementation and validation in this run. Account for every required step and justified deviation in the report; do not return a proposal in place of work. Fix recoverable errors. Report completed only with evidence that required work and checks are satisfied. Reserve blocked for a specific external prerequisite you cannot obtain; use failed for unsuccessful checks or budget exhaustion with unfinished work. Report actual partial progress and the exact reason work cannot finish.",
+    "variants": {}
+  },
+  "tools": { "type": "inherit" },
+  "tool_overrides": {
+    "write_file": {
+      "description_append": "Read the file first and write its complete updated content; never abbreviate with placeholders such as \"rest of the file unchanged\"."
+    },
+    "run_command": {
+      "description_append": "Prefer the project's own test, type-check, and build commands. Do not run commands that delete data or publish anything."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 60,
+    "max_tool_calls": 200,
+    "final_turn_prompt": "Your execution budget is exhausted. Return only the JSON report now. Account for every plan step and check using available evidence. Use completed only when all required work and checks are satisfied, blocked only for a specific unavailable external prerequisite, otherwise failed. Name unfinished steps and the exact obstacle or failed check in summary and claimsToVerify; never imply unperformed work or tests succeeded."
+  },
+  "rules": [
+    {
+      "id": "build-failed-tool",
+      "on": "PostToolUseFailure",
+      "do": { "inject": { "text": "That tool call failed. Read the error and fix the cause; do not repeat the same call unchanged." } },
+      "max_fires": 8
+    },
+    {
+      "id": "build-loop-breaker",
+      "on": "PreToolUse",
+      "when": { "repeated_call": { "gte": 3 } },
+      "do": { "deny": { "reason": "This exact call has repeated three times. Read previous results and change arguments or approach. Repetition alone is not an external blocker; continue with another useful action if possible." } }
+    },
+    {
+      "id": "build-wrap-up",
+      "on": "BeforeModelRequest",
+      "when": { "turn": { "gte": 50 } },
+      "do": { "inject": { "text": "You are running low on turns. Stop broad exploration, reconcile the plan checklist with existing edits, and prioritize remaining required changes and validation. If you cannot finish, report unfinished steps and the exact reason honestly; budget exhaustion alone is not an external blocker.", "placement": "next_request" } },
+      "max_fires": 1
+    }
+  ],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "checked-after-editing",
+        "require": {
+          "any": [
+            { "calls": { "tool": "write_file", "eq": 0 } },
+            { "since_last_call": { "of": "write_file", "called": ["run_command", "read_file"], "gte": 1 } }
+          ]
+        },
+        "feedback": "You changed files but have not checked them since your last edit. Run the project's tests or type-check, or read the changed file back, then report."
+      }
+    ],
+    "max_continuations": 3,
+    "on_exhausted": "fail"
+  },
+  "children": { "type": "inherit" },
+  "metadata": { "editor": { "position": { "x": 400, "y": 60 } } }
+}

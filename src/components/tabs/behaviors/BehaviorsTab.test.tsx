@@ -130,7 +130,13 @@ describe("BehaviorsTab", () => {
     vi.unstubAllGlobals();
   });
 
-  it("opens on the workspace's workflows", () => {
+  it("always offers the read-only built-in alongside project workflows", async () => {
+    expect(inputLabelled(container, "Name").value).toBe("Plan, build, verify");
+    expect(inputLabelled(container, "Name").matches(":disabled")).toBe(true);
+    expect(button(container, "Customize a copy")).toBeDefined();
+    expect(container.querySelector('[title="Delete file"]')).toBeNull();
+    expect(Object.keys(written)).toEqual([]);
+    await act(async () => button(container, "Plan and build").click());
     expect(button(container, "Plan and build").className).toMatch(/listItemActive/);
     expect(inputLabelled(container, "Name").value).toBe("Plan and build");
   });
@@ -169,6 +175,7 @@ describe("BehaviorsTab", () => {
   });
 
   it("hands a workflow to Agent Mode and shows its latest run on the canvas", async () => {
+    await act(async () => button(container, "Plan and build").click());
     const openTab = vi.fn();
     useWorkspaceStore.setState({ openTab } as never);
     useWorkflowRunStore.setState({ agentRequest: undefined, runs: {} });

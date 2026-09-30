@@ -14,7 +14,16 @@
 .actions { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
 
 /* Body */
-.body { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 24rem; min-height: 0; }
+.body { display: grid; grid-template-columns: 14rem minmax(0, 1fr) 6px var(--inspector-width, 384px); min-height: 0; }
+.resizeHandle { cursor: col-resize; touch-action: none; background: var(--color-surface-sidebar); border-inline: 1px solid var(--color-border-subtle); }
+.resizeHandle:hover, .resizeHandle:focus-visible { background: var(--color-border-focus); outline: none; }
+.toolSelector { display: grid; gap: var(--space-2); min-width: 0; }
+.configGroup { display: grid; gap: var(--space-2); min-width: 0; padding: var(--space-2); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); }
+.configGroup > label { display: grid; gap: var(--space-1); min-width: 0; color: var(--color-fg-muted); }
+.toolOptions { display: grid; gap: var(--space-1); max-height: 18rem; overflow-y: auto; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); padding: var(--space-2); }
+.toolOption { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-1); border-radius: var(--radius-sm); cursor: pointer; }
+.toolOption:hover { background: var(--color-interaction-hover); }
+.toolOption small { display: block; color: var(--color-fg-muted); overflow-wrap: anywhere; }
 .list { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border-right: 1px solid var(--color-border-subtle); background: var(--color-surface-sidebar); }
 .listHeader { display: flex; align-items: center; justify-content: space-between; padding: var(--space-2) var(--space-3); color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .listItem { display: flex; align-items: center; gap: var(--space-2); width: 100%; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--color-fg-default); padding: var(--space-2) var(--space-3); font: inherit; font-size: var(--font-size-ui-sm); text-align: left; cursor: pointer; }

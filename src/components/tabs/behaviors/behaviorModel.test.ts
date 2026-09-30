@@ -12,6 +12,7 @@ import {
   newWorkflow,
   positionOf,
   removeStep,
+  removeEdge,
   rulesOf,
   stepIssues,
   stepsOf,
@@ -73,6 +74,11 @@ describe("workflows", () => {
     workflow = connectSteps(workflow, "input", "agent");
     workflow = connectSteps(workflow, "input", "agent");
     expect(edgesOf(workflow)).toHaveLength(1);
+    expect(stepsOf(workflow).find((step) => step.id === "agent")?.input_bindings).toEqual([
+      { target: "input", source: { type: "node_output", node_id: "input", pointer: "" } },
+    ]);
+    const disconnected = removeEdge(workflow, String(edgesOf(workflow)[0].id));
+    expect(stepsOf(disconnected).find((step) => step.id === "agent")?.input_bindings).toEqual([]);
     workflow = connectSteps(workflow, "agent", "agent_2", "on_failure");
 
     workflow = removeStep(workflow, "agent");
@@ -88,12 +94,12 @@ describe("workflows", () => {
     };
     const created = newWorkflow("mine", template);
     expect(created).toMatchObject({ id: "mine", status: "draft", revision: 1 });
-    expect((stepsOf(created)[0].config as JsonObject).structured_output).toBe("host_validated");
+    expect((stepsOf(created)[0].config as JsonObject).structured_output).toBe("text");
     expect((stepsOf(template)[0].config as JsonObject).structured_output).toBe("require");
 
     const added = addStep(base(), "agent", { x: 0, y: 0 }).workflow;
     const step = stepsOf(added)[0];
-    expect((step.config as JsonObject).structured_output).toBe("host_validated");
+    expect((step.config as JsonObject).structured_output).toBe("text");
     expect(step.output_schema).toMatchObject({ type: "inline", name: "agent_output" });
   });
 

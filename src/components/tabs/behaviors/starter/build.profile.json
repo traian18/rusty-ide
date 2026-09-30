@@ -1,16 +1,18 @@
 {
   "schema_version": 1,
   "id": "build",
-  "revision": 1,
+  "revision": 3,
   "name": "Build",
   "description": "Implements a plan in the workspace: reads before editing, writes complete files, and checks its work before reporting.",
   "status": "draft",
   "instructions": {
     "mode": "append",
-    "text": "You are in BUILD mode. Implement exactly what the plan asks, no more. Read each file before you edit it, write complete file contents with no placeholders, follow the conventions already in the code, and check your work before you report.",
+    "text": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
     "variants": {}
   },
-  "tools": { "type": "inherit" },
+  "tools": {
+    "type": "inherit"
+  },
   "tool_overrides": {
     "write_file": {
       "description_append": "Read the file first and write its complete updated content; never abbreviate with placeholders such as \"rest of the file unchanged\"."
@@ -20,30 +22,17 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 60,
-    "max_tool_calls": 200,
-    "final_turn_prompt": "You are out of turns. Reply now with only the JSON report. If the plan is not finished, set status to \"blocked\" and describe what is left in claimsToVerify."
-  },
+  "limits": {},
   "rules": [
     {
       "id": "build-failed-tool",
       "on": "PostToolUseFailure",
-      "do": { "inject": { "text": "That tool call failed. Read the error and fix the cause; do not repeat the same call unchanged." } },
+      "do": {
+        "inject": {
+          "text": "That tool call failed. Read the error and fix the cause; do not repeat the same call unchanged."
+        }
+      },
       "max_fires": 8
-    },
-    {
-      "id": "build-loop-breaker",
-      "on": "PreToolUse",
-      "when": { "repeated_call": { "gte": 3 } },
-      "do": { "deny": { "reason": "You have made this exact call three times in a row. Change your approach, or report status \"blocked\"." } }
-    },
-    {
-      "id": "build-wrap-up",
-      "on": "BeforeModelRequest",
-      "when": { "turn": { "gte": 50 } },
-      "do": { "inject": { "text": "You are running low on turns. Finish the remaining plan steps, or report what is left as blocked.", "placement": "next_request" } },
-      "max_fires": 1
     }
   ],
   "completion_gate": {
@@ -52,8 +41,22 @@
         "id": "checked-after-editing",
         "require": {
           "any": [
-            { "calls": { "tool": "write_file", "eq": 0 } },
-            { "since_last_call": { "of": "write_file", "called": ["run_command", "read_file"], "gte": 1 } }
+            {
+              "calls": {
+                "tool": "write_file",
+                "eq": 0
+              }
+            },
+            {
+              "since_last_call": {
+                "of": "write_file",
+                "called": [
+                  "run_command",
+                  "read_file"
+                ],
+                "gte": 1
+              }
+            }
           ]
         },
         "feedback": "You changed files but have not checked them since your last edit. Run the project's tests or type-check, or read the changed file back, then report."
@@ -62,6 +65,15 @@
     "max_continuations": 3,
     "on_exhausted": "fail"
   },
-  "children": { "type": "inherit" },
-  "metadata": { "editor": { "position": { "x": 400, "y": 60 } } }
+  "children": {
+    "type": "inherit"
+  },
+  "metadata": {
+    "editor": {
+      "position": {
+        "x": 400,
+        "y": 60
+      }
+    }
+  }
 }

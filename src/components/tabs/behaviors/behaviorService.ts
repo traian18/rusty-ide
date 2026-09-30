@@ -10,6 +10,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { type Issue, type Json, type JsonObject, isObject, stableStringify } from "./behaviorModel";
 
+import { BUILTIN_WORKFLOW_PATH, builtinWorkflowDocument, isUnmodifiedStarter } from "./starterFlow";
+
 export const PROFILES_DIR = ".rusty/profiles";
 export const WORKFLOWS_DIR = ".rusty/workflows";
 export const PROFILES_CONFIG = "config.json";
@@ -78,8 +80,31 @@ export const behaviorService = {
     return loadDir(`${rootPath}/${PROFILES_DIR}`, [PROFILES_CONFIG]);
   },
 
-  loadWorkflows(rootPath: string) {
-    return loadDir(`${rootPath}/${WORKFLOWS_DIR}`);
+  async loadWorkflows(rootPath: string) {
+    const loaded = await loadDir(`${rootPath}/${WORKFLOWS_DIR}`);
+    const documents: StoredDocument[] = [];
+    for (const doc of loaded.documents) {
+      if (doc.path === workflowPath(rootPath, "plan-build-verify") && isUnmodifiedStarter(doc.document)) {
+        // These exact bundled definitions are recoverable from the app. Never
+        // remove a customized workflow, even if it uses the starter filename.
+        try { await behaviorService.remove(doc.path); }
+        catch (error) { loaded.failures.push({ path: doc.path, error: String(error) }); }
+      } else documents.push(doc);
+    }
+    const document = builtinWorkflowDocument();
+    return { ...loaded, documents: [{ path: BUILTIN_WORKFLOW_PATH, document, saved: stableStringify(document) }, ...documents] };
+  },
+
+  async readWorkflow(path: string): Promise<JsonObject> {
+    if (path === BUILTIN_WORKFLOW_PATH) return builtinWorkflowDocument();
+    try {
+      const document = JSON.parse(await invoke<string>("read_file_disk", { path })) as JsonObject;
+      return isUnmodifiedStarter(document) ? builtinWorkflowDocument() : document;
+    } catch (error) {
+      if (path.replace(/\\/g, "/").endsWith("/.rusty/workflows/plan-build-verify.workflow.json")
+        || path.replace(/\\/g, "/").endsWith("/.rusty/workflows/plan-build-verify.json")) return builtinWorkflowDocument();
+      throw error;
+    }
   },
 
   /** The workspace default profile id from `config.json`, if any. */
@@ -115,6 +140,7 @@ export const behaviorService = {
   },
 
   async save(path: string, document: JsonObject): Promise<string> {
+    if (path === BUILTIN_WORKFLOW_PATH) throw new Error("Built-in workflows are read-only");
     await ensureDir(path.slice(0, path.lastIndexOf("/")));
     const content = stableStringify(document);
     await invoke("write_file_disk", { path, content });
@@ -122,6 +148,7 @@ export const behaviorService = {
   },
 
   async remove(path: string): Promise<void> {
+    if (path === BUILTIN_WORKFLOW_PATH) throw new Error("Built-in workflows cannot be deleted");
     await invoke("delete_file_or_dir", { path });
   },
 

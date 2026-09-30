@@ -420,6 +420,7 @@ export async function runDirectExecution(
       usage,
       cost: { amount_usd: null, source: null },
       finish_reason: toolCalls.length > 0 ? "tool_use" : String(result?.stopReason || "end_turn"),
+      ...(typeof result?.responseId === "string" ? { response_id: result.responseId } : {}),
     };
   } finally {
     signal.removeEventListener("abort", abortListener);

@@ -6,14 +6,15 @@
  * shows each step's progress in order.
  */
 
-import React, { useMemo } from "react";
-import { Check, Loader2, PencilLine, Workflow as WorkflowIcon, X } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, Check, Loader2, PencilLine, Workflow as WorkflowIcon, X } from "lucide-react";
 import { Button, IconButton } from "../../ui";
 import { Select } from "./ChoiceSelect";
 import type { WorkflowStepStatus } from "../../../harness/core/workflowRun";
 import { type JsonObject, layoutSteps, stepsOf } from "./behaviorModel";
 import type { WorkflowRunView } from "./workflowRunStore";
 import styles from "./AgentWorkflowBar.module.css";
+import { isStarterWorkflowPath } from "./starterFlow";
 
 export interface WorkflowChoice {
   path: string;
@@ -65,6 +66,13 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   onSelect,
   onEdit,
 }) => {
+  const [collapsed, setCollapsed] = useState(() => {
+    try { return localStorage.getItem("rusty_workflow_bar_collapsed") === "true"; } catch { return false; }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed(!collapsed);
+    try { localStorage.setItem("rusty_workflow_bar_collapsed", String(!collapsed)); } catch { /* optional preference */ }
+  };
   const current = workflows.find((workflow) => workflow.path === selected);
   const name = current?.name ?? (selected ? selected.split("/").pop() ?? selected : "");
 
@@ -99,9 +107,17 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
         ? `Last run ${run.status}. Your next message runs it again.`
         : "Your next message runs this workflow.";
 
+  if (collapsed) return (
+    <div className={styles.collapsed}>
+      <Button type="button" variant="ghost" icon={<ChevronDown size={14} />} aria-expanded={false} onClick={toggleCollapsed}>Show workflow</Button>
+      <span className={styles.summary}>{running ? activeStep ? `Running: ${activeStep.name}` : "Workflow running…" : name || "Single agent"}</span>
+    </div>
+  );
+
   return (
     <div className={`${styles.bar} ${selected ? styles.active : ""}`} aria-label="Workflow">
       <div className={styles.row}>
+        <IconButton icon={<ChevronUp size={14} />} label="Hide workflow bar" aria-expanded={true} onClick={toggleCollapsed} />
         <WorkflowIcon size={14} className={styles.icon} aria-hidden />
         <label className={styles.label} htmlFor="agent-workflow-select">
           Mode
@@ -125,7 +141,7 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
         ) : null}
         <span className={styles.summary}>{summary}</span>
         <Button type="button" variant="ghost" icon={<PencilLine size={14} />} onClick={() => onEdit(selected)}>
-          {selected ? "Edit workflow" : workflows.length ? "Design workflows" : "Create a workflow"}
+          {selected ? isStarterWorkflowPath(selected) ? "View workflow" : "Edit workflow" : workflows.length ? "Design workflows" : "Create a workflow"}
         </Button>
       </div>
       {selected && steps.length ? (

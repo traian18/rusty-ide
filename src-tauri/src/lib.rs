@@ -5,6 +5,7 @@ mod shell_exec;
 mod usage_tracking;
 mod observability_store;
 mod secure_key;
+mod startup_window;
 #[cfg(feature = "core-harness")]
 mod harness;
 
@@ -12,10 +13,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tauri_plugin_window_state::{StateFlags, WindowExt};
+use tauri_plugin_window_state::StateFlags;
 use tauri::Manager;
 use tauri::Emitter;
-use tauri::webview::PageLoadEvent;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem, MasterPty};
 use std::io::{Write, Read};
 use std::sync::mpsc;
@@ -1235,14 +1235,11 @@ pub(crate) fn chrono_now_iso8601() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Keep visibility outside the persisted state. The main window starts
-    // hidden, restores its geometry exactly once in setup, and is shown only
-    // after restoration. This avoids the default-size window flashing before
-    // the restored window and prevents a closed/hidden state from persisting.
+    // Restore geometry before showing the window. Fullscreen, visibility and
+    // minimization are session-only: startup must present an accessible window.
     let window_state_flags = StateFlags::SIZE
         | StateFlags::POSITION
-        | StateFlags::MAXIMIZED
-        | StateFlags::FULLSCREEN;
+        | StateFlags::MAXIMIZED;
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1255,15 +1252,6 @@ pub fn run() {
                 .skip_initial_state("main")
                 .build(),
         )
-        .on_page_load(|webview, payload| {
-            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
-                let window = webview.window();
-                if !window.is_visible().unwrap_or_default() {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            }
-        })
         .manage(VfsState(Arc::new(Mutex::new(HashMap::new()))))
         .manage(NodeFileTracker(Arc::new(Mutex::new(HashMap::new()))))
         .manage(CurrentExecutingNode(Arc::new(Mutex::new(None))))
@@ -1289,7 +1277,7 @@ pub fn run() {
                 .get_webview_window("main")
                 .ok_or_else(|| "main window was not created".to_string())?;
 
-            main_window.restore_state(window_state_flags)?;
+            startup_window::restore_and_show(&main_window, window_state_flags)?;
 
             Ok(())
         })

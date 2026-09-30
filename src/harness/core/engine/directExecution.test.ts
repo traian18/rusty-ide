@@ -86,7 +86,7 @@ describe("runDirectExecution", () => {
   it("resolves with the final ExecutionResult and forwards a UsageUpdate event", async () => {
     const pi = await fauxPi();
     const registration = pi.registerFauxProvider({ api: "rusty-direct-faux-test", provider: "faux-direct-provider" });
-    registration.setResponses([pi.fauxAssistantMessage([pi.fauxText("Hi there.")])]);
+    registration.setResponses([pi.fauxAssistantMessage([pi.fauxText("Hi there.")], { responseId: "gen-direct-1" })]);
 
     const events: ExecutionEvent[] = [];
     try {
@@ -98,6 +98,7 @@ describe("runDirectExecution", () => {
       );
 
       expect(result.request_id).toBe("req-1");
+      expect(result.response_id).toBe("gen-direct-1");
       expect(result.finish_reason).toBe("stop");
       expect(events.some((event) => "UsageUpdate" in event)).toBe(true);
     } finally {

@@ -64,6 +64,8 @@ export interface ExecutionResult {
   usage: ModelUsage;
   cost: Cost;
   finish_reason: string;
+  /** Host-only completion id for delayed provider usage reconciliation. */
+  response_id?: string;
 }
 
 export type ExecutionError =

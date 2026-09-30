@@ -4,6 +4,8 @@ import { mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import { CoreEngineClient, type BridgeEvent, type CoreEngine } from "../engine/CoreEngineClient";
 import { DirectExecutionAnswerer } from "../engine/DirectExecutionAnswerer";
+import { resolveDirectRuntime } from "../engine/directExecution";
+import { recoverOpenRouterUsage } from "../engine/openRouterUsageRecovery";
 import type { ExecutionError, ExecutionEvent, ExecutionRequest, ExecutionResult } from "../engine/ExecutionProtocol";
 import { isExecutionError } from "../engine/ExecutionProtocol";
 import type { ExecutionAnswerer } from "../CoreHarness";
@@ -131,6 +133,7 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
     let text = "";
     const usage = new UsageAccumulator();
     let hostResultUsage: TokenUsage = {};
+    let delayedUsageResponseId: string | undefined;
     let pendingHostExecutions = 0;
     let pendingCompletion: (() => void) | undefined;
 
@@ -147,6 +150,27 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
         const sessionUsage = usage.total();
         const spent = hasTokens(sessionUsage) ? sessionUsage : hostResultUsage;
         if (hasTokens(spent)) request.onUsage?.(spent);
+        else if (delayedUsageResponseId && request.provider.id === "openrouter" && request.onUsage) {
+          // OpenRouter can finish a Gemini completion before its generation
+          // record has token counts. Let the tool return, then reconcile the
+          // exact response in the background. The parent run aborts its signal
+          // when it settles normally, so accounting needs an independent,
+          // bounded lifetime. Never estimate or double-count.
+          const runtime = resolveDirectRuntime(request.modelId, request.provider);
+          if (runtime) void recoverOpenRouterUsage(
+            runtime.providerId, runtime.model.baseUrl, runtime.apiKey,
+            delayedUsageResponseId, {
+              input_tokens: null, output_tokens: null, cache_read_tokens: null,
+              cache_write_tokens: null, reasoning_tokens: null, total_tokens: null,
+            }, new AbortController().signal, [3_000, 5_000, 8_000],
+          ).then((recovered) => {
+            if (recovered) request.onUsage?.({
+              input: recovered.input, output: recovered.output,
+              cacheRead: recovered.cacheRead, cacheWrite: recovered.cacheWrite,
+              reasoning: recovered.reasoning, totalTokens: recovered.totalTokens,
+            });
+          }).catch(() => {});
+        }
         request.signal.removeEventListener("abort", abortFromParent);
         controller.signal.removeEventListener("abort", abortListener);
         fn();
@@ -184,6 +208,7 @@ export class RoutedSelectorModelInvoker implements SelectorModelInvoker {
             (result: ExecutionResult) => {
               const resultUsage = mapModelUsage(result.usage);
               if (hasTokens(resultUsage)) hostResultUsage = addUsage(hostResultUsage, resultUsage);
+              else if (result.response_id) delayedUsageResponseId = result.response_id;
               return enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: true, result }));
             },
             (error: unknown) => enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: false, error: toExecutionError(error) })),

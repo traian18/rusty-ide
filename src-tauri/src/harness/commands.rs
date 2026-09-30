@@ -351,9 +351,10 @@ pub async fn harness_start_workflow(
     state: State<'_, HarnessState>,
     session_id: String,
     input: serde_json::Value,
+    checkpoint: Option<harness_engine::OrchestrationRunState>,
 ) -> Result<String, String> {
     let session_id = parse_session_id(&session_id)?;
-    state.start_workflow(session_id, input).await
+    state.start_workflow_from_checkpoint(session_id, input, checkpoint).await
 }
 
 #[tauri::command]

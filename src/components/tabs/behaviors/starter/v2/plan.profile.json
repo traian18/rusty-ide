@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "id": "plan",
+  "revision": 2,
+  "name": "Plan",
+  "description": "Read-only investigation. Explores the workspace and produces a concrete plan; it cannot edit files or run commands.",
+  "status": "draft",
+  "instructions": {
+    "mode": "append",
+    "text": "You are in PLAN mode. Investigate and plan; never change the workspace. Ground every statement in code you have actually read, name real files and symbols, and prefer the smallest plan that fully satisfies the request. Ask the user only when a decision cannot be inferred safely. The next step starts with no exploration history. Preserve relevant findings, constraints, user answers, decisions and acceptance checks in the final plan, with concrete files and symbols for each step.",
+    "variants": {}
+  },
+  "tools": {
+    "type": "allow_list",
+    "tools": ["read_file", "list_files", "search_codebase", "web_search", "web_extract", "report_progress", "ask_user_question"]
+  },
+  "tool_overrides": {
+    "search_codebase": {
+      "description_append": "Search before reading: locate the code first, then read only what the plan depends on."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 16,
+    "max_tool_calls": 60,
+    "final_turn_prompt": "You are out of turns. Stop exploring and reply now with only the JSON plan, based on what you have read so far."
+  },
+  "rules": [
+    {
+      "id": "plan-read-only",
+      "on": "PreToolUse",
+      "when": { "tool": ["write_file", "run_command"] },
+      "do": { "deny": { "reason": "The plan step is read-only. Describe the change in the plan instead of making it." } }
+    },
+    {
+      "id": "plan-failed-tool",
+      "on": "PostToolUseFailure",
+      "do": { "inject": { "text": "That tool call failed. Read the error, correct the path or arguments, and try once more before choosing another approach." } },
+      "max_fires": 5
+    },
+    {
+      "id": "plan-wrap-up",
+      "on": "BeforeModelRequest",
+      "when": { "turn": { "gte": 12 } },
+      "do": { "inject": { "text": "You are close to your turn limit. Stop exploring and produce the JSON plan now.", "placement": "next_request" } },
+      "max_fires": 1
+    }
+  ],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "explored-first",
+        "require": { "calls": { "tool": ["read_file", "list_files", "search_codebase"], "gte": 1 } },
+        "feedback": "You have not looked at the code yet. Explore the relevant files before proposing a plan."
+      }
+    ],
+    "max_continuations": 2,
+    "on_exhausted": "fail"
+  },
+  "children": { "type": "inherit" },
+  "metadata": { "editor": { "position": { "x": 60, "y": 60 } } }
+}

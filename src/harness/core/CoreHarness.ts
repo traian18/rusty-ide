@@ -189,7 +189,7 @@ export interface CoreCapabilityDefinition<K extends CapabilityName> {
    * (`undefined` for a normal agent loop). The session is created from
    * `recipe()` as usual, so the workflow's agent steps share its backend,
    * tools and host tool handlers. */
-  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown } | undefined;
+  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown; checkpoint?: unknown } | undefined;
   /** The capability result for a completed workflow's final output.
    * Required whenever `workflow` can return a workflow. */
   workflowResult?(output: unknown, input: CapabilityInput<K>, ctx: RunContext): CapabilityResult<K>;
@@ -755,6 +755,7 @@ export class CoreHarness implements AgentHarness {
     };
 
     const handleWorkflowFinished = (state: unknown) => {
+      onEvent({ kind: "workflow_checkpoint", state } as CapabilityEvent<K>);
       const outcome = workflowOutcome(state);
       if (outcome.status === "cancelled") {
         settle({ status: "cancelled" });
@@ -802,7 +803,7 @@ export class CoreHarness implements AgentHarness {
         if (workflow) {
           if (!this.engine.startWorkflow) throw new Error("This build of the harness cannot run workflows.");
           observe(() => trajectories.append(runId, "Workflow", { workflow: workflowId, input: workflow.input }));
-          await this.engine.startWorkflow(id, workflow.input);
+          await this.engine.startWorkflow(id, workflow.input, workflow.checkpoint);
           return;
         }
         await this.engine.mutate(id, { type: "prompt", payload: { text: definition.promptText!(input), attachments: [] } });

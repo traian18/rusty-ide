@@ -44,7 +44,7 @@ export interface CoreEngine {
   hostExecuteResult(sessionId: string, callId: string, outcome: HostExecuteOutcome): Promise<void>;
   closeSession(sessionId: string): Promise<void>;
   /** Starts the workflow the session's recipe carries; resolves to the run id. */
-  startWorkflow?(sessionId: string, input: unknown): Promise<string>;
+  startWorkflow?(sessionId: string, input: unknown, checkpoint?: unknown): Promise<string>;
   workflowControl?(sessionId: string, control: WorkflowControl): Promise<void>;
   /** Changes a running workflow step's execution params (its model). */
   configureStepExecution?(sessionId: string, stepSessionId: string, params: ExecutionParams): Promise<void>;
@@ -185,8 +185,8 @@ export class CoreEngineClient implements CoreEngine {
     return invoke("harness_snapshot", { sessionId });
   }
 
-  startWorkflow(sessionId: string, input: unknown): Promise<string> {
-    return invoke("harness_start_workflow", { sessionId, input });
+  startWorkflow(sessionId: string, input: unknown, checkpoint?: unknown): Promise<string> {
+    return invoke("harness_start_workflow", { sessionId, input, checkpoint });
   }
 
   workflowControl(sessionId: string, control: WorkflowControl): Promise<void> {

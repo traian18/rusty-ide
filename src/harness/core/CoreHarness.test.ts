@@ -3,6 +3,7 @@ import type { AgentEvent, AgentEventEnvelope, MutationCommand } from "@rusty/har
 
 import type { InlineChatInput } from "../contract";
 import type { HarnessControlPlane, UsageRecordSample } from "../contract/controlPlane";
+import type { ToolExecutionObserver } from "../contract/observability";
 import { createRecordingHost } from "../testing/recordingHost";
 import { describeAgentHarnessContract, type ContractRun } from "../testing/contractTests";
 import type { BridgeEvent, CoreEngine, HostExecuteOutcome, HostToolOutcome } from "./engine/CoreEngineClient";
@@ -504,10 +505,12 @@ describe("CoreHarness-specific behavior", () => {
   });
 
   it("records a tool's delegated model usage into Token Metrics under that model", async () => {
+    let delayedObserver: ToolExecutionObserver | undefined;
     const definition: CoreCapabilityDefinition<"inline_chat"> = {
       ...inlineChatDefinition,
       hostTools: () => ({
         "my.tool": async (_args, _signal, observer) => {
+          delayedObserver = observer;
           observer?.executedBy({ kind: "model", purpose: "Smart Read selector", model: "selector-mini", provider: "Selector Co" });
           observer?.usage({ input: 300, output: 20, totalTokens: 320 });
           return { ok: true, output: "done" };
@@ -537,6 +540,12 @@ describe("CoreHarness-specific behavior", () => {
     expect(live).toEqual([[`${handle.runId}:tool:model-call-3`, 320]]);
     unsubscribe();
     handle.cancel();
+    await handle.done;
+    delayedObserver?.usage({ input: 40, output: 5, totalTokens: 45 });
+    expect(controlPlane.recorded.at(-1)).toEqual(expect.objectContaining({
+      model: "selector-mini",
+      usage: expect.objectContaining({ input: 40, output: 5, totalTokens: 45 }),
+    }));
   });
 
   it("reports a hostTools handler's rejection back as a failed host_tool_call outcome", async () => {

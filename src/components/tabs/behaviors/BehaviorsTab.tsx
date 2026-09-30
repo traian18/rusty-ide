@@ -41,12 +41,13 @@ import {
   workflowId,
 } from "./behaviorModel";
 import { behaviorService, profilePath, workflowPath, type LoadFailure } from "./behaviorService";
-import { ensureStarterFlow } from "./starterFlow";
+import { BUILTIN_WORKFLOW_PATH, STARTER_PROFILES } from "./starterFlow";
 import { JsonField } from "./InspectorFields";
 import { ProfileInspector } from "./ProfileInspector";
 import { WorkflowInspector, type WorkflowSelection } from "./WorkflowInspector";
 import { useWorkflowRunStore } from "./workflowRunStore";
 import styles from "./Behaviors.module.css";
+import { useInspectorWidth } from "./useInspectorWidth";
 
 type Mode = "workflows" | "profiles";
 
@@ -68,6 +69,7 @@ const VALIDATION_DELAY_MS = 250;
 const isDirty = (doc: Doc) => doc.saved !== stableStringify(doc.document);
 
 export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
+  const inspector = useInspectorWidth();
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const runs = useWorkflowRunStore((state) => state.runs);
@@ -100,7 +102,6 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
     setLoading(true);
     try {
       // A workspace without workflows opens on the Plan → Build → Verify flow.
-      await ensureStarterFlow(rootPath);
       const [loadedProfiles, loadedWorkflows, templates, workspaceDefault] = await Promise.all([
         behaviorService.loadProfiles(rootPath),
         behaviorService.loadWorkflows(rootPath),
@@ -110,7 +111,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
       setProfiles(loadedProfiles.documents.map(({ path, document, saved }) => ({ path, document, saved })));
       setWorkflows(loadedWorkflows.documents.map(({ path, document, saved }) => ({ path, document, saved })));
       setFailures([...loadedProfiles.failures, ...loadedWorkflows.failures]);
-      setBuiltins(templates?.builtin_profiles ?? []);
+      setBuiltins([...(templates?.builtin_profiles ?? []), ...STARTER_PROFILES]);
       setWorkflowTemplate(templates?.default_workflow);
       setDefaultProfile(workspaceDefault);
       setSelectedWorkflow((current) => current ?? loadedWorkflows.documents[0]?.path);
@@ -146,7 +147,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
   useEffect(() => {
     const run = ++validationRun.current;
     const timer = window.setTimeout(async () => {
-      const library = profiles.map((doc) => doc.document);
+      const library = [...profiles.map((doc) => doc.document), ...STARTER_PROFILES];
       const next: Record<string, Issue[]> = {};
       try {
         await Promise.all([
@@ -197,6 +198,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
   }, []);
 
   const updateWorkflow = useCallback((path: string, update: (workflow: JsonObject) => JsonObject) => {
+    if (path === BUILTIN_WORKFLOW_PATH) return;
     setWorkflows((current) => current.map((doc) => (doc.path === path ? { ...doc, document: update(doc.document) } : doc)));
   }, []);
 
@@ -219,6 +221,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
 
   const drill = useCallback(
     (workflowDocPath: string, stepId: string, profile: string | undefined) => {
+      if (workflowDocPath === BUILTIN_WORKFLOW_PATH && !profile) return;
       let target = profile;
       if (!target) {
         // A step without a profile gets a fresh one named after it.
@@ -441,7 +444,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
         </div>
       </div>
 
-      <div className={styles.body}>
+      <div className={styles.body} ref={inspector.bodyRef} style={{ "--inspector-width": `${inspector.width}px` } as React.CSSProperties}>
         <aside className={styles.list}>
           {mode === "workflows" ? (
             <>
@@ -459,7 +462,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                 >
                   <WorkflowIcon size={14} />
                   <span className={styles.listName}>{String(doc.document.name ?? workflowId(doc.document))}</span>
-                  <StatusDot dirty={isDirty(doc)} issues={issues[doc.path]} />
+                  {doc.path === BUILTIN_WORKFLOW_PATH ? <span className={styles.badge}>Built-in</span> : <StatusDot dirty={isDirty(doc)} issues={issues[doc.path]} />}
                 </button>
               ))}
               {workflows.length === 0 && !loading ? (
@@ -563,6 +566,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
             <RunBanner run={runs[workflowId(currentWorkflow.document)]} />
             <WorkflowCanvas
               key={currentWorkflow.path}
+              readOnly={currentWorkflow.path === BUILTIN_WORKFLOW_PATH}
               workflow={currentWorkflow.document}
               selectedStep={workflowSelection.kind === "step" ? workflowSelection.id : undefined}
               selectedEdge={workflowSelection.kind === "edge" ? workflowSelection.id : undefined}
@@ -603,6 +607,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
           )}
         </main>
 
+        {inspector.handle}
         <aside className={styles.inspector} aria-label="Inspector">
           {mode === "profiles" && currentProfile ? (
             <>
@@ -657,11 +662,16 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                 }
                 showJson={showJson}
                 onToggleJson={() => setShowJson((value) => !value)}
-                canEdit
+                canEdit={currentWorkflow.path !== BUILTIN_WORKFLOW_PATH}
                 dirty={isDirty(currentWorkflow)}
                 onRevert={revertCurrent}
                 onDelete={() => setConfirmDelete(true)}
               />
+              {currentWorkflow.path === BUILTIN_WORKFLOW_PATH ? (
+                <div className={styles.section}><Button onClick={() => setCreating("workflows")}>Customize a copy</Button></div>
+              ) : null}
+              <fieldset disabled={currentWorkflow.path === BUILTIN_WORKFLOW_PATH} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
+              {currentWorkflow.path === BUILTIN_WORKFLOW_PATH ? <p className={styles.muted}>Built into Rusty · available in every project.</p> : null}
               {showJson ? (
                 <div className={styles.section}>
                   <JsonField
@@ -689,6 +699,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                   }}
                 />
               )}
+              </fieldset>
             </>
           ) : (
             <div className={styles.section}>
@@ -715,7 +726,9 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
               selectProfile(id);
             } else if (rootPath) {
               const path = workflowPath(rootPath, id);
-              setWorkflows((current) => [...current, { path, document: newWorkflow(id, workflowTemplate), saved: null }]);
+              setWorkflows((current) => [...current, { path, document: currentWorkflow?.path === BUILTIN_WORKFLOW_PATH
+                ? { ...JSON.parse(JSON.stringify(currentWorkflow.document)), id, name: id, revision: 1 }
+                : newWorkflow(id, workflowTemplate), saved: null }]);
               setSelectedWorkflow(path);
               setWorkflowSelection({ kind: "workflow" });
               setMode("workflows");
@@ -808,7 +821,7 @@ const CreateModal: React.FC<{
       description={
         kind === "profiles"
           ? "Saved as .rusty/profiles/<id>.json. Starts as a draft with no rules."
-          : "Saved as .rusty/workflows/<id>.json. Starts from the default single-agent workflow."
+          : "Your editable workflow will be saved as .rusty/workflows/<id>.json."
       }
       onClose={onCancel}
       size="sm"

@@ -8,6 +8,15 @@ beforeEach(() => invoke.mockReset());
 const message: AgentMessage = { id: "1", role: "user", content: "Edit files", timestamp: "2026-09-19" };
 
 describe("conversation persistence", () => {
+  it("saves completed step outputs in a failed checkpoint and removes it on start over", async () => {
+    invoke.mockResolvedValue("/workspace/chat.json");
+    const checkpoint = { status: "failed", failed_step: "build", input: { request: "original task" }, steps: { plan: { status: "succeeded", output: "original plan" } } };
+    const queue = new AgentChatSaveQueue();
+    await queue.save("/workspace", "agent", [message], [], "builtin:plan-build-verify", checkpoint);
+    await queue.save("/workspace", "agent", [message], [], "builtin:plan-build-verify");
+    expect(JSON.parse(invoke.mock.calls[0][1].content).workflowCheckpoint).toEqual(checkpoint);
+    expect(JSON.parse(invoke.mock.calls[1][1].content).workflowCheckpoint).toBeUndefined();
+  });
   it("remembers the workflow a chat follows, and older chats follow none", async () => {
     invoke.mockResolvedValue("/workspace/.rusty/chats/chat.json");
     const queue = new AgentChatSaveQueue();

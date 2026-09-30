@@ -10,6 +10,21 @@
 
 export type WorkflowStepStatus = "running" | "waiting" | "retry" | "succeeded" | "failed";
 
+export interface FailedWorkflowCheckpoint {
+  status: "failed";
+  definition_id: string;
+  failed_step: string;
+  [key: string]: unknown;
+}
+
+/** Native code validates the full state and exact definition hash before retry. */
+export function readWorkflowCheckpoint(value: unknown): FailedWorkflowCheckpoint | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const state = value as Record<string, unknown>;
+  return state.status === "failed" && typeof state.definition_id === "string" && typeof state.failed_step === "string"
+    ? state as FailedWorkflowCheckpoint : undefined;
+}
+
 export interface WorkflowStepProgress {
   nodeId: string;
   name?: string;
@@ -128,12 +143,12 @@ export function formatWorkflowOutput(output: unknown): string {
 
 /**
  * The input a workflow receives for a chat message: a JSON object message
- * is passed as-is (for workflows with their own input schema); anything
+ * is passed as-is only when explicitly enabled for a legacy JSON workflow; anything
  * else becomes `{ request, attachments }`, the default workflow's input.
  */
-export function workflowInputFor(message: string): unknown {
+export function workflowInputFor(message: string, parseJson = false): unknown {
   const trimmed = message.trim();
-  if (trimmed.startsWith("{")) {
+  if (parseJson && trimmed.startsWith("{")) {
     try {
       const parsed = JSON.parse(trimmed) as unknown;
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;

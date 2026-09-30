@@ -10,14 +10,20 @@ vi.mock("../../harness", () => ({ harness: { run, releaseSession: vi.fn(async ()
 vi.mock("../../store/resolveExecutionProvider", () => ({
   resolveExecutionProvider: () => ({ ok: true, provider: { id: "p", name: "P", models: [] } }),
 }));
+vi.mock("../../hooks/useSelectableModels", () => ({
+  useSelectableModels: () => ({
+    options: [{ id: "model-a", name: "Model A" }, { id: "model-b", name: "Model B" }],
+    unauthenticatedProviders: [], refreshCatalogue: async () => {}, isRefreshingCatalogue: false,
+  }),
+}));
 
-import { AGENT_WORKFLOW_OPT_OUT_STORAGE_KEY } from "../../preferences/agentWorkflowDefault";
+import { AGENT_MODEL_SELECTION_STORAGE_KEY } from "../../preferences/agentModelSelection";
 import { useWorkspaceStore } from "../../store";
 import { AgentTab } from "./AgentTab";
-import { STARTER_WORKFLOW_ID } from "./behaviors/starterFlow";
+import { BUILTIN_WORKFLOW_PATH } from "./behaviors/starterFlow";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 
-const STARTER_PATH = `/ws/.rusty/workflows/${STARTER_WORKFLOW_ID}.json`;
+const STARTER_PATH = BUILTIN_WORKFLOW_PATH;
 const STARTER_LABEL = "Workflow: Plan, build, verify";
 const CHAT_PATH = "/ws/.rusty/chats/old.json";
 const files: Record<string, string> = {};
@@ -86,7 +92,7 @@ describe("Agent chat and the starter flow", () => {
     run.mockReset();
     run.mockImplementation(() => ({ runId: "r", started: Promise.resolve(), done: new Promise(() => {}), cancel: vi.fn() }));
     useWorkflowRunStore.setState({ agentRequest: undefined, runs: {} });
-    useWorkspaceStore.setState({ rootPath: "/ws", agentChats: { agent: [] } });
+    useWorkspaceStore.setState({ rootPath: "/ws", activeModel: "model-a", agentChats: { agent: [] } });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -100,24 +106,47 @@ describe("Agent chat and the starter flow", () => {
     vi.unstubAllGlobals();
   });
 
-  it("gives an empty workspace the starter flow and follows it in the first chat", async () => {
-    expect(writes).toEqual(["/ws/.rusty/profiles/plan.json", "/ws/.rusty/profiles/build.json", STARTER_PATH]);
+  it("starts new chats as Single agent while keeping the built-in workflow available", async () => {
+    expect(writes).toEqual([]);
+    expect(select().textContent).toBe("Single agent");
+    await choose(STARTER_PATH);
     expect(select().textContent).toBe(STARTER_LABEL);
     const steps = container.querySelector('ol[aria-label="Workflow steps"]')?.textContent ?? "";
     for (const step of ["Plan", "Build", "Verify"]) expect(steps).toContain(step);
   });
 
-  it("remembers Single agent as an opt-out for new chats, and a workflow choice clears it", async () => {
-    await choose("");
-    expect(select().textContent).toBe("Single agent");
-    expect(localStorage.getItem(AGENT_WORKFLOW_OPT_OUT_STORAGE_KEY)).toBe("true");
-    await newChat();
-    expect(select().textContent).toBe("Single agent");
-
+  it("keeps workflow selection in its chat and starts the next chat as Single agent", async () => {
     await choose(STARTER_PATH);
-    expect(localStorage.getItem(AGENT_WORKFLOW_OPT_OUT_STORAGE_KEY)).toBeNull();
-    await newChat();
     expect(select().textContent).toBe(STARTER_LABEL);
+    await newChat();
+    expect(select().textContent).toBe("Single agent");
+  });
+
+  it("keeps the chosen Agent model across global changes, new chats and tab remounts", async () => {
+    const modelButton = () => container.querySelector('button[title="Model B"]') as HTMLButtonElement | null;
+    await act(async () => (container.querySelector('button[title="Model A"]') as HTMLButtonElement).click());
+    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === "Model B")!.click());
+    expect(modelButton()).not.toBeNull();
+    expect(localStorage.getItem(AGENT_MODEL_SELECTION_STORAGE_KEY)).toBe("model-b");
+    act(() => useWorkspaceStore.setState({ activeModel: "model-a" }));
+    expect(modelButton()).not.toBeNull();
+    await newChat();
+    expect(modelButton()).not.toBeNull();
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<AgentTab tab={tab} />));
+    await flush();
+    expect(modelButton()).not.toBeNull();
+  });
+
+  it("shows a saved model as unavailable while the catalogue lacks it, without replacing the choice", async () => {
+    localStorage.setItem(AGENT_MODEL_SELECTION_STORAGE_KEY, "other-model");
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => root.render(<AgentTab tab={tab} />));
+    await flush();
+    expect(container.querySelector('button[title="other-model (unavailable)"]')).not.toBeNull();
+    expect(localStorage.getItem(AGENT_MODEL_SELECTION_STORAGE_KEY)).toBe("other-model");
   });
 
   it("leaves a chat loaded from history as it was saved", async () => {
@@ -131,7 +160,34 @@ describe("Agent chat and the starter flow", () => {
     expect(select().textContent).toBe("Single agent");
 
     await newChat();
+    expect(select().textContent).toBe("Single agent");
+  });
+
+  it("restores an explicitly saved workflow only for that chat", async () => {
+    files[CHAT_PATH] = JSON.stringify({ ...JSON.parse(files[CHAT_PATH]), workflow: STARTER_PATH });
+    await act(async () => {
+      [...container.querySelectorAll("div")].filter((div) => div.textContent?.includes("earlier request")).at(-1)!.click();
+    });
+    await flush();
     expect(select().textContent).toBe(STARTER_LABEL);
+    await newChat();
+    expect(select().textContent).toBe("Single agent");
+  });
+
+  it("restores the failed step and lets the user explicitly start over", async () => {
+    const saved = JSON.parse(files[CHAT_PATH]);
+    files[CHAT_PATH] = JSON.stringify({ ...saved, workflow: STARTER_PATH, workflowCheckpoint: {
+      status: "failed", definition_id: "rusty-ide.builtin.plan-build-verify", failed_step: "build", steps: { plan: { status: "succeeded", output: "saved plan" } },
+    } });
+    await act(async () => {
+      [...container.querySelectorAll("div")].filter((div) => div.textContent?.includes("earlier request")).at(-1)!.click();
+    });
+    await flush();
+    expect(container.textContent).toContain("Your next message resumes Build");
+    await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Start over instead")!.click());
+    await flush();
+    expect(container.textContent).not.toContain("Your next message resumes");
+    expect(JSON.parse(files[CHAT_PATH]).workflowCheckpoint).toBeUndefined();
   });
 
   it("does not pull a conversation in progress onto the flow when the tab remounts", async () => {

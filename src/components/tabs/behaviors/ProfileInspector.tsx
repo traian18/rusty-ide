@@ -1,8 +1,8 @@
 /**
  * Inspector for one behavior profile: identity, instructions, tools, model
  * overlay, limits, rules grouped by the event they run on, and the
- * completion gate. Anything without a dedicated control is still reachable
- * through the raw JSON section.
+ * completion gate. Conditions, overrides, checks and argument values use
+ * form controls; users do not need to write JSON.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -24,13 +24,16 @@ import {
   isObject,
   issuesUnder,
   newRule,
-  parseNameList,
   removeRule,
   replaceRule,
   rulesOf,
 } from "./behaviorModel";
-import { IssueList, JsonField, assign, optionalNumber } from "./InspectorFields";
+import { IssueList, assign, optionalNumber } from "./InspectorFields";
 import styles from "./Behaviors.module.css";
+import { ToolSelector } from "./ToolSelector";
+import { ToolOverrides, CompletionGateFields } from "./ProfileConfigFields";
+import { ConditionEditor } from "./ConditionEditor";
+import { ValueFields } from "./ValueFields";
 
 const EVENT_HELP: Record<RuleEvent, string> = {
   RunStart: "once, when a run starts",
@@ -39,23 +42,6 @@ const EVENT_HELP: Record<RuleEvent, string> = {
   PostToolUse: "after a tool succeeds — can inject or rewrite the result",
   PostToolUseFailure: "after a tool fails",
   ProfileEntered: "when a switch lands on this profile",
-};
-
-const CONDITION_HINT =
-  'e.g. {"tool": "fs.edit"}, {"turn": {"gte": 3}}, {"calls": {"tool": "shell.*", "gte": 2}}, ' +
-  '{"arg": {"pointer": "/path", "glob": "*.env"}}, {"all": [...]}, {"not": {...}}. Empty = always.';
-
-const GATE_TEMPLATE: JsonObject = {
-  checks: [
-    {
-      id: "tests-ran",
-      // "Not (edited, then ran nothing)": also passes runs that never edit.
-      require: { not: { since_last_call: { of: ["fs.edit", "fs.write"], called: "shell.exec", eq: 0 } } },
-      feedback: "You edited files but did not run the tests afterwards. Run them before finishing.",
-    },
-  ],
-  max_continuations: 2,
-  on_exhausted: "fail",
 };
 
 interface ProfileInspectorProps {
@@ -207,25 +193,10 @@ export const ProfileInspector: React.FC<ProfileInspectorProps> = ({
           />
         </Field>
         {tools.type === "allow_list" ? (
-          <Field id={field("allow")} label="Allowed tools" hint="One name or glob per line, e.g. fs.read or mcp.github.*">
-            <Textarea
-              id={field("allow")}
-              rows={4}
-              className={styles.mono}
-              value={Array.isArray(tools.tools) ? tools.tools.join("\n") : ""}
-              onChange={(e) => set("tools", { type: "allow_list", tools: parseNameList(e.target.value) })}
-            />
-          </Field>
+          <ToolSelector value={Array.isArray(tools.tools) ? tools.tools.filter((tool): tool is string => typeof tool === "string") : []}
+            onChange={(selected) => set("tools", { type: "allow_list", tools: selected })} />
         ) : null}
-        <JsonField
-          id={field("overrides")}
-          label="Tool overrides"
-          hint='Per tool: {"shell.exec": {"permission": "ask", "description_append": "…"}}'
-          optional
-          value={profile.tool_overrides}
-          onChange={(value) => set("tool_overrides", value)}
-          readOnly={readOnly}
-        />
+        <ToolOverrides value={profile.tool_overrides} onChange={(value) => set("tool_overrides", value)} />
       </fieldset>
 
       <fieldset className={styles.section} disabled={readOnly}>
@@ -258,6 +229,7 @@ export const ProfileInspector: React.FC<ProfileInspectorProps> = ({
               type="number"
               min={1}
               value={limits.max_turns === undefined ? "" : String(limits.max_turns)}
+              placeholder="No profile limit"
               onChange={(e) => set("limits", assign(limits, "max_turns", optionalNumber(e.target.value)))}
             />
           </Field>
@@ -267,6 +239,7 @@ export const ProfileInspector: React.FC<ProfileInspectorProps> = ({
               type="number"
               min={1}
               value={limits.max_tool_calls === undefined ? "" : String(limits.max_tool_calls)}
+              placeholder="No profile limit"
               onChange={(e) => set("limits", assign(limits, "max_tool_calls", optionalNumber(e.target.value)))}
             />
           </Field>
@@ -354,38 +327,19 @@ export const ProfileInspector: React.FC<ProfileInspectorProps> = ({
         <div className={styles.sectionTitle}>Completion gate</div>
         <p className={styles.muted}>
           Checks run when the model says it is done. A failed check sends its message back and the run
-          continues, up to max_continuations times.
+          continues, up to the configured number of additional attempts.
         </p>
-        {profile.completion_gate === undefined && !readOnly ? (
-          <div className={styles.inlineActions}>
-            <Button type="button" icon={<Plus size={14} />} onClick={() => set("completion_gate", GATE_TEMPLATE)}>
-              Add completion gate
-            </Button>
-          </div>
-        ) : (
-          <JsonField
-            id={field("gate")}
-            label="Gate"
-            optional
-            value={profile.completion_gate}
-            onChange={(value) => set("completion_gate", value)}
-            hint='Checks use "require" (a condition) or "evaluator": {"type": "tool" | "model" | "agent" | "command", …}. Empty removes the gate.'
-            readOnly={readOnly}
-          />
-        )}
+        <CompletionGateFields value={profile.completion_gate} profileIds={profileIds} onChange={(value) => set("completion_gate", value)} />
       </fieldset>
 
       <fieldset className={styles.section} disabled={readOnly}>
         <div className={styles.sectionTitle}>Child agents</div>
-        <JsonField
-          id={field("children")}
-          label="Child policy"
-          optional
-          hint='{"type": "inherit"} (default), {"type": "named", "profile": {"id": "…"}}, or {"type": "derived", "overrides": {…}}'
-          value={profile.children}
-          onChange={(value) => set("children", value)}
-          readOnly={readOnly}
-        />
+        <p className={styles.muted}>Child agents inherit this profile. Other child policies are not supported by the current engine.</p>
+        {isObject(profile.children) && profile.children.type !== "inherit" ? (
+          <Callout variant="warning">This saved child policy is unsupported. It is preserved until you change it.
+            <Button onClick={() => set("children", { type: "inherit" })}>Use inherited settings</Button>
+          </Callout>
+        ) : null}
       </fieldset>
     </>
   );
@@ -479,15 +433,8 @@ const RuleCard: React.FC<RuleCardProps> = ({
               />
             </Field>
           </div>
-          <JsonField
-            id={field("when")}
-            label="When"
-            optional
-            hint={CONDITION_HINT}
-            value={rule.when}
-            onChange={(value) => onChange(assign(rule, "when", value))}
-            readOnly={readOnly}
-          />
+          <ConditionEditor label="When this rule applies" optional value={rule.when} profileIds={profileIds}
+            onChange={(value) => onChange(assign(rule, "when", value))} />
           <ActionFields
             type={type}
             body={body}
@@ -495,7 +442,6 @@ const RuleCard: React.FC<RuleCardProps> = ({
             field={field}
             profileIds={profileIds.filter((candidate) => candidate !== profileId)}
             onChange={setBody}
-            readOnly={readOnly}
           />
           {readOnly ? null : (
             <div className={styles.inlineActions}>
@@ -514,9 +460,8 @@ const ActionFields: React.FC<{
   event: RuleEvent;
   field: (name: string) => string;
   profileIds: string[];
-  readOnly: boolean;
   onChange: (body: JsonObject) => void;
-}> = ({ type, body, event, field, profileIds, readOnly, onChange }) => {
+}> = ({ type, body, event, field, profileIds, onChange }) => {
   const text = (key: string, label: string, hint?: string, rows = 3) => (
     <Field id={field(key)} label={label} hint={hint}>
       <Textarea id={field(key)} rows={rows} value={String(body[key] ?? "")} onChange={(e) => onChange(assign(body, key, e.target.value))} />
@@ -569,14 +514,9 @@ const ActionFields: React.FC<{
     }
     case "rewrite_args":
       return (
-        <JsonField
-          id={field("merge")}
-          label="Merge into arguments"
-          hint="RFC 7396 merge patch: null removes a key. What the user approves is the rewritten call."
-          value={body.merge}
-          onChange={(value) => onChange({ merge: value ?? {} })}
-          readOnly={readOnly}
-        />
+        <div><p className={styles.muted}>Choose fields to change in the tool call. An empty/remove value deletes a field.</p>
+          <ValueFields label="Argument changes" value={body.merge ?? {}} onChange={(merge) => onChange({ ...body, merge })} />
+        </div>
       );
     case "rewrite_result": {
       const mode = body.replace !== undefined ? "replace" : "append";
@@ -598,6 +538,6 @@ const ActionFields: React.FC<{
       );
     }
     default:
-      return <p className={styles.muted}>Unknown action — edit it in the raw JSON section.</p>;
+      return <p className={styles.muted}>This action is not supported by this version. Its saved settings are preserved until you choose another action.</p>;
   }
 };

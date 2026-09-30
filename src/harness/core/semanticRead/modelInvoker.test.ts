@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CustomProvider } from "../../../store/types";
 import type { ExecutionAnswerer } from "../CoreHarness";
 import type { BridgeEvent, CoreEngine } from "../engine/CoreEngineClient";
@@ -83,6 +83,46 @@ const providerResult: ExecutionResult = {
 };
 
 describe("RoutedSelectorModelInvoker usage", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it("records OpenRouter Gemini usage once it arrives after the smart tool has returned", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      data: { native_tokens_prompt: 1_000, native_tokens_completion: 40, native_tokens_cached: 100 },
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const onUsage = vi.fn();
+    const parent = new AbortController();
+    const gemini = {
+      ...request(onUsage), signal: parent.signal,
+      providerId: "openrouter", modelId: "openrouter/google/gemini-2.5-flash",
+      provider: {
+        id: "openrouter", name: "OpenRouter", apiType: "openai-completions",
+        baseUrl: "https://openrouter.ai/api/v1", apiKey: "sk-test", models: [],
+      } as unknown as CustomProvider,
+    };
+    const noUsage: ExecutionResult = {
+      ...providerResult,
+      usage: { input_tokens: null, output_tokens: null, cache_read_tokens: null, cache_write_tokens: null, reasoning_tokens: null, total_tokens: null },
+      response_id: "gen-gemini",
+    };
+
+    await expect(new RoutedSelectorModelInvoker({
+      engine: hostRoutedEngine(), executionAnswerer: successfulAnswerer(noUsage),
+    }).invoke(gemini)).resolves.toBe("{\"ranges\":[]}");
+    expect(onUsage).not.toHaveBeenCalled();
+    // CoreHarness aborts the run signal as part of normal settlement.
+    parent.abort();
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledTimes(1);
+    expect(onUsage).toHaveBeenCalledWith({
+      input: 900, output: 40, cacheRead: 100, cacheWrite: 0, reasoning: 0, totalTokens: 1_040,
+    });
+  });
   it("reports the session's usage once, without double-counting repeated snapshots", async () => {
     const onUsage = vi.fn();
     const engine = scriptedEngine([

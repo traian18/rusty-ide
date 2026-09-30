@@ -47,6 +47,7 @@ describe("AgentWorkflowBar", () => {
   };
 
   beforeEach(() => {
+    localStorage.removeItem("rusty_workflow_bar_collapsed");
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -66,6 +67,22 @@ describe("AgentWorkflowBar", () => {
     const create = [...container.querySelectorAll("button")].find((button) => button.textContent === "Create a workflow")!;
     await act(async () => create.click());
     expect(props.onEdit).toHaveBeenCalledWith(undefined);
+  });
+
+  it("hides the controls without changing the workflow and remembers the choice", async () => {
+    const props = await render({ selected: "/w/flow.json", definition: WORKFLOW });
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Hide workflow bar"]')!.click());
+    expect(trigger()).toBeNull();
+    expect(container.querySelector("ol")).toBeNull();
+    expect(props.onSelect).not.toHaveBeenCalled();
+    expect(localStorage.getItem("rusty_workflow_bar_collapsed")).toBe("true");
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render(props);
+    expect(trigger()).toBeNull();
+    await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
+    expect(trigger()).not.toBeNull();
+    expect(localStorage.getItem("rusty_workflow_bar_collapsed")).toBe("false");
   });
 
   it("selects a workflow and shows its steps in run order", async () => {

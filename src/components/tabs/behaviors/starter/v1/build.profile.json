@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "id": "build",
+  "revision": 1,
+  "name": "Build",
+  "description": "Implements a plan in the workspace: reads before editing, writes complete files, and checks its work before reporting.",
+  "status": "draft",
+  "instructions": {
+    "mode": "append",
+    "text": "You are in BUILD mode. Implement exactly what the plan asks, no more. Read each file before you edit it, write complete file contents with no placeholders, follow the conventions already in the code, and check your work before you report.",
+    "variants": {}
+  },
+  "tools": { "type": "inherit" },
+  "tool_overrides": {
+    "write_file": {
+      "description_append": "Read the file first and write its complete updated content; never abbreviate with placeholders such as \"rest of the file unchanged\"."
+    },
+    "run_command": {
+      "description_append": "Prefer the project's own test, type-check, and build commands. Do not run commands that delete data or publish anything."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 60,
+    "max_tool_calls": 200,
+    "final_turn_prompt": "You are out of turns. Reply now with only the JSON report. If the plan is not finished, set status to \"blocked\" and describe what is left in claimsToVerify."
+  },
+  "rules": [
+    {
+      "id": "build-failed-tool",
+      "on": "PostToolUseFailure",
+      "do": { "inject": { "text": "That tool call failed. Read the error and fix the cause; do not repeat the same call unchanged." } },
+      "max_fires": 8
+    },
+    {
+      "id": "build-loop-breaker",
+      "on": "PreToolUse",
+      "when": { "repeated_call": { "gte": 3 } },
+      "do": { "deny": { "reason": "You have made this exact call three times in a row. Change your approach, or report status \"blocked\"." } }
+    },
+    {
+      "id": "build-wrap-up",
+      "on": "BeforeModelRequest",
+      "when": { "turn": { "gte": 50 } },
+      "do": { "inject": { "text": "You are running low on turns. Finish the remaining plan steps, or report what is left as blocked.", "placement": "next_request" } },
+      "max_fires": 1
+    }
+  ],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "checked-after-editing",
+        "require": {
+          "any": [
+            { "calls": { "tool": "write_file", "eq": 0 } },
+            { "since_last_call": { "of": "write_file", "called": ["run_command", "read_file"], "gte": 1 } }
+          ]
+        },
+        "feedback": "You changed files but have not checked them since your last edit. Run the project's tests or type-check, or read the changed file back, then report."
+      }
+    ],
+    "max_continuations": 3,
+    "on_exhausted": "fail"
+  },
+  "children": { "type": "inherit" },
+  "metadata": { "editor": { "position": { "x": 400, "y": 60 } } }
+}

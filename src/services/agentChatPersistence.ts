@@ -25,11 +25,12 @@ export class AgentChatSaveQueue {
   }
 
   /** `workflow` is the path of the workflow this chat follows, if any. */
-  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string): Promise<void> {
+  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
       tabId, messages, modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
       ...(workflow ? { workflow } : {}),
+      ...(workflowCheckpoint ? { workflowCheckpoint } : {}),
     });
     this.pending = this.pending.catch(() => {}).then(async () => {
       if (this.path) {

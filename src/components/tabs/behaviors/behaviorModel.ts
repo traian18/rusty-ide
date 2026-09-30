@@ -287,10 +287,7 @@ export function defaultStepConfig(type: StepType, workflow: Json): JsonObject {
         instructions: "",
         tools: { type: "inherit" },
         context_mode: "isolated_child",
-        // The step's JSON is validated by the harness, never constrained
-        // natively: a native schema rides on every request of a tool-using
-        // step, and some models (Gemini) reject that combination.
-        structured_output: "host_validated",
+        structured_output: "text",
       };
     case "verify":
       return { checks: [{ type: "schema" }] };
@@ -307,7 +304,7 @@ export function defaultStepConfig(type: StepType, workflow: Json): JsonObject {
 export function addStep(workflow: JsonObject, type: StepType, position: Position): { workflow: JsonObject; id: string } {
   const id = uniqueId(stepsOf(workflow).map((step) => String(step.id)), type);
   const base: JsonObject = { id, name: type[0].toUpperCase() + type.slice(1), type, config: defaultStepConfig(type, workflow) };
-  // Agent steps must declare what they return; start with a summary.
+  // Text is stored as a string internally; the model has no output schema.
   if (type === "agent") base.output_schema = { type: "inline", name: `${id}_output`, schema: DEFAULT_AGENT_OUTPUT };
   const step = withPosition(base, position);
   return { workflow: { ...workflow, nodes: [...stepsOf(workflow), step] }, id };
@@ -321,7 +318,9 @@ export function replaceStep(workflow: JsonObject, id: string, step: JsonObject):
 export function removeStep(workflow: JsonObject, id: string): JsonObject {
   return {
     ...workflow,
-    nodes: stepsOf(workflow).filter((step) => step.id !== id),
+    nodes: stepsOf(workflow).filter((step) => step.id !== id).map((step) =>
+      Array.isArray(step.input_bindings) ? { ...step, input_bindings: (step.input_bindings as JsonObject[]).filter((binding) => !isObject(binding.source) || binding.source.node_id !== id) } : step,
+    ),
     edges: edgesOf(workflow).filter((edge) => edge.source !== id && edge.target !== id),
   };
 }
@@ -337,7 +336,13 @@ export function connectSteps(
     return workflow;
   }
   const id = uniqueId(edges.map((edge) => String(edge.id)), `${source}_to_${target}`);
-  return { ...workflow, edges: [...edges, { id, source, target, condition }] };
+  const nodes = stepsOf(workflow).map((step) => {
+    if (step.id !== target || stepConfig(step).structured_output !== "text" || condition !== "on_success") return step;
+    const bindings = Array.isArray(step.input_bindings) ? step.input_bindings as JsonObject[] : [];
+    if (bindings.some((binding) => isObject(binding.source) && binding.source.node_id === source)) return step;
+    return { ...step, input_bindings: [...bindings, { target: source, source: { type: "node_output", node_id: source, pointer: "" } }] };
+  });
+  return { ...workflow, nodes, edges: [...edges, { id, source, target, condition }] };
 }
 
 export function replaceEdge(workflow: JsonObject, id: string, edge: JsonObject): JsonObject {
@@ -345,7 +350,14 @@ export function replaceEdge(workflow: JsonObject, id: string, edge: JsonObject):
 }
 
 export function removeEdge(workflow: JsonObject, id: string): JsonObject {
-  return { ...workflow, edges: edgesOf(workflow).filter((edge) => edge.id !== id) };
+  const edge = edgesOf(workflow).find((item) => item.id === id);
+  const nodes = stepsOf(workflow).map((step) => {
+    if (!edge || edge.condition !== "on_success" || step.id !== edge.target || !Array.isArray(step.input_bindings)) return step;
+    return { ...step, input_bindings: (step.input_bindings as JsonObject[]).filter((binding) =>
+      !(binding.target === edge.source && isObject(binding.source) && binding.source.node_id === edge.source && binding.source.pointer === ""),
+    ) };
+  });
+  return { ...workflow, nodes, edges: edgesOf(workflow).filter((edge) => edge.id !== id) };
 }
 
 /** Left-to-right layout by distance from the input step, for unpositioned steps. */
@@ -378,23 +390,31 @@ export function layoutSteps(workflow: Json): Map<string, Position> {
 }
 
 export const DEFAULT_AGENT_OUTPUT: JsonObject = {
-  type: "object",
-  required: ["summary"],
-  properties: { summary: { type: "string" } },
+  type: "string",
 };
 
-/**
- * A new workflow from `template` (the built-in default). Its agent steps are
- * switched to host-validated JSON output: the default asks for the
- * provider's native structured output, which host-routed providers lack and
- * which models that cannot combine tools with a constrained response reject.
- */
+/** New workflows exchange ordinary written handoffs; JSON contracts remain opt-in. */
 export function newWorkflow(id: string, template: JsonObject | undefined): JsonObject {
   const base = template ? clone(template) : { schema_version: 1, nodes: [], edges: [] };
-  const nodes = stepsOf(base).map((step) =>
-    step.type === "agent" ? { ...step, config: { ...stepConfig(step), structured_output: "host_validated" } } : step,
-  );
-  return { ...base, nodes, id, revision: 1, name: id, status: "draft" };
+  const schema = { type: "inline", name: "written_handoff", schema: DEFAULT_AGENT_OUTPUT };
+  const lastAgent = [...stepsOf(base)].reverse().find((step) => step.type === "agent" || step.type === "verify");
+  const source = { type: "node_output", node_id: String(lastAgent?.id ?? ""), pointer: "" };
+  const nodes = stepsOf(base).map((step): JsonObject => {
+    const { timeout_ms: _timeout, ...rest } = step;
+    if (step.type === "agent" || step.type === "verify") return {
+      ...rest, type: "agent", output_schema: schema, retry: { max_attempts: 1, retry_on: [] },
+      config: {
+        ...defaultStepConfig("agent", base),
+        instructions: step.type === "verify"
+          ? "Review the supplied handoff against the actual workspace and relevant checks. Report verified results, failures and remaining work in ordinary text. Do not edit files."
+          : "Complete the user's request using the supplied context. Finish with a written handoff describing changes, checks and remaining work. Use ordinary text or Markdown.",
+      },
+    };
+    if (step.type === "output") return { ...rest, config: { source, strict: false } };
+    return rest;
+  });
+  return { ...base, nodes, input_schema: null, output_contract: { schema, source, strict: false },
+    policies: {}, id, revision: 1, name: id, status: "draft" };
 }
 
 /* ------------------------------------------------------------------ */

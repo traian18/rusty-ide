@@ -88,6 +88,71 @@ describe("recoverOpenRouterUsage", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps polling when a routed generation exists before its token counts are populated", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        data: { native_tokens_prompt: 0, native_tokens_completion: 0 },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: { native_tokens_prompt: null, native_tokens_completion: null },
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        data: {
+          native_tokens_prompt: 15_954,
+          native_tokens_completion: 121,
+          native_tokens_cached: 0,
+          native_tokens_reasoning: 12,
+        },
+      }));
+
+    const pending = recoverOpenRouterUsage(
+      "openrouter",
+      "https://openrouter.ai/api/v1",
+      "sk-or-test",
+      "gen-gemini",
+      emptyUsage,
+      new AbortController().signal,
+    );
+    await vi.advanceTimersByTimeAsync(500);
+
+    await expect(pending).resolves.toEqual({
+      input: 15_954,
+      output: 121,
+      cacheRead: 0,
+      cacheWrite: 0,
+      reasoning: 12,
+      totalTokens: 16_075,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("continues polling beyond the former half-second recovery window", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ error: "not found" }, 404))
+      .mockResolvedValueOnce(jsonResponse({ error: "not found" }, 404))
+      .mockResolvedValueOnce(jsonResponse({ error: "not found" }, 404))
+      .mockResolvedValueOnce(jsonResponse({
+        data: { tokens_prompt: 100, tokens_completion: 20 },
+      }));
+
+    const pending = recoverOpenRouterUsage(
+      "openrouter",
+      "https://openrouter.ai/api/v1",
+      "sk-or-test",
+      "gen-slow",
+      emptyUsage,
+      new AbortController().signal,
+    );
+    await vi.advanceTimersByTimeAsync(1_250);
+
+    await expect(pending).resolves.toEqual(expect.objectContaining({ input: 100, output: 20, totalTokens: 120 }));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("does not make another request when streamed usage is already present", async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     const usage = await recoverOpenRouterUsage(

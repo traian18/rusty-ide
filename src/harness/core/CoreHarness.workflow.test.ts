@@ -19,6 +19,7 @@ class FakeEngine implements CoreEngine {
   recipes: SessionRecipe[] = [];
   mutations: MutationCommand[] = [];
   started: unknown[] = [];
+  checkpoints: unknown[] = [];
   controls: WorkflowControl[] = [];
   private listener?: (event: BridgeEvent) => void;
 
@@ -48,8 +49,9 @@ class FakeEngine implements CoreEngine {
   closeSession() {
     return Promise.resolve();
   }
-  startWorkflow(_sessionId: string, input: unknown) {
+  startWorkflow(_sessionId: string, input: unknown, checkpoint?: unknown) {
     this.started.push(input);
+    this.checkpoints.push(checkpoint);
     return Promise.resolve("run-1");
   }
   stepConfigs: Array<{ sessionId: string; stepSessionId: string; params: unknown }> = [];
@@ -115,13 +117,13 @@ function stepEnvelope(event: AgentEvent): AgentEventEnvelope {
   } as AgentEventEnvelope;
 }
 
-async function start(permission: "allow" | "never" = "never") {
+async function start(permission: "allow" | "never" = "never", checkpoint?: unknown) {
   const engine = new FakeEngine();
   const harness = new CoreHarness({
     engine,
     controlPlane: { recordUsage: async () => {} } as unknown as HarnessControlPlane,
     executionAnswerer: {} as ExecutionAnswerer,
-    definitions: { inline_chat: definition },
+    definitions: { inline_chat: { ...definition, workflow: () => ({ ...definition.workflow!(INPUT)!, checkpoint }) } },
   });
   const { host } = createRecordingHost();
   if (permission === "allow") host.requestPermission = (async () => "allow") as never;
@@ -133,6 +135,14 @@ async function start(permission: "allow" | "never" = "never") {
 }
 
 describe("CoreHarness workflow runs", () => {
+  it("passes the saved checkpoint to native and exposes the next checkpoint before settling", async () => {
+    const checkpoint = { status: "failed", failed_step: "build", definition_id: "plan-build", steps: { plan: { output: "keep this plan" } } };
+    const { engine, handle, events } = await start("never", checkpoint);
+    expect(engine.checkpoints).toEqual([checkpoint]);
+    engine.emit({ kind: "workflow_finished", data: { state: checkpoint } });
+    expect(await handle.done).toMatchObject({ status: "failed" });
+    expect(events).toContainEqual({ kind: "workflow_checkpoint", state: checkpoint });
+  });
   it("starts the workflow instead of prompting and reports its output", async () => {
     const { engine, handle, events } = await start();
     expect(engine.recipes[0].workflow).toEqual(WORKFLOW);
@@ -247,8 +257,9 @@ describe("workflowRun helpers", () => {
   });
 
   it("turns chat messages into workflow input", () => {
+    expect(workflowInputFor('{"request":"literal JSON"}')).toEqual({ request: '{"request":"literal JSON"}', attachments: [] });
     expect(workflowInputFor("fix the bug")).toEqual({ request: "fix the bug", attachments: [] });
-    expect(workflowInputFor('{"ticket": 12}')).toEqual({ ticket: 12 });
+    expect(workflowInputFor('{"ticket": 12}', true)).toEqual({ ticket: 12 });
     expect(workflowInputFor("{not json")).toEqual({ request: "{not json", attachments: [] });
   });
 });

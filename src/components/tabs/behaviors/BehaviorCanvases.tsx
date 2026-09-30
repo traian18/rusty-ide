@@ -171,6 +171,7 @@ const ProfileCanvasInner: React.FC<ProfileCanvasProps> = ({
 
 export interface WorkflowCanvasProps {
   workflow: JsonObject;
+  readOnly?: boolean;
   selectedStep?: string;
   selectedEdge?: string;
   issues: Issue[];
@@ -199,6 +200,7 @@ const PALETTE: { type: StepType; label: string; Icon: typeof Bot }[] = [
 ];
 
 const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
+  readOnly = false,
   workflow,
   selectedStep,
   selectedEdge,
@@ -286,7 +288,7 @@ const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
     <>
       <div className={styles.palette}>
         {PALETTE.map(({ type, label, Icon }) => (
-          <Button key={type} type="button" icon={<Icon size={14} />} onClick={() => onAddStep(type, nextPosition())}>
+          <Button key={type} type="button" disabled={readOnly} icon={<Icon size={14} />} onClick={() => onAddStep(type, nextPosition())}>
             {label}
           </Button>
         ))}
@@ -294,6 +296,8 @@ const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
       <ReactFlow
         nodes={nodes}
         edges={[...edges, ...retryEdges]}
+        nodesDraggable={!readOnly}
+        nodesConnectable={!readOnly}
         nodeTypes={behaviorNodeTypes}
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => onSelectStep(node.id)}

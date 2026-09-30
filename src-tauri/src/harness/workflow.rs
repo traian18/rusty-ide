@@ -26,9 +26,19 @@ use super::{BridgeEvent, HarnessState};
 /// enables it on `builder`. Drafts are allowed for both the workflow and the
 /// profiles its steps name: the Behaviors canvas creates both as drafts.
 pub fn configure(builder: SessionBuilder, document: serde_json::Value) -> Result<(SessionBuilder, (String, u64)), String> {
+    // App-owned profiles are available in every project without seeding files.
+    let profiles = harness_engine::ProfilesConfig::default();
+    for source in [
+        include_str!("../../../src/components/tabs/behaviors/starter/plan.profile.json"),
+        include_str!("../../../src/components/tabs/behaviors/starter/build.profile.json"),
+    ] {
+        let mut profile: serde_json::Value = serde_json::from_str(source).map_err(|error| error.to_string())?;
+        profile["id"] = serde_json::json!(format!("rusty-ide.builtin.{}", profile["id"].as_str().unwrap()));
+        profiles.register_json(profile).map_err(|error| error.to_string())?;
+    }
     let config = OrchestrationConfig::default().allow_drafts(true);
     let key = config.register_json(document).map_err(|error| error.to_string())?;
-    Ok((builder.orchestration(config).allow_draft_profiles(true), key))
+    Ok((builder.profiles(profiles).orchestration(config).allow_draft_profiles(true), key))
 }
 
 /// A started workflow run: its control handle and the task forwarding its
@@ -114,6 +124,10 @@ fn forward_updates(
 impl HarnessState {
     /// Starts the session's workflow on `input` and returns the run id.
     pub async fn start_workflow(&self, session_id: SessionId, input: serde_json::Value) -> Result<String, String> {
+        self.start_workflow_from_checkpoint(session_id, input, None).await
+    }
+
+    pub async fn start_workflow_from_checkpoint(&self, session_id: SessionId, input: serde_json::Value, checkpoint: Option<harness_engine::OrchestrationRunState>) -> Result<String, String> {
         let (handle, workflow, outbound) = self
             .with_session(&session_id, |entry| (entry.handle.clone(), entry.workflow.clone(), entry.outbound.clone()))
             .ok_or_else(|| "no such session".to_string())?;
@@ -123,10 +137,12 @@ impl HarnessState {
         }
 
         let run_id = format!("{id}-{}", uuid_like());
-        let mut run = handle
-            .start_orchestration(OrchestrationRequest::exact(run_id.clone(), id, revision, input))
-            .await
-            .map_err(|error| error.to_string())?;
+        let guidance = input.get("request").and_then(|value| value.as_str()).map(str::to_owned).unwrap_or_else(|| input.to_string());
+        let request = OrchestrationRequest::exact(run_id.clone(), id, revision, input);
+        let mut run = match checkpoint {
+            Some(state) => handle.retry_orchestration(request, state, guidance).await,
+            None => handle.start_orchestration(request).await,
+        }.map_err(|error| error.to_string())?;
         let pump = forward_updates(run.subscribe(), run.watch(), outbound);
         let started = WorkflowRun { handle: Arc::new(run), pump };
         self.with_session(&session_id, move |entry| *entry.workflow_run.lock().unwrap() = Some(started))
@@ -364,9 +380,9 @@ mod tests {
             .iter()
             .filter(|node| node["type"] == "agent")
             .collect();
-        assert_eq!(agents.len(), 2, "plan and build");
+        assert_eq!(agents.len(), 3, "plan, build and review");
         for node in agents {
-            assert_eq!(node["config"]["structured_output"], "host_validated", "{}", node["id"]);
+            assert_eq!(node["config"]["structured_output"], "text", "{}", node["id"]);
         }
     }
 
@@ -375,11 +391,114 @@ mod tests {
     /// on disk that the file Build claims to have changed exists.
     #[tokio::test]
     async fn the_starter_flow_plans_builds_and_verifies() {
+        run_starter_flow(false).await;
+    }
+
+    #[tokio::test]
+    async fn text_workflow_passes_verbatim_messages_to_build_and_review() {
+        run_text_workflow(false).await;
+    }
+
+    #[tokio::test]
+    async fn failed_workflow_continues_build_on_a_new_session_without_repeating_plan() {
+        run_text_workflow(true).await;
+    }
+
+    async fn run_text_workflow(inject_failure: bool) {
+        let state = HarnessState::new();
+        let directory = tempfile::tempdir().unwrap();
+        let mut document = starter(STARTER_WORKFLOW);
+        // No workspace profile files needed for this transport test.
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+            }
+        }
+        let recipe = json!({
+            "workspace": { "root": directory.path(), "binding": "host" },
+            "integration": "host", "workflow": document,
+            "host_tools": [{ "name": "list_files", "description": "List workspace files" }],
+        });
+        let mut session = state.create_session(serde_json::from_value(recipe.clone()).unwrap()).await.unwrap();
+        let mut inbox = state.take_inbox(session).unwrap();
+        let request = "Implement the requested feature";
+        state.start_workflow(session, json!({"request": request})).await.unwrap();
+        let plan = "## Plan\n1. Preserve `\"quotes\"` and {not JSON}.\n2. Test the change.\n";
+        let build = "Implemented step 1.\nTests failed: dependency unavailable.\nDo not approve this yet.";
+        let review = "## Review\nIncomplete: test evidence is missing. Install the dependency and rerun the tests.";
+        let replies = [plan, build, review];
+        let mut turn = 0;
+        let mut failure_sent = false;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv()).await.unwrap().unwrap();
+            match event {
+                BridgeEvent::HostExecuteCall { call_id, input, .. } => {
+                    if inject_failure && turn == 2 && !failure_sent {
+                        failure_sent = true;
+                        state.host_execute_result(session, &call_id, Err(harness_protocol::backend::ExecutionError::BackendError {
+                            message: "HTTP 400: tool_use without tool_result".into(), code: "400".into(),
+                        })).unwrap();
+                        continue;
+                    }
+                    let prompt = input["messages"].as_array().unwrap().iter()
+                        .flat_map(|m| m["content"].as_array().unwrap())
+                        .filter_map(|b| b["Text"]["text"].as_str())
+                        .collect::<Vec<_>>().join("\n");
+                    assert!(prompt.contains(request));
+                    assert!(!prompt.contains("JSON Schema"));
+                    assert!(input["params"]["response_format"].is_null());
+                    if turn >= 2 { assert!(prompt.contains(plan), "Plan arrives verbatim"); }
+                    if turn >= 4 { assert!(prompt.contains(build), "Build arrives verbatim, including failure"); }
+                    let request_id = RequestId::new();
+                    let event = if turn % 2 == 0 {
+                        ExecutionEvent::ToolCallRequested { request_id, call: ToolCall {
+                            id: ToolCallId::new(), name: "list_files".into(), arguments: json!({"path": "."}),
+                        } }
+                    } else { ExecutionEvent::TextDelta { request_id, delta: replies[turn / 2].into() } };
+                    state.host_execute_event(session, &call_id, event).unwrap();
+                    state.host_execute_result(session, &call_id, Ok(ExecutionResult {
+                        request_id, usage: ModelUsage::default(), cost: Cost::default(), finish_reason: if turn % 2 == 0 { "tool_use".into() } else { "end_turn".into() },
+                    })).unwrap();
+                    turn += 1;
+                }
+                BridgeEvent::HostToolCall { call_id, .. } => {
+                    state.host_tool_result(session, &call_id, Ok(json!({"files": []}))).unwrap();
+                }
+                BridgeEvent::WorkflowFinished { state: checkpoint } => {
+                    if checkpoint["status"] == "failed" && inject_failure {
+                        assert_eq!(checkpoint["failed_step"], "build");
+                        assert_eq!(turn, 2, "only Plan finished before the failure");
+                        state.close_session(session).await.unwrap();
+                        session = state.create_session(serde_json::from_value(recipe.clone()).unwrap()).await.unwrap();
+                        inbox = state.take_inbox(session).unwrap();
+                        state.start_workflow_from_checkpoint(session, json!({"request": "continue"}), Some(serde_json::from_value(checkpoint).unwrap())).await.unwrap();
+                        continue;
+                    }
+                    assert_eq!(checkpoint["status"], "completed", "{checkpoint}");
+                    assert_eq!(checkpoint["final_output"], review);
+                    assert_eq!(checkpoint["steps"]["plan"]["attempts"].as_array().unwrap().len(), 1);
+                    assert_eq!(checkpoint["steps"]["build"]["attempts"].as_array().unwrap().len(), if inject_failure { 2 } else { 1 });
+                    assert_eq!(turn, 6);
+                    assert!(!directory.path().join(".rusty/profiles").exists());
+                    break;
+                }
+                _ => {}
+            }
+        }
+        state.close_session(session).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_starter_flow_rejects_blocked_and_retries_build_with_the_plan() {
+        run_starter_flow(true).await;
+    }
+
+    async fn run_starter_flow(blocked_first: bool) {
         let root = std::env::temp_dir().join(format!("rusty-starter-flow-{}", uuid_like()));
         std::fs::create_dir_all(root.join(".rusty/profiles")).unwrap();
         std::fs::create_dir_all(root.join("src")).unwrap();
-        std::fs::write(root.join(".rusty/profiles/plan.json"), STARTER_PLAN).unwrap();
-        std::fs::write(root.join(".rusty/profiles/build.json"), STARTER_BUILD).unwrap();
+        std::fs::write(root.join(".rusty/profiles/plan.json"), include_str!("../../../src/components/tabs/behaviors/starter/v2/plan.profile.json")).unwrap();
+        std::fs::write(root.join(".rusty/profiles/build.json"), include_str!("../../../src/components/tabs/behaviors/starter/v2/build.profile.json")).unwrap();
         std::fs::write(root.join("src/lib.rs"), "pub fn answer() -> u32 { 42 }\n").unwrap();
 
         let plan = json!({
@@ -404,7 +523,7 @@ mod tests {
                 { "name": "write_file", "description": "Write a file" },
                 { "name": "list_files", "description": "List files" },
             ],
-            "workflow": starter(STARTER_WORKFLOW),
+            "workflow": starter(include_str!("../../../src/components/tabs/behaviors/starter/v2/plan-build-verify.workflow.json")),
         }))
         .unwrap();
         let session_id = state.create_session(recipe).await.expect("session with the starter flow");
@@ -419,6 +538,7 @@ mod tests {
                 3 => ("read_file", json!({ "path": "src/lib.rs" })),
                 4 => ("write_file", json!({ "path": "src/lib.rs", "content": "pub fn answer() -> u32 { 42 }\n" })),
                 5 => ("read_file", json!({ "path": "src/lib.rs" })),
+                7 => ("read_file", json!({ "path": "src/lib.rs" })),
                 _ => ("", serde_json::Value::Null),
             }
         };
@@ -440,7 +560,18 @@ mod tests {
                         let call = ToolCall { id: ToolCallId::new(), name: tool.into(), arguments };
                         (ExecutionEvent::ToolCallRequested { request_id, call }, "tool_use")
                     } else {
-                        let reply = if turns == 2 { plan.clone() } else { built.clone() };
+                        let reply = if turns == 2 {
+                            plan.clone()
+                        } else if blocked_first && turns == 6 {
+                            json!({
+                                "summary": "Validation requires an unavailable dependency",
+                                "status": "blocked",
+                                "artifacts": [],
+                                "claimsToVerify": ["Install the required dependency before validation"]
+                            })
+                        } else {
+                            built.clone()
+                        };
                         (ExecutionEvent::TextDelta { request_id, delta: reply.to_string() }, "end_turn")
                     };
                     state.host_execute_event(session_id, &call_id, event).unwrap();
@@ -467,8 +598,34 @@ mod tests {
 
         assert_eq!(final_state["status"], "completed", "{final_state}");
         assert_eq!(final_state["final_output"], built);
-        assert_eq!(started, ["input", "plan", "build", "verify", "output"]);
-        assert_eq!(turns, 6, "two Plan turns and four Build turns");
+        let expected = if blocked_first {
+            vec!["input", "plan", "build", "verify", "build", "verify", "output"]
+        } else {
+            vec!["input", "plan", "build", "verify", "output"]
+        };
+        assert_eq!(started, expected);
+        assert_eq!(turns, if blocked_first { 8 } else { 6 });
+
+        // Verify the actual model request, not merely the graph edge: every
+        // Build turn must retain the complete structured handoff from Plan.
+        for turn in 3..=turns {
+            let (_, request) = offered.iter().find(|(number, _)| *number == turn).unwrap();
+            let prompt = request["messages"].as_array().unwrap().iter()
+                .filter(|message| message["role"] == "User")
+                .flat_map(|message| message["content"].as_array().unwrap())
+                .filter_map(|block| block["Text"]["text"].as_str())
+                .find(|text| text.contains("<workflow_input>"))
+                .expect("Build receives its workflow input in a user message");
+            let handoff = prompt.split_once("<workflow_input>\n").unwrap().1
+                .split_once("\n</workflow_input>").unwrap().0;
+            let handoff: serde_json::Value = serde_json::from_str(handoff).unwrap();
+            assert_eq!(handoff["request"], "add answer()");
+            assert_eq!(handoff["plan"], plan, "Build turn {turn} must retain the full plan");
+            if turn >= 7 {
+                assert!(prompt.contains("<rejections>"), "Retry receives Verify feedback");
+                assert!(prompt.contains("blocked"), "Retry sees the rejected status");
+            }
+        }
 
         // Plan is read-only: it is never even offered a tool that edits or
         // runs. Build is offered the full set.

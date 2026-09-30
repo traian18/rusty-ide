@@ -9,6 +9,9 @@ import type { StartupStep, StepContext } from "../../startup/types";
  * and src/startup/layering.test.ts forbids exactly that import for the
  * generic machinery. Lives next to AppBootstrapBoundary.tsx, its only
  * consumer, the same way consoleFormat.ts lives next to DevLogBridge.tsx.
+ * Native window restoration and display checks run earlier, in
+ * src-tauri/src/startup_window.rs, so this coordinator's progress and
+ * recovery controls are visible even when saved window state is unusable.
  */
 
 const SECURE_CONFIG_TIMEOUT_MS = 3_000;

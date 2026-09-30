@@ -18,7 +18,10 @@ interface OpenRouterGenerationData {
   tokens_completion?: unknown;
 }
 
-const RETRY_DELAYS_MS = [0, 150, 350] as const;
+// The generation record and its token counters are populated asynchronously.
+// Routed providers can take a few seconds to finish accounting even after the
+// streamed completion itself has ended.
+const RETRY_DELAYS_MS = [0, 150, 350, 750, 1_500, 2_500] as const;
 const REQUEST_TIMEOUT_MS = 2_000;
 
 function tokenCount(value: unknown): number | undefined {
@@ -37,9 +40,17 @@ export function hasModelUsage(usage: ModelUsage): boolean {
 }
 
 function generationUsage(data: OpenRouterGenerationData): PiUsage | undefined {
-  const prompt = tokenCount(data.native_tokens_prompt) ?? tokenCount(data.tokens_prompt);
-  const output = tokenCount(data.native_tokens_completion) ?? tokenCount(data.tokens_completion);
-  if (prompt === undefined && output === undefined) return undefined;
+  const preferredCount = (native: unknown, standard: unknown) => {
+    const nativeCount = tokenCount(native);
+    const standardCount = tokenCount(standard);
+    return nativeCount === 0 ? (standardCount ?? nativeCount) : (nativeCount ?? standardCount);
+  };
+  const prompt = preferredCount(data.native_tokens_prompt, data.tokens_prompt);
+  const output = preferredCount(data.native_tokens_completion, data.tokens_completion);
+  // OpenRouter can expose the generation before asynchronous accounting has
+  // filled these fields. Zero/zero is not useful usage and must remain
+  // retryable rather than being accepted as a terminal result.
+  if ((prompt ?? 0) === 0 && (output ?? 0) === 0) return undefined;
 
   const cacheRead = tokenCount(data.native_tokens_cached) ?? 0;
   const input = Math.max(0, (prompt ?? 0) - cacheRead);
@@ -106,6 +117,7 @@ export async function recoverOpenRouterUsage(
   responseId: unknown,
   currentUsage: ModelUsage,
   signal: AbortSignal,
+  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
 ): Promise<PiUsage | undefined> {
   if (providerId !== "openrouter" || hasModelUsage(currentUsage)) return undefined;
   if (typeof responseId !== "string" || !responseId.trim() || !apiKey) return undefined;
@@ -113,7 +125,7 @@ export async function recoverOpenRouterUsage(
   const endpoint = new URL(`${baseUrl.replace(/\/+$/, "")}/generation`);
   endpoint.searchParams.set("id", responseId.trim());
 
-  for (const delayMs of RETRY_DELAYS_MS) {
+  for (const delayMs of retryDelaysMs) {
     try {
       await wait(delayMs, signal);
       const response = await fetchGeneration(endpoint, apiKey, signal);

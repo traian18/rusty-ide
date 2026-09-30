@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { snapshotJevDecisionTool, snapshotJevRiskReview } from "../../services/jevDecisionToolSnapshot";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
@@ -35,10 +35,10 @@ import {
   IntelligentModelSelectionError,
 } from "../../services/intelligentModelSelector";
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
-import { workflowInputFor } from "../../harness/core/workflowRun";
+import { workflowInputFor, readWorkflowCheckpoint, stepNames, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
 import { behaviorService } from "./behaviors/behaviorService";
-import { ensureStarterFlow, isStarterWorkflowPath } from "./behaviors/starterFlow";
-import { loadAgentWorkflowOptOut, saveAgentWorkflowOptOut } from "../../preferences/agentWorkflowDefault";
+import { BUILTIN_WORKFLOW_PATH, STARTER_WORKFLOW } from "./behaviors/starterFlow";
+import { loadAgentModelSelection, saveAgentModelSelection } from "../../preferences/agentModelSelection";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
 import type { JsonObject } from "./behaviors/behaviorModel";
@@ -76,7 +76,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     (state) => state.intelligentModelSelectionSettings,
   );
 
-  const [selectedModel, setSelectedModel] = useState(activeModel);
+  const savedAgentModelRef = useRef(loadAgentModelSelection());
+  const [selectedModel, setSelectedModel] = useState(() => savedAgentModelRef.current ?? activeModel);
   const [selectedSkillId, setSelectedSkillId] = useState<string>(activeSkillId || DEFAULT_SKILL_ID);
   const [message, setMessage] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
@@ -109,6 +110,13 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   // The ref serves callbacks that outlive a render (saves, sends).
   const [chatWorkflow, setChatWorkflowState] = useState<string | undefined>();
   const chatWorkflowRef = useRef<string | undefined>(undefined);
+  const [workflowCheckpoint, setWorkflowCheckpointState] = useState<FailedWorkflowCheckpoint>();
+  const workflowCheckpointRef = useRef<FailedWorkflowCheckpoint | undefined>(undefined);
+  const setWorkflowCheckpoint = (value: unknown) => {
+    const checkpoint = readWorkflowCheckpoint(value);
+    workflowCheckpointRef.current = checkpoint;
+    setWorkflowCheckpointState(checkpoint);
+  };
   const [workflowDocument, setWorkflowDocument] = useState<JsonObject | undefined>();
   const [workflowRunning, setWorkflowRunning] = useState(false);
   const workflowCatalogVersion = useWorkflowRunStore((state) => state.catalogVersion);
@@ -138,9 +146,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       return;
     }
     let cancelled = false;
-    // A workspace without workflows starts with the Plan → Build → Verify flow.
-    void ensureStarterFlow(rootPath)
-      .then(() => behaviorService.loadWorkflows(rootPath))
+    void behaviorService.loadWorkflows(rootPath)
       .then(({ documents }) => {
         if (cancelled) return;
         setWorkflowOptions(
@@ -155,17 +161,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     };
   }, [rootPath, workflowCatalogVersion]);
 
-  // New chats follow the starter flow. `explicitWorkflowChoiceRef` is set once
-  // the user picks (or is sent) a workflow for this chat, so the default never
-  // overrides a choice, and `starterWorkflowPathRef` serves callbacks.
-  const explicitWorkflowChoiceRef = useRef(false);
-  const starterWorkflowPath = useMemo(
-    () => workflowOptions.find((option) => isStarterWorkflowPath(option.path))?.path,
-    [workflowOptions],
-  );
-  const starterWorkflowPathRef = useRef<string | undefined>(undefined);
-  starterWorkflowPathRef.current = starterWorkflowPath;
-
   // The followed workflow's document, for the bar's step list.
   useEffect(() => {
     if (!chatWorkflow) {
@@ -173,8 +168,15 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       return;
     }
     let cancelled = false;
-    invoke<string>("read_file_disk", { path: chatWorkflow })
-      .then((text) => !cancelled && setWorkflowDocument(JSON.parse(text) as JsonObject))
+    behaviorService.readWorkflow(chatWorkflow)
+      .then((document) => {
+        if (cancelled) return;
+        setWorkflowDocument(document);
+        if (document.id === STARTER_WORKFLOW.id && chatWorkflow !== BUILTIN_WORKFLOW_PATH) {
+          chatWorkflowRef.current = BUILTIN_WORKFLOW_PATH;
+          setChatWorkflowState(BUILTIN_WORKFLOW_PATH);
+        }
+      })
       .catch(() => !cancelled && setWorkflowDocument(undefined));
     return () => {
       cancelled = true;
@@ -204,18 +206,15 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     ? `Sign in to ${unauthenticatedProviders.map((p) => p.name).join(", ")} to see more models`
     : "Select model";
 
-  // Local-only correction (REFACTOR_PLAN.md PR 3c): if the current
-  // selection isn't in THIS tab's option list, fall back locally --
-  // this used to also call the global setActiveModel, which meant merely
-  // mounting an Agent tab (or its option list changing) could silently
-  // rewrite what every other tab defaults to. The read direction is kept:
-  // when the global activeModel changes (e.g. from LlmSetupTab, the
-  // canonical setter), this still re-derives selectedModel from it.
+  // Seed Agent mode once from the global default, then retain its own choice.
+  // A provider refresh must not silently swap it for the first available model.
   useEffect(() => {
+    if (savedAgentModelRef.current) return;
     const currentOptions = modelOptions();
-    const nextModel = currentOptions.some((option) => option.id === activeModel)
-      ? activeModel
-      : currentOptions[0]?.id || "";
+    const nextModel = activeModel || currentOptions[0]?.id || "";
+    if (!nextModel) return;
+    savedAgentModelRef.current = nextModel;
+    saveAgentModelSelection(nextModel);
     setSelectedModel(nextModel);
   }, [activeCustomProviderId, activeModel, customProviders, providerStatus, intelligentModelSelectionSettings, modelOptions]);
 
@@ -322,6 +321,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       chatSaveQueueRef.current = new AgentChatSaveQueue(chat.path);
       setModifiedFiles(readModifiedFiles(parsed.modifiedFiles));
       setChatWorkflow(readChatWorkflow(parsed.workflow), { persist: false });
+      setWorkflowCheckpoint(parsed.workflowCheckpoint);
       setSubagents([]);
     } catch (e) {
       console.error("Failed to load chat:", e);
@@ -334,8 +334,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setActiveChatPath(null);
     chatSaveQueueRef.current = new AgentChatSaveQueue();
     setModifiedFiles([]);
-    explicitWorkflowChoiceRef.current = false;
-    setChatWorkflow(loadAgentWorkflowOptOut() ? undefined : starterWorkflowPathRef.current, { persist: false });
+    setChatWorkflow(undefined, { persist: false });
     setSubagents([]);
   };
 
@@ -455,7 +454,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const followedWorkflow = chatWorkflowRef.current;
     if (followedWorkflow) {
       try {
-        workflowDefinition = JSON.parse(await invoke<string>("read_file_disk", { path: followedWorkflow }));
+        workflowDefinition = await behaviorService.readWorkflow(followedWorkflow);
       } catch (error) {
         notify("Workflow unavailable", `Could not read ${followedWorkflow}: ${String(error)}. Choose another in the Mode picker.`, "error");
         return;
@@ -657,7 +656,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
         jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState(), autoStepUp),
         jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
-        workflow: workflowDefinition ? { definition: workflowDefinition, input: workflowInputFor(messageToSend) } : undefined,
+        workflow: workflowDefinition ? { definition: workflowDefinition, input: workflowInputFor(messageToSend, Boolean(workflowDefinition.input_schema)), checkpoint: workflowCheckpointRef.current } : undefined,
       },
       host,
       (event) => {
@@ -695,6 +694,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           }
           case "progress":
             responseStreamRef.current?.progress(event.content);
+            break;
+          case "workflow_checkpoint":
+            setWorkflowCheckpoint(event.state);
             break;
           case "workflow_step": {
             useWorkflowRunStore.getState().step(event.workflowId, event);
@@ -754,6 +756,12 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     );
     if (workflowId) {
       useWorkflowRunStore.getState().begin(workflowId);
+      const steps = workflowCheckpointRef.current?.steps as Record<string, { status?: string; attempts?: unknown[] }> | undefined;
+      for (const [nodeId, step] of Object.entries(steps ?? {})) {
+        if (step.status === "succeeded") useWorkflowRunStore.getState().step(workflowId, {
+          nodeId, status: "succeeded", attempt: step.attempts?.length ?? 1,
+        });
+      }
       setWorkflowRunning(true);
       void run.done.then((outcome) => {
         setWorkflowRunning(false);
@@ -855,7 +863,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const messages = useWorkspaceStore.getState().agentChats[tab.id] || [];
     const queue = chatSaveQueueRef.current;
     try {
-      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current);
+      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current, workflowCheckpointRef.current);
       if (chatSaveQueueRef.current === queue) setActiveChatPath(queue.path);
       await loadChatHistory();
     } catch (error) {
@@ -868,20 +876,11 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
    * remembers the choice right away; a new one saves it with its first
    * message. */
   const setChatWorkflow = (path: string | undefined, { persist = true }: { persist?: boolean } = {}) => {
+    setWorkflowCheckpoint(undefined);
     chatWorkflowRef.current = path;
     setChatWorkflowState(path);
     if (persist && (useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) void saveChatHistory();
   };
-
-  // A brand-new chat follows the starter flow, unless the user opted out (chose
-  // "Single agent") or already picked something for this chat. A chat with
-  // messages, or one loaded from history, keeps what it has.
-  useEffect(() => {
-    if (!starterWorkflowPath || chatWorkflowRef.current || explicitWorkflowChoiceRef.current) return;
-    if (activeChatPath || agentChats.length > 0 || loadAgentWorkflowOptOut()) return;
-    setChatWorkflow(starterWorkflowPath, { persist: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [starterWorkflowPath, activeChatPath, agentChats.length]);
 
   // "Run in Agent Mode" from the Behaviors tab: follow that workflow in a
   // fresh chat (or this one, when it is still empty).
@@ -890,12 +889,14 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const path = useWorkflowRunStore.getState().takeAgentRequest();
     if (!path) return;
     if ((useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) handleNewChat();
-    explicitWorkflowChoiceRef.current = true;
     setChatWorkflow(path, { persist: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentWorkflowRequest, isAgentBusy]);
 
-  const currentModelOptions = modelOptions();
+  const availableModelOptions = modelOptions();
+  const currentModelOptions = selectedModel && !availableModelOptions.some((option) => option.id === selectedModel)
+    ? [...availableModelOptions, { id: selectedModel, name: `${selectedModel} (unavailable)` }]
+    : availableModelOptions;
 
   return (
     <div className="w-full h-full flex bg-[var(--bg-app)] text-[var(--text-normal)] font-mono relative terminal-theme-tab">
@@ -1000,8 +1001,10 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             <CustomSelect
               value={selectedModel}
               onChange={(model) => {
+                savedAgentModelRef.current = model;
+                saveAgentModelSelection(model);
                 setSelectedModel(model);
-                // Don't update global activeModel for AUTO; keep it local to this tab
+                // AUTO is an Agent-only choice; concrete choices also update the shared default.
                 if (model !== AUTO_MODEL_ID) {
                   setActiveModel(model);
                 }
@@ -1076,9 +1079,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               running={workflowRunning}
               disabled={isAgentBusy}
               onSelect={(path) => {
-                explicitWorkflowChoiceRef.current = true;
-                // "Single agent" is the opt-out from the starter flow; any workflow clears it.
-                saveAgentWorkflowOptOut(path === undefined);
                 setChatWorkflow(path);
               }}
               onEdit={(path) => {
@@ -1086,6 +1086,12 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
                 openTab({ type: "behaviors" });
               }}
             />
+            {workflowCheckpoint && !isAgentBusy && (
+              <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)] py-2">
+                <span>Your next message resumes {stepNames(workflowDocument)[workflowCheckpoint.failed_step] ?? workflowCheckpoint.failed_step}. Completed steps are retained.</span>
+                <button type="button" className="underline" onClick={() => { setWorkflowCheckpoint(undefined); void saveChatHistory(); }}>Start over instead</button>
+              </div>
+            )}
             <ChatInput
               value={message}
               onChange={setMessage}

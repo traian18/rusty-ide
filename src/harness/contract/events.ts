@@ -19,6 +19,7 @@ export interface TokenUsage {
 }
 
 export type CommonEvent =
+  | { kind: "workflow_checkpoint"; state: unknown }
   | { kind: "log"; message: string }
   | { kind: "token"; content: string; messageId?: string }
   | { kind: "progress"; content: string }

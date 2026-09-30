@@ -1,0 +1,212 @@
+{
+  "schema_version": 1,
+  "id": "plan-build-verify",
+  "revision": 2,
+  "name": "Plan, build, verify",
+  "description": "Plan the change, implement it, then verify the result: Request → Plan → Build → Verify → Result. Plan is read-only; Build edits the workspace; Verify checks the report and that every file it claims exists.",
+  "status": "draft",
+  "input_schema": {
+    "type": "inline",
+    "name": "orchestration_input",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request"],
+      "properties": {
+        "request": { "type": "string", "minLength": 1 },
+        "attachments": { "type": "array", "default": [] }
+      }
+    }
+  },
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "execution_report",
+      "schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary", "status", "artifacts", "claimsToVerify"],
+        "properties": {
+          "summary": { "type": "string" },
+          "status": { "enum": ["completed", "blocked", "failed"] },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "reference"],
+              "properties": {
+                "kind": { "type": "string" },
+                "reference": { "type": "string" }
+              }
+            }
+          },
+          "claimsToVerify": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "source": { "type": "node_output", "node_id": "build", "pointer": "" },
+    "strict": true
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": { "defaults": { "attachments": [] } },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": { "max_attempts": 1, "retry_on": [] },
+      "metadata": { "editor": { "position": { "x": 60, "y": 80 } } }
+    },
+    {
+      "id": "plan",
+      "name": "Plan",
+      "type": "agent",
+      "config": {
+        "instructions": "Investigate the request and hand off an actionable plan to a fresh Build session. Build receives only your final JSON, not your conversation, file reads, tool results or user answers. Locate and read the relevant code first. Return JSON with summary (goal, constraints, decisions and relevant user answers); steps (ordered, numbered in each title, each detail naming files and symbols, relevant findings, the exact change and an observable acceptance check); filesToChange (workspace-relative paths); and risks (uncertainties, prerequisites and possible regressions). Include enough findings that Build need not repeat broad discovery. Keep required work within the request; label optional improvements and do not make them prerequisites. Do not claim to have implemented or tested anything. Ask only for material decisions that cannot be resolved from the request or code.",
+        "tools": { "type": "inherit" },
+        "context_mode": "isolated_child",
+        "model": null,
+        "structured_output": "host_validated",
+        "profile": { "id": "plan" }
+      },
+      "input_bindings": [
+        { "target": "request", "source": { "type": "run_input", "pointer": "/request" } }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "plan_output",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["summary", "steps", "filesToChange", "risks"],
+          "properties": {
+            "summary": { "type": "string" },
+            "steps": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["title", "detail"],
+                "properties": {
+                  "title": { "type": "string" },
+                  "detail": { "type": "string" }
+                }
+              }
+            },
+            "filesToChange": { "type": "array", "items": { "type": "string" } },
+            "risks": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": ["backend_rate_limited", "backend_timeout", "tool_timeout", "invalid_structured_output"]
+      },
+      "timeout_ms": 600000,
+      "metadata": { "editor": { "position": { "x": 380, "y": 80 } } }
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "type": "agent",
+      "config": {
+        "instructions": "Implement the request using workflow_input.plan. Read its summary, every step, filesToChange and risks before acting. You have a fresh session: Plan's exploration history is unavailable. Treat the ordered steps as a checklist. Begin with targeted reads of the named files, then implement each required step now; do not replace execution with a new plan or repeat broad discovery without a concrete gap. Use available tools and existing user authorization; respect actual permission requirements and tool denials. If the code contradicts the plan, make the smallest justified adaptation and explain it. Reconcile every plan step with the actual workspace before finishing. Run relevant project tests, type-check or build, and fix recoverable failures within the remaining budget. If no automated checks exist, inspect the changed files and state that limitation; reading a file is not passing a test. On verification retry, inspect existing edits, address the rejection feedback and finish or repair the work rather than starting over. Return only execution-report JSON. In summary, account for EVERY plan step by number/title: implemented or already satisfied work, supporting files and check results, deviations and unfinished work. Use completed only when every required step and applicable check is satisfied. Use blocked only for a concrete external prerequisite you cannot obtain, such as a required user decision, denied permission, credential or unavailable dependency; name the obstacle, attempts made and action needed. Recoverable errors, needing to read files, or remaining work are not external blockers. Use failed for an unsuccessful attempt, failed required checks, or budget exhaustion with unfinished work; identify the remaining steps and failing checks. Never mark incomplete or unverified work completed to pass Verify. List every created or changed file in artifacts as {\"kind\":\"file\",\"reference\":\"<workspace-relative path>\"}. Put concrete validation results, uncertainties and blocker/failure details in claimsToVerify. Verify checks the report and file existence; it does not run tests or implement remaining work for you.",
+        "tools": { "type": "inherit" },
+        "context_mode": "isolated_child",
+        "model": null,
+        "structured_output": "host_validated",
+        "profile": { "id": "build" }
+      },
+      "input_bindings": [
+        { "target": "request", "source": { "type": "run_input", "pointer": "/request" } },
+        { "target": "plan", "source": { "type": "node_output", "node_id": "plan", "pointer": "" } }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "execution_report",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["summary", "status", "artifacts", "claimsToVerify"],
+          "properties": {
+            "summary": { "type": "string" },
+            "status": { "enum": ["completed", "blocked", "failed"] },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["kind", "reference"],
+                "properties": {
+                  "kind": { "type": "string" },
+                  "reference": { "type": "string" }
+                }
+              }
+            },
+            "claimsToVerify": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": ["backend_rate_limited", "backend_timeout", "tool_timeout", "invalid_structured_output", "verification_failed"]
+      },
+      "timeout_ms": 1800000,
+      "metadata": { "editor": { "position": { "x": 700, "y": 80 } } }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "verify",
+      "config": {
+        "checks": [
+          { "type": "schema" },
+          { "type": "required_status", "pointer": "/report/status", "equals": "completed" },
+          { "type": "artifact_exists", "pointer": "/plan/steps" },
+          { "type": "artifacts_resolvable", "pointer": "/report/artifacts" }
+        ],
+        "retry_target": "build"
+      },
+      "input_bindings": [
+        { "target": "plan", "source": { "type": "node_output", "node_id": "plan", "pointer": "" } },
+        { "target": "report", "source": { "type": "node_output", "node_id": "build", "pointer": "" } }
+      ],
+      "output_schema": null,
+      "retry": { "max_attempts": 1, "retry_on": [] },
+      "timeout_ms": 120000,
+      "metadata": { "editor": { "position": { "x": 1020, "y": 80 } } }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": { "type": "node_output", "node_id": "build", "pointer": "" },
+        "strict": true
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": { "max_attempts": 1, "retry_on": [] },
+      "metadata": { "editor": { "position": { "x": 1340, "y": 80 } } }
+    }
+  ],
+  "edges": [
+    { "id": "input-plan", "source": "input", "target": "plan", "condition": "on_success" },
+    { "id": "plan-build", "source": "plan", "target": "build", "condition": "on_success" },
+    { "id": "build-verify", "source": "build", "target": "verify", "condition": "on_success" },
+    { "id": "verify-output", "source": "verify", "target": "output", "condition": "on_success" }
+  ],
+  "policies": {
+    "max_steps": 16,
+    "max_total_attempts": 24,
+    "max_elapsed_ms": 7200000,
+    "max_model_requests": 400,
+    "max_tool_calls": 800,
+    "max_tokens": 4000000,
+    "max_cost_usd": 10
+  },
+  "metadata": {}
+}

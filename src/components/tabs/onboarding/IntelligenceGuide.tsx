@@ -414,7 +414,7 @@ export const WorkflowsSection: React.FC<{ onOpenBehaviors: () => void }> = ({ on
         <Eyebrow icon={<WorkflowIcon size={13} />}>Workflow orchestration</Eyebrow>
         <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[var(--text-light)]">Design how the work gets done.</h2>
         <p className="mt-5 text-sm leading-6 text-[var(--text-normal)]">
-          A single agent loop decides its own path. A workflow decides it for the agent: which steps run, what each may use, what must be verified, and what happens on failure. A workspace without workflows starts with a working Plan → Build → Verify flow, and new Agent chats follow it. Open the Behaviors tab to see every step and field, change anything, or draw your own; pick Single agent above the chat input when you just want a quick answer.
+          A single agent loop decides its own path. A workflow decides it for the agent: which steps run, what each may use, what must be verified, and what happens on failure. New Agent chats start in Single agent mode. The built-in Plan → Build → Verify workflow is available in every workspace; choose it above the chat input when you want those steps. Open the Behaviors tab to inspect it or draw your own workflow.
         </p>
 
         <div className="mt-8 grid gap-3 sm:grid-cols-2">
