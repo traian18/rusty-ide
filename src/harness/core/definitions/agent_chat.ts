@@ -73,6 +73,7 @@
 //    customProvider do.
 // ============================================================
 
+import { formatWorkflowOutput } from "../workflowRun";
 import type { McpServerConfig } from "../../../components/mcp/types";
 import type { CustomProvider } from "../../../store/types";
 import type { AgentChatInput, CapabilityEvent, CapabilityResult } from "../../contract";
@@ -492,4 +493,11 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
   },
 
   usageContext: (input) => ({ workspaceRoot: input.workspaceRoot, model: input.model }),
+
+  workflow: (input) => input.workflow,
+
+  workflowResult: (output, _input, ctx): CapabilityResult<"agent_chat"> => {
+    const modifiedFiles = (ctx.scratch.modifiedFiles as Set<string> | undefined) ?? new Set<string>();
+    return { response: formatWorkflowOutput(output), modifiedFiles: Array.from(modifiedFiles), subagents: [] };
+  },
 };

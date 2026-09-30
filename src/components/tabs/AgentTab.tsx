@@ -19,7 +19,7 @@ import { commandPermissionService } from "../../services/commandPermissionServic
 import type { RunHandle } from "../../harness/contract";
 import { registerTabStop, unregisterTabStop } from "../../tabs/tabStopRegistry";
 import { TokenBadge, TokenUsageLike } from "../ui/TokenBadge/TokenBadge";
-import { AgentChatSaveQueue, readModifiedFiles } from "../../services/agentChatPersistence";
+import { AgentChatSaveQueue, readChatWorkflow, readModifiedFiles } from "../../services/agentChatPersistence";
 import { AgentChatResponseStream } from "../../services/agentChatResponseStream";
 import { buildAttachmentContext } from "../../services/contextAttachmentService";
 import type { TabOfType } from "../../tabs/types";
@@ -35,6 +35,11 @@ import {
   IntelligentModelSelectionError,
 } from "../../services/intelligentModelSelector";
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
+import { workflowInputFor } from "../../harness/core/workflowRun";
+import { behaviorService } from "./behaviors/behaviorService";
+import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
+import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
+import type { JsonObject } from "./behaviors/behaviorModel";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -97,6 +102,17 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const [activeChatPath, setActiveChatPath] = useState<string | null>(null);
 
   const agentRunRef = useRef<RunHandle<"agent_chat"> | null>(null);
+  // The saved workflow (.rusty/workflows) this chat follows instead of a
+  // single agent loop. Per chat: saved in the chat file, restored on load.
+  // The ref serves callbacks that outlive a render (saves, sends).
+  const [chatWorkflow, setChatWorkflowState] = useState<string | undefined>();
+  const chatWorkflowRef = useRef<string | undefined>(undefined);
+  const [workflowDocument, setWorkflowDocument] = useState<JsonObject | undefined>();
+  const [workflowRunning, setWorkflowRunning] = useState(false);
+  const workflowCatalogVersion = useWorkflowRunStore((state) => state.catalogVersion);
+  const agentWorkflowRequest = useWorkflowRunStore((state) => state.agentRequest);
+  const workflowRuns = useWorkflowRunStore((state) => state.runs);
+  const [workflowOptions, setWorkflowOptions] = useState<WorkflowChoice[]>([]);
   const questionResolversRef = useRef<Map<string, (answer: string) => void>>(new Map());
   const consoleMessageIdRef = useRef<string | null>(null);
   const consoleBufferRef = useRef<string>("");
@@ -113,6 +129,41 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     providerStatus,
     activeCustomProviderId,
   );
+
+  useEffect(() => {
+    if (!rootPath) {
+      setWorkflowOptions([]);
+      return;
+    }
+    let cancelled = false;
+    void behaviorService.loadWorkflows(rootPath).then(({ documents }) => {
+      if (cancelled) return;
+      setWorkflowOptions(
+        documents.map(({ path, document }) => ({
+          path,
+          name: String(document.name ?? document.id ?? path.split("/").pop()),
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [rootPath, workflowCatalogVersion]);
+
+  // The followed workflow's document, for the bar's step list.
+  useEffect(() => {
+    if (!chatWorkflow) {
+      setWorkflowDocument(undefined);
+      return;
+    }
+    let cancelled = false;
+    invoke<string>("read_file_disk", { path: chatWorkflow })
+      .then((text) => !cancelled && setWorkflowDocument(JSON.parse(text) as JsonObject))
+      .catch(() => !cancelled && setWorkflowDocument(undefined));
+    return () => {
+      cancelled = true;
+    };
+  }, [chatWorkflow, workflowCatalogVersion]);
 
   // Build model options including AUTO if intelligent selection is enabled
   const modelOptions = useCallback(() => {
@@ -254,6 +305,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       setActiveChatPath(chat.path);
       chatSaveQueueRef.current = new AgentChatSaveQueue(chat.path);
       setModifiedFiles(readModifiedFiles(parsed.modifiedFiles));
+      setChatWorkflow(readChatWorkflow(parsed.workflow), { persist: false });
       setSubagents([]);
     } catch (e) {
       console.error("Failed to load chat:", e);
@@ -266,6 +318,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setActiveChatPath(null);
     chatSaveQueueRef.current = new AgentChatSaveQueue();
     setModifiedFiles([]);
+    setChatWorkflow(undefined, { persist: false });
     setSubagents([]);
   };
 
@@ -378,6 +431,20 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       notify("Skill Required", "Select an Agent Tab skill before sending a prompt.", "error");
       return;
     }
+
+    // The saved file is what runs, read fresh so edits saved in the
+    // Behaviors tab since the last message apply.
+    let workflowDefinition: Record<string, unknown> | undefined;
+    const followedWorkflow = chatWorkflowRef.current;
+    if (followedWorkflow) {
+      try {
+        workflowDefinition = JSON.parse(await invoke<string>("read_file_disk", { path: followedWorkflow }));
+      } catch (error) {
+        notify("Workflow unavailable", `Could not read ${followedWorkflow}: ${String(error)}. Choose another in the Mode picker.`, "error");
+        return;
+      }
+    }
+    const workflowId = workflowDefinition ? String(workflowDefinition.id ?? "") : "";
 
     const now = Date.now();
     const attachments = attachedFiles.map((a) => ({ path: a.path, name: a.name, isDir: a.isDir }));
@@ -540,6 +607,13 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           });
         }),
     });
+    // While a workflow runs, the status line names its current step.
+    let workflowStep: string | undefined;
+    const setRunLabel = (label: string) => setStreamingLabel(workflowStep ? `${workflowStep} · ${label}` : label);
+    const workflowStepTypes: Record<string, string> = Object.fromEntries(
+      (Array.isArray(workflowDefinition?.nodes) ? (workflowDefinition.nodes as Array<{ id?: unknown; type?: unknown }>) : [])
+        .map((node) => [String(node.id), String(node.type)]),
+    );
     const run = harness.run(
       "agent_chat",
       {
@@ -566,6 +640,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
         jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState(), autoStepUp),
         jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
+        workflow: workflowDefinition ? { definition: workflowDefinition, input: workflowInputFor(messageToSend) } : undefined,
       },
       host,
       (event) => {
@@ -586,9 +661,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, line);
             scheduleConsoleFlush();
             if (event.message.startsWith("Calling ")) {
-              setStreamingLabel(event.message.replace(/\.\.\.$/, "…"));
+              setRunLabel(event.message.replace(/\.\.\.$/, "…"));
             } else if (event.message.includes("completed") || event.message.includes("failed")) {
-              setStreamingLabel("Processing results…");
+              setRunLabel("Processing results…");
             }
             break;
           }
@@ -596,7 +671,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             setRunUsage(event.usage);
             break;
           case "token": {
-            setStreamingLabel("Generating response…");
+            setRunLabel("Generating response…");
             responseStreamRef.current?.append(event.content, event.messageId);
             scheduleStreamingResponseFlush();
             break;
@@ -604,6 +679,26 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           case "progress":
             responseStreamRef.current?.progress(event.content);
             break;
+          case "workflow_step": {
+            useWorkflowRunStore.getState().step(event.workflowId, event);
+            const name = event.name ?? event.nodeId;
+            const attempt = event.attempt > 1 ? ` (attempt ${event.attempt})` : "";
+            if (event.status === "running") {
+              workflowStep = `${name}${attempt}`;
+              setRunLabel("Working…");
+              // Mark where each agent step's output begins in the chat.
+              if (workflowStepTypes[event.nodeId] === "agent") {
+                responseStreamRef.current?.progress(`**▶ ${name}**${attempt}`);
+                scheduleStreamingResponseFlush();
+              }
+            } else if (event.status === "waiting") {
+              setRunLabel("Waiting for your permission…");
+            } else if (event.status === "failed") {
+              responseStreamRef.current?.progress(`**✗ ${name} failed**${event.message ? `: ${event.message}` : ""}`);
+              scheduleStreamingResponseFlush();
+            }
+            break;
+          }
           case "subagent": {
             const subagent = event.subagent;
             if (!(subagent as any)?.id) break;
@@ -640,6 +735,14 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       },
       { surface: "agent-tab", tabId: tab.id, displayLabel: tab.title || "Agent" },
     );
+    if (workflowId) {
+      useWorkflowRunStore.getState().begin(workflowId);
+      setWorkflowRunning(true);
+      void run.done.then((outcome) => {
+        setWorkflowRunning(false);
+        useWorkflowRunStore.getState().finish(workflowId, outcome.status, outcome.status === "failed" ? outcome.error.message : undefined);
+      });
+    }
     void run.done.then(async (outcome) => {
       if (outcome.status === "completed") {
         const { response, modifiedFiles: files, subagents: completedSubagents } = outcome.result;
@@ -735,7 +838,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const messages = useWorkspaceStore.getState().agentChats[tab.id] || [];
     const queue = chatSaveQueueRef.current;
     try {
-      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current);
+      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current);
       if (chatSaveQueueRef.current === queue) setActiveChatPath(queue.path);
       await loadChatHistory();
     } catch (error) {
@@ -743,6 +846,26 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       notify("Chat not saved", "Could not save this conversation. Please check workspace access.", "error");
     }
   };
+
+  /** Which workflow this chat follows. A conversation already on disk
+   * remembers the choice right away; a new one saves it with its first
+   * message. */
+  const setChatWorkflow = (path: string | undefined, { persist = true }: { persist?: boolean } = {}) => {
+    chatWorkflowRef.current = path;
+    setChatWorkflowState(path);
+    if (persist && (useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) void saveChatHistory();
+  };
+
+  // "Run in Agent Mode" from the Behaviors tab: follow that workflow in a
+  // fresh chat (or this one, when it is still empty).
+  useEffect(() => {
+    if (!agentWorkflowRequest || isAgentBusy) return;
+    const path = useWorkflowRunStore.getState().takeAgentRequest();
+    if (!path) return;
+    if ((useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) handleNewChat();
+    setChatWorkflow(path, { persist: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentWorkflowRequest, isAgentBusy]);
 
   const currentModelOptions = modelOptions();
 
@@ -917,6 +1040,19 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           />
           
           <div className="px-3 py-2 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-header)] flex-shrink-0 w-full">
+            <AgentWorkflowBar
+              workflows={workflowOptions}
+              selected={chatWorkflow}
+              definition={workflowDocument}
+              run={workflowDocument ? workflowRuns[String(workflowDocument.id ?? "")] : undefined}
+              running={workflowRunning}
+              disabled={isAgentBusy}
+              onSelect={(path) => setChatWorkflow(path)}
+              onEdit={(path) => {
+                if (path) useWorkflowRunStore.getState().requestBehaviorsWorkflow(path);
+                openTab({ type: "behaviors" });
+              }}
+            />
             <ChatInput
               value={message}
               onChange={setMessage}

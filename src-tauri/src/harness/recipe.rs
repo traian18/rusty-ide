@@ -161,6 +161,19 @@ pub struct SessionRecipe {
     /// `agent_runner.rs` handles the actual spawning.
     #[serde(default)]
     pub enable_agent_spawn: bool,
+    /// Behavior profile for the root agent (`.rusty/profiles/`). `None` uses
+    /// the workspace default from `.rusty/profiles/config.json`, else the
+    /// built-in neutral profile.
+    #[serde(default)]
+    pub behavior_profile: Option<harness_engine::ProfileRef>,
+    /// An orchestration definition (a `.rusty/workflows/*.json` document)
+    /// to run on this session with `harness_start_workflow` instead of
+    /// prompting it. Its agent steps run in isolated sessions that share
+    /// this session's backend, workspace and tools -- so their model turns
+    /// and host tool calls arrive on this session's bridge. Also lets draft
+    /// profiles run, since the Behaviors canvas creates them as drafts.
+    #[serde(default)]
+    pub workflow: Option<serde_json::Value>,
 }
 
 /// Converts `recipe` into a ready-to-`.start()` `SessionBuilder`, wiring
@@ -203,6 +216,12 @@ pub async fn build_session_builder(
         WorkspaceBinding::Disk => Arc::new(harness_workspace::FsWorkspace::new(recipe.workspace.root.clone())),
     };
     builder = builder.workspace(workspace);
+    // Behavior profiles live with the project. Opening a folder in the IDE is
+    // the trust decision for its profiles; shell-command evaluators stay off.
+    builder = builder.workspace_profiles(recipe.workspace.root.clone());
+    if let Some(profile) = recipe.behavior_profile {
+        builder = builder.profile(profile);
+    }
 
     // `.tools()`, not `.toolset()`: registering only what this recipe asks
     // for and letting `start()` derive the model-facing `AgentToolset` from

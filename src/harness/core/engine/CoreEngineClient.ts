@@ -18,9 +18,10 @@
 // ============================================================
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { AgentEventEnvelope, MutationCommand } from "@rusty/harness-sdk";
+import type { AgentEventEnvelope, MutationCommand, PermissionDecision } from "@rusty/harness-sdk";
+import type { WorkflowEventEnvelope } from "../workflowRun";
 
-import type { SessionRecipe } from "../SessionRecipe";
+import type { ExecutionParams, SessionRecipe } from "../SessionRecipe";
 import { logExecutionDiagnostic } from "../executionDiagnostics";
 import type { ExecutionEvent, ExecutionResult, ExecutionError, ExecutionRequest } from "./ExecutionProtocol";
 
@@ -42,7 +43,19 @@ export interface CoreEngine {
   hostExecuteEvent(sessionId: string, callId: string, event: ExecutionEvent): Promise<void>;
   hostExecuteResult(sessionId: string, callId: string, outcome: HostExecuteOutcome): Promise<void>;
   closeSession(sessionId: string): Promise<void>;
+  /** Starts the workflow the session's recipe carries; resolves to the run id. */
+  startWorkflow?(sessionId: string, input: unknown): Promise<string>;
+  workflowControl?(sessionId: string, control: WorkflowControl): Promise<void>;
+  /** Changes a running workflow step's execution params (its model). */
+  configureStepExecution?(sessionId: string, stepSessionId: string, params: ExecutionParams): Promise<void>;
 }
+
+/** Mirrors `WorkflowControl` in src-tauri/src/harness/workflow.rs. */
+export type WorkflowControl =
+  | { type: "cancel" }
+  | { type: "pause" }
+  | { type: "resume" }
+  | { type: "resolve_permission"; id: string; decision: PermissionDecision };
 
 /**
  * Mirrors `BridgeEvent` (src-tauri/src/harness/bridge_event.rs), whose
@@ -52,9 +65,18 @@ export interface CoreEngine {
 export type BridgeEvent =
   | { kind: "event"; data: AgentEventEnvelope }
   | { kind: "gap"; data: { last_delivered_sequence: number | null; dropped: number } }
-  | { kind: "host_tool_call"; data: { call_id: string; tool: string; input: unknown; tool_call_id?: string } }
+  | {
+      kind: "host_tool_call";
+      /** `session_id`: the session whose agent asked -- this one, or a
+       * workflow step's session sharing its tools. Answers always go to the
+       * subscribed session. */
+      data: { call_id: string; tool: string; input: unknown; tool_call_id?: string; session_id?: string };
+    }
   | { kind: "host_execute_call"; data: { call_id: string; tool: string; input: ExecutionRequest } }
-  | { kind: "closed"; data: { reason: string } };
+  | { kind: "closed"; data: { reason: string } }
+  | { kind: "workflow_event"; data: WorkflowEventEnvelope }
+  | { kind: "workflow_agent_event"; data: { node_id: string; attempt: number; envelope: AgentEventEnvelope } }
+  | { kind: "workflow_finished"; data: { state: unknown } };
 
 export interface HarnessHello {
   protocol_version: number;
@@ -161,6 +183,18 @@ export class CoreEngineClient implements CoreEngine {
 
   snapshot(sessionId: string): Promise<SessionSnapshot> {
     return invoke("harness_snapshot", { sessionId });
+  }
+
+  startWorkflow(sessionId: string, input: unknown): Promise<string> {
+    return invoke("harness_start_workflow", { sessionId, input });
+  }
+
+  workflowControl(sessionId: string, control: WorkflowControl): Promise<void> {
+    return invoke("harness_workflow_control", { sessionId, control });
+  }
+
+  configureStepExecution(sessionId: string, stepSessionId: string, params: ExecutionParams): Promise<void> {
+    return invoke("harness_configure_step_execution", { sessionId, stepSessionId, params });
   }
 
   closeSession(sessionId: string): Promise<void> {

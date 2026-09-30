@@ -49,6 +49,7 @@ describe("openTab: global singletons", () => {
     "settings",
     "llm-setup",
     "skills",
+    "behaviors",
     "mcp-integration",
     "metrics",
     "agent",

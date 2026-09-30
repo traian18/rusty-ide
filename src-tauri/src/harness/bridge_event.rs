@@ -41,6 +41,13 @@ pub enum BridgeEvent {
         /// request/answer correlation key.
         #[serde(skip_serializing_if = "Option::is_none")]
         tool_call_id: Option<String>,
+        /// The session whose agent requested the call. Usually this
+        /// session; a workflow step's isolated session otherwise (steps share
+        /// this session's tools), which is how the IDE files the call's own
+        /// work under the step's `ToolCallRequested`. Answers still go to
+        /// this session's bridge.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
     },
     /// `HostExecutionBackend::execute` is asking the host (the IDE) to run
     /// one model turn (`input` is an `ExecutionRequest`) and will await any
@@ -58,4 +65,16 @@ pub enum BridgeEvent {
     /// session; a pending `HostToolCall` this session issued but never got
     /// an answer for is failed via `HostBridge::fail_all` at the same time.
     Closed { reason: String },
+    /// A committed orchestration event of this session's workflow run (an
+    /// `OrchestrationEventEnvelope`: `{ sequence, event: { type, .. }, .. }`).
+    WorkflowEvent(serde_json::Value),
+    /// A live agent event from one workflow step's isolated session.
+    WorkflowAgentEvent {
+        node_id: String,
+        attempt: u32,
+        envelope: AgentEventEnvelope,
+    },
+    /// The workflow run reached a terminal state; `state` is the final
+    /// `OrchestrationRunState` (status, steps, final_output, error, usage).
+    WorkflowFinished { state: serde_json::Value },
 }

@@ -270,6 +270,8 @@ export const TAB_POLICIES: TabPolicyTable = {
   settings: singleton("settings", "Settings"),
   "llm-setup": singleton("llm-setup", "LLM Integrations"),
   skills: singleton("skills", "Skills"),
+  // Keeps unsaved canvas edits while the user looks at another tab.
+  behaviors: singleton("behaviors", "Behaviors", "always"),
   "mcp-integration": singleton("mcp-integration", "MCP Integration"),
   metrics: singleton("metrics", "Token Metrics"),
   agent,

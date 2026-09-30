@@ -35,6 +35,8 @@ export const NavigationRail: React.FC = () => {
         return activeTabId === "llm-setup";
       case "skills":
         return activeTabId === "skills";
+      case "behaviors":
+        return activeTabId === "behaviors";
       case "mcp":
         return activeTabId === "mcp-integration";
       case "settings":

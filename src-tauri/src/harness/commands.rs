@@ -325,3 +325,60 @@ mod mcp_test_connection_tests {
         assert!(result.is_err(), "an unreachable stdio command should report a clear error, not succeed");
     }
 }
+
+// Behavior canvas: live validation of `.rusty/profiles/*.json` and
+// `.rusty/workflows/*.json` documents against rusty-core's own compilers.
+// Pure functions of their arguments -- the frontend owns the files.
+
+#[tauri::command]
+pub fn behavior_validate_profile(
+    document: serde_json::Value,
+    library: Vec<serde_json::Value>,
+) -> Vec<harness_engine::validation::Issue> {
+    harness_engine::validation::validate_profile(&document, &library)
+}
+
+#[tauri::command]
+pub fn behavior_validate_workflow(
+    document: serde_json::Value,
+    profiles: Vec<serde_json::Value>,
+) -> Vec<harness_engine::validation::Issue> {
+    harness_engine::validation::validate_orchestration(&document, &profiles)
+}
+
+#[tauri::command]
+pub async fn harness_start_workflow(
+    state: State<'_, HarnessState>,
+    session_id: String,
+    input: serde_json::Value,
+) -> Result<String, String> {
+    let session_id = parse_session_id(&session_id)?;
+    state.start_workflow(session_id, input).await
+}
+
+#[tauri::command]
+pub async fn harness_configure_step_execution(
+    state: State<'_, HarnessState>,
+    session_id: String,
+    step_session_id: String,
+    params: harness_protocol::backend::ExecutionParams,
+) -> Result<(), String> {
+    let session_id = parse_session_id(&session_id)?;
+    let step_session = parse_session_id(&step_session_id)?;
+    state.configure_step_execution(session_id, step_session, params).await
+}
+
+#[tauri::command]
+pub async fn harness_workflow_control(
+    state: State<'_, HarnessState>,
+    session_id: String,
+    control: super::workflow::WorkflowControl,
+) -> Result<(), String> {
+    let session_id = parse_session_id(&session_id)?;
+    state.workflow_control(session_id, control).await
+}
+
+#[tauri::command]
+pub fn behavior_templates() -> harness_engine::validation::Templates {
+    harness_engine::validation::templates()
+}

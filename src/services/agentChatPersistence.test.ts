@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentChatSaveQueue, readModifiedFiles } from "./agentChatPersistence";
+import { AgentChatSaveQueue, readChatWorkflow, readModifiedFiles } from "./agentChatPersistence";
 import type { AgentMessage } from "../store/types";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -8,6 +8,18 @@ beforeEach(() => invoke.mockReset());
 const message: AgentMessage = { id: "1", role: "user", content: "Edit files", timestamp: "2026-09-19" };
 
 describe("conversation persistence", () => {
+  it("remembers the workflow a chat follows, and older chats follow none", async () => {
+    invoke.mockResolvedValue("/workspace/.rusty/chats/chat.json");
+    const queue = new AgentChatSaveQueue();
+    await queue.save("/workspace", "agent", [message], [], "/workspace/.rusty/workflows/flow.json");
+    await queue.save("/workspace", "agent", [message], []);
+    const [withWorkflow, without] = invoke.mock.calls.map((call) => JSON.parse(call[1].content));
+    expect(readChatWorkflow(withWorkflow.workflow)).toBe("/workspace/.rusty/workflows/flow.json");
+    expect("workflow" in without).toBe(false);
+    expect(readChatWorkflow(undefined)).toBeUndefined();
+    expect(readChatWorkflow("")).toBeUndefined();
+  });
+
   it("round-trips changed files, removes duplicates, and accepts older chats", async () => {
     invoke.mockResolvedValue("/workspace/.rusty/chats/chat.json");
     await new AgentChatSaveQueue().save("/workspace", "agent", [message], ["/a.ts", "/b.ts", "/a.ts"]);

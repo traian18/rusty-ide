@@ -23,6 +23,7 @@ const semanticCssModules = [
   /^components\/(?:Header|TerminalPanel|LocalTerminal|SearchPalette|CustomSelect)\.module\.css$/,
   /^components\/settings\/.*\.module\.css$/,
   /^components\/tabs\/SettingsTab\.module\.css$/,
+  /^components\/tabs\/behaviors\/.*\.module\.css$/,
   /^components\/ui\/(?:Button|FormControls|NumberStepper|Modal|IconButton|Callout|Tooltip)\//,
   /^components\/ui\/(?:Chat|ChatInput|MarkdownRenderer|SubagentActivityPanel)\.module\.css$/,
   /^components\/ui\/DiffViewToggle\.module\.css$/,
@@ -74,6 +75,13 @@ const migratedJsxFiles = new Set([
   "components/BranchDialog.tsx",
   "components/permissions/CommandPermissionDialog.tsx",
   "components/mcp/McpIntegrationModal.tsx",
+  "components/tabs/behaviors/BehaviorsTab.tsx",
+  "components/tabs/behaviors/BehaviorCanvases.tsx",
+  "components/tabs/behaviors/BehaviorNodes.tsx",
+  "components/tabs/behaviors/ProfileInspector.tsx",
+  "components/tabs/behaviors/WorkflowInspector.tsx",
+  "components/tabs/behaviors/InspectorFields.tsx",
+  "components/tabs/behaviors/AgentWorkflowBar.tsx",
 ]);
 
 function walk(directory) {

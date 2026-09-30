@@ -8,6 +8,11 @@ export function readModifiedFiles(value: unknown): string[] {
     : [];
 }
 
+/** The workflow a saved conversation follows (absent in older files). */
+export function readChatWorkflow(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 /** Each conversation owns its save queue. Capture JSON before an async
  * write so closing a tab or switching chats cannot change what is saved. */
 export class AgentChatSaveQueue {
@@ -19,10 +24,12 @@ export class AgentChatSaveQueue {
     this.path = path;
   }
 
-  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[]): Promise<void> {
+  /** `workflow` is the path of the workflow this chat follows, if any. */
+  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
       tabId, messages, modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
+      ...(workflow ? { workflow } : {}),
     });
     this.pending = this.pending.catch(() => {}).then(async () => {
       if (this.path) {

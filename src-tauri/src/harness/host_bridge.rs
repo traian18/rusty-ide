@@ -77,6 +77,7 @@ impl HostBridge {
             tool: tool.to_string(),
             input,
             tool_call_id: harness_tools::current_tool_call_id(),
+            session_id: harness_tools::current_tool_session_id(),
         });
         if sent.is_err() {
             self.pending.lock().unwrap().remove(&call_id);

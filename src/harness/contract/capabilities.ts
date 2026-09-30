@@ -79,6 +79,10 @@ export interface AgentChatInput {
    * customProvider already use. Optional so every existing call site
    * (and every fixture in this codebase's tests) keeps compiling. */
   webSearchApiKeys?: Record<string, string>;
+  /** Run this workflow (a `.rusty/workflows/*.json` document) instead of a
+   * single agent loop: `input` is the workflow's run input. Its agent steps
+   * use this chat's provider, model and tools. */
+  workflow?: { definition: unknown; input: unknown };
 }
 
 export interface ExecuteNodeInput {

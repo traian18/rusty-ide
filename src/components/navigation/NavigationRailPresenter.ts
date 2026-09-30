@@ -1,4 +1,4 @@
-import { FolderOpen, Files, GitBranch, Cpu, Settings, Bot, Wand2, Plug, BookOpen, Gauge } from "lucide-react";
+import { FolderOpen, Files, GitBranch, Cpu, Settings, Bot, Wand2, Plug, BookOpen, Gauge, Workflow } from "lucide-react";
 import React from "react";
 import type { WorkspaceState } from "../../store";
 import { RustyIcon } from "../RustyIcon";
@@ -88,6 +88,14 @@ export const NAVIGATION_RAIL_ICONS: NavigationRailIconItem[] = [
     icon: Wand2,
     onClick: (store) => {
       store.openTab({ type: "skills" });
+    },
+  },
+  {
+    id: "behaviors",
+    label: "Behaviors",
+    icon: Workflow,
+    onClick: (store) => {
+      store.openTab({ type: "behaviors" });
     },
   },
   {

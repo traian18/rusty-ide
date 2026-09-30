@@ -33,14 +33,32 @@ impl HarnessState {
         recipe: SessionRecipe,
     ) -> Result<SessionId, String> {
         let harness = self.harness().await;
+        self.create_session_on(&harness, recipe).await
+    }
+
+    /// `create_session` against a given harness (tests use one with a fake
+    /// integration).
+    pub async fn create_session_on(
+        &self,
+        harness: &harness_engine::Harness,
+        recipe: SessionRecipe,
+    ) -> Result<SessionId, String> {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let bridge = Arc::new(HostBridge::new(outbound_tx.clone()));
 
-        let builder = build_session_builder(&harness, recipe, bridge.clone()).await.map_err(|error| error.to_string())?;
+        let mut recipe = recipe;
+        let workflow_document = recipe.workflow.take();
+        let mut builder = build_session_builder(harness, recipe, bridge.clone()).await.map_err(|error| error.to_string())?;
+        let mut workflow = None;
+        if let Some(document) = workflow_document {
+            let (configured, key) = super::workflow::configure(builder, document)?;
+            builder = configured;
+            workflow = Some(key);
+        }
         let handle = builder.start().await.map_err(|error| error.to_string())?;
         let session_id = handle.session_id();
 
-        let pump = super::spawn_event_pump(handle.subscribe(), outbound_tx);
+        let pump = super::spawn_event_pump(handle.subscribe(), outbound_tx.clone());
         self.insert_session(
             session_id,
             SessionEntry {
@@ -48,6 +66,9 @@ impl HarnessState {
                 bridge,
                 inbox: Mutex::new(Some(outbound_rx)),
                 pump,
+                outbound: outbound_tx,
+                workflow,
+                workflow_run: Mutex::new(None),
             },
         );
         Ok(session_id)
@@ -154,6 +175,9 @@ impl HarnessState {
         let Some(entry) = self.remove_session(&session_id) else {
             return Ok(());
         };
+        if let Some(run) = entry.workflow_run.lock().unwrap().take() {
+            run.stop();
+        }
         entry.bridge.fail_all("session closed");
         entry.pump.abort();
         entry.handle.close().await.map_err(|error| error.to_string())
@@ -300,7 +324,7 @@ mod integration_tests {
         let builder = build_session_builder(&harness, recipe, bridge.clone()).await.expect("recipe should convert");
         let handle = builder.start().await.expect("session should start");
         let session_id = handle.session_id();
-        let pump = super::super::spawn_event_pump(handle.subscribe(), outbound_tx);
+        let pump = super::super::spawn_event_pump(handle.subscribe(), outbound_tx.clone());
 
         let state = HarnessState::new();
         state.insert_session(
@@ -310,6 +334,9 @@ mod integration_tests {
                 bridge,
                 inbox: Mutex::new(Some(outbound_rx)),
                 pump,
+                outbound: outbound_tx,
+                workflow: None,
+                workflow_run: Mutex::new(None),
             },
         );
 

@@ -25,6 +25,8 @@ interface CustomSelectProps {
   chevronClassName?: string;
   icon?: React.ReactNode;
   direction?: "down" | "up";
+  /** Renders the trigger inert (e.g. while a run locks the choice). */
+  disabled?: boolean;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -40,7 +42,8 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   dropdownClassName = "",
   chevronClassName = "",
   icon,
-  direction = "down"
+  direction = "down",
+  disabled = false,
 }) => {
   const generatedId = useId();
   const controlId = id || `custom-select-${generatedId.replace(/:/g, "")}`;
@@ -136,7 +139,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     ? (filteredGroups && filteredGroups.length > 0)
     : filteredOptions.length > 0;
 
+  useEffect(() => {
+    if (disabled) setIsOpen(false);
+  }, [disabled]);
+
   const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen && disabled) return;
     if (nextOpen && !isOpen) onOpen?.();
     setIsOpen(nextOpen);
   };
@@ -151,6 +159,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       dropdownClassName={dropdownClassName}
       chevronClassName={chevronClassName}
       icon={icon}
+      disabled={disabled}
       isOpen={isOpen}
       setIsOpen={handleOpenChange}
       searchQuery={searchQuery}

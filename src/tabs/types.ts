@@ -25,6 +25,7 @@ export type TabType =
   | "settings"
   | "llm-setup"
   | "skills"
+  | "behaviors"
   | "mcp-integration"
   | "metrics"
   | "agent"
@@ -41,6 +42,7 @@ export type SingletonTabType =
   | "settings"
   | "llm-setup"
   | "skills"
+  | "behaviors"
   | "mcp-integration"
   | "metrics"
   | "agent";

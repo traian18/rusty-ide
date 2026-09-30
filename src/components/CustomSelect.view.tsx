@@ -12,6 +12,7 @@ interface CustomSelectViewProps {
   dropdownClassName: string;
   chevronClassName?: string;
   icon?: React.ReactNode;
+  disabled?: boolean;
   isOpen: boolean;
   setIsOpen: (isOpen: boolean) => void;
   searchQuery: string;
@@ -37,6 +38,7 @@ export const CustomSelectView: React.FC<CustomSelectViewProps> = ({
   dropdownClassName,
   chevronClassName,
   icon,
+  disabled = false,
   isOpen,
   setIsOpen,
   searchQuery,
@@ -79,6 +81,7 @@ export const CustomSelectView: React.FC<CustomSelectViewProps> = ({
         id={id}
         ref={buttonRef}
         type="button"
+        disabled={disabled}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-controls={isOpen ? listboxId : undefined}

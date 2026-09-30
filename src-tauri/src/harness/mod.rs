@@ -28,6 +28,7 @@ mod managed_quota;
 mod recipe;
 mod session;
 mod user_path;
+mod workflow;
 
 pub use bridge_event::BridgeEvent;
 pub use host_bridge::HostBridge;
@@ -61,6 +62,11 @@ pub struct SessionEntry {
     /// `Send`/`Sync` state accessed through `&self`.
     pub inbox: Mutex<Option<mpsc::UnboundedReceiver<BridgeEvent>>>,
     pub pump: JoinHandle<()>,
+    /// Outbound channel, kept so a workflow run can forward its updates.
+    pub outbound: mpsc::UnboundedSender<BridgeEvent>,
+    /// The recipe's registered workflow (id, revision), if any.
+    pub workflow: Option<(String, u64)>,
+    pub workflow_run: Mutex<Option<workflow::WorkflowRun>>,
 }
 
 /// Process-wide harness state, held in Tauri's managed state

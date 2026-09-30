@@ -81,4 +81,9 @@ export interface SessionRecipe {
   /** Registers `agent_spawn`'s descriptor so the model can see and call it;
    * rusty-core's own `agent_runner.rs` handles the actual spawning. */
   enable_agent_spawn?: boolean;
+  /** Behavior profile for the root agent (`.rusty/profiles/`); absent → workspace default. */
+  behavior_profile?: { id: string; revision?: number };
+  /** An orchestration definition to run with `startWorkflow` instead of a
+   * prompt (see src-tauri/src/harness/workflow.rs). */
+  workflow?: unknown;
 }

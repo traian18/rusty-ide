@@ -321,7 +321,10 @@ export function decideTool(dependencies: DecideToolDependencies): HostToolHandle
     const recentSteps = call?.toolCallId ? source?.describeHistoryBefore?.(call.runId, call.sessionId, call.toolCallId) : undefined;
     // With AUTO, the same request also rates the remaining work, so the run
     // can step up to a more capable model it can switch to in place.
-    const run = dependencies.ctx.scratch as { autoLevel?: AutoLevel; autoModel?: string };
+    // Per session: a workflow's steps each run in their own session, which
+    // starts on the run's original model however far another step stepped up.
+    const levels = ((dependencies.ctx.scratch as { autoLevels?: Record<string, { autoLevel?: AutoLevel; autoModel?: string }> }).autoLevels ??= {});
+    const run = (levels[call?.sessionId ?? ""] ??= {});
     const currentLevel = run.autoLevel ?? config.stepUp?.level;
     const currentModel = run.autoModel ?? dependencies.model;
     const targets = config.stepUp && currentLevel && call?.configureExecution

@@ -1378,6 +1378,18 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             harness::commands::harness_hello,
             #[cfg(feature = "core-harness")]
+            harness::commands::behavior_validate_profile,
+            #[cfg(feature = "core-harness")]
+            harness::commands::behavior_validate_workflow,
+            #[cfg(feature = "core-harness")]
+            harness::commands::behavior_templates,
+            #[cfg(feature = "core-harness")]
+            harness::commands::harness_start_workflow,
+            #[cfg(feature = "core-harness")]
+            harness::commands::harness_workflow_control,
+            #[cfg(feature = "core-harness")]
+            harness::commands::harness_configure_step_execution,
+            #[cfg(feature = "core-harness")]
             harness::commands::harness_create_session,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_subscribe,

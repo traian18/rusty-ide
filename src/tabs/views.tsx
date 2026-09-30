@@ -13,7 +13,7 @@
  */
 
 import React from "react";
-import { Bot, BookOpen, Cpu, FolderOpen, Gauge, GitCommit, Plug, Settings, Wand2 } from "lucide-react";
+import { Bot, BookOpen, Cpu, FolderOpen, Gauge, GitCommit, Plug, Settings, Wand2, Workflow } from "lucide-react";
 import { FileIcon } from "../services/fileTypeService";
 import { RustyIcon } from "../components/RustyIcon";
 import { RustyTab } from "../components/tabs/canvas/RustyTab";
@@ -24,6 +24,7 @@ import { GitHistoryTab } from "../components/tabs/GitHistoryTab";
 import { LlmSetupTab } from "../components/tabs/LlmSetupTab";
 import { SettingsTab } from "../components/tabs/SettingsTab";
 import { SkillsTab } from "../components/tabs/SkillsTab";
+import { BehaviorsTab } from "../components/tabs/behaviors/BehaviorsTab";
 import { WorkspaceTab } from "../components/tabs/WorkspaceTab";
 import { AgentTab } from "../components/tabs/AgentTab";
 import { OnboardingTab } from "../components/tabs/OnboardingTab";
@@ -122,6 +123,11 @@ export const TAB_VIEWS: TabViewTable = {
   },
   "llm-setup": plain(LlmSetupTab, Cpu),
   skills: plain(SkillsTab, Wand2),
+  behaviors: {
+    Component: ({ isActive }) => <BehaviorsTab isActive={isActive} />,
+    Icon: Workflow,
+    surface: "canvas",
+  },
   "mcp-integration": plain(McpIntegrationTab, Plug),
   settings: plain(SettingsTab, Settings),
   workspace: plain(WorkspaceTab, FolderOpen),

@@ -26,7 +26,18 @@ export type CommonEvent =
   | { kind: "subagent"; subagent: unknown }
   | { kind: "files_changed"; paths: string[] }
   | { kind: "command_output"; content: string }
-  | { kind: "command_complete" };
+  | { kind: "command_complete" }
+  /** Progress of one step of a workflow run (`.rusty/workflows`). */
+  | {
+      kind: "workflow_step";
+      workflowId: string;
+      nodeId: string;
+      /** The step's display name. */
+      name?: string;
+      status: "running" | "waiting" | "retry" | "succeeded" | "failed";
+      attempt: number;
+      message?: string;
+    };
 
 export interface NodeStatusChangeEvent {
   kind: "node_status_change";

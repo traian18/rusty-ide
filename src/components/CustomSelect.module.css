@@ -31,6 +31,12 @@
   outline-offset: 2px;
 }
 
+.button:disabled {
+  border-color: var(--color-border-subtle);
+  color: var(--color-fg-muted);
+  cursor: not-allowed;
+}
+
 .label {
   flex: 1;
   min-width: 0;

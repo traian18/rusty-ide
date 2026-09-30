@@ -33,6 +33,7 @@ import { isExecutionError, type ExecutionError, type ExecutionEvent, type Execut
 import type { ExecutionParams, SessionRecipe } from "./SessionRecipe";
 import { createTranscript, type Transcript } from "./transcript";
 import { toolDecisionObserver } from "./toolDecisionObserver";
+import { describeWorkflowEvent, stepNames, workflowOutcome, type WorkflowEventEnvelope } from "./workflowRun";
 import { executionObservability } from "../../observability/executionStore";
 import type { ExecutionOrigin } from "../../observability/types";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../contract/observability";
@@ -184,6 +185,14 @@ export interface CoreCapabilityDefinition<K extends CapabilityName> {
    * separate from `recipe()` because not everything a recipe needs
    * (`integration_config` carries secrets) belongs in a usage ledger. */
   usageContext(input: CapabilityInput<K>): { workspaceRoot: string; model: string; provider?: string };
+  /** A workflow to run on this run's session instead of prompting it
+   * (`undefined` for a normal agent loop). The session is created from
+   * `recipe()` as usual, so the workflow's agent steps share its backend,
+   * tools and host tool handlers. */
+  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown } | undefined;
+  /** The capability result for a completed workflow's final output.
+   * Required whenever `workflow` can return a workflow. */
+  workflowResult?(output: unknown, input: CapabilityInput<K>, ctx: RunContext): CapabilityResult<K>;
   /** Takes over the entire run for a capability that needs more than one
    * rusty-core session -- reconciliate_graph: one independent session per
    * overlapping file, run in sequence, not a single session's tool loop.
@@ -416,10 +425,15 @@ export class CoreHarness implements AgentHarness {
 
     const usage = this.usageTracker(runId, capability, definition.usageContext(input));
 
-    const handlePermissionRequested = (request: {
-      id: string;
-      tool_call: { id: string; name: string; arguments: unknown };
-    }) => {
+    const handlePermissionRequested = (
+      request: {
+        id: string;
+        tool_call: { id: string; name: string; arguments: unknown };
+      },
+      // Where the decision goes: the session itself, or -- for a workflow
+      // step's agent -- the workflow run, which relays it to that step.
+      resolve?: (decision: PermissionDecision) => Promise<void> | undefined,
+    ) => {
       const args = request.tool_call.arguments;
       void host
         .requestPermission(
@@ -451,14 +465,19 @@ export class CoreHarness implements AgentHarness {
         .then((decision) => {
           if (settled || !sessionId) return;
           const mapped: PermissionDecision = decision === "deny" ? "Denied" : "Approved";
+          if (resolve) return resolve(mapped);
           return this.engine.mutate(sessionId, { type: "resolve_permission", payload: { id: request.id, decision: mapped } });
         })
         .catch(() => {});
     };
 
-    const handleHostToolCall = (data: { call_id: string; tool: string; input: unknown; tool_call_id?: string }) => {
+    const handleHostToolCall = (data: { call_id: string; tool: string; input: unknown; tool_call_id?: string; session_id?: string }) => {
       if (!sessionId) return;
       const sid = sessionId;
+      // Where the call came from: a workflow step's session shares this
+      // session's tools, and its tool calls are recorded under that session
+      // -- so smart tools, decisions and risk review must look there too.
+      const caller = data.session_id ?? sid;
       if (data.tool === "workspace.read") {
         const path = String((data.input as { path?: unknown } | undefined)?.path ?? "");
         host
@@ -484,11 +503,17 @@ export class CoreHarness implements AgentHarness {
       // hostTools's own doc comment on CoreCapabilityDefinition).
       const handler = getHostToolHandlers()[data.tool];
       if (handler) {
-        handler(data.input, controller.signal, usage.tool(sid, data.tool_call_id, data.tool), {
+        handler(data.input, controller.signal, usage.tool(caller, data.tool_call_id, data.tool), {
           runId,
-          sessionId: sid,
+          sessionId: caller,
           toolCallId: data.tool_call_id,
-          configureExecution: (params) => this.engine.mutate(sid, { type: "configure_execution", payload: { params } }),
+          // A workflow step's session is reconfigured through its parent.
+          configureExecution: (params) =>
+            caller === sid
+              ? this.engine.mutate(sid, { type: "configure_execution", payload: { params } })
+              : this.engine.configureStepExecution
+                ? this.engine.configureStepExecution(sid, caller, params)
+                : Promise.reject(new Error("This build of the harness cannot reconfigure workflow steps.")),
         })
           .then((outcome) => this.engine.hostToolResult(sid, data.call_id, outcome))
           .catch((error: unknown) => this.engine.hostToolResult(sid, data.call_id, { ok: false, error: errorMessage(error) }))
@@ -629,8 +654,35 @@ export class CoreHarness implements AgentHarness {
         }
         return;
       }
+      // Behavior layer: surface what the active profile did, so its effect
+      // is visible in the run's progress log.
+      if ("ProfileChanged" in event) {
+        onEvent({ kind: "log", message: `Behavior profile: ${event.ProfileChanged.from} → ${event.ProfileChanged.to}` } as CapabilityEvent<K>);
+        return;
+      }
+      if ("BehaviorRuleFired" in event) {
+        const fired = event.BehaviorRuleFired;
+        onEvent({ kind: "log", message: `Rule ${fired.rule_id} (${fired.event}): ${fired.action}` } as CapabilityEvent<K>);
+        return;
+      }
+      if ("ToolCallDenied" in event) {
+        onEvent({ kind: "log", message: `Denied by behavior profile: ${event.ToolCallDenied.reason}` } as CapabilityEvent<K>);
+        return;
+      }
+      if ("CompletionGateEvaluated" in event) {
+        const gate = event.CompletionGateEvaluated;
+        const checks = gate.failed_checks.join(", ");
+        const message = gate.passed
+          ? "Completion gate passed."
+          : gate.continuing
+            ? `Completion gate rejected the answer (${checks}); the agent continues.`
+            : `Completion gate not passed (${checks}).`;
+        onEvent({ kind: "log", message } as CapabilityEvent<K>);
+        return;
+      }
       // StateChanged, RunStarted, BackendRequestStarted,
       // AssistantMessageStarted, ReasoningDelta, AssistantMessageCompleted,
+      // ContextInjected (covered by BehaviorRuleFired),
       // ChildAgentSpawned, ChildAgentCompleted: no capability event to
       // surface for these yet -- no-op rather than a default branch that
       // would silently swallow a genuinely new variant (every arm above is
@@ -659,6 +711,64 @@ export class CoreHarness implements AgentHarness {
         case "closed":
           settle({ status: "failed", error: { code: "CORE_SESSION_CLOSED", message: bridgeEvent.data.reason } });
           return;
+        case "workflow_event":
+          handleWorkflowEvent(bridgeEvent.data);
+          return;
+        case "workflow_agent_event":
+          handleStepAgentEvent(bridgeEvent.data.envelope);
+          return;
+        case "workflow_finished":
+          handleWorkflowFinished(bridgeEvent.data.state);
+          return;
+      }
+    };
+
+    // --- workflow runs -------------------------------------------------
+    // Set when the definition runs a workflow instead of a single agent
+    // loop. Step agents' events reuse the normal handling (tokens, tool
+    // logs, usage); their own completion is the workflow's business.
+    const workflow = definition.workflow?.(input);
+    const workflowId = workflow ? String((workflow.definition as { id?: unknown } | null)?.id ?? "") : "";
+    const workflowNames = workflow ? stepNames(workflow.definition) : {};
+
+    const handleWorkflowEvent = (envelope: WorkflowEventEnvelope) => {
+      const { log, step } = describeWorkflowEvent(envelope, workflowNames);
+      if (log) onEvent({ kind: "log", message: log } as CapabilityEvent<K>);
+      if (step) onEvent({ kind: "workflow_step", workflowId, ...step, name: workflowNames[step.nodeId] ?? step.nodeId } as CapabilityEvent<K>);
+    };
+
+    const handleStepAgentEvent = (envelope: AgentEventEnvelope) => {
+      const event = envelope.event as AgentEvent;
+      if ("Completed" in event || "Failed" in event) {
+        observe(() => executionObservability.ingest(runId, envelope));
+        return;
+      }
+      if ("PermissionRequested" in event) {
+        observe(() => executionObservability.ingest(runId, envelope));
+        const request = event.PermissionRequested.request;
+        handlePermissionRequested(request, (decision) =>
+          sessionId ? this.engine.workflowControl?.(sessionId, { type: "resolve_permission", id: request.id, decision }) : undefined,
+        );
+        return;
+      }
+      handleAgentEvent(envelope);
+    };
+
+    const handleWorkflowFinished = (state: unknown) => {
+      const outcome = workflowOutcome(state);
+      if (outcome.status === "cancelled") {
+        settle({ status: "cancelled" });
+        return;
+      }
+      if (outcome.status === "failed") {
+        settle({ status: "failed", error: { code: outcome.code, message: outcome.message } });
+        return;
+      }
+      try {
+        if (!definition.workflowResult) throw new Error("This capability cannot report a workflow result.");
+        settle({ status: "completed", result: definition.workflowResult(outcome.output, input, runContext) });
+      } catch (error: unknown) {
+        settle({ status: "failed", error: { code: "CORE_RESULT_FAILED", message: errorMessage(error) } });
       }
     };
 
@@ -666,7 +776,8 @@ export class CoreHarness implements AgentHarness {
       try {
         // Already validated non-null above -- TS's narrowing doesn't carry
         // this far into the closure captured by this async IIFE.
-        const recipe = definition.recipe!(input);
+        const baseRecipe = definition.recipe!(input);
+        const recipe: SessionRecipe = workflow ? { ...baseRecipe, workflow: workflow.definition } : baseRecipe;
         observe(() => trajectories.append(runId, "Session context", {
           systemPrompt: recipe.system_prompt, prompt: definition.promptText!(input),
           integration: recipe.integration, executionParams: recipe.execution_params,
@@ -688,6 +799,12 @@ export class CoreHarness implements AgentHarness {
         }));
         await this.engine.subscribe(id, handleBridgeEvent);
         resolveStarted();
+        if (workflow) {
+          if (!this.engine.startWorkflow) throw new Error("This build of the harness cannot run workflows.");
+          observe(() => trajectories.append(runId, "Workflow", { workflow: workflowId, input: workflow.input }));
+          await this.engine.startWorkflow(id, workflow.input);
+          return;
+        }
         await this.engine.mutate(id, { type: "prompt", payload: { text: definition.promptText!(input), attachments: [] } });
       } catch (error: unknown) {
         const message = errorMessage(error);
@@ -703,7 +820,12 @@ export class CoreHarness implements AgentHarness {
       cancel: () => {
         if (settled) return;
         controller.abort();
-        if (sessionId) void this.engine.mutate(sessionId, { type: "cancel" }).catch(() => {});
+        if (sessionId) {
+          const stop = workflow && this.engine.workflowControl
+            ? this.engine.workflowControl(sessionId, { type: "cancel" })
+            : this.engine.mutate(sessionId, { type: "cancel" });
+          void stop.catch(() => {});
+        }
         settle({ status: "cancelled" });
       },
     };
