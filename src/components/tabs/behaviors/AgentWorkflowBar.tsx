@@ -6,9 +6,9 @@
  * shows each step's progress in order.
  */
 
-import React, { useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Check, Loader2, PencilLine, Workflow as WorkflowIcon, X } from "lucide-react";
-import { Button, IconButton } from "../../ui";
+import React, { useId, useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, Check, Info, Loader2, PencilLine, Workflow as WorkflowIcon, X } from "lucide-react";
+import { Button, IconButton, Tooltip } from "../../ui";
 import { Select } from "./ChoiceSelect";
 import { workflowUsesContext, type WorkflowStepStatus } from "../../../harness/core/workflowRun";
 import { type JsonObject, layoutSteps, stepsOf } from "./behaviorModel";
@@ -121,6 +121,8 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   const handsOver = auto || workflowSwitchTargets(definition).length > 0;
   const usesContext = workflowUsesContext(definition);
   const showRun = Boolean(selected && run && (running || run.status !== "running"));
+  const stageComplete = Boolean(!running && run?.status === "completed" && kind === "stage");
+  const stageCompletionTooltipId = useId();
   const currentIndex = running && run?.current ? steps.findIndex((step) => step.id === run.current) : -1;
   const activeStep = currentIndex >= 0 ? steps[currentIndex] : undefined;
   const currentProgress = activeStep ? run?.steps[activeStep.id] : undefined;
@@ -190,7 +192,18 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
             Allow flow switching
           </label>
         ) : null}
-        <span className={styles.summary} title={current?.description ?? (typeof definition?.description === "string" ? definition.description : undefined)}>{summary}</span>
+        <span
+          className={`${styles.summary} ${stageComplete ? styles.summaryIcon : ""}`}
+          title={stageComplete ? undefined : current?.description ?? (typeof definition?.description === "string" ? definition.description : undefined)}
+        >
+          {stageComplete ? (
+            <Tooltip id={stageCompletionTooltipId} label={summary} placement="top">
+              <button type="button" className={styles.infoTrigger} aria-label="Stage completion guidance">
+                <Info size={15} aria-hidden />
+              </button>
+            </Tooltip>
+          ) : summary}
+        </span>
         <Button type="button" variant="ghost" icon={<PencilLine size={14} />} onClick={() => onEdit(auto ? undefined : selected)}>
           {selected && !auto ? isStarterWorkflowPath(selected) ? "View workflow" : "Edit workflow" : workflows.length ? "Design workflows" : "Create a workflow"}
         </Button>
