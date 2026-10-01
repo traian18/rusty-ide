@@ -57,7 +57,7 @@ Your job:
 2. Analyze whether these changes conflict with the target task's requirements.
 3. If there are conflicts, explain them clearly and suggest fixes.
 4. If the user asks you to fix conflicts, use 'write_file' to apply the resolution.
-5. CRITICAL: When making changes to a file, write the complete file with all changes included to the EXACT same path. Do NOT create a new/duplicate file with a similar or modified name. You must replace/overwrite the existing file. Never write partial code or snippets.
+5. CRITICAL: When making changes to a file, write the complete file with all changes included to the EXACT same path. Do NOT create a new/duplicate file with a similar or modified name. You must replace/overwrite the existing file, so call 'write_file' with overwrite set to true. Never write partial code or snippets.
 
 Workspace root: ${input.workspaceRoot || "unknown"}
 `;

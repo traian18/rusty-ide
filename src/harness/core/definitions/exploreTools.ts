@@ -34,6 +34,15 @@ import { isBinaryDocumentFile, parseDocument } from "../../../services/documentP
 import type { RunHost } from "../../contract";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
+import {
+  MAX_DEPTH as MAX_LISTING_DEPTH,
+  normalizeBase,
+  renderGlobMatches,
+  renderListing,
+  resolveDepth,
+  resolveWorkspacePath,
+  type ListingResult,
+} from "../fileListing";
 
 /** Matches agent-sidecar/src/services/tools.ts's IGNORED_DIRS exactly.
  * get_directory_structure already filters a smaller subset of these
@@ -74,8 +83,20 @@ export const READ_TOOL: HostToolSpec = {
 
 export const LIST_FILES_TOOL: HostToolSpec = {
   name: "list_files",
-  description: "Get a summary of the workspace structure including directories, file types, and a sample of files.",
-  input_schema: { type: "object", properties: {}, required: [] },
+  description:
+    "Explore the workspace's files. With no arguments it returns an overview: top-level directories, file types and a sample of files. With path it lists that directory (one level by default; raise depth to see more levels). With glob it finds files by name under path, for example package.json, **/*.test.ts or src/**/*.{ts,tsx}. Paths are relative to the workspace root, and dependency and build-output folders such as node_modules and target are left out.",
+  input_schema: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "Directory to list, relative to the workspace root. Omit to start at the root." },
+      depth: { type: "number", description: "How many levels to show below path, 1 to 8. Defaults to 1, or to 8 when glob is set." },
+      glob: {
+        type: "string",
+        description: "Only list files matching this pattern, relative to path: * stays within a folder, ** crosses folders, ? is one character, {a,b} are alternatives. A pattern without a / matches that name at any depth.",
+      },
+    },
+    required: [],
+  },
 };
 
 export const SEARCH_CODEBASE_TOOL: HostToolSpec = {
@@ -103,14 +124,32 @@ export const READ_FILE_TOOL: HostToolSpec = {
 
 export const WRITE_FILE_TOOL: HostToolSpec = {
   name: "write_file",
-  description: "Write or edit a file's content in the virtual workspace.",
+  description:
+    "Create a new file, or replace an existing file's entire content. Replacing a file that already has content is refused unless overwrite is true. To change part of an existing file use edit_file instead: rewriting a whole file to change a few lines risks dropping the lines you did not retype.",
   input_schema: {
     type: "object",
     properties: {
-      path: { type: "string", description: "The file path to write/edit" },
-      content: { type: "string", description: "The full content of the file" },
+      path: { type: "string", description: "The file path to create or overwrite" },
+      content: { type: "string", description: "The complete content of the file" },
+      overwrite: { type: "boolean", description: "Set to true only to replace the whole content of a file that already has content. Defaults to false." },
     },
     required: ["path", "content"],
+  },
+};
+
+export const EDIT_FILE_TOOL: HostToolSpec = {
+  name: "edit_file",
+  description:
+    "Change part of an existing file by replacing one exact piece of its text. Use this for every change to an existing file; use write_file only to create a new file or when a complete rewrite is intended. Read the file first. old_string must match the file exactly, including whitespace and indentation, and must appear exactly once: include enough surrounding lines to make it unique, or set replace_all to change every occurrence. If the edit fails the file is left untouched.",
+  input_schema: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "The path of the existing file to edit" },
+      old_string: { type: "string", description: "The exact text to replace, copied from the file. Must not be empty." },
+      new_string: { type: "string", description: "The text to put in its place. Use an empty string to delete old_string. Must differ from old_string." },
+      replace_all: { type: "boolean", description: "Replace every occurrence of old_string instead of requiring exactly one. Defaults to false." },
+    },
+    required: ["path", "old_string", "new_string"],
   },
 };
 
@@ -146,13 +185,6 @@ export const EXPLORE_TOOLS: HostToolSpec[] = [READ_TOOL, LIST_FILES_TOOL, SEARCH
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.filter((v): v is Record<string, unknown> => typeof v === "object" && v !== null) : [];
-}
-
-function resolveWorkspacePath(workspaceRoot: string, inputPath: string): string {
-  if (/^([a-zA-Z]:[\\/]|\/)/.test(inputPath)) return inputPath;
-  if (inputPath.startsWith("~/") || inputPath === "~") return inputPath;
-  const sep = workspaceRoot.includes("\\") && !workspaceRoot.includes("/") ? "\\" : "/";
-  return workspaceRoot.endsWith(sep) ? `${workspaceRoot}${inputPath}` : `${workspaceRoot}${sep}${inputPath}`;
 }
 
 function isNotFoundError(message: string): boolean {
@@ -239,11 +271,43 @@ export function resolveWriteTarget(workspaceRoot: string, args: unknown, inputFi
   return resolveWorkspacePath(workspaceRoot, resolveWithInputFiles(filePath, inputFiles));
 }
 
+/**
+ * Why `write_file` must not replace `previous` with this call's `content`;
+ * `undefined` when it may go ahead: a new or blank file, an identical
+ * rewrite, or a call that sets `overwrite: true`. Pure, so the risk review can
+ * leave out a write the tool is about to refuse instead of reviewing it first.
+ */
+export function overwriteRefusal(previous: string | undefined, args: unknown): string | undefined {
+  const input = args as { path?: unknown; content?: unknown; overwrite?: unknown } | undefined;
+  if (previous === undefined || previous.trim() === "") return undefined;
+  if (input?.overwrite === true || input?.content === previous) return undefined;
+  return `'${String(input?.path ?? "")}' already exists and has content, and write_file would replace all of it, so nothing was written. To change part of it, use edit_file. If a complete rewrite is really intended, call write_file again with overwrite set to true.`;
+}
+
 export function writeTool(workspaceRoot: string, host: RunHost, modifiedFiles: Set<string>, inputFiles?: unknown): HostToolHandler {
   return async (args, signal) => {
     const input = args as { path?: unknown; content?: unknown } | undefined;
-    const content = String(input?.content ?? "");
+    if (!String(input?.path ?? "").trim()) return { ok: false, error: "path is required." };
+    // A call that lost its content must not silently blank the file.
+    if (typeof input?.content !== "string") {
+      return {
+        ok: false,
+        error: "content is required and must be a string (use an empty string for an empty file), so nothing was written. To change part of an existing file, use edit_file.",
+      };
+    }
+    const content = input.content;
     const absolute = resolveWriteTarget(workspaceRoot, args, inputFiles);
+
+    let previous: string | undefined;
+    try {
+      previous = await host.readFile(absolute, signal);
+    } catch {
+      // Missing (a new file) or unreadable: the write below decides what happens.
+      previous = undefined;
+    }
+    const refusal = overwriteRefusal(previous, args);
+    if (refusal) return { ok: false, error: refusal };
+
     try {
       await host.writeFile(absolute, content, signal);
       modifiedFiles.add(absolute);
@@ -251,6 +315,125 @@ export function writeTool(workspaceRoot: string, host: RunHost, modifiedFiles: S
     } catch (error: unknown) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
+  };
+}
+
+/** Some tools have no grant of their own: `edit_file` rides on `write_file`
+ * (a skill that may write may edit; one that may not gets neither),
+ * `project_info`, which only reads manifests, rides on `read_file`, and
+ * `run_check` and `install_dependencies`, which run the project's own
+ * commands, ride on `run_command`.
+ * Call sites map a tool name through this before checking it against
+ * `enabledTools`. rusty-core mirrors the mapping in `tool_alias.rs` /
+ * `execution_policy.rs`. */
+export function grantedToolName(name: string): string {
+  if (name === "edit_file") return "write_file";
+  if (name === "project_info") return "read_file";
+  if (name === "run_check" || name === "install_dependencies") return "run_command";
+  return name;
+}
+
+export type EditOutcome =
+  | { ok: true; next: string; replaced: number; line: number }
+  | { ok: false; error: string };
+
+const MAX_LISTED_MATCH_LINES = 5;
+
+/** The 1-based line of every non-overlapping occurrence of `find` in `text`. */
+function matchLines(text: string, find: string): number[] {
+  const lines: number[] = [];
+  let line = 1;
+  let scanned = 0;
+  for (let at = text.indexOf(find); at >= 0; at = text.indexOf(find, at + find.length)) {
+    for (let nl = text.indexOf("\n", scanned); nl >= 0 && nl < at; nl = text.indexOf("\n", scanned)) {
+      line += 1;
+      scanned = nl + 1;
+    }
+    lines.push(line);
+  }
+  return lines;
+}
+
+/**
+ * Applies an `edit_file` call to `previous`. Pure: it never touches the disk,
+ * so the write handler and the risk review judge exactly the same result.
+ * Strict on purpose -- no fuzzy matching -- so a call can never silently
+ * change the wrong place; every failure says what to do next and that the
+ * file was left alone.
+ */
+export function applyEdit(previous: string, args: unknown): EditOutcome {
+  const input = (args ?? {}) as { old_string?: unknown; new_string?: unknown; replace_all?: unknown };
+  const { old_string: oldString, new_string: newString } = input;
+  if (typeof oldString !== "string" || oldString === "") {
+    return { ok: false, error: "old_string is required and must not be empty. To create a file, or replace all of its content, use write_file." };
+  }
+  if (typeof newString !== "string") {
+    return { ok: false, error: "new_string is required. Use an empty string to delete old_string." };
+  }
+  if (oldString === newString) {
+    return { ok: false, error: "old_string and new_string are identical, so nothing would change." };
+  }
+
+  let find = oldString;
+  let replacement = newString;
+  let lines = matchLines(previous, find);
+  // Model-written text uses \n; a CRLF file would otherwise never match it.
+  if (lines.length === 0 && previous.includes("\r\n") && !oldString.includes("\r")) {
+    find = oldString.replace(/\n/g, "\r\n");
+    replacement = newString.replace(/\n/g, "\r\n");
+    lines = matchLines(previous, find);
+  }
+
+  if (lines.length === 0) {
+    return {
+      ok: false,
+      error: "old_string was not found in the file, so nothing was changed. Read the file again and copy the text exactly, including whitespace and indentation.",
+    };
+  }
+  if (lines.length > 1 && input.replace_all !== true) {
+    const shown = lines.slice(0, MAX_LISTED_MATCH_LINES).join(", ");
+    const more = lines.length > MAX_LISTED_MATCH_LINES ? ` and ${lines.length - MAX_LISTED_MATCH_LINES} more` : "";
+    return {
+      ok: false,
+      error: `old_string matches ${lines.length} places (lines ${shown}${more}), so nothing was changed. Include more surrounding lines to make it unique, or set replace_all to true to change every occurrence.`,
+    };
+  }
+  return { ok: true, next: previous.split(find).join(replacement), replaced: lines.length, line: lines[0] };
+}
+
+/** "edit_file": a strict find-and-replace on an existing file, resolved and
+ * tracked exactly like `writeTool` (same VFS-aware RunHost read/write, and the
+ * path is recorded as modified only after a successful write). */
+export function editTool(workspaceRoot: string, host: RunHost, modifiedFiles: Set<string>, inputFiles?: unknown): HostToolHandler {
+  return async (args, signal) => {
+    const filePath = String((args as { path?: unknown } | undefined)?.path ?? "");
+    if (!filePath.trim()) return { ok: false, error: "path is required." };
+    const absolute = resolveWriteTarget(workspaceRoot, args, inputFiles);
+
+    let previous: string;
+    try {
+      previous = await host.readFile(absolute, signal);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (isNotFoundError(message)) {
+        return { ok: false, error: `'${filePath}' does not exist, so there is nothing to edit. Use write_file to create it.` };
+      }
+      if (isDirectoryError(message)) {
+        return { ok: false, error: `'${filePath}' is a directory, not a file.` };
+      }
+      return { ok: false, error: message };
+    }
+
+    const outcome = applyEdit(previous, args);
+    if (!outcome.ok) return { ok: false, error: outcome.error };
+    try {
+      await host.writeFile(absolute, outcome.next, signal);
+    } catch (error: unknown) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    modifiedFiles.add(absolute);
+    const where = outcome.replaced === 1 ? `at line ${outcome.line}` : `${outcome.replaced} occurrences, the first at line ${outcome.line}`;
+    return { ok: true, output: `Edited ${absolute}: replaced ${where}.` };
   };
 }
 
@@ -307,18 +490,49 @@ ${topExts || "(none detected)"}
 ${sample}`;
 }
 
-/** "list_files": the same get_directory_structure Tauri command the file
- * tree itself is built from, summarized to top-level directory/extension
- * counts and a capped file sample -- a workspace-structure overview, not
- * a full recursive listing (matching the sidecar tool's own name-vs-
- * behavior mismatch: despite its name, it returns a summary). */
+/** "list_files": three modes, picked by what the model passes.
+ *  - Nothing: the same get_directory_structure Tauri command the file tree
+ *    is built from, summarized to top-level directory/extension counts and a
+ *    capped file sample -- the workspace-structure overview this tool has
+ *    always returned (the sidecar tool's own name-vs-behavior mismatch).
+ *  - `path` / `depth`: that directory, to that depth.
+ *  - `glob`: files under `path` whose name matches.
+ * The last two use the bounded `list_directory` command (src-tauri/src/
+ * dir_listing.rs), so a huge folder costs one capped walk, not a full one. */
 export function listFilesTool(workspaceRoot: string): HostToolHandler {
-  return async () => {
+  return async (args) => {
+    const input = (args ?? {}) as { path?: unknown; depth?: unknown; glob?: unknown };
+    const path = typeof input.path === "string" ? input.path : "";
+    const glob = typeof input.glob === "string" ? input.glob.trim() : "";
+    const asked = path.trim() !== "" || glob !== "" || (input.depth !== undefined && input.depth !== null);
+
+    if (!asked) {
+      try {
+        const tree = await invoke<FileEntry[]>("get_directory_structure", { rootDir: workspaceRoot });
+        return { ok: true, output: summarizeWorkspace(tree) };
+      } catch (error: unknown) {
+        return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+
+    const base = normalizeBase(path);
+    const depth = resolveDepth(input.depth, glob ? MAX_LISTING_DEPTH : 1);
     try {
-      const tree = await invoke<FileEntry[]>("get_directory_structure", { rootDir: workspaceRoot });
-      return { ok: true, output: summarizeWorkspace(tree) };
+      const result = await invoke<ListingResult>("list_directory", {
+        path: base === "" ? workspaceRoot : resolveWorkspacePath(workspaceRoot, base),
+        depth,
+      });
+      return { ok: true, output: glob ? renderGlobMatches(base, glob, result) : renderListing(base, depth, result) };
     } catch (error: unknown) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      // Tauri rejects with the command's error string, not an Error.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("does not exist")) {
+        return { ok: false, error: `'${base || "."}' does not exist. Call list_files with no arguments for an overview of the workspace.` };
+      }
+      if (message.includes("Not a directory")) {
+        return { ok: false, error: `'${base}' is a file, not a directory. Use read_file to read it.` };
+      }
+      return { ok: false, error: message };
     }
   };
 }

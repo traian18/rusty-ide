@@ -8,7 +8,7 @@ import { createRecordingHost } from "../testing/recordingHost";
 import { describeAgentHarnessContract, type ContractRun } from "../testing/contractTests";
 import type { BridgeEvent, CoreEngine, HostExecuteOutcome, HostToolOutcome } from "./engine/CoreEngineClient";
 import { recordAppliedModel } from "./appliedModels";
-import { CoreHarness, type CoreCapabilityDefinition, type ExecutionAnswerer, type HostToolCall, type HostToolHandler } from "./CoreHarness";
+import { CoreHarness, enrichedRecipe, type CoreCapabilityDefinition, type ExecutionAnswerer, type HostToolCall, type HostToolHandler } from "./CoreHarness";
 import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "./engine/ExecutionProtocol";
 import { inlineChatDefinition } from "./definitions/inline_chat";
 import type { SessionRecipe } from "./SessionRecipe";
@@ -693,6 +693,85 @@ describe("CoreHarness-specific behavior", () => {
     expect(executionAnswerer.calls).toHaveLength(1);
     expect(executionAnswerer.calls[0].request).toEqual(request);
     expect(executionAnswerer.calls[0].customProvider).toEqual(INPUT.customProvider);
+  });
+
+  describe("enrichRecipe", () => {
+    const withHook = (enrichRecipe: CoreCapabilityDefinition<"inline_chat">["enrichRecipe"]): CoreCapabilityDefinition<"inline_chat"> => ({ ...inlineChatDefinition, enrichRecipe });
+
+    it("creates the session from the enriched recipe, handing the hook the plain recipe, the input and a live signal", async () => {
+      const seen: Array<{ prompt: string | undefined; message: string; aborted: boolean }> = [];
+      const { engine, driver } = startRun(
+        withHook(async (recipe, input, _host, signal) => {
+          seen.push({ prompt: recipe.system_prompt, message: input.message, aborted: signal.aborted });
+          return { ...recipe, system_prompt: `${recipe.system_prompt ?? ""}\nDETECTED` };
+        }),
+      );
+      await driver.acceptStart();
+      expect(seen).toHaveLength(1);
+      expect(seen[0].message).toBe("What does this do?");
+      expect(seen[0].aborted).toBe(false);
+      expect(engine.recipes).toHaveLength(1);
+      expect(engine.recipes[0].system_prompt).toBe(`${seen[0].prompt ?? ""}\nDETECTED`);
+    });
+
+    it("still creates the session from the plain recipe when the hook fails or has nothing to add", async () => {
+      const plain = inlineChatDefinition.recipe!({ ...INPUT });
+      for (const hook of [() => Promise.reject(new Error("scan failed")), () => Promise.resolve(undefined)]) {
+        const { engine, driver } = startRun(withHook(hook));
+        await driver.acceptStart();
+        expect(engine.recipes).toEqual([plain]);
+      }
+    });
+
+    it("a definition without the hook behaves as before", async () => {
+      const { engine, driver } = startRun();
+      await driver.acceptStart();
+      expect(engine.recipes).toEqual([inlineChatDefinition.recipe!({ ...INPUT })]);
+    });
+  });
+
+  describe("enrichedRecipe", () => {
+    const base = { system_prompt: "base" } as SessionRecipe;
+    const host = createRecordingHost().host;
+    const run = (hook: CoreCapabilityDefinition<"inline_chat">["enrichRecipe"], signal = new AbortController().signal, deadlineMs = 20) =>
+      enrichedRecipe({ ...inlineChatDefinition, enrichRecipe: hook }, base, { ...INPUT }, host, signal, deadlineMs);
+
+    it("gives up on a hook that outlasts the deadline, and aborts the work it started", async () => {
+      let hookSignal: AbortSignal | undefined;
+      const result = await run((_recipe, _input, _host, signal) => {
+        hookSignal = signal;
+        return new Promise(() => {});
+      });
+      expect(result).toBe(base);
+      expect(hookSignal?.aborted).toBe(true);
+    });
+
+    it("ignores a late answer, and a late failure does not become an unhandled rejection", async () => {
+      const late = await run(() => new Promise((resolve) => setTimeout(() => resolve({ ...base, system_prompt: "late" }), 60)));
+      expect(late).toBe(base);
+      const failing = await run(() => new Promise((_resolve, reject) => setTimeout(() => reject(new Error("late failure")), 60)));
+      expect(failing).toBe(base);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    });
+
+    it("does not call the hook for a run that was already cancelled, and passes a cancel on to it", async () => {
+      const cancelled = new AbortController();
+      cancelled.abort();
+      const hook = vi.fn(async () => ({ system_prompt: "x" }) as SessionRecipe);
+      expect(await run(hook, cancelled.signal)).toBe(base);
+      expect(hook).not.toHaveBeenCalled();
+
+      const live = new AbortController();
+      let hookSignal: AbortSignal | undefined;
+      const pending = run((_recipe, _input, _host, signal) => {
+        hookSignal = signal;
+        return new Promise(() => {});
+      }, live.signal, 1000);
+      await Promise.resolve();
+      live.abort();
+      expect(hookSignal?.aborted).toBe(true);
+      expect(await pending).toBe(base);
+    });
   });
 
   describe("prepareExecution", () => {

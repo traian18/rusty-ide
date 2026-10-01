@@ -48,7 +48,7 @@ import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import { mcpIntegrationsSection } from "../mcpPrompt";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
-import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
+import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
 
 function asMcpServerConfigsFromContext(value: unknown): McpServerConfig[] {
@@ -76,6 +76,7 @@ function asSkill(skill: unknown): SkillLike | undefined {
 
 const TOOL_SPECS: Record<string, HostToolSpec> = {
   read_file: READ_FILE_TOOL,
+  edit_file: EDIT_FILE_TOOL,
   write_file: WRITE_FILE_TOOL,
   list_files: LIST_FILES_TOOL,
   search_codebase: SEARCH_CODEBASE_TOOL,
@@ -85,8 +86,9 @@ const SUPPORTED_TOOL_NAMES = Object.keys(TOOL_SPECS);
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   read_file: "- 'read_file': Read a file's current content before editing it.",
-  write_file: "- 'write_file': Write or edit a file.",
-  list_files: "- 'list_files': Discover files in the workspace.",
+  edit_file: "- 'edit_file': Change part of an existing file by replacing one exact piece of its text. Use it for every change to an existing file.",
+  write_file: "- 'write_file': Create a new file, or replace a file's entire content. Replacing a file that already has content needs overwrite: true.",
+  list_files: "- 'list_files': Explore the workspace: with no input an overview, with a path a directory listing, with a glob a search for files by name.",
   search_codebase: "- 'search_codebase': Find specific code patterns.",
   open_document: "- 'open_document': Open, read, and extract readable content from documents including Excel (.xlsx, .xls), PDF (.pdf), Word (.docx), or CSV files.",
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the task references external documentation or a webpage.",
@@ -101,7 +103,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 function toolSpecsFor(skill: SkillLike | undefined): HostToolSpec[] {
   const requested = skill?.enabledTools;
   const names = Array.isArray(requested) ? requested : SUPPORTED_TOOL_NAMES;
-  return SUPPORTED_TOOL_NAMES.filter((name) => names.includes(name)).map((name) => TOOL_SPECS[name]);
+  return SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name))).map((name) => TOOL_SPECS[name]);
 }
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {
@@ -144,6 +146,10 @@ function systemPrompt(input: ExecuteNodeInput, toolNames: string[], mcpSection: 
     ? `\n--- UPSTREAM TASK CHANGES (already applied — do not redo) ---\nThe following tasks have already run and modified these files. Treat their output as the current state of the codebase.\nYOUR ONLY JOB: Make the additional changes required by YOUR instructions. Do NOT rewrite, re-implement, or reapply anything the upstream task already did. Do NOT write a file unless your task specifically requires changing it.\n${upstreamSection}\n`
     : "";
 
+  const firstWritingRule = toolNames.includes("edit_file")
+    ? "- Change an existing file with 'edit_file', replacing only the text that must change. Use 'write_file' only for a new file your task requires, or when a complete rewrite is really needed - then write the complete content, never partial content or diffs, and set overwrite: true when the file already has content."
+    : "- Write the complete file content — never partial edits or diffs.";
+
   const defaultSystemPrompt = `You are a bounded task executor — one node in a larger multi-node plan. You have a single, small, well-defined responsibility. Other nodes handle everything else.
 
 YOUR TASK:
@@ -167,7 +173,7 @@ ${globalContextSection}${contextDescriptionsSection}${upstreamBlock}Available to
 ${toolListText}${mcpSection}
 
 File writing rules:
-- Write the complete file content — never partial edits or diffs.
+${firstWritingRule}
 - Write to the exact existing path. Do NOT create a renamed or duplicate file.
 - Once all required files are written, stop immediately and summarize what changed.
 `;
@@ -234,6 +240,7 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     const names = new Set(toolSpecsFor(asSkill(input.skill)).map((spec) => spec.name));
     const handlers: Record<string, HostToolHandler> = {};
     if (names.has("read_file")) handlers.read_file = readTool(input.workspaceRoot, host, input.inputFiles);
+    if (names.has("edit_file")) handlers.edit_file = editTool(input.workspaceRoot, host, modifiedFiles, input.inputFiles);
     if (names.has("write_file")) handlers.write_file = writeTool(input.workspaceRoot, host, modifiedFiles, input.inputFiles);
     if (names.has("list_files")) handlers.list_files = listFilesTool(input.workspaceRoot);
     if (names.has("search_codebase")) handlers.search_codebase = searchCodebaseTool(input.workspaceRoot);

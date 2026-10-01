@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /work/proj
+
+No test files found, exiting with code 1
+
+filter: src/harness/core/doesNotExist.test.ts
+include: src/**/*.test.{ts,tsx}
+exclude:  **/node_modules/**, **/.git/**
+

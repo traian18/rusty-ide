@@ -1,5 +1,6 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod git;
+mod dir_listing;
 mod fs_watch;
 mod shell_exec;
 mod usage_tracking;
@@ -1317,6 +1318,7 @@ pub fn run() {
             secure_key::get_storage_key,
             move_file_or_dir,
             search_project,
+            dir_listing::list_directory,
             shell_exec::run_shell_command,
             shell_exec::cancel_shell_command,
             usage_tracking::record_usage,

@@ -37,7 +37,7 @@ Return ONLY a valid JSON object with this structure (no markdown, no explanation
 
 Available tools:
 - read_file: Read any file in the workspace
-- write_file: Write or edit a file
+- write_file: Create or change files (also grants the targeted edit_file tool)
 - list_files: List all files in the workspace
 - search_codebase: Search for text patterns across the codebase
 - web_search: Search the public web for current information and cited sources

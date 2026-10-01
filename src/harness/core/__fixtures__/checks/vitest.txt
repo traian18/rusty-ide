@@ -1,0 +1,45 @@
+
+ RUN  v4.1.11 /work/app
+
+ ❯ src/zz_fx/a.test.ts (3 tests | 2 failed) 5ms
+     × is wrong 3ms
+   × throws 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/zz_fx/a.test.ts > math > is wrong
+AssertionError: expected 2 to be 3 // Object.is equality
+
+- Expected
++ Received
+
+- 3
++ 2
+
+ ❯ src/zz_fx/a.test.ts:4:40
+      2| describe("math", () => {
+      3|   it("adds", () => { expect(1 + 1).toBe(2); });
+      4|   it("is wrong", () => { expect(1 + 1).toBe(3); });
+       |                                        ^
+      5| });
+      6| it("throws", () => { throw new Error("kaboom"); });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  src/zz_fx/a.test.ts > throws
+Error: kaboom
+ ❯ src/zz_fx/a.test.ts:6:28
+      4|   it("is wrong", () => { expect(1 + 1).toBe(3); });
+      5| });
+      6| it("throws", () => { throw new Error("kaboom"); });
+       |                            ^
+      7|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 1 passed (3)
+   Start at  21:17:35
+   Duration  105ms (transform 13ms, setup 0ms, import 19ms, tests 5ms, environment 0ms)
+

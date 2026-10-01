@@ -138,6 +138,44 @@ export interface WorkflowBoundaryContext<K extends CapabilityName> {
 
 export type WorkflowBoundaryDecision = { type: "continue" } | { type: "switch"; outcome: unknown };
 
+/** How long a run waits for `enrichRecipe` before going ahead without it. */
+export const RECIPE_ENRICHMENT_DEADLINE_MS = 2500;
+
+/** `definition.enrichRecipe`'s answer if it arrives in time and is usable, else `recipe` unchanged. */
+export async function enrichedRecipe<K extends CapabilityName>(
+  definition: CoreCapabilityDefinition<K>,
+  recipe: SessionRecipe,
+  input: CapabilityInput<K>,
+  host: RunHost,
+  signal: AbortSignal,
+  deadlineMs: number = RECIPE_ENRICHMENT_DEADLINE_MS,
+): Promise<SessionRecipe> {
+  if (!definition.enrichRecipe || signal.aborted) return recipe;
+  // Its own signal, so that giving up on a slow enrichment also stops the work it started.
+  const own = new AbortController();
+  let giveUp: (value: undefined) => void = () => {};
+  const gaveUp = new Promise<undefined>((resolve) => {
+    giveUp = resolve;
+  });
+  const stop = () => {
+    own.abort();
+    giveUp(undefined);
+  };
+  signal.addEventListener("abort", stop, { once: true });
+  const timer = setTimeout(stop, deadlineMs);
+  try {
+    const answer = definition.enrichRecipe(recipe, input, host, own.signal);
+    // If giving up wins, the late answer (or its failure) must not surface as an unhandled rejection.
+    answer.catch(() => {});
+    return (await Promise.race([answer, gaveUp])) ?? recipe;
+  } catch {
+    return recipe;
+  } finally {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", stop);
+  }
+}
+
 export interface CoreCapabilityDefinition<K extends CapabilityName> {
   readonly capability: K;
   /** Whether this capability can run on core at all for this specific
@@ -153,6 +191,15 @@ export interface CoreCapabilityDefinition<K extends CapabilityName> {
    * other definition must provide this -- `run()` throws synchronously if
    * neither `orchestrate` nor this (with `promptText`) is present. */
   recipe?(input: CapabilityInput<K>): SessionRecipe;
+  /** Adds to the recipe something that can only be known asynchronously, such
+   * as what the workspace holds on disk. Runs once per run, after `recipe()`
+   * and before the session is created, and returns the recipe to use.
+   *
+   * It is an enhancement, never a requirement, so `CoreHarness` holds it to
+   * `RECIPE_ENRICHMENT_DEADLINE_MS` and uses the plain recipe when it throws,
+   * answers late, or answers nothing: it can delay a run by at most that
+   * long and can never fail one. `signal` aborts when the run does. */
+  enrichRecipe?(recipe: SessionRecipe, input: CapabilityInput<K>, host: RunHost, signal: AbortSignal): Promise<SessionRecipe | undefined>;
   /** The text of the run's first (and, for Milestone B, only) `"prompt"`
    * mutation. Optional for the same reason `recipe` is. */
   promptText?(input: CapabilityInput<K>): string;
@@ -936,7 +983,7 @@ export class CoreHarness implements AgentHarness {
       try {
         // Already validated non-null above -- TS's narrowing doesn't carry
         // this far into the closure captured by this async IIFE.
-        const baseRecipe = definition.recipe!(input);
+        const baseRecipe = await enrichedRecipe(definition, definition.recipe!(input), input, host, controller.signal);
         const recipe: SessionRecipe = workflow ? { ...baseRecipe, workflow: workflow.definition } : baseRecipe;
         observe(() => trajectories.append(runId, "Session context", {
           systemPrompt: recipe.system_prompt, prompt: definition.promptText!(input),

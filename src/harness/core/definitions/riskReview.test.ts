@@ -55,6 +55,7 @@ function setup(options: { response?: unknown; post?: ReturnType<typeof vi.fn>; a
     history: () => ({ describeHistoryBefore: () => "1. Called read_file {\"path\":\"server.ts\"} → succeeded" }),
   });
   const write = vi.fn<HostToolHandler>(async () => ({ ok: true, output: "written" }));
+  const edit = vi.fn<HostToolHandler>(async () => ({ ok: true, output: "edited" }));
   // The base command handler asks the (reviewed) host for permission, like gatedRunCommandTool.
   const reviewedHost = review.host(host);
   const command = vi.fn<HostToolHandler>(async (args) => {
@@ -70,7 +71,7 @@ function setup(options: { response?: unknown; post?: ReturnType<typeof vi.fn>; a
     } as CommandPermissionRequest, new AbortController().signal);
     return decision === "deny" ? { ok: false, error: "Command denied by the user." } : { ok: true, output: "ran" };
   });
-  const handlers = review.wrap({ write_file: write, run_command: command }, host);
+  const handlers = review.wrap({ write_file: write, edit_file: edit, run_command: command }, host);
   const call = { runId: "run-1", sessionId: "s1", toolCallId: "c1", configureExecution: async () => {} };
   const signal = new AbortController().signal;
   return {
@@ -79,8 +80,11 @@ function setup(options: { response?: unknown; post?: ReturnType<typeof vi.fn>; a
     host,
     reviewedHost,
     write,
+    edit,
     command,
-    writeFile: (content: string) => handlers.write_file({ path: "server.ts", content }, signal, undefined, call),
+    // Like a model told to replace a whole file: `overwrite` is what lets write_file through.
+    writeFile: (content: string, extra: Record<string, unknown> = { overwrite: true }) => handlers.write_file({ path: "server.ts", content, ...extra }, signal, undefined, call),
+    editFile: (old_string: string, new_string: string) => handlers.edit_file({ path: "server.ts", old_string, new_string }, signal, undefined, call),
     run: (program: string, argv: string[]) => handlers.run_command({ program, args: argv }, signal, undefined, call),
   };
 }
@@ -149,6 +153,103 @@ describe("risky write review", () => {
     expect(outcome).toEqual({ ok: false, error: expect.stringContaining("No user is available to approve it") });
     expect(unattended.write).not.toHaveBeenCalled();
     expect(unattended.stats.getEntries()[0]).toMatchObject({ outcome: "blocked_unattended" });
+  });
+});
+
+describe("write_file overwrite guard and review", () => {
+  it("does not review a write the tool will refuse for lack of overwrite, so the user is never asked twice", async () => {
+    const askQuestion = vi.fn(async () => "Allow");
+    const { writeFile, write, post } = setup({ existing: ORIGINAL, response: STOP, askQuestion });
+    // The mocked handler stands in for the real one, which is where the guard refuses.
+    expect(await writeFile("", {})).toEqual({ ok: true, output: "written" });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(post).not.toHaveBeenCalled();
+    expect(askQuestion).not.toHaveBeenCalled();
+  });
+
+  it("does not review a write with no content either; the handler reports it", async () => {
+    const { write, post, host } = setup({ existing: ORIGINAL, response: STOP });
+    const handlers = createRiskReview({
+      config: { apiKey: "or-key", jevModelId: "typesafe/jev-1.13" },
+      userRequest: "x",
+      capability: "agent_chat",
+      model: "m",
+      workspaceRoot: "/ws",
+      post: post as never,
+      stats: new JevReviewStats(memoryStorage()),
+    }).wrap({ write_file: write }, host);
+    await handlers.write_file({ path: "server.ts" }, new AbortController().signal, undefined, undefined);
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("still reviews a destructive rewrite once overwrite is set", async () => {
+    const { writeFile, post, write } = setup({ existing: ORIGINAL, response: REVISE });
+    const outcome = await writeFile("", { overwrite: true });
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
+    expect(outcome).toMatchObject({ ok: false });
+  });
+});
+
+describe("risky edit review", () => {
+  const FIRST_25 = Array.from({ length: 25 }, (_, index) => `const line${index} = ${index};`).join("\n");
+
+  it("never reviews a small edit", async () => {
+    const { editFile, edit, post } = setup({ existing: ORIGINAL });
+    expect(await editFile("const line3 = 3;", "const line3 = 33;")).toEqual({ ok: true, output: "edited" });
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("reviews an edit by the file it would produce, not by the snippet it carries", async () => {
+    const { editFile, edit, post, stats } = setup({ existing: ORIGINAL, response: PROCEED });
+    expect(await editFile(FIRST_25, "")).toEqual({ ok: true, output: "edited" });
+
+    const body = (post.mock.calls[0] as unknown[])[1] as { state: string };
+    expect(body.state).toContain("Tool: edit_file");
+    expect(body.state).toMatch(/Why this action needs review: It removes 25 of the file's 40 lines/);
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(stats.getEntries()[0]).toMatchObject({ tool: "edit_file", verdict: "proceed", outcome: "allowed" });
+  });
+
+  it("catches an edit that swaps real code for a placeholder", async () => {
+    const { editFile, edit, post } = setup({ existing: ORIGINAL, response: REVISE });
+    const outcome = await editFile("const line0 = 0;", "// ... rest of the file unchanged");
+    expect(edit).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(outcome).toEqual({ ok: false, error: expect.stringMatching(/^Blocked before it ran\. The new content contains a placeholder/) });
+  });
+
+  it("tells the agent to make a smaller edit, not to rewrite the file", async () => {
+    const { editFile } = setup({ existing: ORIGINAL, response: REVISE });
+    const outcome = await editFile(FIRST_25, "");
+    expect(!outcome.ok && outcome.error).toContain("Make a smaller, more targeted edit");
+    expect(!outcome.ok && outcome.error).not.toContain("complete intended content");
+  });
+
+  it("asks the user in edit terms, and blocks an unattended edit with edit advice", async () => {
+    const askQuestion = vi.fn<NonNullable<RunHost["askQuestion"]>>(async () => "Block");
+    const attended = setup({ existing: ORIGINAL, response: STOP, askQuestion });
+    expect(await attended.editFile(FIRST_25, "")).toEqual({ ok: false, error: expect.stringContaining("The user blocked this write.") });
+    expect(askQuestion.mock.calls[0][0].question).toMatch(/^Allow the agent to make this change to \/ws\/server\.ts\?/);
+    expect(attended.edit).not.toHaveBeenCalled();
+
+    const unattended = setup({ existing: ORIGINAL, response: STOP });
+    const outcome = await unattended.editFile(FIRST_25, "");
+    expect(!outcome.ok && outcome.error).toContain("make a smaller, more targeted edit instead");
+  });
+
+  it("hands an edit that cannot apply straight to the handler, which reports why", async () => {
+    const missing = setup({ existing: ORIGINAL });
+    await missing.editFile("no such text", "x");
+    expect(missing.edit).toHaveBeenCalledTimes(1);
+    expect(missing.post).not.toHaveBeenCalled();
+
+    const noFile = setup();
+    await noFile.editFile("a", "b");
+    expect(noFile.edit).toHaveBeenCalledTimes(1);
+    expect(noFile.post).not.toHaveBeenCalled();
   });
 });
 

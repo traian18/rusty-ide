@@ -78,6 +78,11 @@ describe("reconciliateEdgeDefinition", () => {
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
   });
 
+  it("recipe() tells the model to overwrite with write_file's overwrite flag, since write_file refuses to replace a file otherwise", () => {
+    const recipe = reconciliateEdgeDefinition.recipe!(input());
+    expect(recipe.system_prompt).toContain("call 'write_file' with overwrite set to true");
+  });
+
   it("recipe() lists modified files, source/target instructions, and the user message in the system prompt", () => {
     const recipe = reconciliateEdgeDefinition.recipe!(
       input({

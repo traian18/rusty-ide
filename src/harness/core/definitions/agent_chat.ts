@@ -88,7 +88,11 @@ import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import { mcpIntegrationsSection } from "../mcpPrompt";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
-import { LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
+import { analyzeProject, formatProjectBrief } from "../projectInfo";
+import { scanProject } from "../projectScan";
+import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
+import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
+import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
 import { GATED_RUN_COMMAND_TOOL, gatedRunCommandTool } from "./runCommandTool";
 import { runWebSearch, type WebSearchApiKeys, type WebSearchOptions } from "./webSearch";
@@ -151,11 +155,15 @@ const WRITE_PLAN_TOOL: HostToolSpec = {
 
 const TOOL_SPECS: Record<string, HostToolSpec> = {
   read_file: READ_FILE_TOOL,
+  edit_file: EDIT_FILE_TOOL,
   write_file: WRITE_FILE_TOOL,
   list_files: LIST_FILES_TOOL,
+  project_info: PROJECT_INFO_TOOL,
   search_codebase: SEARCH_CODEBASE_TOOL,
   open_document: OPEN_DOCUMENT_TOOL,
   web_search: WEB_SEARCH_TOOL,
+  run_check: RUN_CHECK_TOOL,
+  install_dependencies: INSTALL_DEPENDENCIES_TOOL,
   run_command: GATED_RUN_COMMAND_TOOL,
 };
 const SUPPORTED_TOOL_NAMES = Object.keys(TOOL_SPECS);
@@ -210,8 +218,12 @@ const ASK_USER_QUESTION_TOOL: HostToolSpec = {
 
 const TOOL_DESCRIPTIONS: Record<string, string> = {
   read_file: '- \'read_file\': Read any file in the workspace (input: {"path": "file/path"}).',
-  write_file: '- \'write_file\': Write or edit a file (input: {"path": "file/path", "content": "full content"}).',
-  list_files: "- 'list_files': List all files in the workspace (no input needed).",
+  edit_file: '- \'edit_file\': Change part of an existing file by replacing one exact piece of its text. Use it for every change to an existing file (input: {"path": "file/path", "old_string": "exact text to replace", "new_string": "replacement", "replace_all"?: true}).',
+  write_file: '- \'write_file\': Create a new file, or replace a file\'s entire content; replacing a file that already has content needs overwrite true (input: {"path": "file/path", "content": "complete content", "overwrite"?: true}).',
+  list_files: '- \'list_files\': Explore the workspace. No input gives an overview; {"path": "dir", "depth"?: 2} lists a directory; {"glob": "**/package.json"} finds files by name.',
+  project_info: '- \'project_info\': Find out what kind of project this is and how to check it: the install, typecheck, lint, test and build commands, and whether dependencies are installed (input: {"path"?: "project/dir"}).',
+  run_check: '- \'run_check\': Run one of the project\'s own checks and get a clear PASSED or FAILED, with the errors as file:line and whether the cause is the code or the environment (input: {"check": "typecheck" | "lint" | "test" | "build" | "format", "path"?: "project/dir", "test_name"?: "name or part of one", "test_file"?: "path/to/test/file"}; test_name and test_file run just that test).',
+  install_dependencies: '- \'install_dependencies\': Install the project\'s dependencies when project_info or a check says they are missing; it is not a check, so run the check again afterwards (input: {"path"?: "project/dir"}).',
   search_codebase: '- \'search_codebase\': Search for text patterns across the codebase (input: {"pattern": "search text"}).',
   open_document: '- \'open_document\': Open, read, and extract readable content from documents including Excel (.xlsx, .xls), PDF (.pdf), Word (.docx), or CSV files (input: {"path": "document/path", "sheet"?: "Sheet1", "page"?: 1}).',
   write_plan: '- \'write_plan\': Save a Markdown plan under the project-root plans folder (input: {"filename": "descriptive-name.md", "content": "complete plan"}).',
@@ -242,9 +254,10 @@ interface ChatMode {
 function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpec[] {
   const requested = skill?.enabledTools;
   const names = Array.isArray(requested) ? requested : SUPPORTED_TOOL_NAMES;
-  let structuralNames = SUPPORTED_TOOL_NAMES.filter((name) => names.includes(name));
-  if (mode.planOnly) structuralNames = structuralNames.filter((name) => name !== "write_file" && name !== "run_command");
-  if (mode.vfsOnly) structuralNames = structuralNames.filter((name) => name !== "run_command");
+  let structuralNames = SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name)));
+  const runsCommands = (name: string) => name === "run_command" || name === "run_check" || name === "install_dependencies";
+  if (mode.planOnly) structuralNames = structuralNames.filter((name) => name !== "write_file" && name !== "edit_file" && !runsCommands(name));
+  if (mode.vfsOnly) structuralNames = structuralNames.filter((name) => !runsCommands(name));
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
   return [...structural, ...planTool, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
@@ -290,6 +303,20 @@ ${longResponseGuideline(toolNames)}${mcpSection}${skillGuidance}${taskDependency
 
   const toolListText = toolNames.map((name) => TOOL_DESCRIPTIONS[name] ?? `- '${name}'`).join("\n");
 
+  const fileGuidelines = toolNames.includes("edit_file")
+    ? `- Use 'read_file' to read a file before changing it.
+- Change an existing file with 'edit_file', replacing only the text that must change. Use 'write_file' only to create a new file or when a complete rewrite is really intended (replacing a file that already has content needs overwrite: true).`
+    : `- Use 'read_file' to read a file before editing it.
+- Use 'write_file' to write the updated content back.`;
+
+  const projectGuideline = toolNames.includes("project_info")
+    ? "\n- Before you build, test or verify, call 'project_info' to learn what kind of project this is and which commands check it; do not guess commands. If a check fails because a dependency or tool is missing, that is an environment problem: install it first instead of editing code."
+    : "";
+
+  const checkGuideline = toolNames.includes("run_check")
+    ? "\n- To verify a build, call 'run_check' (typecheck, lint, test, build) instead of guessing commands with 'run_command'. Its result starts with PASSED or FAILED. Do not say something builds, passes or is fixed unless a check in this conversation reported PASSED after your last change; if one fails, fix the errors it lists and run it again. While you work on one failing test you can run just that test with 'test_name' or 'test_file', but run the whole test check before you finish. If it says the cause is the environment (a missing tool or uninstalled dependencies), call 'install_dependencies' and run the check again instead of editing code."
+    : "";
+
   const defaultSystemPrompt = `${baseHeader}
 
 
@@ -297,8 +324,7 @@ You have access to tools:
 ${toolListText}${mcpSection}
 
 Guidelines:
-- Use 'read_file' to read a file before editing it.
-- Use 'write_file' to write the updated content back.
+${fileGuidelines}${projectGuideline}${checkGuideline}
 - Be concise and focused. Only modify what is requested.
 - Output clean code without placeholder comments.
 - Once done, summarize the changes you made.
@@ -467,6 +493,15 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     };
   },
 
+  // The detected project goes into the prompt only when the model can also ask
+  // for the details (`project_info`), and never at the cost of a run: see
+  // `enrichedRecipe`.
+  enrichRecipe: async (recipe, input, host, signal) => {
+    if (!recipe.host_tools?.some((tool) => tool.name === "project_info") || !input.workspaceRoot.trim()) return undefined;
+    const brief = formatProjectBrief(await analyzeProject(await scanProject(input.workspaceRoot, host, signal)));
+    return brief ? { ...recipe, system_prompt: `${recipe.system_prompt ?? ""}\n\n${brief}` } : undefined;
+  },
+
   promptText: (input) => `${flattenHistory(input.chatHistory)}${input.message}`,
 
   hostTools: (input, host: RunHost, ctx, onEvent): Record<string, HostToolHandler> => {
@@ -475,12 +510,16 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     const names = new Set(toolSpecsFor(asSkill(input.skill), mode).map((spec) => spec.name));
     const handlers: Record<string, HostToolHandler> = {};
     if (names.has("read_file")) handlers.read_file = readTool(input.workspaceRoot, host);
+    if (names.has("edit_file")) handlers.edit_file = editTool(input.workspaceRoot, host, modifiedFiles);
     if (names.has("write_file")) handlers.write_file = writeTool(input.workspaceRoot, host, modifiedFiles);
     if (names.has("list_files")) handlers.list_files = listFilesTool(input.workspaceRoot);
+    if (names.has("project_info")) handlers.project_info = projectInfoTool(input.workspaceRoot, host);
     if (names.has("search_codebase")) handlers.search_codebase = searchCodebaseTool(input.workspaceRoot);
     if (names.has("open_document")) handlers.open_document = openDocumentTool(input.workspaceRoot);
     if (names.has("web_search")) handlers.web_search = webSearchTool((input.webSearchApiKeys ?? {}) as WebSearchApiKeys, onEvent);
     if (names.has("write_plan")) handlers.write_plan = writePlanTool(host);
+    if (names.has("run_check")) handlers.run_check = runCheckTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
+    if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
     if (names.has("run_command")) handlers.run_command = gatedRunCommandTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
     handlers.report_progress = reportProgressTool(onEvent);
     handlers.ask_user_question = askUserQuestionTool(host);

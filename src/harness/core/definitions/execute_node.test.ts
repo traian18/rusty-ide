@@ -12,6 +12,7 @@ vi.mock("./exploreTools", async (importOriginal) => {
   return {
     ...actual,
     readTool: vi.fn(() => vi.fn()),
+    editTool: vi.fn(() => vi.fn()),
     writeTool: vi.fn(() => vi.fn()),
     listFilesTool: vi.fn(() => vi.fn()),
     searchCodebaseTool: vi.fn(() => vi.fn()),
@@ -117,7 +118,7 @@ describe("executeNodeDefinition", () => {
   it("recipe() routes to the host-routed backend with the full tool set by default", () => {
     const recipe = executeNodeDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["list_files", "open_document", "read_file", "search_codebase", "write_file"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["edit_file", "list_files", "open_document", "read_file", "search_codebase", "write_file"]);
     expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("bounded task executor");
     expect(recipe.system_prompt).toContain("Add a health-check endpoint.");
@@ -150,6 +151,20 @@ describe("executeNodeDefinition", () => {
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["list_files", "read_file"]);
     expect(recipe.system_prompt).toContain("'read_file'");
     expect(recipe.system_prompt).not.toContain("'write_file'");
+  });
+
+  it("recipe() tells the model to change existing files with edit_file, not to rewrite them whole", () => {
+    const prompt = executeNodeDefinition.recipe!(input()).system_prompt ?? "";
+    expect(prompt).toContain("Change an existing file with 'edit_file'");
+    expect(prompt).not.toContain("never partial edits or diffs.");
+    expect(prompt).toContain("set overwrite: true when the file already has content");
+    expect(prompt).toContain("Replacing a file that already has content needs overwrite: true.");
+  });
+
+  it("recipe() keeps the complete-content rule when edit_file is not offered", () => {
+    const prompt = executeNodeDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } })).system_prompt ?? "";
+    expect(prompt).toContain("Write the complete file content — never partial edits or diffs.");
+    expect(prompt).not.toContain("'edit_file'");
   });
 
   it("recipe() registers no tools when the skill's enabledTools is explicitly empty -- matching the sidecar's [] !== default quirk", () => {
@@ -216,7 +231,8 @@ describe("executeNodeDefinition", () => {
     const anInput = input({ workspaceRoot: "/ws" });
     const runContext = ctx();
     const tools = executeNodeDefinition.hostTools?.(anInput, fakeHost, runContext, () => {});
-    expect(Object.keys(tools ?? {}).sort()).toEqual(["list_files", "open_document", "read_file", "search_codebase", "write_file"]);
+    expect(Object.keys(tools ?? {}).sort()).toEqual(["edit_file", "list_files", "open_document", "read_file", "search_codebase", "write_file"]);
+    expect(exploreTools.editTool).toHaveBeenCalledWith("/ws", fakeHost, expect.any(Set), anInput.inputFiles);
     expect(exploreTools.readTool).toHaveBeenCalledWith("/ws", fakeHost, anInput.inputFiles);
     expect(exploreTools.listFilesTool).toHaveBeenCalledWith("/ws");
     expect(exploreTools.searchCodebaseTool).toHaveBeenCalledWith("/ws");

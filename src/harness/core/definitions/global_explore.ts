@@ -71,7 +71,7 @@ Workspace root: ${workspaceRoot || "unknown"}
 You have access to tools:
 - 'read': Read any file in the workspace (input: {{"path": "file/path"}}).
 - 'open_document': Open, read, and extract readable content from documents including Excel spreadsheets (.xlsx, .xls), PDF documents (.pdf), Word (.docx), or CSV files (input: {{"path": "document/path", "sheet"?: "Sheet1", "page"?: 1}}).
-- 'list_files': List all files in the workspace recursively (no input needed).
+- 'list_files': Explore the workspace. No input gives an overview; {{"path": "dir", "depth"?: 2}} lists a directory; {{"glob": "**/package.json"}} finds files by name.
 - 'search_codebase': Search for text patterns across the codebase (input: {{"pattern": "search text"}}).
 - 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.
 

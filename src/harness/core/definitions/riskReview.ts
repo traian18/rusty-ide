@@ -5,7 +5,7 @@ import type { HostToolCall, HostToolHandler } from "../CoreHarness";
 import type { JevRiskReviewRunConfig } from "../decideToolConfig";
 import { commandRisk, writeRisk } from "../riskyActions";
 import { toolDecisionObserver, type ToolDecisionObserver } from "../toolDecisionObserver";
-import { resolveWriteTarget } from "./exploreTools";
+import { applyEdit, overwriteRefusal, resolveWriteTarget } from "./exploreTools";
 import { normalizeCommand } from "./runCommandTool";
 import { JEV_CONFIDENCE_THRESHOLD, postJevDecision, type JevDecisionResponse, type JevScoreAnswer } from "../../../services/intelligentModelSelector";
 import { JEV_ACTION_CRITERIA, JEV_ACTION_LABELS, actionDecisionBody, buildReviewState, parseActionAnswer, type ScoredAction } from "../../../services/jevShadowGate";
@@ -131,9 +131,12 @@ export function createRiskReview(dependencies: RiskReviewDependencies) {
     };
   }
 
-  function wrapWrite(inner: HostToolHandler, host: RunHost): HostToolHandler {
+  function wrapWrite(inner: HostToolHandler, host: RunHost, tool: "write_file" | "edit_file" = "write_file"): HostToolHandler {
+    const fix = tool === "edit_file"
+      ? "Make a smaller, more targeted edit that keeps everything that should stay."
+      : "Write the file's complete intended content, keeping everything that should stay.";
+    const instead = tool === "edit_file" ? "make a smaller, more targeted edit" : "write the file's complete intended content";
     return async (args, signal, observer = NOOP_TOOL_EXECUTION_OBSERVER, call) => {
-      const content = String((args as { content?: unknown } | undefined)?.content ?? "");
       const target = resolveWriteTarget(dependencies.workspaceRoot, args, dependencies.inputFiles);
       let previous: string | undefined;
       try {
@@ -141,32 +144,45 @@ export function createRiskReview(dependencies: RiskReviewDependencies) {
       } catch {
         previous = undefined;
       }
+      let content: string;
+      if (tool === "edit_file") {
+        // An edit that cannot apply writes nothing; the handler reports why.
+        const outcome = previous === undefined ? undefined : applyEdit(previous, args);
+        if (!outcome?.ok) return inner(args, signal, observer, call);
+        content = outcome.next;
+      } else {
+        const given = (args as { content?: unknown } | undefined)?.content;
+        // A write the tool will refuse (no content, or an overwrite not asked for)
+        // is the handler's to report; reviewing it would only confuse the outcome.
+        if (typeof given !== "string" || overwriteRefusal(previous, args)) return inner(args, signal, observer, call);
+        content = given;
+      }
       const concern = writeRisk(previous, content);
       if (!concern) return inner(args, signal, observer, call);
 
-      const result = await review("write_file", args, concern, signal, observer, call);
+      const result = await review(tool, args, concern, signal, observer, call);
       if (approved(result)) {
         settle(result.statsId, "allowed");
         return inner(args, signal, observer, call);
       }
       if (result.scored?.verdict === "revise") {
-        return blocked(result, concern, "Write the file's complete intended content, keeping everything that should stay.");
+        return blocked(result, concern, fix);
       }
       if (!host.askQuestion) {
         settle(result.statsId, "blocked_unattended");
         return {
           ok: false,
-          error: `Not written: ${concern} ${describeReview(result)} No user is available to approve it; write the file's complete intended content instead.`,
+          error: `Not written: ${concern} ${describeReview(result)} No user is available to approve it; ${instead} instead.`,
         };
       }
       let answer: string;
       try {
         answer = await host.askQuestion({
           requestId: crypto.randomUUID(),
-          question: `Allow the agent to overwrite ${target}? ${concern} ${describeReview(result)}`,
+          question: `Allow the agent to ${tool === "edit_file" ? "make this change to" : "overwrite"} ${target}? ${concern} ${describeReview(result)}`,
           options: [
             { label: "Allow", description: "Write the file as the agent proposed." },
-            { label: "Block", description: "Don't write it; the agent is told to write the complete content instead." },
+            { label: "Block", description: `Don't write it; the agent is told to ${instead} instead.` },
           ],
         }, signal);
       } catch (error: unknown) {
@@ -227,6 +243,7 @@ export function createRiskReview(dependencies: RiskReviewDependencies) {
     /** Reviews the risky calls of the handlers the capability registered. */
     wrap(handlers: Record<string, HostToolHandler>, host: RunHost): Record<string, HostToolHandler> {
       if (handlers.write_file) handlers.write_file = wrapWrite(handlers.write_file, host);
+      if (handlers.edit_file) handlers.edit_file = wrapWrite(handlers.edit_file, host, "edit_file");
       if (handlers.run_command) handlers.run_command = wrapCommand(handlers.run_command);
       return handlers;
     },

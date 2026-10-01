@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentChatInput, ExecuteNodeInput } from "../../contract";
 import type { CustomProvider } from "../../../store/types";
+import { agentChatDefinition } from "./agent_chat";
 import { smartAgentChatDefinition } from "./smart_agent_chat";
 import { smartExecuteNodeDefinition } from "./smart_execute_node";
 
@@ -95,7 +96,7 @@ describe("risky action review wiring", () => {
     vi.stubGlobal("fetch", fetchMock);
     currentHost = host();
 
-    const outcome = await build().write_file({ path: "server.ts", content: "" }, new AbortController().signal);
+    const outcome = await build().write_file({ path: "server.ts", content: "", overwrite: true }, new AbortController().signal);
 
     expect(fetchMock).toHaveBeenCalledWith("https://openrouter.ai/api/alpha/decisions", expect.anything());
     expect(outcome).toEqual({ ok: false, error: expect.stringMatching(/^Blocked before it ran\. It empties an existing file/) });
@@ -106,7 +107,7 @@ describe("risky action review wiring", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     currentHost = host();
-    await smartAgentChatDefinition.hostTools!(agentInput(), runHost, { scratch: {} }, () => {}).write_file({ path: "server.ts", content: "" }, new AbortController().signal);
+    await smartAgentChatDefinition.hostTools!(agentInput(), runHost, { scratch: {} }, () => {}).write_file({ path: "server.ts", content: "", overwrite: true }, new AbortController().signal);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(currentHost.writeFile).toHaveBeenCalled();
   });
@@ -118,4 +119,10 @@ describe("risky action review wiring", () => {
     writeFile: (...args: unknown[]) => (currentHost.writeFile as (...a: unknown[]) => Promise<void>)(...args),
     requestPermission: (...args: unknown[]) => (currentHost.requestPermission as (...a: unknown[]) => Promise<"allow_once">)(...args),
   } as unknown as Parameters<NonNullable<typeof smartAgentChatDefinition.hostTools>>[1];
+});
+
+describe("agent_chat variants", () => {
+  it("the smart chat adds the detected project to its prompt like the plain one", () => {
+    expect(smartAgentChatDefinition.enrichRecipe).toBe(agentChatDefinition.enrichRecipe);
+  });
 });

@@ -6,6 +6,8 @@ import type { RunContext } from "../CoreHarness";
 import { createTranscript } from "../transcript";
 import * as exploreTools from "./exploreTools";
 import * as runCommandTool from "./runCommandTool";
+import type { ProjectFs } from "../projectInfo";
+import { scanProject } from "../projectScan";
 import { agentChatDefinition, longResponseGuideline } from "./agent_chat";
 import { BUILT_IN_SKILLS, BUILT_IN_SKILL_IDS, toSkillData } from "../../../config/skillDefinitions";
 
@@ -14,11 +16,17 @@ vi.mock("./runCommandTool", async (importOriginal) => {
   return { ...actual, gatedRunCommandTool: vi.fn(() => vi.fn()) };
 });
 
+vi.mock("../projectScan", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../projectScan")>();
+  return { ...actual, scanProject: vi.fn() };
+});
+
 vi.mock("./exploreTools", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./exploreTools")>();
   return {
     ...actual,
     readTool: vi.fn(() => vi.fn()),
+    editTool: vi.fn(() => vi.fn()),
     writeTool: vi.fn(() => vi.fn()),
     listFilesTool: vi.fn(() => vi.fn()),
     searchCodebaseTool: vi.fn(() => vi.fn()),
@@ -120,10 +128,14 @@ describe("agentChatDefinition", () => {
     expect(recipe.integration).toBe("host");
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual([
       "ask_user_question",
+      "edit_file",
+      "install_dependencies",
       "list_files",
       "open_document",
+      "project_info",
       "read_file",
       "report_progress",
+      "run_check",
       "run_command",
       "search_codebase",
       "web_search",
@@ -181,8 +193,9 @@ describe("agentChatDefinition", () => {
   });
 
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
+    // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "read_file", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "report_progress"]);
   });
 
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
@@ -216,6 +229,7 @@ describe("agentChatDefinition", () => {
     const toolNames = recipe.host_tools?.map((t) => t.name).sort();
     expect(toolNames).toContain("write_plan");
     expect(toolNames).not.toContain("write_file");
+    expect(toolNames).not.toContain("edit_file");
     expect(toolNames).not.toContain("run_command");
     expect(recipe.system_prompt).toContain("Task Dependencies and Influence");
     expect(recipe.system_prompt).not.toContain("'run_command'");
@@ -225,6 +239,7 @@ describe("agentChatDefinition", () => {
     const recipe = agentChatDefinition.recipe!(input({ vfsOnly: true }));
     const toolNames = recipe.host_tools?.map((t) => t.name).sort();
     expect(toolNames).toContain("write_file");
+    expect(toolNames).toContain("edit_file");
     expect(toolNames).not.toContain("write_plan");
     expect(toolNames).not.toContain("run_command");
     expect(recipe.system_prompt).not.toContain("Task Dependencies and Influence");
@@ -232,7 +247,84 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "read_file", "report_progress", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "report_progress", "web_search"]);
+  });
+
+  it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "run_command"] } }));
+    expect(recipe.host_tools?.map((t) => t.name)).toContain("project_info");
+    expect(recipe.system_prompt).toContain("- 'project_info': Find out what kind of project this is");
+    expect(recipe.system_prompt).toContain("Before you build, test or verify, call 'project_info'");
+    expect(recipe.system_prompt).toContain("that is an environment problem");
+  });
+
+  it("recipe() offers no project_info, and no mention of it, without the read grant", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["web_search"] } }));
+    expect(recipe.host_tools?.map((t) => t.name)).not.toContain("project_info");
+    expect(recipe.system_prompt).not.toContain("project_info");
+  });
+
+  it("recipe() offers run_check with the run_command grant and ties 'done' to a reported PASSED", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "run_command"] } }));
+    const toolNames = recipe.host_tools?.map((t) => t.name);
+    expect(toolNames).toEqual(expect.arrayContaining(["run_check", "install_dependencies", "run_command"]));
+    expect(toolNames!.indexOf("run_check")).toBeLessThan(toolNames!.indexOf("run_command"));
+    expect(recipe.system_prompt).toContain("- 'install_dependencies': Install the project's dependencies");
+    expect(recipe.system_prompt).toContain("call 'install_dependencies' and run the check again instead of editing code");
+    expect(recipe.system_prompt).toContain("- 'run_check': Run one of the project's own checks");
+    expect(recipe.system_prompt).toContain("To verify a build, call 'run_check'");
+    expect(recipe.system_prompt).toContain("Do not say something builds, passes or is fixed unless a check in this conversation reported PASSED after your last change");
+  });
+
+  it("recipe() offers no run_check, and no mention of it, without the run_command grant", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "write_file"] } }));
+    expect(recipe.host_tools?.map((t) => t.name)).not.toContain("run_check");
+    expect(recipe.host_tools?.map((t) => t.name)).not.toContain("install_dependencies");
+    expect(recipe.system_prompt).not.toContain("run_check");
+    expect(recipe.system_prompt).not.toContain("install_dependencies");
+  });
+
+  it("recipe() drops run_check wherever run_command is dropped: planOnly and vfsOnly", () => {
+    for (const mode of [{ planOnly: true }, { vfsOnly: true }]) {
+      const recipe = agentChatDefinition.recipe!(input(mode));
+      const toolNames = recipe.host_tools?.map((t) => t.name);
+      expect(toolNames).not.toContain("run_check");
+      expect(toolNames).not.toContain("install_dependencies");
+      expect(toolNames).not.toContain("run_command");
+      expect(recipe.system_prompt).not.toContain("'run_check'");
+      expect(recipe.system_prompt).not.toContain("'install_dependencies'");
+    }
+  });
+
+  it("recipe() keeps project_info in planOnly, which only reads", () => {
+    const recipe = agentChatDefinition.recipe!(input({ planOnly: true }));
+    expect(recipe.host_tools?.map((t) => t.name)).toContain("project_info");
+  });
+
+  it("recipe() describes list_files with its path and glob modes", () => {
+    const recipe = agentChatDefinition.recipe!(input());
+    expect(recipe.system_prompt).toContain('{"glob": "**/package.json"}');
+    expect(recipe.system_prompt).not.toContain("List all files in the workspace");
+  });
+
+  it("recipe() offers edit_file with the write_file grant and steers existing-file changes to it", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "write_file"] } }));
+    const toolNames = recipe.host_tools?.map((t) => t.name);
+    expect(toolNames).toContain("edit_file");
+    expect(toolNames!.indexOf("edit_file")).toBeLessThan(toolNames!.indexOf("write_file"));
+    expect(recipe.system_prompt).toContain("Change an existing file with 'edit_file'");
+    expect(recipe.system_prompt).toContain("Use 'write_file' only to create a new file");
+    expect(recipe.system_prompt).not.toContain("Use 'write_file' to write the updated content back.");
+    expect(recipe.system_prompt).toContain("needs overwrite: true");
+    expect(recipe.system_prompt).toContain('"overwrite"?: true');
+  });
+
+  it("recipe() offers neither edit_file nor write_file without the write_file grant", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
+    const toolNames = recipe.host_tools?.map((t) => t.name);
+    expect(toolNames).not.toContain("edit_file");
+    expect(toolNames).not.toContain("write_file");
+    expect(recipe.system_prompt).not.toContain("'edit_file'");
   });
 
   it("promptText() flattens prior chat history ahead of the message", () => {
@@ -246,10 +338,14 @@ describe("agentChatDefinition", () => {
     const tools = agentChatDefinition.hostTools?.(input({ workspaceRoot: "/ws" }), host, runContext, () => {});
     expect(Object.keys(tools ?? {}).sort()).toEqual([
       "ask_user_question",
+      "edit_file",
+      "install_dependencies",
       "list_files",
       "open_document",
+      "project_info",
       "read_file",
       "report_progress",
+      "run_check",
       "run_command",
       "search_codebase",
       "web_search",
@@ -260,6 +356,7 @@ describe("agentChatDefinition", () => {
     expect(exploreTools.searchCodebaseTool).toHaveBeenCalledWith("/ws");
     expect(exploreTools.openDocumentTool).toHaveBeenCalledWith("/ws");
     expect(exploreTools.writeTool).toHaveBeenCalledWith("/ws", host, expect.any(Set));
+    expect(exploreTools.editTool).toHaveBeenCalledWith("/ws", host, expect.any(Set));
   });
 
   it("hostTools() builds run_command against the tab's session so grants span the conversation", () => {
@@ -412,5 +509,59 @@ describe("agentChatDefinition", () => {
     expect(planPrompt).toContain("save the complete content with 'write_plan'");
 
     expect(longResponseGuideline([])).toContain("give a condensed answer and offer to continue");
+  });
+});
+
+describe("agentChatDefinition.enrichRecipe", () => {
+  const workspace = (files: Record<string, string>, present: string[] = []): ProjectFs => ({
+    files: Object.keys(files),
+    read: async (path) => files[path],
+    exists: async (path) => present.includes(path) || path in files,
+  });
+  const nodeProject = { "package.json": JSON.stringify({ scripts: { test: "vitest run", build: "vite build" }, dependencies: { react: "1" } }), "package-lock.json": "{}" };
+  const enrich = (overrides: Partial<AgentChatInput> = {}) => {
+    const chat = input(overrides);
+    return agentChatDefinition.enrichRecipe!(agentChatDefinition.recipe!(chat), chat, fakeHost(), new AbortController().signal);
+  };
+
+  it("appends the detected projects to the system prompt, leaving everything else of the recipe alone", async () => {
+    vi.mocked(scanProject).mockResolvedValue(workspace(nodeProject, ["node_modules"]));
+    const plain = agentChatDefinition.recipe!(input());
+    const enriched = await enrich();
+    expect(enriched).toEqual({ ...plain, system_prompt: expect.stringContaining(plain.system_prompt as string) });
+    expect(enriched?.system_prompt).toMatch(/Detected workspace[^\n]*\n- workspace root: node \(npm\)[^\n]*checks: test, build/);
+  });
+
+  it("scans the run's own workspace, with the run's own host", async () => {
+    vi.mocked(scanProject).mockClear().mockResolvedValue(workspace(nodeProject));
+    const chat = input({ workspaceRoot: "/elsewhere" });
+    const host = fakeHost();
+    await agentChatDefinition.enrichRecipe!(agentChatDefinition.recipe!(chat), chat, host, new AbortController().signal);
+    expect(scanProject).toHaveBeenCalledWith("/elsewhere", host, expect.any(AbortSignal));
+  });
+
+  it("adds nothing, and does not scan, when the model cannot call project_info or there is no workspace", async () => {
+    vi.mocked(scanProject).mockClear().mockResolvedValue(workspace(nodeProject));
+    expect(await enrich({ skill: { enabledTools: ["search_codebase"] } })).toBeUndefined();
+    expect(await enrich({ workspaceRoot: "  " })).toBeUndefined();
+    expect(scanProject).not.toHaveBeenCalled();
+  });
+
+  it("adds nothing for a workspace with no recognizable project", async () => {
+    vi.mocked(scanProject).mockResolvedValue(workspace({ "notes.txt": "hi" }));
+    expect(await enrich()).toBeUndefined();
+  });
+
+  it("lets a scan failure reach the harness, which falls back to the plain recipe", async () => {
+    vi.mocked(scanProject).mockRejectedValue(new Error("list_directory failed"));
+    await expect(enrich()).rejects.toThrow("list_directory failed");
+  });
+});
+
+describe("agentChatDefinition: running one test", () => {
+  it("tells the model it can run just one test, and to run the whole check before finishing", () => {
+    const prompt = agentChatDefinition.recipe!(input()).system_prompt ?? "";
+    expect(prompt).toContain('"test_name"?: "name or part of one"');
+    expect(prompt).toContain("run just that test with 'test_name' or 'test_file', but run the whole test check before you finish");
   });
 });

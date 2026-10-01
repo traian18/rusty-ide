@@ -34,11 +34,11 @@ import type { NormalizedCommand } from "../../commandPolicy";
 import { classifyCommandRisk, commandSessionGrantScope, programName, resolvePath } from "../../commandPolicy";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
-import { runShellCommand } from "./shellExec";
+import { runShellCommand, type CommandOutput } from "./shellExec";
 
 export const GATED_RUN_COMMAND_TOOL: HostToolSpec = {
   name: "run_command",
-  description: "Last-resort tool for an essential build, test, typecheck, lint, generator, or explicitly requested executable after user approval. Use Rusty's read_file, write_file, list_files, and search_codebase tools for workspace operations; never use this tool to inspect, search, create, edit, move, or delete files. Use separate program and args fields; do not wrap commands in sh or bash.",
+  description: "Last-resort tool for an essential generator or explicitly requested executable after user approval, or a build, test, typecheck or lint command that run_check cannot express. The project's own typecheck, lint, test, build and format checks have their own tool, run_check, which reports a clear pass or fail: use that for them. Use Rusty's read_file, edit_file, write_file, list_files, and search_codebase tools for workspace operations; never use this tool to inspect, search, create, edit, move, or delete files. Use separate program and args fields; do not wrap commands in sh or bash.",
   input_schema: {
     type: "object",
     properties: {
@@ -114,8 +114,68 @@ function describeExit(result: { exit_code: number | null; timed_out: boolean; ca
   return result.exit_code === null ? "exited with no status" : `exited with code ${result.exit_code}`;
 }
 
+/** What happened to a command that was put to the user and, if approved, run. */
+export type ApprovedRun =
+  | { status: "refused"; error: string }
+  | { status: "failed-to-start"; error: string }
+  | { status: "ran"; result: CommandOutput; /** How long the command itself took, not counting the wait for approval. */ durationMs: number };
+
+/**
+ * The part of running a command every model-facing tool shares: classify its
+ * risk, ask the user through the command-permission dialog (with its
+ * per-session grant memory), and only then execute it, streaming the output to
+ * the console. `run_command` and `run_check` both go through here, so a check
+ * is never easier to run than the same command typed by hand.
+ */
+export async function runWithApproval(
+  command: NormalizedCommand,
+  options: GatedRunCommandOptions,
+  signal: AbortSignal,
+  description: string = `The agent wants to run: ${formatCommand(command)}`,
+): Promise<ApprovedRun> {
+  const { sessionId, host, onEvent } = options;
+  const risk = classifyCommandRisk(command);
+  const sessionGrantScope = commandSessionGrantScope(command, risk);
+  let decision: Awaited<ReturnType<RunHost["requestPermission"]>>;
+  try {
+    decision = await host.requestPermission(
+      {
+        requestId: crypto.randomUUID(),
+        sessionId,
+        command,
+        risk,
+        sessionGrantScope,
+        sessionGrantProgram: programName(command),
+        description,
+      },
+      signal,
+    );
+  } catch (error: unknown) {
+    return { status: "refused", error: error instanceof Error ? error.message : String(error) };
+  }
+  if (decision === "deny") return { status: "refused", error: "Command denied by the user." };
+  if (decision !== "allow_once" && decision !== "allow_session") {
+    return { status: "refused", error: "Command permission response was invalid." };
+  }
+
+  onEvent({ kind: "log", message: `Running approved command: ${formatCommand(command)}` });
+  try {
+    const started = Date.now();
+    const result = await runShellCommand(command.program, command.args, command.cwd, command.timeoutMs, signal);
+    const durationMs = Date.now() - started;
+    if (result.output) onEvent({ kind: "command_output", content: result.output });
+    onEvent({ kind: "command_complete" });
+    onEvent({ kind: "log", message: `Command ${describeExit(result)}.` });
+    return { status: "ran", result, durationMs };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    onEvent({ kind: "log", message: `Command failed to start: ${message}` });
+    return { status: "failed-to-start", error: message };
+  }
+}
+
 export function gatedRunCommandTool(options: GatedRunCommandOptions): HostToolHandler {
-  const { workspaceRoot, sessionId, host, onEvent } = options;
+  const { workspaceRoot } = options;
   return async (args, signal) => {
     let command: NormalizedCommand;
     try {
@@ -124,45 +184,13 @@ export function gatedRunCommandTool(options: GatedRunCommandOptions): HostToolHa
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
 
-    const risk = classifyCommandRisk(command);
-    const sessionGrantScope = commandSessionGrantScope(command, risk);
-    let decision: Awaited<ReturnType<RunHost["requestPermission"]>>;
-    try {
-      decision = await host.requestPermission(
-        {
-          requestId: crypto.randomUUID(),
-          sessionId,
-          command,
-          risk,
-          sessionGrantScope,
-          sessionGrantProgram: programName(command),
-          description: `The agent wants to run: ${formatCommand(command)}`,
-        },
-        signal,
-      );
-    } catch (error: unknown) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
-    }
-    if (decision === "deny") return { ok: false, error: "Command denied by the user." };
-    if (decision !== "allow_once" && decision !== "allow_session") {
-      return { ok: false, error: "Command permission response was invalid." };
-    }
-
-    onEvent({ kind: "log", message: `Running approved command: ${formatCommand(command)}` });
-    try {
-      const result = await runShellCommand(command.program, command.args, command.cwd, command.timeoutMs, signal);
-      if (result.output) onEvent({ kind: "command_output", content: result.output });
-      onEvent({ kind: "command_complete" });
-      const status = describeExit(result);
-      onEvent({ kind: "log", message: `Command ${status}.` });
-      const truncated = result.output.length > MAX_TOOL_OUTPUT_CHARS
-        ? `...(truncated)...\n${result.output.slice(-MAX_TOOL_OUTPUT_CHARS)}`
-        : result.output;
-      return { ok: true, output: `${truncated}${truncated && !truncated.endsWith("\n") ? "\n" : ""}(command ${status})` };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      onEvent({ kind: "log", message: `Command failed to start: ${message}` });
-      return { ok: false, error: message };
-    }
+    const run = await runWithApproval(command, options, signal);
+    if (run.status !== "ran") return { ok: false, error: run.error };
+    const { result } = run;
+    const status = describeExit(result);
+    const truncated = result.output.length > MAX_TOOL_OUTPUT_CHARS
+      ? `...(truncated)...\n${result.output.slice(-MAX_TOOL_OUTPUT_CHARS)}`
+      : result.output;
+    return { ok: true, output: `${truncated}${truncated && !truncated.endsWith("\n") ? "\n" : ""}(command ${status})` };
   };
 }

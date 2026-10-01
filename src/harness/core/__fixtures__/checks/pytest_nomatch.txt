@@ -1,0 +1,7 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.9.7, pytest-7.1.2, pluggy-1.0.0
+rootdir: /work/proj
+plugins: Faker-30.1.0, anyio-3.7.0
+collected 2 items / 2 deselected / 0 selected
+
+============================ 2 deselected in 0.01s =============================
