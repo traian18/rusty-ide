@@ -45,11 +45,11 @@ describe("fallbackTab", () => {
 });
 
 describe("tabsAfterWorkspaceChange", () => {
-  it("replaces the strip with a single active canvas", () => {
-    const { tabs, activeTabId } = tabsAfterWorkspaceChange();
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0].type).toBe("canvas");
-    expect(activeTabId).toBe(tabs[0].id);
+  it("replaces the strip with a canvas and an Agent tab, with the Agent active", () => {
+    const { tabs, activeTabId, dropped } = tabsAfterWorkspaceChange();
+    expect(tabs.map((t) => t.type)).toEqual(["canvas", "agent"]);
+    expect(activeTabId).toBe(tabs[1].id);
+    expect(dropped).toEqual([]);
   });
 });
 
@@ -71,13 +71,12 @@ describe("tabsAfterBranchChange", () => {
     expect(tabsAfterBranchChange(state).dropped).toHaveLength(1);
   });
 
-  it("seeds a canvas when none is open, dropping everything else", () => {
+  it("seeds the workspace's tabs when no canvas is open, dropping everything else", () => {
     const state = { tabs: [fileTab("/a.ts")] };
     const { tabs, activeTabId, dropped } = tabsAfterBranchChange(state);
 
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0].type).toBe("canvas");
-    expect(activeTabId).toBe(tabs[0].id);
+    expect(tabs.map((t) => t.type)).toEqual(["canvas", "agent"]);
+    expect(activeTabId).toBe(tabs[1].id);
     expect(dropped.map((t) => t.id)).toEqual(["file:/a.ts"]);
   });
 

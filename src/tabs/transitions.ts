@@ -35,8 +35,8 @@ export function initialTabs(hasSeenOnboarding = false): { tabs: TabInstance[]; a
 }
 
 /**
- * Opening a workspace replaces the whole strip with a fresh canvas, matching
- * the previous `setRootPath` behavior.
+ * Opening a workspace replaces the whole strip with a fresh canvas and an Agent
+ * tab, with the Agent active so the app opens ready to chat.
  */
 export function tabsAfterWorkspaceChange(canvasId = "canvas"): {
   tabs: TabInstance[];
@@ -48,14 +48,19 @@ export function tabsAfterWorkspaceChange(canvasId = "canvas"): {
     existingIds: [],
     existingCanvasIds: [],
   });
-  return { tabs: [canvas], activeTabId: canvas.id, dropped: [] };
+  const agent = getTabPolicy("agent").create({ type: "agent" }, "agent", {
+    rootPath: "",
+    existingIds: [canvas.id],
+    existingCanvasIds: [canvas.id],
+  });
+  return { tabs: [canvas, agent], activeTabId: agent.id, dropped: [] };
 }
 
 /**
- * A branch change keeps the first canvas tab (or seeds one) and drops the
- * rest. `dropped` is returned so the caller can prune and dispose them — the
- * previous implementation dropped tabs without pruning anything, leaking a
- * canvas context, chat history and VFS instance on every branch switch.
+ * A branch change keeps the first canvas tab (or seeds the workspace's tabs)
+ * and drops the rest. `dropped` is returned so the caller can prune and dispose
+ * them — the previous implementation dropped tabs without pruning anything,
+ * leaking a canvas context, chat history and VFS instance on every branch switch.
  */
 export function tabsAfterBranchChange(state: { tabs: TabInstance[] }): {
   tabs: TabInstance[];
