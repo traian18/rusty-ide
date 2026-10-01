@@ -1,4 +1,4 @@
-import React, { RefObject } from "react";
+import React, { RefObject, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Option, OptionGroup } from "./CustomSelect";
 import styles from "./CustomSelect.module.css";
@@ -55,6 +55,21 @@ export const CustomSelectView: React.FC<CustomSelectViewProps> = ({
   onChange,
 }) => {
   const listboxId = `${id}-options`;
+
+  // The list does not exist when `isOpen` turns true: it mounts a render later, once the dropdown
+  // has a position. Depending on that, and not on `pos` itself (which changes on every scroll), puts
+  // the selected option in view once per opening and never fights the user scrolling the list.
+  const optionsRef = useRef<HTMLDivElement>(null);
+  const listMounted = isOpen && pos !== null;
+  useEffect(() => {
+    const list = optionsRef.current;
+    const selected = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !selected) return;
+    // Measured from the rectangles, so it holds wherever the list sits in the dropdown.
+    const listBox = list.getBoundingClientRect();
+    const box = selected.getBoundingClientRect();
+    list.scrollTop += box.top - listBox.top - (listBox.height - box.height) / 2;
+  }, [listMounted]);
 
   const renderOption = (opt: Option) => {
     const isSelected = opt.id === value;
@@ -130,30 +145,24 @@ export const CustomSelectView: React.FC<CustomSelectViewProps> = ({
               />
             </div>
           )}
-          <div className={styles.options}>
+          <div ref={optionsRef} className={styles.options}>
             {hasResults ? (
               filteredGroups ? (
                 filteredGroups.map((g) => (
                   <div key={g.label} className={styles.group}>
-                    <div className={styles.groupLabel}>
-                      {g.label}
-                    </div>
-                    <div className={styles.groupOptions}>
-                      {g.options.map(renderOption)}
-                    </div>
+                    <div className={styles.groupLabel}>{g.label}</div>
+                    <div className={styles.groupOptions}>{g.options.map(renderOption)}</div>
                   </div>
                 ))
               ) : (
                 filteredOptions.map(renderOption)
               )
             ) : (
-              <div className={styles.empty}>
-                No options found
-              </div>
+              <div className={styles.empty}>No options found</div>
             )}
           </div>
         </div>,
-        document.body
+        document.body,
       )}
     </div>
   );
