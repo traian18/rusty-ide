@@ -4,7 +4,6 @@ import {
   buildMessageState,
   CONTINUE_ID,
   FLOW_ROUTING_TIMEOUT_MS,
-  MAX_ASKED_OPTIONS,
   routeBoundary,
   routeMessage,
   SINGLE_AGENT_ID,
@@ -49,6 +48,18 @@ describe("buildMessageState", () => {
     expect(state).toContain('The workflow "Research & analyze", which completed'.replace("The", "It came from the"));
   });
 
+  it("gives what the user asked earlier, so a follow-up is read in its setting", () => {
+    const state = buildMessageState({ message: "ok do it", recentRequests: ["audit the profiles", "  ", "what is left?", "x".repeat(900), "implement them"] });
+    expect(state).toContain("What the user asked earlier in this conversation (oldest first)");
+    // Only the latest few, each clipped.
+    expect(state).not.toContain("audit the profiles");
+    expect(state).toContain("- what is left?");
+    expect(state).toContain("- implement them");
+    expect(state).toContain(`- ${"x".repeat(300)}… [600 more characters]`);
+    expect(state.indexOf("- what is left?")).toBeLessThan(state.indexOf("- implement them"));
+    expect(buildMessageState({ message: "hi" })).not.toContain("asked earlier");
+  });
+
   it("says so when there is nothing earlier, and clips long input", () => {
     expect(buildMessageState({ message: "hi" })).toContain("There is no earlier result in this conversation.");
     const long = buildMessageState({ message: "m".repeat(9_000), lastResult: "r".repeat(9_000) });
@@ -83,41 +94,25 @@ describe("routeMessage", () => {
     expect(await routeMessage(input, d)).toEqual({ type: "run", id: "security-audit", confidence: 0.9 });
   });
 
-  it("asks before running a pick that can change files", async () => {
+  it("runs a decisive pick even when it can change files, leaving the chat to say so", async () => {
     const { deps: d } = deps(answer("implement", 0.9, { implement: 0.9, single_agent: 0.06, investigate: 0.04 }));
-    expect(await routeMessage(input, d)).toEqual({
-      type: "confirm",
-      id: "implement",
-      confidence: 0.9,
-      ranked: [
-        { id: "implement", probability: 0.9 },
-        { id: "single_agent", probability: 0.06 },
-        { id: "investigate", probability: 0.04 },
-        { id: "security-audit", probability: 0 },
-      ],
-    });
+    expect(await routeMessage(input, d)).toEqual({ type: "run", id: "implement", confidence: 0.9 });
   });
 
-  it("puts the likeliest options to the user when the pick is not confident enough", async () => {
+  it("is undecided, and never asks, when the pick is not confident enough", async () => {
     const { deps: d } = deps(answer("investigate", 0.4, { investigate: 0.4, security_audit: 0.3, single_agent: 0.2, implement: 0.1 }));
-    const route = await routeMessage(input, d);
-    expect(route.type).toBe("ask");
-    if (route.type !== "ask") return;
-    expect(route.ranked.map((entry) => entry.id)).toEqual(["investigate", "security-audit", "single_agent", "implement"]);
-    expect(route.ranked.length).toBeLessThanOrEqual(MAX_ASKED_OPTIONS);
+    expect(await routeMessage(input, d)).toEqual({ type: "undecided", confidence: 0.4 });
   });
 
-  it("asks when JEV says it needs more context, whatever its confidence", async () => {
+  it("is undecided when JEV says it needs more context, whatever its confidence", async () => {
     const { deps: d } = deps(answer("need_more_context", 0.95, { need_more_context: 0.95, investigate: 0.03, single_agent: 0.02 }));
-    const route = await routeMessage(input, d);
-    expect(route.type).toBe("ask");
-    if (route.type === "ask") expect(route.ranked.map((entry) => entry.id)).not.toContain("need_more_context");
+    expect((await routeMessage(input, d)).type).toBe("undecided");
   });
 
   it("follows the configured confidence threshold", async () => {
     const response = answer("investigate", 0.7, { investigate: 0.7, single_agent: 0.3 });
     expect((await routeMessage(input, deps(response, { proceedConfidence: 0.6 }).deps)).type).toBe("run");
-    expect((await routeMessage(input, deps(response, { proceedConfidence: 0.8 }).deps)).type).toBe("ask");
+    expect((await routeMessage(input, deps(response, { proceedConfidence: 0.8 }).deps)).type).toBe("undecided");
   });
 
   it("reports why it could not route, and records the failure", async () => {
@@ -181,8 +176,8 @@ describe("routeBoundary", () => {
     expect(traces[0]).toMatchObject({ kind: "boundary", choice: "security-audit" });
   });
 
-  it("asks before switching to a workflow that can change files", async () => {
-    expect(await routeBoundary(input, deps(answer("implement", 0.9, { implement: 0.9, continue: 0.1 })).deps)).toEqual({ type: "confirm", id: "implement", confidence: 0.9 });
+  it("switches on a decisive pick of a workflow that can change files too, without asking", async () => {
+    expect(await routeBoundary(input, deps(answer("implement", 0.9, { implement: 0.9, continue: 0.1 })).deps)).toEqual({ type: "switch", id: "implement", confidence: 0.9 });
   });
 
   it("continues, saying why, when the decision service fails", async () => {

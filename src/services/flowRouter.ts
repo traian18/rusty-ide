@@ -6,12 +6,13 @@
  * or does what it found mean another workflow is the right one?
  *
  * JEV rates a `choice` question over the candidate flows, each described by
- * when it applies; the answer's confidence decides what happens next. The two
- * questions fail differently on purpose. A message that cannot be routed is put
- * to the user; a boundary that cannot be decided simply continues, because
- * holding a running workflow hostage to an uncertain guess costs more than
- * finishing the plan it already has. Switching to a workflow that edits files
- * is always put to the user first.
+ * when it applies; the answer's confidence decides what happens next. A
+ * message is never put back to the user: a decisive pick runs, anything else is
+ * left to the caller, which answers with the single agent. A boundary that
+ * cannot be decided simply continues, because holding a running workflow
+ * hostage to an uncertain guess costs more than finishing the plan it already
+ * has. Nothing is put to the user, at either point: a decisive pick acts, and
+ * the chat says what it chose.
  */
 
 import { decideBody, parseDecideAnswer, NEED_MORE_CONTEXT, type DecideRequest, type DecideVerdict } from "../harness/core/definitions/decideTool";
@@ -25,12 +26,11 @@ export const CONTINUE_ID = "continue";
 export const FLOW_ROUTING_TIMEOUT_MS = 10_000;
 
 const MAX_MESSAGE_CHARS = 4_000;
+const MAX_RECENT_REQUESTS = 3;
+const MAX_RECENT_REQUEST_CHARS = 300;
 const MAX_RESULT_CHARS = 2_000;
 const MAX_STEP_CHARS = 3_000;
 const MAX_STEPS_CHARS = 9_000;
-/** The most options put to the user when the router cannot decide. */
-export const MAX_ASKED_OPTIONS = 4;
-
 export interface FlowOption {
   /** Short id, e.g. `investigate` or `single_agent`. */
   id: string;
@@ -49,16 +49,17 @@ export interface RankedFlow {
 
 /** What to do with a message. */
 export type MessageRoute =
+  /** A decisive pick. It may be one that edits files: that is announced, not asked. */
   | { type: "run"; id: string; confidence: number }
-  | { type: "confirm"; id: string; confidence: number; ranked: RankedFlow[] }
-  | { type: "ask"; ranked: RankedFlow[]; confidence: number }
+  /** Nothing fit clearly enough to commit to. */
+  | { type: "undecided"; confidence: number }
   | { type: "unavailable"; reason: string };
 
 /** What to do at a step boundary. */
 export type BoundaryRoute =
   | { type: "continue"; reason?: string }
-  | { type: "switch"; id: string; confidence: number }
-  | { type: "confirm"; id: string; confidence: number };
+  /** Hand over to this workflow, whether or not it can change files. */
+  | { type: "switch"; id: string; confidence: number };
 
 /** One router exchange with JEV, reported whether or not it worked. */
 export interface FlowDecisionTrace {
@@ -178,6 +179,8 @@ function decisive(verdict: DecideVerdict | undefined, options: FlowOption[]): Fl
 
 export interface MessageRouteInput {
   message: string;
+  /** What the user asked earlier in the conversation, oldest first, so a follow-up is read in its setting. */
+  recentRequests?: string[];
   /** The last result in the conversation, if any. */
   lastResult?: string;
   /** The workflow the previous run followed, and how it ended. */
@@ -185,12 +188,16 @@ export interface MessageRouteInput {
   options: FlowOption[];
 }
 
-export function buildMessageState({ message, lastResult, lastRun }: Pick<MessageRouteInput, "message" | "lastResult" | "lastRun">): string {
+export function buildMessageState({ message, recentRequests, lastResult, lastRun }: Pick<MessageRouteInput, "message" | "recentRequests" | "lastResult" | "lastRun">): string {
+  const earlier = (recentRequests ?? []).map((request) => request.trim()).filter(Boolean).slice(-MAX_RECENT_REQUESTS);
   return [
     "A user is chatting with an AI coding assistant inside a code editor. The assistant can follow one of several workflows or answer directly. Decide which option fits the user's latest message best.",
     "Latest message:",
     clip(message.trim(), MAX_MESSAGE_CHARS),
     "",
+    ...(earlier.length > 0
+      ? ["What the user asked earlier in this conversation (oldest first), which the latest message may build on:", ...earlier.map((request) => `- ${clip(request, MAX_RECENT_REQUEST_CHARS)}`), ""]
+      : []),
     ...(lastResult
       ? [
         "The last result in the conversation (excerpt), which the message may be reacting to:",
@@ -202,21 +209,17 @@ export function buildMessageState({ message, lastResult, lastRun }: Pick<Message
 }
 
 /**
- * Which workflow should run for a message. A decisive pick that cannot change
- * files runs straight away; one that can asks first; anything else is put to
- * the user with the likeliest options.
+ * Which workflow should run for a message. A decisive pick runs, whether or not
+ * it can change files; anything else is undecided and never put to the user.
  */
 export async function routeMessage(input: MessageRouteInput, deps: FlowRouterDeps): Promise<MessageRoute> {
   const state = buildMessageState(input);
-  const { verdict, ranked, error } = await ask("message", deps, "Which option fits the user's latest message best?", state, input.options);
+  const { verdict, error } = await ask("message", deps, "Which option fits the user's latest message best?", state, input.options);
   if (error || !verdict) return { type: "unavailable", reason: error ?? "No answer." };
   const chosen = decisive(verdict, input.options);
-  if (chosen) {
-    return chosen.edits
-      ? { type: "confirm", id: chosen.id, confidence: verdict.confidence, ranked }
-      : { type: "run", id: chosen.id, confidence: verdict.confidence };
-  }
-  return { type: "ask", ranked: ranked.slice(0, MAX_ASKED_OPTIONS), confidence: verdict.confidence };
+  return chosen
+    ? { type: "run", id: chosen.id, confidence: verdict.confidence }
+    : { type: "undecided", confidence: verdict.confidence };
 }
 
 // ---- at a step boundary -------------------------------------------------------------
@@ -267,7 +270,8 @@ export function buildBoundaryState(input: BoundaryRouteInput): string {
 
 /**
  * Whether the running workflow carries on. Anything short of a decisive pick of
- * another workflow continues; a decisive pick of one that can change files asks.
+ * another workflow continues; a decisive pick switches, even to one that can
+ * change files.
  */
 export async function routeBoundary(input: BoundaryRouteInput, deps: FlowRouterDeps): Promise<BoundaryRoute> {
   const options: FlowOption[] = [
@@ -284,7 +288,5 @@ export async function routeBoundary(input: BoundaryRouteInput, deps: FlowRouterD
   if (error || !verdict) return { type: "continue", reason: error };
   const chosen = decisive(verdict, options);
   if (!chosen || chosen.id === CONTINUE_ID) return { type: "continue" };
-  return chosen.edits
-    ? { type: "confirm", id: chosen.id, confidence: verdict.confidence }
-    : { type: "switch", id: chosen.id, confidence: verdict.confidence };
+  return { type: "switch", id: chosen.id, confidence: verdict.confidence };
 }

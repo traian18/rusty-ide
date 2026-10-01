@@ -283,6 +283,85 @@ describe("Agent chat workflows", () => {
     expect(run.mock.calls[0][1].workflow.input).toEqual({ request: "investigate the cache", attachments: [], context: "" });
   });
 
+  const finished = (response: string) => ({
+    runId: "r",
+    started: Promise.resolve(),
+    cancel: vi.fn(),
+    done: Promise.resolve({ status: "completed", result: { response, modifiedFiles: [], subagents: [] } }),
+  });
+
+  describe("a message after a workflow has finished", () => {
+    it("reaches a workflow that reads no context with the conversation so far, not just the new words", async () => {
+      run.mockImplementationOnce(() => finished("# Audit verdict\nThe build is incomplete: the catalog UI is missing."));
+      await choose(FLOW_PATH);
+      await send("implement the profiles");
+      await send("please fix the gaps");
+
+      expect(run).toHaveBeenCalledTimes(2);
+      const { request, attachments, context } = run.mock.calls[1][1].workflow.input;
+      expect(attachments).toEqual([]);
+      expect(context).toBeUndefined();
+      // The new message leads and stays recognisable as the request ...
+      expect(request.startsWith("please fix the gaps")).toBe(true);
+      // ... and the earlier request and its result travel with it.
+      expect(request).toContain("implement the profiles");
+      expect(request).toContain("The build is incomplete: the catalog UI is missing.");
+    });
+
+    it("sends a first message exactly as typed", async () => {
+      await choose(FLOW_PATH);
+      await send("implement the profiles");
+      expect(run.mock.calls[0][1].workflow.input).toEqual({ request: "implement the profiles", attachments: [] });
+    });
+  });
+
+  describe("the Result of a workflow", () => {
+    const reportWrites = () => writes.filter((write) => write.path.includes("/.rusty/findings/"));
+
+    it("is saved as Markdown when the run changed nothing, and the chat says where", async () => {
+      run.mockImplementationOnce(() => finished("# Hosting options\nGitHub Pages is free for public repositories."));
+      await choose(FLOW_PATH);
+      await send("what is the best hosting for the website");
+
+      expect(reportWrites()).toHaveLength(1);
+      const [{ path, content }] = reportWrites();
+      expect(path).toMatch(/^\/ws\/\.rusty\/findings\/\d{4}-\d{2}-\d{2}-\d{6}-what-is-the-best-hosting-for-the-website\.md$/);
+      expect(content).toContain("# what is the best hosting for the website");
+      expect(content).toContain("- Workflow: Plan and build");
+      expect(content).toContain("## Result\n\n# Hosting options\nGitHub Pages is free for public repositories.");
+      expect(container.textContent).toContain("Result saved to");
+      expect(container.textContent).toContain(".rusty/findings/");
+    });
+
+    it("is not saved when the run changed files, because the changes are the outcome", async () => {
+      run.mockImplementationOnce(() => ({
+        runId: "r", started: Promise.resolve(), cancel: vi.fn(),
+        done: Promise.resolve({ status: "completed", result: { response: "Added password reset.", modifiedFiles: ["src/auth.ts"], subagents: [] } }),
+      }));
+      await choose(FLOW_PATH);
+      await send("add password reset");
+      expect(reportWrites()).toHaveLength(0);
+      expect(container.textContent).not.toContain("Result saved to");
+    });
+
+    it("is not saved when a command changed files during the run", async () => {
+      run.mockImplementationOnce((_capability: string, _input: unknown, _host: unknown, onEvent: (event: unknown) => void) => {
+        onEvent({ kind: "files_changed", paths: ["README.md"] });
+        return finished("Updated the readme with git.");
+      });
+      await choose(FLOW_PATH);
+      await send("update the readme");
+      expect(reportWrites()).toHaveLength(0);
+    });
+
+    it("is not saved for a single agent, which has no Result node", async () => {
+      run.mockImplementationOnce(() => finished("It does nothing special."));
+      await choose("");
+      await send("what does ?? do");
+      expect(reportWrites()).toHaveLength(0);
+    });
+  });
+
   describe("with Auto flow selection", () => {
     const model = (remoteId: string) => ({ id: `openrouter/${remoteId}`, remoteId, name: remoteId, supported: true });
     const fetchStub = vi.fn();
@@ -341,6 +420,79 @@ describe("Agent chat workflows", () => {
       expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Auto · Research & analyze");
     });
 
+    it("keeps going after a finished workflow: each next message is routed on its own, with the conversation", async () => {
+      respond("investigate", 0.9, { investigate: 0.9, single_agent: 0.1 });
+      run.mockImplementationOnce(() => finished("## Findings\nSync lives in queue.rs."));
+      run.mockImplementationOnce(() => finished("Retries are attempted three times."));
+      await choose(AUTO_FLOW);
+      await send("how does sync work");
+      expect(workflowId()).toBe("rusty-ide.builtin.investigate");
+
+      // The router is told what was asked and found, so "and what about..." is read in its setting.
+      await send("and what about retries");
+      expect(run).toHaveBeenCalledTimes(2);
+      const routerState = String(decisionCalls()[1][1].body);
+      expect(routerState).toContain("and what about retries");
+      expect(routerState).toContain("how does sync work");
+      expect(routerState).toContain("Sync lives in queue.rs.");
+      expect(run.mock.calls[1][1].workflow.input).toEqual({ request: "and what about retries", attachments: [], context: "## Findings\nSync lives in queue.rs." });
+
+      // A message the router sends to the single agent still has everything said so far.
+      run.mockImplementationOnce(() => finished("Retries back off twice."));
+      respond("single_agent", 0.9, { single_agent: 0.9, investigate: 0.1 });
+      await send("thanks, explain the backoff");
+      expect(run).toHaveBeenCalledTimes(3);
+      const single = run.mock.calls[2][1];
+      expect(single.workflow).toBeUndefined();
+      expect(single.chatHistory.map((m: { content: string }) => m.content)).toEqual(expect.arrayContaining([
+        "how does sync work",
+        expect.stringContaining("## Findings\nSync lives in queue.rs."),
+        "and what about retries",
+        expect.stringContaining("Retries are attempted three times."),
+      ]));
+      expect(container.textContent).not.toContain("Agent needs your decision");
+    });
+
+    it("after an analysis, picks the build workflow on \"implement it\" by itself and hands it the analysis", async () => {
+      respond("investigate", 0.9, { investigate: 0.9, single_agent: 0.1 });
+      run.mockImplementationOnce(() => finished("## Findings\nRetries live in queue.rs; add jitter there."));
+      await choose(AUTO_FLOW);
+      await send("how do retries work");
+      expect(workflowId()).toBe("rusty-ide.builtin.investigate");
+
+      respond("implement", 0.93, { implement: 0.93, design: 0.05, single_agent: 0.02 });
+      await send("ok, implement that");
+      expect(run).toHaveBeenCalledTimes(2);
+      const [, build] = run.mock.calls[1];
+      expect(build.workflow.definition.id).toBe("rusty-ide.builtin.implement");
+      expect(build.workflow.input.request).toBe("ok, implement that");
+      expect(build.workflow.input.context).toContain("Retries live in queue.rs; add jitter there.");
+      // No question, no menu: it just started, and said what it chose.
+      expect(container.textContent).not.toContain("Agent needs your decision");
+      expect(container.textContent).toContain("↳ AUTO · Stage: Build & verify (93% confidence) · can change files");
+    });
+
+    it("still has the analysis when a quick answer came between it and \"implement it\"", async () => {
+      const analysis = `## Findings\n${"Retries live in queue.rs; add jitter there. ".repeat(30)}`;
+      useWorkspaceStore.setState({
+        agentChats: {
+          agent: [
+            { id: "u1", role: "user", content: "how do retries work", timestamp: "t" },
+            { id: "a1", role: "assistant", content: analysis, timestamp: "t" },
+            { id: "u2", role: "user", content: "is jitter fine?", timestamp: "t" },
+            { id: "a2", role: "assistant", content: "Yes, jitter is fine.", timestamp: "t" },
+          ],
+        },
+      });
+      respond("implement", 0.9, { implement: 0.9, single_agent: 0.1 });
+      await choose(AUTO_FLOW);
+      await send("ok, implement it");
+      expect(workflowId()).toBe("rusty-ide.builtin.implement");
+      const { context } = run.mock.calls[0][1].workflow.input;
+      expect(context).toContain("Retries live in queue.rs; add jitter there.");
+      expect(context).toContain("Latest reply:\nYes, jitter is fine.");
+    });
+
     it("answers with the single agent when that fits, under the skill the user picked", async () => {
       respond("single_agent", 0.92, { single_agent: 0.92, investigate: 0.08 });
       useWorkspaceStore.getState().setActiveSkill(BUILT_IN_SKILL_IDS.PLAN);
@@ -353,45 +505,24 @@ describe("Agent chat workflows", () => {
       expect(container.textContent).toContain("↳ AUTO · Single agent (92% confidence)");
     });
 
-    it("asks before running a pick that can change files", async () => {
+    it("runs a confident pick that can change files without asking, and says it can", async () => {
       respond("implement", 0.9, { implement: 0.9, design: 0.07, single_agent: 0.03 });
       await choose(AUTO_FLOW);
       await send("go ahead and build it");
-      expect(run).not.toHaveBeenCalled();
-      expect(container.textContent).toContain('Auto suggests "Stage: Build & verify" (90% confidence). It can change files. Run it?');
-      await act(async () => questionButton("Run Stage: Build & verify")!.click());
-      await flush();
       expect(workflowId()).toBe("rusty-ide.builtin.implement");
-      expect(container.textContent).toContain("↳ AUTO · Stage: Build & verify (you chose)");
+      expect(questionButton("Run ")).toBeUndefined();
+      expect(container.textContent).not.toContain("Agent needs your decision");
+      expect(container.textContent).toContain("↳ AUTO · Stage: Build & verify (90% confidence) · can change files");
     });
 
-    it("puts the likeliest options to the user when it is unsure", async () => {
+    it("answers with the single agent, without asking, when it is unsure", async () => {
       respond("investigate", 0.4, { investigate: 0.4, design: 0.35, single_agent: 0.15, diagnose: 0.1 });
       await choose(AUTO_FLOW);
       await send("hmm, the sync thing");
-      expect(run).not.toHaveBeenCalled();
-      expect(container.textContent).toContain("Which workflow should handle this?");
-      await act(async () => questionButton("Stage: Architect & plan")!.click());
-      await flush();
-      expect(workflowId()).toBe("rusty-ide.builtin.design");
-    });
-
-    it("starts nothing when the user turns every offer down", async () => {
-      respond("implement", 0.9, { implement: 0.9, design: 0.1 });
-      await choose(AUTO_FLOW);
-      await send("go ahead and build it");
-      const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
-      await act(async () => {
-        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, "no thanks");
-        textarea.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-      await act(async () => {
-        textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      });
-      await flush();
-      expect(run).not.toHaveBeenCalled();
-      expect(container.textContent).toContain("↳ AUTO · Nothing was started.");
-      expect(container.textContent).toContain("Ready");
+      expect(run).toHaveBeenCalledTimes(1);
+      expect(run.mock.calls[0][1].workflow).toBeUndefined();
+      expect(container.textContent).not.toContain("Which workflow should handle this?");
+      expect(container.textContent).toContain("↳ AUTO · Single agent (no workflow was a clear fit)");
     });
 
     it("answers directly, saying why, when the router cannot be reached", async () => {
@@ -471,6 +602,17 @@ describe("Agent chat workflows", () => {
         // Later saves of a conversation overwrite its file in place.
         const lastWrite = [...writes].reverse().find((write) => write.path.includes("/chats/"));
         expect(JSON.parse(lastWrite!.content).workflow).toBe("builtin:diagnose");
+      });
+
+      it("saves no report for a run that handed over: its work travels on and is already in the chat", async () => {
+        run.mockImplementationOnce(() => handOver("diagnose", "Stage: Debug & plan a fix", "builtin:diagnose"));
+        run.mockImplementation(pending);
+        await choose(STAGE_PATH);
+        await toggleOn();
+        await send("investigate the cache");
+        expect(run).toHaveBeenCalledTimes(2);
+        expect(writes.filter((write) => write.path.includes("/.rusty/findings/"))).toHaveLength(0);
+        expect(container.textContent).not.toContain("Result saved to");
       });
 
       it("never runs a workflow twice in a turn, and the second run may not hand back", async () => {

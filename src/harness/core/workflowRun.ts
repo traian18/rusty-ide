@@ -228,22 +228,99 @@ export const MAX_WORKFLOW_CONTEXT_CHARS = 24_000;
  * the per-step AUTO line). */
 const NOT_A_RESULT = /^(\*\*[▶✗]|↳ AUTO|↪ AUTO|Error:|Model selection error:)/;
 
+/** The line the chat appends to a result that was saved as a report (see
+ * services/workflowReport.ts). It belongs to the chat, not to the result, so a
+ * later run must not be handed it as part of what was found. */
+const SAVED_REPORT_NOTE = /\n\n_(?:Result saved to|The result could not be saved to) [^\n]*_\s*$/;
+
 /**
  * What the last run left in the chat, for the next workflow to build on: the
  * most recent assistant result. This is how a long job is steered between
  * stages: read the findings, amend them in your next message, then run the
  * next stage, which receives the findings as context.
  */
-export function priorWorkflowContext(messages: ReadonlyArray<{ role: string; content: string }>): string {
+export function priorWorkflowContext(
+  messages: ReadonlyArray<{ role: string; content: string }>,
+  maxChars = MAX_WORKFLOW_CONTEXT_CHARS,
+): string {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const { role, content } = messages[index];
-    const text = content.trim();
+    const text = content.replace(SAVED_REPORT_NOTE, "").trim();
     if (role !== "assistant" || !text || NOT_A_RESULT.test(text)) continue;
-    return text.length > MAX_WORKFLOW_CONTEXT_CHARS
-      ? `${text.slice(0, MAX_WORKFLOW_CONTEXT_CHARS)}\n[… ${text.length - MAX_WORKFLOW_CONTEXT_CHARS} more characters omitted]`
+    return text.length > maxChars
+      ? `${text.slice(0, maxChars)}\n[… ${text.length - maxChars} more characters omitted]`
       : text;
   }
   return "";
+}
+
+/** A reply this short is a remark on an earlier result, not a result to build on. */
+const SHORT_REPLY_CHARS = 600;
+const MAX_CONTEXT_RESULTS = 3;
+
+/**
+ * The results a next run should build on. Usually that is the last result. But
+ * when the last reply is only a short remark (an answer to a quick question
+ * between an analysis and "now implement it"), the analysis is what the next
+ * run needs, so the nearest substantial result comes with it, oldest first.
+ */
+export function conversationResults(
+  messages: ReadonlyArray<{ role: string; content: string }>,
+  maxChars = MAX_WORKFLOW_CONTEXT_CHARS,
+): string {
+  const found: string[] = [];
+  for (let index = messages.length - 1; index >= 0 && found.length < MAX_CONTEXT_RESULTS; index -= 1) {
+    const { role, content } = messages[index];
+    const text = content.replace(SAVED_REPORT_NOTE, "").trim();
+    if (role !== "assistant" || !text || NOT_A_RESULT.test(text)) continue;
+    found.push(text);
+    if (text.length >= SHORT_REPLY_CHARS) break;
+  }
+  if (found.length <= 1) return priorWorkflowContext(messages, maxChars);
+  const [latest, ...earlier] = found;
+  // The latest remark is short; what it remarks on gets the rest of the room.
+  const room = Math.max(0, maxChars - latest.length - 40);
+  const clip = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit)}\n[… ${text.length - limit} more characters omitted]` : text);
+  const blocks = earlier.reverse().map((text, index) => `${index === 0 ? "Earlier result" : "Next reply"}:\n${clip(text, room)}`);
+  return [...blocks, `Latest reply:\n${clip(latest, maxChars)}`].join("\n\n");
+}
+
+/** How much of the conversation a workflow without a `/context` input is shown. */
+export const MAX_FOLDED_RESULT_CHARS = 12_000;
+const MAX_FOLDED_REQUESTS = 4;
+const MAX_FOLDED_REQUEST_CHARS = 800;
+
+/**
+ * Puts the conversation so far behind a request, for a workflow whose steps
+ * only read the request. Each run is a fresh session, so without this a
+ * follow-up ("now fix what you found") reaches the workflow as a bare
+ * sentence and its first step starts from nothing. The new request leads;
+ * the earlier requests and the last result follow, marked as background.
+ * `earlierWork` stands in for the last result when a run handed over to this
+ * workflow with work already done. A first message is returned untouched.
+ */
+export function withConversation(
+  request: string,
+  messages: ReadonlyArray<{ role: string; content: string }>,
+  earlierWork?: string,
+): string {
+  const earlierRequests = messages
+    .filter((message) => message.role === "user" && message.content.trim())
+    .slice(-MAX_FOLDED_REQUESTS)
+    .map(({ content }) => {
+      const text = content.trim();
+      return `- ${text.length > MAX_FOLDED_REQUEST_CHARS ? `${text.slice(0, MAX_FOLDED_REQUEST_CHARS)}…` : text}`;
+    });
+  const lastResult = earlierWork?.trim() || conversationResults(messages, MAX_FOLDED_RESULT_CHARS);
+  if (earlierRequests.length === 0 && !lastResult) return request;
+  return [
+    request,
+    "",
+    "---",
+    "Background from earlier in this conversation. The request above is what to do now; use the background only to understand it.",
+    ...(earlierRequests.length > 0 ? ["", "Earlier requests:", ...earlierRequests] : []),
+    ...(lastResult ? ["", "Result of the last run:", lastResult] : []),
+  ].join("\n");
 }
 
 /**

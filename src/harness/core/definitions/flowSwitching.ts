@@ -5,8 +5,8 @@
  * CoreHarness holds the run after a step and asks `agentChatBoundary` whether
  * it should carry on. The flow router rates the finished steps' findings
  * against the workflows this one declared it may hand over to. A decisive pick
- * of a workflow that cannot change files switches; one that can asks the user
- * first; anything else, including a failure, carries on.
+ * switches, without asking, and the chat says so (and whether the next workflow
+ * can change files); anything else, including a failure, carries on.
  *
  * A switch is a result, not an error: the run ends with `switchTo`, and the
  * Agent tab starts the next run with `context` -- everything finished so far.
@@ -43,7 +43,7 @@ export function handOverContext(from: { name: string; step: string }, reason: st
 }
 
 export async function agentChatBoundary(context: WorkflowBoundaryContext<"agent_chat">): Promise<WorkflowBoundaryDecision> {
-  const { input, host, onEvent, signal, step, finished, remaining, request } = context;
+  const { input, onEvent, signal, step, finished, remaining, request } = context;
   const config = input.flowSwitching;
   if (!config || config.targets.length === 0) return { type: "continue" };
 
@@ -72,30 +72,7 @@ export async function agentChatBoundary(context: WorkflowBoundaryContext<"agent_
   const target = config.targets.find((candidate) => candidate.id === route.id);
   if (!target) return { type: "continue" };
 
-  let agreed = false;
-  if (route.type === "confirm") {
-    if (!host.askQuestion) return { type: "continue" };
-    const switchLabel = `Switch to ${target.name}`;
-    try {
-      const answer = await host.askQuestion(
-        {
-          requestId: crypto.randomUUID(),
-          question: `After "${step.name}", the findings point to "${target.name}" (${percent(route.confidence)} confidence). It can change files. Switch to it?`,
-          options: [
-            { label: switchLabel, description: target.when },
-            { label: "Continue the current workflow", description: remaining.length ? `Carry on with ${remaining.join(" → ")}.` : "Finish as planned." },
-          ],
-        },
-        signal,
-      );
-      if (answer.trim() !== switchLabel) return { type: "continue" };
-      agreed = true;
-    } catch {
-      return { type: "continue" };
-    }
-  }
-
-  const reason = `the findings after "${step.name}" fit "${target.name}" better than carrying on${agreed ? " (you agreed)" : ""}`;
+  const reason = `the findings after "${step.name}" fit "${target.name}" better than carrying on`;
   const from = { name: config.workflowName, step: step.name };
   const outcome: WorkflowSwitch = {
     id: target.id,
@@ -103,6 +80,7 @@ export async function agentChatBoundary(context: WorkflowBoundaryContext<"agent_
     path: target.path,
     reason,
     confidence: route.confidence,
+    edits: target.edits,
     context: handOverContext(from, reason, finished),
     from,
   };
@@ -114,7 +92,7 @@ export function agentChatSwitched(outcome: unknown, ctx: { scratch: Record<strin
   const switchTo = outcome as WorkflowSwitch;
   const modifiedFiles = (ctx.scratch.modifiedFiles as Set<string> | undefined) ?? new Set<string>();
   return {
-    response: `↪ AUTO · Handing over to ${switchTo.name} (${percent(switchTo.confidence)} confidence): ${switchTo.reason}.`,
+    response: `↪ AUTO · Handing over to ${switchTo.name} (${percent(switchTo.confidence)} confidence): ${switchTo.reason}.${switchTo.edits ? " It can change files." : ""}`,
     modifiedFiles: Array.from(modifiedFiles),
     subagents: [],
     switchTo,

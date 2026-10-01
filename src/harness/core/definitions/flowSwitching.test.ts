@@ -101,26 +101,23 @@ describe("agentChatBoundary", () => {
     expect(handed).toContain(reason);
   });
 
-  it("asks before handing over to a workflow that can change files, and switches when the user agrees", async () => {
+  it("hands over to a workflow that can change files without asking, and the chat says it can", async () => {
     post.mockResolvedValue(decision("implement", 0.9, { implement: 0.9, continue: 0.1 }));
-    const { value, askQuestion } = context({}, "Switch to Stage: Build & verify");
+    const { value, askQuestion } = context();
     const decided = await agentChatBoundary(value);
-    expect(askQuestion).toHaveBeenCalledTimes(1);
-    const [question] = askQuestion.mock.calls[0] as unknown as [{ question: string; options: Array<{ label: string }> }];
-    expect(question.question).toContain('After "Plan", the findings point to "Stage: Build & verify" (90% confidence). It can change files.');
-    expect(question.options.map((option) => option.label)).toEqual(["Switch to Stage: Build & verify", "Continue the current workflow"]);
+    expect(askQuestion).not.toHaveBeenCalled();
     expect(decided.type).toBe("switch");
-    if (decided.type === "switch") expect((decided.outcome as { reason: string }).reason).toContain("(you agreed)");
+    if (decided.type !== "switch") return;
+    expect(decided.outcome).toMatchObject({ id: "implement", edits: true, confidence: 0.9 });
+    expect((decided.outcome as { reason: string }).reason).not.toContain("you agreed");
+    expect(agentChatSwitched(decided.outcome, { scratch: {} }).response).toMatch(/^↪ AUTO · Handing over to Stage: Build & verify \(90% confidence\): .* It can change files\.$/);
   });
 
-  it("carries on when the user declines, answers something else, or cannot be asked", async () => {
-    post.mockResolvedValue(decision("implement", 0.9, { implement: 0.9, continue: 0.1 }));
-    expect(await agentChatBoundary(context({}, "Continue the current workflow").value)).toEqual({ type: "continue" });
-    expect(await agentChatBoundary(context({}, "").value)).toEqual({ type: "continue" });
-    expect(await agentChatBoundary(context({ host: {} as never }).value)).toEqual({ type: "continue" });
-    const failing = context();
-    failing.value.host = { askQuestion: async () => { throw new Error("closed"); } } as never;
-    expect(await agentChatBoundary(failing.value)).toEqual({ type: "continue" });
+  it("does not claim a read-only workflow can change files", async () => {
+    post.mockResolvedValue(decision("diagnose", 0.86, { diagnose: 0.86, continue: 0.14 }));
+    const decided = await agentChatBoundary(context().value);
+    if (decided.type !== "switch") throw new Error("expected a switch");
+    expect(agentChatSwitched(decided.outcome, { scratch: {} }).response).not.toContain("It can change files");
   });
 
   it("carries on, and says why, when the decision service fails", async () => {

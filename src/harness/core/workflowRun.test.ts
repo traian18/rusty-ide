@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_FOLDED_RESULT_CHARS,
   MAX_WORKFLOW_CONTEXT_CHARS,
+  conversationResults,
   priorWorkflowContext,
+  withConversation,
   workflowInputFor,
   workflowUsesContext,
 } from "./workflowRun";
@@ -73,5 +76,108 @@ describe("workflowInputFor", () => {
     expect(workflowInputFor('{"request":"x"}', true)).toEqual({ request: "x" });
     expect(workflowInputFor('{"request":"x"}', true, "earlier")).toEqual({ context: "earlier", request: "x" });
     expect(workflowInputFor("{not json", true)).toEqual({ request: "{not json", attachments: [] });
+  });
+});
+
+describe("withConversation", () => {
+  const chat = [
+    { role: "user", content: "audit the profiles" },
+    { role: "assistant", content: "**▶ Verify**" },
+    { role: "assistant", content: "# Audit verdict\nThe catalog UI is missing." },
+  ];
+
+  it("returns a first message exactly as typed", () => {
+    expect(withConversation("implement the profiles", [])).toBe("implement the profiles");
+    expect(withConversation("implement the profiles", [{ role: "console", content: "Workflow started." }])).toBe("implement the profiles");
+  });
+
+  it("keeps the new request first and puts earlier requests and the last result behind it", () => {
+    const folded = withConversation("fix the gaps", chat);
+    expect(folded.startsWith("fix the gaps\n")).toBe(true);
+    expect(folded).toContain("Earlier requests:\n- audit the profiles");
+    expect(folded).toContain("Result of the last run:\n# Audit verdict\nThe catalog UI is missing.");
+    // Run bookkeeping is not a result.
+    expect(folded).not.toContain("▶ Verify");
+  });
+
+  it("uses the work a run handed over in place of the last chat result", () => {
+    const folded = withConversation("fix the gaps", chat, "Handed over: the plan");
+    expect(folded).toContain("Result of the last run:\nHanded over: the plan");
+    expect(folded).not.toContain("Audit verdict");
+  });
+
+  it("keeps only the latest requests, each short, and a bounded result", () => {
+    const many = Array.from({ length: 7 }, (_, index) => ({ role: "user", content: `request ${index}` }));
+    const folded = withConversation("now", [
+      ...many,
+      { role: "user", content: "x".repeat(2_000) },
+      { role: "assistant", content: "y".repeat(MAX_FOLDED_RESULT_CHARS + 500) },
+    ]);
+    expect(folded).not.toContain("request 3");
+    expect(folded).toContain("- request 6");
+    expect(folded).toContain(`- ${"x".repeat(800)}…`);
+    expect(folded).toContain("[… 500 more characters omitted]");
+  });
+
+  it("leaves out the note the chat adds when a result was saved as a report", () => {
+    const saved = [
+      { role: "assistant", content: "## Findings\nSync lives in queue.rs.\n\n_Result saved to `.rusty/findings/2026-10-01-170509-sync.md`_" },
+    ];
+    expect(priorWorkflowContext(saved)).toBe("## Findings\nSync lives in queue.rs.");
+    expect(withConversation("next", saved)).not.toContain("Result saved to");
+    expect(priorWorkflowContext([{ role: "assistant", content: "Done.\n\n_The result could not be saved to `.rusty/findings/a.md`: disk full_" }])).toBe("Done.");
+    // A result that merely mentions saving keeps its text.
+    expect(priorWorkflowContext([{ role: "assistant", content: "The result is saved to disk by the app." }])).toBe("The result is saved to disk by the app.");
+  });
+
+  it("does not change the larger budget a stage's context gets", () => {
+    const long = "z".repeat(MAX_WORKFLOW_CONTEXT_CHARS + 10);
+    expect(priorWorkflowContext([{ role: "assistant", content: long }])).toContain("[… 10 more characters omitted]");
+  });
+});
+
+describe("conversationResults", () => {
+  const analysis = "# Analysis\n" + "Retries live in queue.rs. ".repeat(60);
+
+  it("is the last result when that is substantial, exactly as priorWorkflowContext gives it", () => {
+    const chat = [{ role: "assistant", content: "An older result." }, { role: "assistant", content: analysis }];
+    expect(conversationResults(chat)).toBe(analysis.trim());
+    expect(conversationResults(chat)).toBe(priorWorkflowContext(chat));
+  });
+
+  it("is a lone short result as it is, and empty for an empty chat", () => {
+    expect(conversationResults([{ role: "assistant", content: "Yes." }])).toBe("Yes.");
+    expect(conversationResults([])).toBe("");
+  });
+
+  it("brings the analysis along when only a short remark came after it", () => {
+    const chat = [
+      { role: "user", content: "how do retries work" },
+      { role: "assistant", content: "**▶ Analyze**" },
+      { role: "assistant", content: analysis },
+      { role: "user", content: "is jitter ok?" },
+      { role: "assistant", content: "Yes, jitter is fine here." },
+    ];
+    const context = conversationResults(chat);
+    expect(context).toBe(`Earlier result:\n${analysis.trim()}\n\nLatest reply:\nYes, jitter is fine here.`);
+  });
+
+  it("looks back at most three results and keeps within the budget, favouring the latest remark", () => {
+    const chat = ["one", "two", "three", "four"].map((content) => ({ role: "assistant", content }));
+    const context = conversationResults(chat);
+    expect(context).not.toContain("one");
+    expect(context).toContain("Latest reply:\nfour");
+    const big = [{ role: "assistant", content: "z".repeat(5_000) }, { role: "assistant", content: "ok" }];
+    expect(conversationResults(big, 1_000).length).toBeLessThan(1_100);
+    expect(conversationResults(big, 1_000)).toContain("Latest reply:\nok");
+  });
+
+  it("ignores run bookkeeping and the saved-report note", () => {
+    const chat = [
+      { role: "assistant", content: `${analysis}\n\n_Result saved to \`.rusty/findings/x.md\`_` },
+      { role: "assistant", content: "Error: network down" },
+      { role: "assistant", content: "**▶ Build**" },
+    ];
+    expect(conversationResults(chat)).toBe(analysis.trim());
   });
 });

@@ -180,6 +180,8 @@ export interface WorkflowSwitch {
   reason: string;
   /** How sure the router was. */
   confidence: number;
+  /** Whether the workflow handed over to can change files, which the chat says. */
+  edits?: boolean;
   /** What the next workflow starts from: the work finished before the hand-over. */
   context: string;
   /** The workflow that handed over, and the step it handed over after. */

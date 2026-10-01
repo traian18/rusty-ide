@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
-import { chooseFlow, type AskOption, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
+import { chooseFlow, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
 import { useWorkspaceStore, AgentMessage } from "../../store";
 import { resolveSkill, toSkillData, DEFAULT_SKILL_ID, BUILT_IN_SKILL_IDS } from "../../config/skillDefinitions";
@@ -36,7 +36,8 @@ import {
   IntelligentModelSelectionError,
 } from "../../services/intelligentModelSelector";
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
-import { workflowInputFor, readWorkflowCheckpoint, stepNames, workflowUsesContext, priorWorkflowContext, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
+import { workflowReportFor } from "../../services/workflowReport";
+import { workflowInputFor, readWorkflowCheckpoint, stepNames, workflowUsesContext, priorWorkflowContext, conversationResults, withConversation, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
 import { behaviorService } from "./behaviors/behaviorService";
 import { BUILTIN_WORKFLOW_PATH, STARTER_PROFILES, STARTER_WORKFLOW, workflowKind } from "./behaviors/starterFlow";
 import { AUTO_FLOW, shortWorkflowId, workflowMayEdit, workflowRoute, workflowSwitchTargets } from "./behaviors/flowCatalog";
@@ -470,14 +471,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     return () => unregisterTabStop(tab.id);
   }, [tab.id]);
 
-  /** Puts a question to the user outside a run (Auto choosing a workflow). */
-  const askUser = (question: string, options: AskOption[]) =>
-    new Promise<string>((resolve) => {
-      const requestId = crypto.randomUUID();
-      questionResolversRef.current.set(requestId, resolve);
-      setAgentQuestions((prev) => [...prev, { requestId, question, options }]);
-    });
-
   const handleAgentQuestionAnswer = (answer: string) => {
     if (agentQuestions.length === 0) return;
     const currentQuestion = agentQuestions[0];
@@ -580,6 +573,10 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       } else if (candidates.length > 0) {
         choice = await chooseFlow({
           message: userText,
+          // The conversation so far (the new message is already in it), so a follow-up is routed in its setting.
+          recentRequests: (useWorkspaceStore.getState().agentChats[tab.id] || [])
+            .filter((m: any) => m.role === "user" && m.id !== userMessage.id)
+            .map((m: any) => m.content),
           lastResult: priorWorkflowContext(useWorkspaceStore.getState().agentChats[tab.id] || []),
           lastRun: lastWorkflowRunRef.current,
           candidates,
@@ -589,24 +586,10 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               jevFlowRecord(trace, { tabId: tab.id, workspaceRoot: useWorkspaceStore.getState().rootPath || undefined }),
             ),
           },
-          ask: askUser,
           announce: (line) => responseStreamRef.current?.progress(line),
         });
       }
       if (!isStreamingRef.current) return; // stopped while choosing
-      if (choice.type === "cancelled") {
-        responseStreamRef.current?.progress("↳ AUTO · Nothing was started.");
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        setStreamingLabel("Model is thinking…");
-        setAgentQuestions([]);
-        questionResolversRef.current.clear();
-        lastUserMessageIdRef.current = null;
-        lastConsoleMessageIdRef.current = null;
-        responseStreamRef.current = null;
-        saveChatHistory();
-        return;
-      }
       if (choice.type === "workflow") {
         try {
           workflowDefinition = await behaviorService.readWorkflow(choice.candidate.path);
@@ -778,6 +761,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           }));
         return targets.length > 0 ? { router, workflowName: String(workflowDefinition.name ?? workflowId), targets } : undefined;
       })();
+      // Every file this run changed, whichever tool changed it: a run that
+      // changed none leaves its Result behind as a Markdown report.
+      const changedThisRun = new Set<string>();
       const run = harness.run(
         "agent_chat",
         {
@@ -810,11 +796,17 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             definition: workflowDefinition,
             // A stage picks up the result the previous run left in this chat, or
             // the work a workflow finished before it handed over.
-            input: workflowInputFor(
-              messageToSend,
-              Boolean(workflowDefinition.input_schema),
-              workflowUsesContext(workflowDefinition) ? plan.context ?? priorWorkflowContext(chatHistory) : undefined,
-            ),
+            // A workflow that reads `/context` is given the earlier result there. One
+            // that only reads the request would otherwise see a bare follow-up and
+            // start from nothing, so the conversation goes behind its request.
+            input: workflowUsesContext(workflowDefinition)
+              ? workflowInputFor(messageToSend, Boolean(workflowDefinition.input_schema), plan.context ?? conversationResults(chatHistory))
+              : workflowInputFor(
+                workflowDefinition.input_schema
+                  ? messageToSend
+                  : withConversation(messageToSend, chatHistory.filter((m: any) => m.id !== userMessage.id), plan.context),
+                Boolean(workflowDefinition.input_schema),
+              ),
             checkpoint: workflowCheckpointRef.current,
           } : undefined,
         },
@@ -829,6 +821,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               scheduleTreeRefresh();
               break;
             case "files_changed":
+              event.paths.forEach((changed) => changedThisRun.add(changed));
               setModifiedFiles([...modifiedFilesRef.current, ...event.paths]);
               scheduleTreeRefresh();
               break;
@@ -963,7 +956,30 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             await refreshTree();
           }
 
-          const finalResponse = response || "Agent complete.";
+          // A workflow that only looked leaves its Result in a file to pick up
+          // later; one that changed files does not (the changes are the outcome).
+          // A run that handed over saves nothing: the next run continues from its
+          // work, which is already in the conversation.
+          let savedNote = "";
+          const report = workflowId && wsRootPath && !outcome.result.switchTo
+            ? workflowReportFor({
+              workflowName: String(workflowDefinition?.name ?? workflowId),
+              request: userText,
+              text: response,
+              changedFiles: [...changedThisRun, ...files],
+            })
+            : undefined;
+          if (report && wsRootPath) {
+            try {
+              await invoke("write_file_disk", { path: `${wsRootPath.replace(/[\\/]$/, "")}/${report.path}`, content: report.content });
+              savedNote = `\n\n_Result saved to \`${report.path}\`_`;
+              await refreshTree();
+            } catch (error) {
+              savedNote = `\n\n_The result could not be saved to \`${report.path}\`: ${String(error)}_`;
+            }
+          }
+
+          const finalResponse = (response || "Agent complete.") + savedNote;
           if (completedSubagents.length > 0) {
             // The completed response can contain each subagent's full result.
             // Keep the panel focused on status and its last few activity lines.
