@@ -31,7 +31,9 @@ async fn git_status_on_nonexistent_path_errors() {
 #[tokio::test]
 async fn git_status_on_non_repo_directory() {
     let dir = tempfile::TempDir::new().unwrap();
-    let result = git_status(dir.path().to_string_lossy().into_owned()).await.unwrap();
+    let result = git_status(dir.path().to_string_lossy().into_owned())
+        .await
+        .unwrap();
 
     assert!(!result.is_repo);
     assert_eq!(result.current_branch, "");
@@ -154,9 +156,16 @@ async fn git_get_commit_files_lists_files_for_a_root_commit() {
     let fx = GitFixture::init();
     let root_commit = fx.commit_file("a.txt", "one\n", "root commit");
 
-    let files = git_get_commit_files(fx.path_str(), root_commit).await.unwrap();
+    let files = git_get_commit_files(fx.path_str(), root_commit)
+        .await
+        .unwrap();
 
-    assert_eq!(files.len(), 1, "expected the root commit's added file to be listed, got: {:?}", files);
+    assert_eq!(
+        files.len(),
+        1,
+        "expected the root commit's added file to be listed, got: {:?}",
+        files
+    );
     assert_eq!(files[0].name, "a.txt");
     assert_eq!(files[0].status_type, "added");
 }
@@ -196,7 +205,11 @@ async fn git_commit_with_nothing_staged_returns_a_structured_git_error() {
     assert_eq!(err.operation, "git_commit");
     assert_eq!(err.repository, fx.path_str());
     assert_eq!(err.exit_code, Some(1));
-    assert!(err.message.contains("nothing to commit") || err.message.contains("nothing added"), "unexpected message: {}", err.message);
+    assert!(
+        err.message.contains("nothing to commit") || err.message.contains("nothing added"),
+        "unexpected message: {}",
+        err.message
+    );
 }
 
 #[tokio::test]
@@ -205,7 +218,10 @@ async fn git_init_on_an_unwritable_path_returns_a_structured_git_error() {
 
     let err = result.unwrap_err();
     assert_eq!(err.operation, "git_init");
-    assert_eq!(err.exit_code, None, "expected a spawn/cwd failure, not a git exit code");
+    assert_eq!(
+        err.exit_code, None,
+        "expected a spawn/cwd failure, not a git exit code"
+    );
 }
 
 #[tokio::test]
@@ -309,8 +325,14 @@ async fn discover_repository_resolves_a_linked_worktrees_git_file_correctly() {
     // git_dir must resolve to the REAL git dir under the main repo's
     // .git/worktrees/<name> -- not a literal ".git" path inside the
     // worktree itself, whose .git is a FILE, not a directory.
-    assert!(repo.git_dir.contains("worktrees"), "expected a worktrees-scoped git dir, got: {}", repo.git_dir);
-    assert!(!std::path::Path::new(&worktree.path_str()).join(".git").is_dir());
+    assert!(
+        repo.git_dir.contains("worktrees"),
+        "expected a worktrees-scoped git dir, got: {}",
+        repo.git_dir
+    );
+    assert!(!std::path::Path::new(&worktree.path_str())
+        .join(".git")
+        .is_dir());
 }
 
 #[tokio::test]
@@ -322,8 +344,12 @@ async fn discover_linked_worktrees_lists_the_main_worktree_and_its_linked_ones()
     let worktrees = discover_linked_worktrees(&main.path_str()).unwrap();
 
     assert_eq!(worktrees.len(), 2);
-    assert!(worktrees.iter().any(|w| w.kind == "workspace" && w.head.branch.as_deref() == Some("main")));
-    assert!(worktrees.iter().any(|w| w.kind == "worktree" && w.head.branch.as_deref() == Some("feature")));
+    assert!(worktrees
+        .iter()
+        .any(|w| w.kind == "workspace" && w.head.branch.as_deref() == Some("main")));
+    assert!(worktrees
+        .iter()
+        .any(|w| w.kind == "worktree" && w.head.branch.as_deref() == Some("feature")));
 }
 
 #[tokio::test]
@@ -406,14 +432,35 @@ async fn discover_submodules_finds_a_submodule_nested_inside_another_submodule()
     let outer = GitFixture::init();
     outer.commit_file("a.txt", "one\n", "outer initial commit");
     outer.add_submodule(std::path::Path::new(&middle.path_str()), "outer-sub");
-    outer.git_ok(&["-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive"]);
+    outer.git_ok(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+    ]);
     outer.git_ok(&["commit", "-m", "add outer-sub"]);
 
     let submodules = discover_submodules(&outer.path_str()).unwrap();
 
-    assert_eq!(submodules.len(), 2, "expected both outer-sub and outer-sub/inner: {:?}", submodules.iter().map(|s| &s.submodule_path).collect::<Vec<_>>());
-    let outer_sub = submodules.iter().find(|s| s.submodule_path.as_deref() == Some("outer-sub")).expect("outer-sub not found");
-    let inner_sub = submodules.iter().find(|s| s.submodule_path.as_deref() == Some("outer-sub/inner")).expect("nested inner submodule not found");
+    assert_eq!(
+        submodules.len(),
+        2,
+        "expected both outer-sub and outer-sub/inner: {:?}",
+        submodules
+            .iter()
+            .map(|s| &s.submodule_path)
+            .collect::<Vec<_>>()
+    );
+    let outer_sub = submodules
+        .iter()
+        .find(|s| s.submodule_path.as_deref() == Some("outer-sub"))
+        .expect("outer-sub not found");
+    let inner_sub = submodules
+        .iter()
+        .find(|s| s.submodule_path.as_deref() == Some("outer-sub/inner"))
+        .expect("nested inner submodule not found");
 
     let outer_repo = discover_repository(&outer.path_str()).unwrap();
     assert_eq!(outer_sub.parent_id, Some(outer_repo.id));
@@ -439,13 +486,28 @@ async fn discover_submodules_cannot_see_a_nested_submodule_of_an_uninitialized_o
     let outer = GitFixture::init();
     outer.commit_file("a.txt", "one\n", "outer initial commit");
     outer.add_submodule(std::path::Path::new(&middle.path_str()), "outer-sub");
-    outer.git_ok(&["-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive"]);
+    outer.git_ok(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "update",
+        "--init",
+        "--recursive",
+    ]);
     outer.git_ok(&["commit", "-m", "add outer-sub"]);
     outer.git_ok(&["submodule", "deinit", "-f", "outer-sub"]);
 
     let submodules = discover_submodules(&outer.path_str()).unwrap();
 
-    assert_eq!(submodules.len(), 1, "expected only outer-sub itself, not its nested inner: {:?}", submodules.iter().map(|s| &s.submodule_path).collect::<Vec<_>>());
+    assert_eq!(
+        submodules.len(),
+        1,
+        "expected only outer-sub itself, not its nested inner: {:?}",
+        submodules
+            .iter()
+            .map(|s| &s.submodule_path)
+            .collect::<Vec<_>>()
+    );
     assert_eq!(submodules[0].submodule_path.as_deref(), Some("outer-sub"));
     assert!(!submodules[0].initialized);
 }
@@ -533,7 +595,8 @@ fn validate_path_in_worktree_accepts_a_real_path_inside_the_root() {
     let file_path = root.path().join("a.txt");
     std::fs::write(&file_path, "hi").unwrap();
 
-    let result = validate_path_in_worktree(&root.path().to_string_lossy(), &file_path.to_string_lossy());
+    let result =
+        validate_path_in_worktree(&root.path().to_string_lossy(), &file_path.to_string_lossy());
 
     assert!(result.is_ok());
 }
@@ -548,17 +611,25 @@ fn validate_path_in_worktree_rejects_a_dot_dot_escape_that_strip_prefix_alone_wo
     // Confirms the exact vulnerability this commit closes: a plain
     // Path::strip_prefix accepts this (it only compares leading
     // components), but the escaping path resolves outside root.
-    let escaping_path = root.path().join("..").join(
-        outside.path().file_name().unwrap()
-    ).join("secret.txt");
+    let escaping_path = root
+        .path()
+        .join("..")
+        .join(outside.path().file_name().unwrap())
+        .join("secret.txt");
     assert!(
         escaping_path.strip_prefix(root.path()).is_ok(),
         "expected strip_prefix alone to (wrongly) accept this path, demonstrating the bug this commit fixes"
     );
 
-    let result = validate_path_in_worktree(&root.path().to_string_lossy(), &escaping_path.to_string_lossy());
+    let result = validate_path_in_worktree(
+        &root.path().to_string_lossy(),
+        &escaping_path.to_string_lossy(),
+    );
 
-    assert!(result.is_err(), "expected the ..-escaping path to be rejected");
+    assert!(
+        result.is_err(),
+        "expected the ..-escaping path to be rejected"
+    );
 }
 
 #[test]
@@ -574,9 +645,13 @@ fn validate_path_in_worktree_rejects_a_similarly_prefixed_sibling_directory() {
     let sibling_file = sibling.join("secret.txt");
     std::fs::write(&sibling_file, "not yours").unwrap();
 
-    let result = validate_path_in_worktree(&root.to_string_lossy(), &sibling_file.to_string_lossy());
+    let result =
+        validate_path_in_worktree(&root.to_string_lossy(), &sibling_file.to_string_lossy());
 
-    assert!(result.is_err(), "expected a similarly-prefixed sibling directory to be rejected");
+    assert!(
+        result.is_err(),
+        "expected a similarly-prefixed sibling directory to be rejected"
+    );
 }
 
 #[test]
@@ -585,9 +660,15 @@ fn validate_path_in_worktree_accepts_a_not_yet_existing_path_via_lexical_normali
     let not_yet_created = root.path().join("new-file.txt");
     assert!(!not_yet_created.exists());
 
-    let result = validate_path_in_worktree(&root.path().to_string_lossy(), &not_yet_created.to_string_lossy());
+    let result = validate_path_in_worktree(
+        &root.path().to_string_lossy(),
+        &not_yet_created.to_string_lossy(),
+    );
 
-    assert!(result.is_ok(), "expected a not-yet-existing path inside root to be accepted");
+    assert!(
+        result.is_ok(),
+        "expected a not-yet-existing path inside root to be accepted"
+    );
 }
 
 #[tokio::test]
@@ -602,9 +683,13 @@ async fn git_undo_last_rename_rejects_a_new_path_outside_the_worktree() {
         root.path().to_string_lossy().into_owned(),
         original_path.to_string_lossy().into_owned(),
         escaping_new_path.to_string_lossy().into_owned(),
-    ).await;
+    )
+    .await;
 
-    assert!(result.is_err(), "expected a new_path outside the worktree to be rejected");
+    assert!(
+        result.is_err(),
+        "expected a new_path outside the worktree to be rejected"
+    );
     // The file must NOT have been moved.
     assert!(escaping_new_path.exists());
     assert!(!original_path.exists());
@@ -616,7 +701,9 @@ async fn git_blame_works_normally_for_a_real_in_worktree_file() {
     fx.commit_file("a.txt", "one\ntwo\n", "initial commit");
 
     let file_path = std::path::Path::new(&fx.path_str()).join("a.txt");
-    let lines = git_blame(fx.path_str(), file_path.to_string_lossy().into_owned()).await.unwrap();
+    let lines = git_blame(fx.path_str(), file_path.to_string_lossy().into_owned())
+        .await
+        .unwrap();
 
     assert_eq!(lines.len(), 2);
 }
@@ -636,7 +723,10 @@ async fn discover_submodules_reports_a_clean_initialized_submodule() {
     let submodules = discover_submodules(&parent.path_str()).unwrap();
 
     let sub = &submodules[0];
-    let state = sub.submodule_state.as_ref().expect("expected a classified state for an initialized submodule");
+    let state = sub
+        .submodule_state
+        .as_ref()
+        .expect("expected a classified state for an initialized submodule");
     assert!(!state.changed_gitlink);
     assert!(!state.modified_worktree);
     assert!(!state.untracked_content);
@@ -662,24 +752,42 @@ async fn discover_submodules_reports_a_dirty_submodule_with_a_modified_parent_gi
     std::fs::write(submodule_dir.join("readme.md"), "committed change\n").unwrap();
     let commit_in_sub = std::process::Command::new("git")
         .args([
-            "-c", "user.name=Rusty Test",
-            "-c", "user.email=test@rusty.invalid",
-            "-c", "commit.gpgsign=false",
-            "commit", "-am", "change in sub",
+            "-c",
+            "user.name=Rusty Test",
+            "-c",
+            "user.email=test@rusty.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-am",
+            "change in sub",
         ])
         .current_dir(&submodule_dir)
         .output()
         .unwrap();
-    assert!(commit_in_sub.status.success(), "failed to commit inside the submodule: {}", String::from_utf8_lossy(&commit_in_sub.stderr));
+    assert!(
+        commit_in_sub.status.success(),
+        "failed to commit inside the submodule: {}",
+        String::from_utf8_lossy(&commit_in_sub.stderr)
+    );
     // Also leave the submodule's own working tree dirty on top of that.
     std::fs::write(submodule_dir.join("untracked.txt"), "new\n").unwrap();
 
     let submodules = discover_submodules(&parent.path_str()).unwrap();
 
     let sub = &submodules[0];
-    let state = sub.submodule_state.as_ref().expect("expected a classified state for an initialized submodule");
-    assert!(state.changed_gitlink, "expected the gitlink to be reported as changed");
-    assert!(state.untracked_content, "expected untracked content to be reported");
+    let state = sub
+        .submodule_state
+        .as_ref()
+        .expect("expected a classified state for an initialized submodule");
+    assert!(
+        state.changed_gitlink,
+        "expected the gitlink to be reported as changed"
+    );
+    assert!(
+        state.untracked_content,
+        "expected untracked content to be reported"
+    );
 }
 
 #[tokio::test]
@@ -695,7 +803,10 @@ async fn discover_submodules_reports_no_state_for_an_uninitialized_submodule() {
 
     let submodules = discover_submodules(&parent.path_str()).unwrap();
 
-    assert_eq!(submodules[0].submodule_state, None, "an uninitialized submodule has no working tree to classify");
+    assert_eq!(
+        submodules[0].submodule_state, None,
+        "an uninitialized submodule has no working tree to classify"
+    );
 }
 
 // ── PR 5a commit 12: remaining fixture matrix ────────────────────────────
@@ -707,7 +818,11 @@ async fn git_fetch_is_a_silent_noop_for_a_repository_without_a_remote() {
 
     let result = git_fetch(fx.path_str()).await;
 
-    assert!(result.is_ok(), "expected git_fetch to succeed silently with no remote configured, got: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "expected git_fetch to succeed silently with no remote configured, got: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
@@ -735,7 +850,11 @@ async fn git_push_sets_the_upstream_automatically_when_the_current_branch_has_no
 
     let result = git_push(fx.path_str(), "main".to_string()).await;
 
-    assert!(result.is_ok(), "expected git_push to recover via --set-upstream, got: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "expected git_push to recover via --set-upstream, got: {:?}",
+        result.err()
+    );
     // Confirm the upstream was actually recorded, not just that push
     // returned Ok for some unrelated reason.
     let upstream = fx.git_ok(&["rev-parse", "--abbrev-ref", "main@{upstream}"]);
@@ -761,7 +880,10 @@ async fn git_submodule_init_registers_locally_without_cloning_content() {
     // Registered locally (init doesn't fail/no-op), but NOT cloned --
     // the submodule discovery should still report it as uninitialized.
     let submodules = discover_submodules(&parent.path_str()).unwrap();
-    assert!(!submodules[0].initialized, "expected init alone to not clone the submodule's content");
+    assert!(
+        !submodules[0].initialized,
+        "expected init alone to not clone the submodule's content"
+    );
 }
 
 #[tokio::test]
@@ -777,10 +899,17 @@ async fn git_submodule_update_clones_a_never_initialized_submodule() {
 
     let result = git_submodule_update(parent.path_str(), "sub".to_string(), false).await;
 
-    assert!(result.is_ok(), "expected update --init to clone the submodule, got: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "expected update --init to clone the submodule, got: {:?}",
+        result.err()
+    );
     let submodules = discover_submodules(&parent.path_str()).unwrap();
     assert!(submodules[0].initialized);
-    assert!(std::path::Path::new(&parent.path_str()).join("sub").join("readme.md").exists());
+    assert!(std::path::Path::new(&parent.path_str())
+        .join("sub")
+        .join("readme.md")
+        .exists());
 }
 
 #[tokio::test]
@@ -801,9 +930,19 @@ async fn git_submodule_update_recursive_also_clones_nested_submodules() {
 
     let result = git_submodule_update(outer.path_str(), "outer-sub".to_string(), true).await;
 
-    assert!(result.is_ok(), "expected recursive update --init to succeed, got: {:?}", result.err());
-    let nested_leaf = std::path::Path::new(&outer.path_str()).join("outer-sub").join("inner").join("leaf.md");
-    assert!(nested_leaf.exists(), "expected --recursive to also clone the nested inner submodule");
+    assert!(
+        result.is_ok(),
+        "expected recursive update --init to succeed, got: {:?}",
+        result.err()
+    );
+    let nested_leaf = std::path::Path::new(&outer.path_str())
+        .join("outer-sub")
+        .join("inner")
+        .join("leaf.md");
+    assert!(
+        nested_leaf.exists(),
+        "expected --recursive to also clone the nested inner submodule"
+    );
 }
 
 #[tokio::test]
@@ -819,11 +958,18 @@ async fn git_submodule_sync_updates_the_local_url_after_gitmodules_changes() {
     // Simulate the submodule's URL moving: edit .gitmodules directly (as a
     // user would after relocating the upstream repository).
     let new_source = GitFixture::init();
-    new_source.commit_file("readme.md", "hi from new location\n", "new source initial commit");
-    parent.write(".gitmodules", &format!(
-        "[submodule \"sub\"]\n\tpath = sub\n\turl = {}\n",
-        new_source.path_str()
-    ));
+    new_source.commit_file(
+        "readme.md",
+        "hi from new location\n",
+        "new source initial commit",
+    );
+    parent.write(
+        ".gitmodules",
+        &format!(
+            "[submodule \"sub\"]\n\tpath = sub\n\turl = {}\n",
+            new_source.path_str()
+        ),
+    );
 
     let result = git_submodule_sync(parent.path_str(), "sub".to_string()).await;
 
@@ -849,10 +995,15 @@ async fn staging_a_submodules_changed_gitlink_reuses_git_stage_file() {
     std::fs::write(submodule_dir.join("readme.md"), "committed change\n").unwrap();
     let commit_in_sub = std::process::Command::new("git")
         .args([
-            "-c", "user.name=Rusty Test",
-            "-c", "user.email=test@rusty.invalid",
-            "-c", "commit.gpgsign=false",
-            "commit", "-am", "change in sub",
+            "-c",
+            "user.name=Rusty Test",
+            "-c",
+            "user.email=test@rusty.invalid",
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-am",
+            "change in sub",
         ])
         .current_dir(&submodule_dir)
         .output()
@@ -862,11 +1013,18 @@ async fn staging_a_submodules_changed_gitlink_reuses_git_stage_file() {
     let submodule_path_arg = submodule_dir.to_string_lossy().into_owned();
     let result = git_stage_file(parent.path_str(), submodule_path_arg).await;
 
-    assert!(result.is_ok(), "expected git_stage_file to stage the submodule's changed gitlink, got: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "expected git_stage_file to stage the submodule's changed gitlink, got: {:?}",
+        result.err()
+    );
     let status = git_status(parent.path_str()).await.unwrap();
     assert_eq!(status.staged.len(), 1);
     assert_eq!(status.staged[0].name, "sub");
-    assert!(status.unstaged.is_empty(), "expected the gitlink change to be fully staged, not split staged/unstaged");
+    assert!(
+        status.unstaged.is_empty(),
+        "expected the gitlink change to be fully staged, not split staged/unstaged"
+    );
 }
 
 #[test]
@@ -882,9 +1040,15 @@ fn workspace_discovery_finds_sibling_and_deep_repositories_without_a_root_repo()
     std::fs::create_dir_all(workspace.path().join("broken/.git")).unwrap();
     let repos = discover_workspace_repositories(&workspace.path().to_string_lossy()).unwrap();
     assert_eq!(repos.len(), 2, "{repos:?}");
-    assert!(repos.iter().any(|repo| repo.worktree_path.ends_with("services/api")));
-    assert!(repos.iter().any(|repo| repo.worktree_path.ends_with("infrastructure")));
-    assert!(repos.iter().all(|repo| repo.head.branch.as_deref() == Some("main")));
+    assert!(repos
+        .iter()
+        .any(|repo| repo.worktree_path.ends_with("services/api")));
+    assert!(repos
+        .iter()
+        .any(|repo| repo.worktree_path.ends_with("infrastructure")));
+    assert!(repos
+        .iter()
+        .all(|repo| repo.head.branch.as_deref() == Some("main")));
 }
 
 #[test]
@@ -894,7 +1058,11 @@ fn workspace_discovery_keeps_single_repo_and_empty_workspace_distinct() {
     assert_eq!(discovered.len(), 1);
     assert_eq!(discovered[0].head.mode, "unborn");
     let empty = tempfile::tempdir().unwrap();
-    assert!(discover_workspace_repositories(&empty.path().to_string_lossy()).unwrap().is_empty());
+    assert!(
+        discover_workspace_repositories(&empty.path().to_string_lossy())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -919,7 +1087,10 @@ fn workspace_discovery_preserves_submodule_metadata_without_duplicates() {
     repo.add_submodule(source.path(), "services/sub");
     let discovered = discover_workspace_repositories(&repo.path_str()).unwrap();
     assert_eq!(discovered.len(), 2);
-    let sub = discovered.iter().find(|repo| repo.kind == "submodule").unwrap();
+    let sub = discovered
+        .iter()
+        .find(|repo| repo.kind == "submodule")
+        .unwrap();
     assert_eq!(sub.parent_id.as_deref(), Some(discovered[0].id.as_str()));
     assert_eq!(sub.submodule_path.as_deref(), Some("services/sub"));
 }
@@ -929,7 +1100,11 @@ fn workspace_discovery_preserves_submodule_metadata_without_duplicates() {
 fn workspace_discovery_does_not_follow_symlink_cycles() {
     let workspace = tempfile::tempdir().unwrap();
     std::os::unix::fs::symlink(workspace.path(), workspace.path().join("loop")).unwrap();
-    assert!(discover_workspace_repositories(&workspace.path().to_string_lossy()).unwrap().is_empty());
+    assert!(
+        discover_workspace_repositories(&workspace.path().to_string_lossy())
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -941,7 +1116,13 @@ fn workspace_discovery_includes_ignored_nested_repos_and_keeps_real_detached_hea
     let child = workspace.path().join("services/api");
     std::fs::create_dir_all(child.parent().unwrap()).unwrap();
     workspace.git_ok(&["clone", &source.path_str(), &child.to_string_lossy()]);
-    workspace.git_ok(&["-C", &child.to_string_lossy(), "checkout", "--detach", "HEAD"]);
+    workspace.git_ok(&[
+        "-C",
+        &child.to_string_lossy(),
+        "checkout",
+        "--detach",
+        "HEAD",
+    ]);
     let discovered = discover_workspace_repositories(&workspace.path_str()).unwrap();
     assert_eq!(discovered.len(), 2);
     assert_eq!(discovered[0].head.branch.as_deref(), Some("main"));
@@ -959,12 +1140,24 @@ async fn creating_and_checking_out_a_branch_carries_uncommitted_work_along() {
     fx.write("c.txt", "untracked\n");
     let status_before = fx.git_ok(&["status", "--porcelain"]);
 
-    git_create_branch(fx.path_str(), "feature".to_string(), true).await.unwrap();
+    git_create_branch(fx.path_str(), "feature".to_string(), true)
+        .await
+        .unwrap();
 
-    assert_eq!(fx.git_ok(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(), "feature");
+    assert_eq!(
+        fx.git_ok(&["rev-parse", "--abbrev-ref", "HEAD"]).trim(),
+        "feature"
+    );
     assert_eq!(fx.git_ok(&["status", "--porcelain"]), status_before);
-    assert_eq!(fx.git_ok(&["stash", "list"]), "", "nothing may be stashed away");
-    assert_eq!(std::fs::read_to_string(fx.path().join("a.txt")).unwrap(), "unstaged edit\n");
+    assert_eq!(
+        fx.git_ok(&["stash", "list"]),
+        "",
+        "nothing may be stashed away"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "unstaged edit\n"
+    );
 }
 
 #[tokio::test]
@@ -975,15 +1168,21 @@ async fn deleting_an_unmerged_branch_is_refused_until_forced() {
     fx.commit_file("a.txt", "feature work\n", "unmerged commit");
     fx.checkout("main");
 
-    let refused = git_delete_branch(fx.path_str(), "feature".to_string(), false).await.unwrap_err();
+    let refused = git_delete_branch(fx.path_str(), "feature".to_string(), false)
+        .await
+        .unwrap_err();
     assert!(
         refused.message.contains("not fully merged"),
         "the frontend keys its force-delete prompt off this text: {}",
         refused.message
     );
-    assert!(fx.git_ok(&["branch", "--list", "feature"]).contains("feature"));
+    assert!(fx
+        .git_ok(&["branch", "--list", "feature"])
+        .contains("feature"));
 
-    git_delete_branch(fx.path_str(), "feature".to_string(), true).await.unwrap();
+    git_delete_branch(fx.path_str(), "feature".to_string(), true)
+        .await
+        .unwrap();
     assert_eq!(fx.git_ok(&["branch", "--list", "feature"]), "");
 }
 
@@ -993,7 +1192,9 @@ async fn deleting_a_merged_branch_succeeds_without_force() {
     fx.commit_file("a.txt", "one\n", "initial commit");
     fx.branch("done");
 
-    git_delete_branch(fx.path_str(), "done".to_string(), false).await.unwrap();
+    git_delete_branch(fx.path_str(), "done".to_string(), false)
+        .await
+        .unwrap();
 
     assert_eq!(fx.git_ok(&["branch", "--list", "done"]), "");
 }

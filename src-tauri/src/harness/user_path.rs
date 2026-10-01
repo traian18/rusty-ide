@@ -37,7 +37,10 @@ fn resolve() -> Option<String> {
         .iter()
         .filter(|_| !home.is_empty())
         .map(|rel| format!("{home}/{rel}"))
-        .chain(["/opt/homebrew/bin".to_string(), "/usr/local/bin".to_string()])
+        .chain([
+            "/opt/homebrew/bin".to_string(),
+            "/usr/local/bin".to_string(),
+        ])
         .collect();
 
     Some(merge_paths(&[

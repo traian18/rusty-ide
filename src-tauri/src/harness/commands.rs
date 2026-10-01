@@ -19,7 +19,9 @@ pub struct HarnessHello {
 }
 
 fn parse_session_id(value: &str) -> Result<harness_protocol::ids::SessionId, String> {
-    value.parse().map_err(|_| format!("invalid session id: {value}"))
+    value
+        .parse()
+        .map_err(|_| format!("invalid session id: {value}"))
 }
 
 #[tauri::command]
@@ -128,28 +130,39 @@ pub fn harness_host_execute_result(
     error: Option<harness_protocol::backend::ExecutionError>,
 ) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
-    let outcome: Result<harness_protocol::backend::ExecutionResult, harness_protocol::backend::ExecutionError> = if ok {
+    let outcome: Result<
+        harness_protocol::backend::ExecutionResult,
+        harness_protocol::backend::ExecutionError,
+    > = if ok {
         result.ok_or_else(|| harness_protocol::backend::ExecutionError::BackendError {
             message: "harness_host_execute_result: ok=true but no result given".to_string(),
             code: "HOST_EXECUTE_MISSING_RESULT".to_string(),
         })
     } else {
-        Err(error.unwrap_or_else(|| harness_protocol::backend::ExecutionError::BackendError {
-            message: "host execute call failed".to_string(),
-            code: "HOST_EXECUTE_FAILED".to_string(),
-        }))
+        Err(
+            error.unwrap_or_else(|| harness_protocol::backend::ExecutionError::BackendError {
+                message: "host execute call failed".to_string(),
+                code: "HOST_EXECUTE_FAILED".to_string(),
+            }),
+        )
     };
     state.host_execute_result(session_id, &call_id, outcome)
 }
 
 #[tauri::command]
-pub fn harness_snapshot(state: State<'_, HarnessState>, session_id: String) -> Result<SessionSnapshotWire, String> {
+pub fn harness_snapshot(
+    state: State<'_, HarnessState>,
+    session_id: String,
+) -> Result<SessionSnapshotWire, String> {
     let session_id = parse_session_id(&session_id)?;
     state.session_snapshot(session_id)
 }
 
 #[tauri::command]
-pub async fn harness_close_session(state: State<'_, HarnessState>, session_id: String) -> Result<(), String> {
+pub async fn harness_close_session(
+    state: State<'_, HarnessState>,
+    session_id: String,
+) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
     state.close_session(session_id).await
 }
@@ -189,27 +202,45 @@ pub async fn managed_auth_status(
 /// the existing sidecar-backed Copilot/Codex login cards' own
 /// polling UX.
 #[tauri::command]
-pub async fn managed_auth_start_login(app: tauri::AppHandle, state: State<'_, HarnessState>, provider: String) -> Result<(), String> {
+pub async fn managed_auth_start_login(
+    app: tauri::AppHandle,
+    state: State<'_, HarnessState>,
+    provider: String,
+) -> Result<(), String> {
     super::managed_auth::start_login(app, state.managed_auth.clone(), provider)
 }
 
 #[tauri::command]
-pub fn managed_auth_login_status(state: State<'_, HarnessState>, provider: String) -> super::managed_auth::LoginState {
+pub fn managed_auth_login_status(
+    state: State<'_, HarnessState>,
+    provider: String,
+) -> super::managed_auth::LoginState {
     state.managed_auth.get(&provider)
 }
 
 #[tauri::command]
-pub async fn managed_auth_logout(app: tauri::AppHandle, state: State<'_, HarnessState>, provider: String) -> Result<(), String> {
+pub async fn managed_auth_logout(
+    app: tauri::AppHandle,
+    state: State<'_, HarnessState>,
+    provider: String,
+) -> Result<(), String> {
     super::managed_auth::logout(&app, &state.managed_auth, &provider).await
 }
 
 #[tauri::command]
-pub async fn managed_auth_submit_code(state: State<'_, HarnessState>, provider: String, code: String) -> Result<(), String> {
+pub async fn managed_auth_submit_code(
+    state: State<'_, HarnessState>,
+    provider: String,
+    code: String,
+) -> Result<(), String> {
     state.managed_auth.send_input(&provider, code).await
 }
 
 #[tauri::command]
-pub fn managed_auth_cancel_login(state: State<'_, HarnessState>, provider: String) -> Result<(), String> {
+pub fn managed_auth_cancel_login(
+    state: State<'_, HarnessState>,
+    provider: String,
+) -> Result<(), String> {
     state.managed_auth.cancel_login(&provider);
     Ok(())
 }
@@ -218,7 +249,10 @@ pub fn managed_auth_cancel_login(state: State<'_, HarnessState>, provider: Strin
 /// vendored CLI -- see `managed_quota.rs`. Restores what the removed Node
 /// sidecar's `/llm/quota` route used to answer.
 #[tauri::command]
-pub async fn managed_auth_quota(app: tauri::AppHandle, provider: String) -> Result<super::managed_quota::ManagedQuota, String> {
+pub async fn managed_auth_quota(
+    app: tauri::AppHandle,
+    provider: String,
+) -> Result<super::managed_quota::ManagedQuota, String> {
     super::managed_quota::fetch_quota(&app, &provider).await
 }
 
@@ -251,10 +285,16 @@ pub struct McpTestResult {
 /// unsupported transport/auth kind is rejected client-side with a clear
 /// reason before this command is ever called).
 #[tauri::command]
-pub async fn mcp_test_connection(server: harness_protocol::mcp::McpServerSpec) -> Result<McpTestResult, String> {
+pub async fn mcp_test_connection(
+    server: harness_protocol::mcp::McpServerSpec,
+) -> Result<McpTestResult, String> {
     let config = mcp_config_from_spec(server);
     if let harness_engine::McpTransportConfig::Stdio { command, env, .. } = &config.transport {
-        let path = env.get("PATH").cloned().or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
+        let path = env
+            .get("PATH")
+            .cloned()
+            .or_else(|| std::env::var("PATH").ok())
+            .unwrap_or_default();
         if !super::user_path::resolves_on(command, &path) {
             return Err(format!(
                 "`{command}` was not found on your PATH. Install it, or set the server's command to the \
@@ -262,9 +302,17 @@ pub async fn mcp_test_connection(server: harness_protocol::mcp::McpServerSpec) -
             ));
         }
     }
-    let executors = harness_tool_mcp::connect_and_discover(&config).await.map_err(|error| error.to_string())?;
-    let tools: Vec<String> = executors.iter().map(|executor| executor.descriptor().name).collect();
-    Ok(McpTestResult { tool_count: tools.len(), tools })
+    let executors = harness_tool_mcp::connect_and_discover(&config)
+        .await
+        .map_err(|error| error.to_string())?;
+    let tools: Vec<String> = executors
+        .iter()
+        .map(|executor| executor.descriptor().name)
+        .collect();
+    Ok(McpTestResult {
+        tool_count: tools.len(),
+        tools,
+    })
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -281,16 +329,28 @@ pub struct WebFetchContent {
 pub async fn harness_web_fetch(url: String) -> Result<WebFetchContent, String> {
     let result = harness_tool_web::FetchTool::new()
         .execute(
-            harness_tools::ToolInput { arguments: serde_json::json!({ "url": url }) },
+            harness_tools::ToolInput {
+                arguments: serde_json::json!({ "url": url }),
+            },
             harness_tools::CancellationToken::new(),
         )
         .await
         .map_err(|error| format!("{error:?}"))?;
-    let field = |name: &str| result.output.get(name).and_then(|value| value.as_str()).unwrap_or_default().to_string();
+    let field = |name: &str| {
+        result
+            .output
+            .get(name)
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
     if result.is_error {
         return Err(field("error"));
     }
-    Ok(WebFetchContent { content_type: field("content_type"), content: field("content") })
+    Ok(WebFetchContent {
+        content_type: field("content_type"),
+        content: field("content"),
+    })
 }
 
 #[cfg(test)]
@@ -322,7 +382,10 @@ mod mcp_test_connection_tests {
             request_timeout_secs: None,
         };
         let result = mcp_test_connection(spec).await;
-        assert!(result.is_err(), "an unreachable stdio command should report a clear error, not succeed");
+        assert!(
+            result.is_err(),
+            "an unreachable stdio command should report a clear error, not succeed"
+        );
     }
 }
 
@@ -354,7 +417,9 @@ pub async fn harness_start_workflow(
     checkpoint: Option<harness_engine::OrchestrationRunState>,
 ) -> Result<String, String> {
     let session_id = parse_session_id(&session_id)?;
-    state.start_workflow_from_checkpoint(session_id, input, checkpoint).await
+    state
+        .start_workflow_from_checkpoint(session_id, input, checkpoint)
+        .await
 }
 
 #[tauri::command]
@@ -366,7 +431,9 @@ pub async fn harness_configure_step_execution(
 ) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
     let step_session = parse_session_id(&step_session_id)?;
-    state.configure_step_execution(session_id, step_session, params).await
+    state
+        .configure_step_execution(session_id, step_session, params)
+        .await
 }
 
 #[tauri::command]

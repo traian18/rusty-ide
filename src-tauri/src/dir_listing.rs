@@ -108,7 +108,10 @@ fn list_level(
     }
     // Sort before spending the budget so a truncated listing keeps the same
     // entries (directories, then early names) on every call.
-    found.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase())));
+    found.sort_by(|a, b| {
+        b.2.cmp(&a.2)
+            .then_with(|| a.1.to_lowercase().cmp(&b.1.to_lowercase()))
+    });
 
     let mut entries = Vec::new();
     for (entry, name, is_dir) in found {
@@ -141,7 +144,11 @@ fn list_level(
 }
 
 /// Lists `path` down `depth` levels (1 = its immediate entries).
-pub fn list_directory_sync(path: &Path, depth: usize, max_entries: usize) -> Result<DirListing, String> {
+pub fn list_directory_sync(
+    path: &Path,
+    depth: usize,
+    max_entries: usize,
+) -> Result<DirListing, String> {
     let meta = std::fs::metadata(path).map_err(|_| "Directory does not exist".to_string())?;
     if !meta.is_dir() {
         return Err("Not a directory".to_string());

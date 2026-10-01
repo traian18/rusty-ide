@@ -15,8 +15,8 @@
 
 #![allow(dead_code, unused_imports)]
 
-pub mod commands;
 mod bridge_event;
+pub mod commands;
 mod host_bridge;
 mod host_execution_backend;
 mod host_tools;
@@ -134,7 +134,11 @@ impl HarnessState {
         self.sessions.lock().unwrap().remove(session_id)
     }
 
-    pub fn with_session<T>(&self, session_id: &SessionId, f: impl FnOnce(&SessionEntry) -> T) -> Option<T> {
+    pub fn with_session<T>(
+        &self,
+        session_id: &SessionId,
+        f: impl FnOnce(&SessionEntry) -> T,
+    ) -> Option<T> {
         self.sessions.lock().unwrap().get(session_id).map(f)
     }
 }
@@ -200,7 +204,9 @@ mod tests {
             session_sequence: Some(session_sequence),
             timestamp: Timestamp::now(),
             visibility: EventVisibility::User,
-            event: AgentEvent::RunStarted { run_id: RunId::new() },
+            event: AgentEvent::RunStarted {
+                run_id: RunId::new(),
+            },
         }
     }
 
@@ -219,9 +225,14 @@ mod tests {
         let pump = spawn_event_pump(rx, outbound_tx);
 
         for expected in 1..=3 {
-            let event = outbound_rx.recv().await.expect("pump forwarded a buffered event");
+            let event = outbound_rx
+                .recv()
+                .await
+                .expect("pump forwarded a buffered event");
             match event {
-                BridgeEvent::Event(envelope) => assert_eq!(envelope.session_sequence, Some(expected)),
+                BridgeEvent::Event(envelope) => {
+                    assert_eq!(envelope.session_sequence, Some(expected))
+                }
                 other => panic!("expected Event, got {other:?}"),
             }
         }
@@ -246,8 +257,14 @@ mod tests {
 
         let event = outbound_rx.recv().await.expect("pump reports the lag");
         match event {
-            BridgeEvent::Gap { last_delivered_sequence, dropped } => {
-                assert_eq!(last_delivered_sequence, None, "nothing was delivered before the lag");
+            BridgeEvent::Gap {
+                last_delivered_sequence,
+                dropped,
+            } => {
+                assert_eq!(
+                    last_delivered_sequence, None,
+                    "nothing was delivered before the lag"
+                );
                 assert!(dropped > 0);
             }
             other => panic!("expected Gap, got {other:?}"),

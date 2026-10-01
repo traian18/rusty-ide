@@ -115,10 +115,17 @@ impl HostBridge {
     /// caller drains until the terminal message arrives; unlike `call`,
     /// this does not await anything itself -- the caller owns the
     /// cancellation race (see `HostExecutionBackend::execute`).
-    pub fn call_streaming(&self, tool: &str, input: Value) -> (String, mpsc::UnboundedReceiver<StreamMessage>) {
+    pub fn call_streaming(
+        &self,
+        tool: &str,
+        input: Value,
+    ) -> (String, mpsc::UnboundedReceiver<StreamMessage>) {
         let call_id = format!("host-{}", self.next_call_id.fetch_add(1, Ordering::Relaxed));
         let (tx, rx) = mpsc::unbounded_channel();
-        self.pending_streams.lock().unwrap().insert(call_id.clone(), tx);
+        self.pending_streams
+            .lock()
+            .unwrap()
+            .insert(call_id.clone(), tx);
         self.emit(BridgeEvent::HostExecuteCall {
             call_id: call_id.clone(),
             tool: tool.to_string(),
@@ -179,7 +186,11 @@ mod tests {
         let (bridge, mut outbound) = bridge();
         let cancel = CancellationToken::new();
 
-        let call_future = bridge.call("workspace.read", serde_json::json!({"path": "/a.txt"}), &cancel);
+        let call_future = bridge.call(
+            "workspace.read",
+            serde_json::json!({"path": "/a.txt"}),
+            &cancel,
+        );
         tokio::pin!(call_future);
 
         // Drive the call up to the point it has sent its HostToolCall and
@@ -190,7 +201,13 @@ mod tests {
             event = outbound.recv() => event.expect("bridge emitted a HostToolCall"),
             _ = &mut call_future => panic!("call resolved before it was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
+        let BridgeEvent::HostToolCall {
+            call_id,
+            tool,
+            input,
+            ..
+        } = event
+        else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "workspace.read");
@@ -263,7 +280,9 @@ mod tests {
         let bridge = HostBridge::new(tx);
         let cancel = CancellationToken::new();
 
-        let result = bridge.call("workspace.read", serde_json::json!({}), &cancel).await;
+        let result = bridge
+            .call("workspace.read", serde_json::json!({}), &cancel)
+            .await;
         assert_eq!(result, Err("host bridge is closed".to_string()));
     }
 }

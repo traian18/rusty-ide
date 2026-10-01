@@ -12,10 +12,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use harness_engine::{Harness, HarnessError, McpServerConfig, McpTransportConfig, SessionBuilder, SkillsConfig};
+use harness_engine::{
+    Harness, HarnessError, McpServerConfig, McpTransportConfig, SessionBuilder, SkillsConfig,
+};
 use harness_protocol::mcp::{McpServerSpec, McpTransportSpec};
 use harness_protocol::skills::SkillsSpec;
-use harness_tools::{CancellationToken, SimpleToolRegistry, ToolDescriptor, ToolError, ToolExecutor, ToolId, ToolInput, ToolResult};
+use harness_tools::{
+    CancellationToken, SimpleToolRegistry, ToolDescriptor, ToolError, ToolExecutor, ToolId,
+    ToolInput, ToolResult,
+};
 use serde::Deserialize;
 
 use super::host_bridge::HostBridge;
@@ -68,7 +73,11 @@ impl ToolExecutor for AgentSpawnDescriptorOnly {
         self.descriptor.clone()
     }
 
-    async fn execute(&self, _input: ToolInput, _cancel: CancellationToken) -> Result<ToolResult, ToolError> {
+    async fn execute(
+        &self,
+        _input: ToolInput,
+        _cancel: CancellationToken,
+    ) -> Result<ToolResult, ToolError> {
         eprintln!(
             "[recipe] agent_spawn reached AgentSpawnDescriptorOnly::execute() -- rusty-core's own \
              by-name interception in agent_runner.rs should have handled this call before it ever \
@@ -196,24 +205,35 @@ pub async fn build_session_builder(
         // fail here) and mutually exclusive with `.integration()` --
         // rusty-core's own pre-existing escape hatch
         // (`SessionBuilder::backend`), unmodified by this.
-        harness.session().backend(Arc::new(HostExecutionBackend::new(bridge.clone())))
+        harness
+            .session()
+            .backend(Arc::new(HostExecutionBackend::new(bridge.clone())))
     } else {
-        harness.session().integration(recipe.integration, recipe.integration_config)?
+        harness
+            .session()
+            .integration(recipe.integration, recipe.integration_config)?
     };
 
     if let Some(params) = recipe.execution_params {
         builder = builder.execution_params(params);
     }
     if let Some(prompt) = recipe.system_prompt {
-        builder = builder.context_provider(Arc::new(harness_context::StaticSystemPromptProvider::new(prompt)));
+        builder = builder.context_provider(Arc::new(
+            harness_context::StaticSystemPromptProvider::new(prompt),
+        ));
     }
     if let Some(spec) = recipe.skills {
         builder = builder.skills(skills_config_from_spec(spec, &recipe.workspace.root));
     }
 
     let workspace: Arc<dyn harness_workspace::Workspace> = match recipe.workspace.binding {
-        WorkspaceBinding::Host => Arc::new(HostWorkspace::new(recipe.workspace.root.clone(), bridge.clone())),
-        WorkspaceBinding::Disk => Arc::new(harness_workspace::FsWorkspace::new(recipe.workspace.root.clone())),
+        WorkspaceBinding::Host => Arc::new(HostWorkspace::new(
+            recipe.workspace.root.clone(),
+            bridge.clone(),
+        )),
+        WorkspaceBinding::Disk => Arc::new(harness_workspace::FsWorkspace::new(
+            recipe.workspace.root.clone(),
+        )),
     };
     builder = builder.workspace(workspace);
     // Behavior profiles live with the project. Opening a folder in the IDE is
@@ -256,7 +276,11 @@ pub async fn build_session_builder(
     if let Some(policy) = recipe.execution_policy {
         builder = builder.execution_policy(policy);
     }
-    register_optional_builtin_tools(&registry, recipe.enable_web_fetch, recipe.enable_agent_spawn);
+    register_optional_builtin_tools(
+        &registry,
+        recipe.enable_web_fetch,
+        recipe.enable_agent_spawn,
+    );
 
     builder = builder.tools(Arc::new(registry));
 
@@ -265,7 +289,11 @@ pub async fn build_session_builder(
 
 /// Registers optional built-ins. The harness applies the execution policy
 /// to these descriptors before advertising or executing them.
-fn register_optional_builtin_tools(registry: &SimpleToolRegistry, enable_web_fetch: bool, enable_agent_spawn: bool) {
+fn register_optional_builtin_tools(
+    registry: &SimpleToolRegistry,
+    enable_web_fetch: bool,
+    enable_agent_spawn: bool,
+) {
     if enable_web_fetch {
         let _ = registry.register_tool(Arc::new(harness_tool_web::FetchTool::new()));
     }
@@ -286,24 +314,40 @@ fn register_optional_builtin_tools(registry: &SimpleToolRegistry, enable_web_fet
 /// where the same interpolation had no environment to resolve against.
 pub(crate) fn mcp_config_from_spec(spec: McpServerSpec) -> McpServerConfig {
     let transport = match spec.resolve_transport() {
-        McpTransportSpec::Stdio { command, args, mut env, cwd } => {
+        McpTransportSpec::Stdio {
+            command,
+            args,
+            mut env,
+            cwd,
+        } => {
             // Setting PATH on the child also changes where `command` itself is
             // looked up, so this is what makes `uvx`/`npx`/`docker` spawnable
             // from a Finder-launched app.
             if let Some(path) = super::user_path::user_path() {
-                env.entry("PATH".to_string()).or_insert_with(|| path.to_string());
+                env.entry("PATH".to_string())
+                    .or_insert_with(|| path.to_string());
             }
-            McpTransportConfig::Stdio { command, args, env, cwd }
+            McpTransportConfig::Stdio {
+                command,
+                args,
+                env,
+                cwd,
+            }
         }
         McpTransportSpec::Http { url, headers } => McpTransportConfig::Http {
             url,
-            headers: headers.into_iter().map(|(k, v)| (k, interpolate_env_vars(&v))).collect(),
+            headers: headers
+                .into_iter()
+                .map(|(k, v)| (k, interpolate_env_vars(&v)))
+                .collect(),
         },
     };
     McpServerConfig {
         name: spec.name,
         transport,
-        request_timeout: spec.request_timeout_secs.map(std::time::Duration::from_secs),
+        request_timeout: spec
+            .request_timeout_secs
+            .map(std::time::Duration::from_secs),
     }
 }
 
@@ -334,7 +378,9 @@ fn interpolate_env_vars(input: &str) -> String {
 /// copy on the spec itself.
 fn skills_config_from_spec(spec: SkillsSpec, workspace_root: &std::path::Path) -> SkillsConfig {
     SkillsConfig {
-        workspace_root: spec.include_workspace_dir.then(|| workspace_root.to_path_buf()),
+        workspace_root: spec
+            .include_workspace_dir
+            .then(|| workspace_root.to_path_buf()),
         include_user_dir: spec.include_user_dir,
         extra_roots: spec.roots,
     }
@@ -384,8 +430,14 @@ mod tests {
             .into_iter()
             .find(|d| d.id.as_str() == harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME)
             .expect("agent_spawn should be registered");
-        assert_eq!(descriptor.name, harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME);
-        assert!(descriptor.input_schema.get("properties").is_some(), "should carry a real input schema, not a placeholder");
+        assert_eq!(
+            descriptor.name,
+            harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME
+        );
+        assert!(
+            descriptor.input_schema.get("properties").is_some(),
+            "should carry a real input schema, not a placeholder"
+        );
     }
 
     #[test]
@@ -397,14 +449,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn agent_spawn_descriptor_only_executor_returns_an_internal_error_rather_than_panicking() {
+    async fn agent_spawn_descriptor_only_executor_returns_an_internal_error_rather_than_panicking()
+    {
         // Exercises the "should never actually run" execute() body directly
         // -- proves it fails loudly (an infrastructure error) instead of
         // panicking if rusty-core's own by-name interception in
         // agent_runner.rs is ever bypassed or removed upstream.
         let executor = AgentSpawnDescriptorOnly::new();
         let result = executor
-            .execute(ToolInput { arguments: serde_json::json!({}) }, CancellationToken::new())
+            .execute(
+                ToolInput {
+                    arguments: serde_json::json!({}),
+                },
+                CancellationToken::new(),
+            )
             .await;
         assert!(matches!(result, Err(ToolError::Internal)));
     }
@@ -413,19 +471,28 @@ mod tests {
     fn interpolate_env_vars_substitutes_a_set_variable() {
         // SAFETY: test-only, single-threaded within this test's own scope.
         unsafe { std::env::set_var("RUSTY_TEST_MCP_INTERP_VAR", "shh-secret") };
-        assert_eq!(interpolate_env_vars("Bearer ${RUSTY_TEST_MCP_INTERP_VAR}"), "Bearer shh-secret");
+        assert_eq!(
+            interpolate_env_vars("Bearer ${RUSTY_TEST_MCP_INTERP_VAR}"),
+            "Bearer shh-secret"
+        );
         unsafe { std::env::remove_var("RUSTY_TEST_MCP_INTERP_VAR") };
     }
 
     #[test]
     fn interpolate_env_vars_leaves_plain_text_untouched() {
-        assert_eq!(interpolate_env_vars("no placeholders here"), "no placeholders here");
+        assert_eq!(
+            interpolate_env_vars("no placeholders here"),
+            "no placeholders here"
+        );
     }
 
     #[test]
     fn interpolate_env_vars_substitutes_an_unset_variable_with_empty_string() {
         unsafe { std::env::remove_var("RUSTY_TEST_MCP_INTERP_VAR_UNSET") };
-        assert_eq!(interpolate_env_vars("x${RUSTY_TEST_MCP_INTERP_VAR_UNSET}y"), "xy");
+        assert_eq!(
+            interpolate_env_vars("x${RUSTY_TEST_MCP_INTERP_VAR_UNSET}y"),
+            "xy"
+        );
     }
 
     #[test]

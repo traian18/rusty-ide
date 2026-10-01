@@ -9,7 +9,14 @@ use tauri::Emitter;
 /// anyway. Filtering here (rather than only in read_dir_recursive) is what
 /// keeps something like a `.git` internal write or a `node_modules` install
 /// from flooding the frontend with refresh events it would just throw away.
-const IGNORED_DIR_NAMES: [&str; 6] = ["node_modules", ".git", "target", "dist", ".vscode", ".gemini"];
+const IGNORED_DIR_NAMES: [&str; 6] = [
+    "node_modules",
+    ".git",
+    "target",
+    "dist",
+    ".vscode",
+    ".gemini",
+];
 
 fn path_is_ignored(path: &Path) -> bool {
     path.components().any(|component| {
@@ -90,7 +97,9 @@ pub async fn watch_workspace(
 /// Stops watching, if anything is currently watched. Dropping the
 /// `RecommendedWatcher` is what actually tears down the OS-level watch.
 #[tauri::command]
-pub async fn unwatch_workspace(state: tauri::State<'_, WorkspaceWatcherState>) -> Result<(), String> {
+pub async fn unwatch_workspace(
+    state: tauri::State<'_, WorkspaceWatcherState>,
+) -> Result<(), String> {
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     *guard = None;
     Ok(())
@@ -103,7 +112,9 @@ mod tests {
 
     #[test]
     fn a_path_under_node_modules_is_ignored() {
-        assert!(path_is_ignored(Path::new("/repo/node_modules/pkg/index.js")));
+        assert!(path_is_ignored(Path::new(
+            "/repo/node_modules/pkg/index.js"
+        )));
     }
 
     #[test]
@@ -113,7 +124,9 @@ mod tests {
 
     #[test]
     fn a_path_under_target_is_ignored() {
-        assert!(path_is_ignored(Path::new("/repo/src-tauri/target/debug/foo")));
+        assert!(path_is_ignored(Path::new(
+            "/repo/src-tauri/target/debug/foo"
+        )));
     }
 
     #[test]

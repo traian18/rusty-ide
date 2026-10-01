@@ -89,7 +89,11 @@ impl UsageTotals {
         self.reasoning += sample.reasoning.unwrap_or(0.0);
         // Mirrors usageTracking.ts's own fallback: `sample.totalTokens ||
         // (sample.input || 0) + (sample.output || 0)`.
-        self.total_tokens += if sample.total_tokens != 0.0 { sample.total_tokens } else { sample.input + sample.output };
+        self.total_tokens += if sample.total_tokens != 0.0 {
+            sample.total_tokens
+        } else {
+            sample.input + sample.output
+        };
         if new_request {
             self.calls += 1;
         }
@@ -169,7 +173,9 @@ pub async fn record_usage_with_state(
 ) -> Result<(), String> {
     let _guard = state.write_lock.lock().await;
 
-    let metrics_root = PathBuf::from(&workspace_root).join(".rusty").join("metrics");
+    let metrics_root = PathBuf::from(&workspace_root)
+        .join(".rusty")
+        .join("metrics");
     let events_dir = metrics_root.join("events");
     let summary_path = metrics_root.join("summary.json");
 
@@ -192,7 +198,9 @@ pub async fn record_usage_with_state(
         "totalTokens": entry.usage.total_tokens,
     });
 
-    fs::create_dir_all(&events_dir).await.map_err(|error| format!("failed to create metrics events dir: {error}"))?;
+    fs::create_dir_all(&events_dir)
+        .await
+        .map_err(|error| format!("failed to create metrics events dir: {error}"))?;
     let gitignore = metrics_root.join(".gitignore");
     if fs::metadata(&gitignore).await.is_err() {
         let _ = fs::write(&gitignore, "*\n").await;
@@ -228,9 +236,15 @@ pub async fn record_usage_with_state(
     write_summary(&summary_path, &summary).await
 }
 
-async fn write_summary(summary_path: &std::path::Path, summary: &UsageSummary) -> Result<(), String> {
-    let serialized = serde_json::to_string_pretty(summary).map_err(|error| format!("failed to serialize usage summary: {error}"))?;
-    fs::write(summary_path, serialized).await.map_err(|error| format!("failed to write usage summary: {error}"))?;
+async fn write_summary(
+    summary_path: &std::path::Path,
+    summary: &UsageSummary,
+) -> Result<(), String> {
+    let serialized = serde_json::to_string_pretty(summary)
+        .map_err(|error| format!("failed to serialize usage summary: {error}"))?;
+    fs::write(summary_path, serialized)
+        .await
+        .map_err(|error| format!("failed to write usage summary: {error}"))?;
     set_owner_only_permissions(summary_path).await;
     Ok(())
 }
@@ -247,14 +261,26 @@ pub async fn reset_usage_day(
     reset_usage_day_with_state(&state, workspace_root, day).await
 }
 
-pub async fn reset_usage_day_with_state(state: &UsageTrackingState, workspace_root: String, day: String) -> Result<(), String> {
+pub async fn reset_usage_day_with_state(
+    state: &UsageTrackingState,
+    workspace_root: String,
+    day: String,
+) -> Result<(), String> {
     let valid_day = day.len() == 10
-        && day.chars().enumerate().all(|(index, c)| if index == 4 || index == 7 { c == '-' } else { c.is_ascii_digit() });
+        && day.chars().enumerate().all(|(index, c)| {
+            if index == 4 || index == 7 {
+                c == '-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
     if !valid_day {
         return Err(format!("invalid day {day:?}; expected YYYY-MM-DD"));
     }
     let _guard = state.write_lock.lock().await;
-    let metrics_root = PathBuf::from(&workspace_root).join(".rusty").join("metrics");
+    let metrics_root = PathBuf::from(&workspace_root)
+        .join(".rusty")
+        .join("metrics");
     let summary_path = metrics_root.join("summary.json");
     let mut summary: UsageSummary = match fs::read_to_string(&summary_path).await {
         Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
@@ -286,7 +312,14 @@ mod tests {
     use super::*;
 
     fn sample(total: f64) -> TokenUsageSample {
-        TokenUsageSample { input: total / 2.0, output: total / 2.0, cache_read: 0.0, cache_write: 0.0, reasoning: None, total_tokens: total }
+        TokenUsageSample {
+            input: total / 2.0,
+            output: total / 2.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            reasoning: None,
+            total_tokens: total,
+        }
     }
 
     fn entry(model: &str, total: f64) -> UsageRecordInput {
@@ -301,7 +334,11 @@ mod tests {
         }
     }
 
-async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, input: UsageRecordInput) {
+    async fn record_directly(
+        state: &UsageTrackingState,
+        root: &std::path::Path,
+        input: UsageRecordInput,
+    ) {
         record_usage_with_state(state, root.to_string_lossy().to_string(), input)
             .await
             .expect("record_usage_with_state should succeed");
@@ -353,7 +390,10 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         record_directly(&state, dir.path(), entry("claude-opus", 50.0)).await;
 
         let today = day_key(&crate::chrono_now_iso8601());
-        let events_path = dir.path().join(".rusty/metrics/events").join(format!("usage-{today}.jsonl"));
+        let events_path = dir
+            .path()
+            .join(".rusty/metrics/events")
+            .join(format!("usage-{today}.jsonl"));
         let raw = tokio::fs::read_to_string(&events_path).await.unwrap();
         let lines: Vec<&str> = raw.lines().collect();
         assert_eq!(lines.len(), 2);
@@ -367,7 +407,14 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         let dir = tempfile::tempdir().unwrap();
         let state = UsageTrackingState::default();
         let mut input = entry("claude-opus", 0.0);
-        input.usage = TokenUsageSample { input: 40.0, output: 60.0, cache_read: 0.0, cache_write: 0.0, reasoning: None, total_tokens: 0.0 };
+        input.usage = TokenUsageSample {
+            input: 40.0,
+            output: 60.0,
+            cache_read: 0.0,
+            cache_write: 0.0,
+            reasoning: None,
+            total_tokens: 0.0,
+        };
         record_directly(&state, dir.path(), input).await;
 
         let summary_path = dir.path().join(".rusty/metrics/summary.json");
@@ -385,13 +432,22 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         record_directly(&state, dir.path(), input.clone()).await;
         record_directly(&state, dir.path(), input).await;
 
-        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json"))
+            .await
+            .unwrap();
         let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
         assert_eq!(summary.all_time.total.reasoning, 50.0);
 
         let today = day_key(&crate::chrono_now_iso8601());
-        let events = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/events").join(format!("usage-{today}.jsonl"))).await.unwrap();
-        let first: serde_json::Value = serde_json::from_str(events.lines().next().unwrap()).unwrap();
+        let events = tokio::fs::read_to_string(
+            dir.path()
+                .join(".rusty/metrics/events")
+                .join(format!("usage-{today}.jsonl")),
+        )
+        .await
+        .unwrap();
+        let first: serde_json::Value =
+            serde_json::from_str(events.lines().next().unwrap()).unwrap();
         assert_eq!(first["source"], "rusty");
         assert_eq!(first["reasoning"], 25.0);
         assert!(dir.path().join(".rusty/metrics/.gitignore").exists());
@@ -406,7 +462,9 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         continuation.new_request = false;
         record_directly(&state, dir.path(), continuation).await;
 
-        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json"))
+            .await
+            .unwrap();
         let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
         assert_eq!(summary.all_time.total.total_tokens, 120.0);
         assert_eq!(summary.all_time.total.calls, 1);
@@ -430,21 +488,37 @@ async fn record_directly(state: &UsageTrackingState, root: &std::path::Path, inp
         let today = day_key(&crate::chrono_now_iso8601());
         let root = dir.path().to_string_lossy().to_string();
 
-        reset_usage_day_with_state(&state, root.clone(), today.clone()).await.unwrap();
+        reset_usage_day_with_state(&state, root.clone(), today.clone())
+            .await
+            .unwrap();
 
-        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json"))
+            .await
+            .unwrap();
         let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
         assert!(!summary.by_day.contains_key(&today));
         assert_eq!(summary.all_time.total.total_tokens, 100.0);
-        let events = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/events").join(format!("usage-{today}.jsonl"))).await.unwrap();
+        let events = tokio::fs::read_to_string(
+            dir.path()
+                .join(".rusty/metrics/events")
+                .join(format!("usage-{today}.jsonl")),
+        )
+        .await
+        .unwrap();
         assert!(events.lines().last().unwrap().contains("\"day_reset\""));
 
         // Usage after the reset starts the day from zero.
         record_directly(&state, dir.path(), entry("claude-opus", 7.0)).await;
-        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json")).await.unwrap();
+        let raw = tokio::fs::read_to_string(dir.path().join(".rusty/metrics/summary.json"))
+            .await
+            .unwrap();
         let summary: UsageSummary = serde_json::from_str(&raw).unwrap();
         assert_eq!(summary.by_day[&today].total.total_tokens, 7.0);
 
-        assert!(reset_usage_day_with_state(&state, root, "../../etc".to_string()).await.is_err());
+        assert!(
+            reset_usage_day_with_state(&state, root, "../../etc".to_string())
+                .await
+                .is_err()
+        );
     }
 }

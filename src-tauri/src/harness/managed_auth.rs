@@ -140,7 +140,10 @@ impl ManagedAuthState {
         if tasks.get(provider).is_some_and(|(id, _)| *id == attempt) {
             tasks.remove(provider);
         }
-        let mut inputs = self.inputs.lock().expect("managed auth input mutex poisoned");
+        let mut inputs = self
+            .inputs
+            .lock()
+            .expect("managed auth input mutex poisoned");
         if inputs.get(provider).is_some_and(|(id, _)| *id == attempt) {
             inputs.remove(provider);
         }
@@ -151,7 +154,10 @@ impl ManagedAuthState {
         if let Some((_, handle)) = tasks.remove(provider) {
             handle.abort();
         }
-        let mut inputs = self.inputs.lock().expect("managed auth input mutex poisoned");
+        let mut inputs = self
+            .inputs
+            .lock()
+            .expect("managed auth input mutex poisoned");
         inputs.remove(provider);
         self.set(
             provider,
@@ -165,7 +171,10 @@ impl ManagedAuthState {
 
     pub async fn send_input(&self, provider: &str, input: String) -> Result<(), String> {
         let sender = {
-            let inputs = self.inputs.lock().expect("managed auth input mutex poisoned");
+            let inputs = self
+                .inputs
+                .lock()
+                .expect("managed auth input mutex poisoned");
             inputs.get(provider).map(|(_, tx)| tx.clone())
         };
         match sender {
@@ -173,7 +182,9 @@ impl ManagedAuthState {
                 .send(input)
                 .await
                 .map_err(|e| format!("Failed to send input to {provider} login process: {e}")),
-            None => Err(format!("No active login process waiting for input for {provider}")),
+            None => Err(format!(
+                "No active login process waiting for input for {provider}"
+            )),
         }
     }
 
@@ -196,11 +207,8 @@ impl ManagedAuthState {
 }
 
 fn binary_or_error(app: &AppHandle, provider: &str) -> Result<PathBuf, String> {
-    resolve_managed_binary(app, provider).ok_or_else(|| {
-        format!(
-            "The {provider} runtime is not installed. Sign in to download it."
-        )
-    })
+    resolve_managed_binary(app, provider)
+        .ok_or_else(|| format!("The {provider} runtime is not installed. Sign in to download it."))
 }
 
 async fn run_to_completion(binary: &PathBuf, args: &[&str]) -> Result<(bool, String), String> {
@@ -446,7 +454,12 @@ fn silent_exit_message(
 fn login_args(provider: &str) -> Result<Vec<&'static str>, String> {
     match provider {
         "codex" => Ok(vec!["login"]),
-        "github-copilot" => Ok(vec!["login", "--device-code", "--host", "https://github.com"]),
+        "github-copilot" => Ok(vec![
+            "login",
+            "--device-code",
+            "--host",
+            "https://github.com",
+        ]),
         _ => Err(format!("unknown managed-auth provider: {provider}")),
     }
 }
@@ -499,7 +512,8 @@ pub fn start_login(
             message: if resolve_managed_binary(&app, &provider).is_some() {
                 "Starting login...".into()
             } else {
-                "Downloading and installing the integration runtime. This may take a few minutes...".into()
+                "Downloading and installing the integration runtime. This may take a few minutes..."
+                    .into()
             },
             ..LoginState::default()
         },
@@ -517,16 +531,26 @@ pub fn start_login(
         let binary = match ensure_managed_binary(&app, &provider).await {
             Ok(binary) => binary,
             Err(message) => {
-                state.set(&provider, LoginState {
-                    authenticated: Some(false), message, ..LoginState::default()
-                });
+                state.set(
+                    &provider,
+                    LoginState {
+                        authenticated: Some(false),
+                        message,
+                        ..LoginState::default()
+                    },
+                );
                 state.clear_task(&provider, attempt);
                 return;
             }
         };
-        state.set(&provider, LoginState {
-            in_progress: true, message: "Starting login...".into(), ..LoginState::default()
-        });
+        state.set(
+            &provider,
+            LoginState {
+                in_progress: true,
+                message: "Starting login...".into(),
+                ..LoginState::default()
+            },
+        );
         let mut command = Command::new(&binary);
         command
             .args(&args)
@@ -983,7 +1007,14 @@ mod tests {
     #[test]
     fn managed_auth_state_cancel_login_cleans_up_and_resets_state() {
         let state = ManagedAuthState::new();
-        state.set("codex", LoginState { in_progress: true, message: "Signing in...".to_string(), ..LoginState::default() });
+        state.set(
+            "codex",
+            LoginState {
+                in_progress: true,
+                message: "Signing in...".to_string(),
+                ..LoginState::default()
+            },
+        );
         let (tx, _rx) = tokio::sync::mpsc::channel::<String>(16);
         state.replace_input("codex", 1, tx);
 

@@ -226,12 +226,20 @@ fn relative_to_root(root_dir: &str, file_path: &str, operation: &str) -> Result<
 }
 
 fn current_branch_name(root_dir: &str) -> Result<String, GitError> {
-    let output = run_git(root_dir, "git_smart_checkout_branch", &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    let output = run_git(
+        root_dir,
+        "git_smart_checkout_branch",
+        &["rev-parse", "--abbrev-ref", "HEAD"],
+    )?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 fn working_tree_is_dirty(root_dir: &str) -> Result<bool, GitError> {
-    let output = run_git(root_dir, "git_smart_checkout_branch", &["status", "--porcelain", "-u"])?;
+    let output = run_git(
+        root_dir,
+        "git_smart_checkout_branch",
+        &["status", "--porcelain", "-u"],
+    )?;
     Ok(!output.stdout.is_empty())
 }
 
@@ -244,12 +252,20 @@ fn stash_current_branch(root_dir: &str, branch: &str) -> Result<bool, GitError> 
         return Ok(false);
     }
     let marker = rusty_stash_marker(branch);
-    run_git(root_dir, "git_smart_checkout_branch", &["stash", "push", "--include-untracked", "-m", &marker])?;
+    run_git(
+        root_dir,
+        "git_smart_checkout_branch",
+        &["stash", "push", "--include-untracked", "-m", &marker],
+    )?;
     Ok(true)
 }
 
 fn rusty_stash_ref_for_branch(root_dir: &str, branch: &str) -> Result<Option<String>, GitError> {
-    let output = run_git(root_dir, "git_smart_checkout_branch", &["stash", "list", "--format=%gd%x09%s"])?;
+    let output = run_git(
+        root_dir,
+        "git_smart_checkout_branch",
+        &["stash", "list", "--format=%gd%x09%s"],
+    )?;
     let marker = rusty_stash_marker(branch);
     for line in String::from_utf8_lossy(&output.stdout).lines() {
         if let Some((stash_ref, subject)) = line.split_once('\t') {
@@ -297,7 +313,12 @@ fn checkout_branch(root_dir: &str, branch_name: &str) -> Result<(), GitError> {
     let args: Vec<&str> = if branch_name.starts_with("origin/") {
         let local_name = branch_name.strip_prefix("origin/").unwrap_or(branch_name);
         let local_exists = Command::new("git")
-            .args(["show-ref", "--verify", "--quiet", &format!("refs/heads/{}", local_name)])
+            .args([
+                "show-ref",
+                "--verify",
+                "--quiet",
+                &format!("refs/heads/{}", local_name),
+            ])
             .current_dir(root_dir)
             .output()
             .map(|o| o.status.success())
@@ -320,7 +341,7 @@ fn check_is_git_repo(root_dir: &str) -> bool {
         .args(["rev-parse", "--is-inside-work-tree"])
         .current_dir(root_dir)
         .output();
-    
+
     match output {
         Ok(out) => out.status.success(),
         Err(_) => false,
@@ -358,7 +379,7 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
         .current_dir(&root_dir)
         .output();
-        
+
     let mut current_branch = String::new();
     if let Ok(out) = branch_output {
         if out.status.success() {
@@ -528,7 +549,11 @@ pub async fn git_unstage_file(root_dir: String, file_path: String) -> Result<(),
     if has_head {
         run_git(&root_dir, "git_unstage_file", &["reset", "HEAD", &relative])?;
     } else {
-        run_git(&root_dir, "git_unstage_file", &["rm", "--cached", "-r", "--ignore-unmatch", &relative])?;
+        run_git(
+            &root_dir,
+            "git_unstage_file",
+            &["rm", "--cached", "-r", "--ignore-unmatch", &relative],
+        )?;
     }
     Ok(())
 }
@@ -576,7 +601,11 @@ pub async fn git_add_to_gitignore(root_dir: String, file_path: String) -> Result
         .unwrap_or(false);
 
     if is_tracked {
-        run_git(&root_dir, "git_add_to_gitignore", &["rm", "--cached", "-r", "--ignore-unmatch", &relative])?;
+        run_git(
+            &root_dir,
+            "git_add_to_gitignore",
+            &["rm", "--cached", "-r", "--ignore-unmatch", &relative],
+        )?;
     }
 
     Ok(())
@@ -615,12 +644,13 @@ pub async fn git_discard_changes(root_dir: String, file_path: String) -> Result<
         if !restore_success {
             // Delete untracked files
             let path_buf = PathBuf::from(&file_path);
-            if path_buf.exists() && !Command::new("git")
-                .args(["ls-files", "--error-unmatch", &relative])
-                .current_dir(&root_dir)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
+            if path_buf.exists()
+                && !Command::new("git")
+                    .args(["ls-files", "--error-unmatch", &relative])
+                    .current_dir(&root_dir)
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false)
             {
                 std::fs::remove_file(path_buf).map_err(|e| GitError {
                     operation: "git_discard_changes".to_string(),
@@ -680,7 +710,11 @@ pub async fn git_get_head_content(root_dir: String, file_path: String) -> Result
 /// Returns their short names (e.g., "main", "feature-xyz").
 #[tauri::command]
 pub async fn git_get_branches(root_dir: String) -> Result<Vec<String>, GitError> {
-    let output = run_git(&root_dir, "git_get_branches", &["branch", "--format=%(refname:short)"])?;
+    let output = run_git(
+        &root_dir,
+        "git_get_branches",
+        &["branch", "--format=%(refname:short)"],
+    )?;
 
     let out_str = String::from_utf8_lossy(&output.stdout);
     let branches: Vec<String> = out_str
@@ -688,7 +722,7 @@ pub async fn git_get_branches(root_dir: String) -> Result<Vec<String>, GitError>
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect();
-    
+
     Ok(branches)
 }
 
@@ -705,7 +739,11 @@ pub struct BranchesResult {
 #[tauri::command]
 pub async fn git_get_all_branches(root_dir: String) -> Result<BranchesResult, GitError> {
     // Local branches
-    let local_output = run_git(&root_dir, "git_get_all_branches", &["branch", "--format=%(refname:short)"])?;
+    let local_output = run_git(
+        &root_dir,
+        "git_get_all_branches",
+        &["branch", "--format=%(refname:short)"],
+    )?;
 
     let local: Vec<String> = String::from_utf8_lossy(&local_output.stdout)
         .lines()
@@ -715,7 +753,11 @@ pub async fn git_get_all_branches(root_dir: String) -> Result<BranchesResult, Gi
 
     // Remote-tracking branches (refs/remotes/*). Drop symbolic HEAD pointers
     // (e.g. "origin/HEAD -> origin/main") so only real branches remain.
-    let remote_output = run_git(&root_dir, "git_get_all_branches", &["branch", "-r", "--format=%(refname:short)"])?;
+    let remote_output = run_git(
+        &root_dir,
+        "git_get_all_branches",
+        &["branch", "-r", "--format=%(refname:short)"],
+    )?;
 
     let remote: Vec<String> = String::from_utf8_lossy(&remote_output.stdout)
         .lines()
@@ -732,7 +774,10 @@ pub async fn git_get_all_branches(root_dir: String) -> Result<BranchesResult, Gi
 pub async fn git_fetch(root_dir: String) -> Result<(), GitError> {
     // Skip silently when there is no remote configured.
     let remote_check = run_git(&root_dir, "git_fetch", &["remote"])?;
-    if String::from_utf8_lossy(&remote_check.stdout).trim().is_empty() {
+    if String::from_utf8_lossy(&remote_check.stdout)
+        .trim()
+        .is_empty()
+    {
         return Ok(());
     }
 
@@ -755,10 +800,16 @@ pub async fn git_checkout_branch(root_dir: String, branch_name: String) -> Resul
 /// user later returns to that same branch. The stash preserves staged state,
 /// unstaged changes, and untracked files.
 #[tauri::command]
-pub async fn git_smart_checkout_branch(root_dir: String, branch_name: String) -> Result<SmartBranchSwitchResult, GitError> {
+pub async fn git_smart_checkout_branch(
+    root_dir: String,
+    branch_name: String,
+) -> Result<SmartBranchSwitchResult, GitError> {
     let source_branch = current_branch_name(&root_dir)?;
     if source_branch == branch_name || format!("origin/{}", source_branch) == branch_name {
-        return Ok(SmartBranchSwitchResult { stashed: false, restored: false });
+        return Ok(SmartBranchSwitchResult {
+            stashed: false,
+            restored: false,
+        });
     }
     let stashed = stash_current_branch(&root_dir, &source_branch)?;
     checkout_branch(&root_dir, &branch_name)?;
@@ -772,7 +823,11 @@ pub async fn git_smart_checkout_branch(root_dir: String, branch_name: String) ->
 /// branch, IntelliJ-style -- unlike switching to an existing branch, which
 /// goes through `git_smart_checkout_branch`'s per-branch stash.
 #[tauri::command]
-pub async fn git_create_branch(root_dir: String, branch_name: String, checkout: bool) -> Result<(), GitError> {
+pub async fn git_create_branch(
+    root_dir: String,
+    branch_name: String,
+    checkout: bool,
+) -> Result<(), GitError> {
     let args = if checkout {
         vec!["checkout", "-b", &branch_name]
     } else {
@@ -789,24 +844,38 @@ pub async fn git_create_branch(root_dir: String, branch_name: String, checkout: 
 /// Runs under the C locale: the frontend recognizes `-d`'s "not fully merged"
 /// refusal by its message to offer a forced delete, and git translates it.
 #[tauri::command]
-pub async fn git_delete_branch(root_dir: String, branch_name: String, force: bool) -> Result<(), GitError> {
+pub async fn git_delete_branch(
+    root_dir: String,
+    branch_name: String,
+    force: bool,
+) -> Result<(), GitError> {
     let flag = if force { "-D" } else { "-d" };
     let mut command = Command::new("git");
     command.env("LC_ALL", "C");
-    run_git_command(command, &root_dir, "git_delete_branch", &["branch", flag, &branch_name])?;
+    run_git_command(
+        command,
+        &root_dir,
+        "git_delete_branch",
+        &["branch", flag, &branch_name],
+    )?;
     Ok(())
 }
 
 /// Deletes a branch from the remote origin via `git push origin --delete`.
 /// This is the "pushed deletion" that removes the branch on the remote.
 #[tauri::command]
-pub async fn git_delete_remote_branch(root_dir: String, branch_name: String) -> Result<(), GitError> {
+pub async fn git_delete_remote_branch(
+    root_dir: String,
+    branch_name: String,
+) -> Result<(), GitError> {
     // Accept either "origin/foo" or a bare "foo" — always delete from origin.
-    let local_name = branch_name
-        .strip_prefix("origin/")
-        .unwrap_or(&branch_name);
+    let local_name = branch_name.strip_prefix("origin/").unwrap_or(&branch_name);
 
-    run_git(&root_dir, "git_delete_remote_branch", &["push", "origin", "--delete", local_name])?;
+    run_git(
+        &root_dir,
+        "git_delete_remote_branch",
+        &["push", "origin", "--delete", local_name],
+    )?;
     Ok(())
 }
 
@@ -837,7 +906,11 @@ pub async fn git_abort_pending(root_dir: String, operation: String) -> Result<()
 
 /// Undoes a file move/rename by moving the file back to its original location.
 #[tauri::command]
-pub async fn git_undo_last_rename(root_dir: String, original_path: String, new_path: String) -> Result<(), GitError> {
+pub async fn git_undo_last_rename(
+    root_dir: String,
+    original_path: String,
+    new_path: String,
+) -> Result<(), GitError> {
     // Previously had no containment check of any kind -- every other
     // (root_dir, file_path) command in this file at least did a
     // non-canonicalizing strip_prefix. Both paths are validated: the
@@ -873,7 +946,10 @@ pub async fn git_undo_last_rename(root_dir: String, original_path: String, new_p
 /// Used to diff against HEAD (for staged files) or current VFS (for unstaged files).
 /// Falls back to the HEAD version if not explicitly modified in the index.
 #[tauri::command]
-pub async fn git_get_index_content(root_dir: String, file_path: String) -> Result<String, GitError> {
+pub async fn git_get_index_content(
+    root_dir: String,
+    file_path: String,
+) -> Result<String, GitError> {
     let relative = relative_to_root(&root_dir, &file_path, "git_get_index_content")?;
 
     let output = Command::new("git")
@@ -910,8 +986,14 @@ pub async fn git_push(root_dir: String, branch_name: String) -> Result<(), GitEr
         Ok(_) => Ok(()),
         Err(err) => {
             // 2. If it fails because there is no upstream configured, set one.
-            if err.stderr.contains("no upstream branch") || err.stderr.contains("has no upstream branch") {
-                run_git(&root_dir, "git_push", &["push", "--set-upstream", "origin", &branch_name])?;
+            if err.stderr.contains("no upstream branch")
+                || err.stderr.contains("has no upstream branch")
+            {
+                run_git(
+                    &root_dir,
+                    "git_push",
+                    &["push", "--set-upstream", "origin", &branch_name],
+                )?;
                 Ok(())
             } else {
                 Err(err)
@@ -959,7 +1041,7 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
         .args(["log", "--branches", "--not", "--remotes", "--format=%H"])
         .current_dir(&root_dir)
         .output();
-    
+
     let mut unpushed_hashes = std::collections::HashSet::new();
     if let Ok(out) = unpushed_output {
         if out.status.success() {
@@ -1011,7 +1093,11 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
         }
 
         let hash = parts[0].trim().to_string();
-        let short_hash = if hash.len() >= 7 { hash[0..7].to_string() } else { hash.clone() };
+        let short_hash = if hash.len() >= 7 {
+            hash[0..7].to_string()
+        } else {
+            hash.clone()
+        };
         let parents: Vec<String> = parts[1].split_whitespace().map(|s| s.to_string()).collect();
         let author = parts[2].trim().to_string();
         let date = parts[3].trim().to_string();
@@ -1045,7 +1131,10 @@ pub struct GitCommitFileStatus {
 
 /// Retrieves the list of files modified, added, or deleted in a specific commit.
 #[tauri::command]
-pub async fn git_get_commit_files(root_dir: String, commit_hash: String) -> Result<Vec<GitCommitFileStatus>, GitError> {
+pub async fn git_get_commit_files(
+    root_dir: String,
+    commit_hash: String,
+) -> Result<Vec<GitCommitFileStatus>, GitError> {
     if !Path::new(&root_dir).exists() {
         return Err(GitError {
             operation: "git_get_commit_files".to_string(),
@@ -1060,7 +1149,18 @@ pub async fn git_get_commit_files(root_dir: String, commit_hash: String) -> Resu
     // --root makes a parentless (root) commit diff against the empty tree
     // instead of emitting nothing -- verified directly that it changes
     // nothing for a non-root commit, so it's safe to always pass.
-    let output = run_git(&root_dir, "git_get_commit_files", &["diff-tree", "--no-commit-id", "--name-status", "-r", "--root", &commit_hash])?;
+    let output = run_git(
+        &root_dir,
+        "git_get_commit_files",
+        &[
+            "diff-tree",
+            "--no-commit-id",
+            "--name-status",
+            "-r",
+            "--root",
+            &commit_hash,
+        ],
+    )?;
 
     let out_str = String::from_utf8_lossy(&output.stdout);
     let mut files = Vec::new();
@@ -1080,7 +1180,10 @@ pub async fn git_get_commit_files(root_dir: String, commit_hash: String) -> Resu
             _ => "modified",
         };
 
-        let abs_path = Path::new(&root_dir).join(relative_path).to_string_lossy().into_owned();
+        let abs_path = Path::new(&root_dir)
+            .join(relative_path)
+            .to_string_lossy()
+            .into_owned();
         let file_name = Path::new(relative_path)
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
@@ -1099,7 +1202,11 @@ pub async fn git_get_commit_files(root_dir: String, commit_hash: String) -> Resu
 /// Returns the content of a file at a specific Git revision reference (e.g. "HEAD", a branch name, or a commit hash).
 /// Returns an empty string if the file was not tracked/did not exist at that revision, or if the revision is invalid.
 #[tauri::command]
-pub async fn git_get_file_content_at_rev(root_dir: String, revision: String, file_path: String) -> Result<String, GitError> {
+pub async fn git_get_file_content_at_rev(
+    root_dir: String,
+    revision: String,
+    file_path: String,
+) -> Result<String, GitError> {
     let relative = relative_to_root(&root_dir, &file_path, "git_get_file_content_at_rev")?;
 
     let output = Command::new("git")
@@ -1124,7 +1231,11 @@ pub async fn git_get_file_content_at_rev(root_dir: String, revision: String, fil
 #[tauri::command]
 pub async fn git_discard_all_changes(root_dir: String) -> Result<(), GitError> {
     // Discard changes to tracked files
-    run_git(&root_dir, "git_discard_all_changes", &["checkout", "--", "."])?;
+    run_git(
+        &root_dir,
+        "git_discard_all_changes",
+        &["checkout", "--", "."],
+    )?;
     // Discard untracked files and directories
     run_git(&root_dir, "git_discard_all_changes", &["clean", "-df"])?;
     Ok(())
@@ -1133,14 +1244,22 @@ pub async fn git_discard_all_changes(root_dir: String) -> Result<(), GitError> {
 /// Reverts a specific commit by executing `git revert --no-edit <commit_hash>`.
 #[tauri::command]
 pub async fn git_revert_commit(root_dir: String, commit_hash: String) -> Result<(), GitError> {
-    run_git(&root_dir, "git_revert_commit", &["revert", "--no-edit", &commit_hash])?;
+    run_git(
+        &root_dir,
+        "git_revert_commit",
+        &["revert", "--no-edit", &commit_hash],
+    )?;
     Ok(())
 }
 
 /// Resets the current branch to a specific commit by executing `git reset --hard <commit_hash>`.
 #[tauri::command]
 pub async fn git_reset_to_commit(root_dir: String, commit_hash: String) -> Result<(), GitError> {
-    run_git(&root_dir, "git_reset_to_commit", &["reset", "--hard", &commit_hash])?;
+    run_git(
+        &root_dir,
+        "git_reset_to_commit",
+        &["reset", "--hard", &commit_hash],
+    )?;
     Ok(())
 }
 
@@ -1172,7 +1291,11 @@ pub async fn git_blame(root_dir: String, file_path: String) -> Result<Vec<GitBla
     // path instead of silently computing a wrong relative path for it.
     let relative_path = relative_to_root(&root_dir, &file_path, "git_blame")?;
 
-    let output = run_git(&root_dir, "git_blame", &["blame", "-w", "--date=short", &relative_path])?;
+    let output = run_git(
+        &root_dir,
+        "git_blame",
+        &["blame", "-w", "--date=short", &relative_path],
+    )?;
 
     let out_str = String::from_utf8_lossy(&output.stdout);
     let mut blame_lines = Vec::new();
@@ -1183,15 +1306,15 @@ pub async fn git_blame(root_dir: String, file_path: String) -> Result<Vec<GitBla
             if let Some(close_paren_idx) = line[open_paren_idx..].find(')') {
                 let actual_close_idx = open_paren_idx + close_paren_idx;
                 let inside = &line[open_paren_idx + 1..actual_close_idx];
-                
+
                 let tokens: Vec<&str> = inside.split_whitespace().collect();
                 if tokens.len() >= 2 {
                     let line_number_str = tokens.last().cloned().unwrap_or("0");
                     let line_number = line_number_str.parse::<usize>().unwrap_or(0);
-                    
+
                     let date = tokens[tokens.len() - 2].to_string();
                     let author = tokens[..tokens.len() - 2].join(" ");
-                    
+
                     blame_lines.push(GitBlameLine {
                         line_number,
                         commit_hash: hash,
@@ -1208,7 +1331,10 @@ pub async fn git_blame(root_dir: String, file_path: String) -> Result<Vec<GitBla
 
 /// Retrieves the last 100 commits affecting a specific file.
 #[tauri::command]
-pub async fn git_get_file_commit_history(root_dir: String, file_path: String) -> Result<Vec<GitCommitInfo>, GitError> {
+pub async fn git_get_file_commit_history(
+    root_dir: String,
+    file_path: String,
+) -> Result<Vec<GitCommitInfo>, GitError> {
     if !Path::new(&root_dir).exists() {
         return Err(GitError {
             operation: "git_get_file_commit_history".to_string(),
@@ -1223,14 +1349,18 @@ pub async fn git_get_file_commit_history(root_dir: String, file_path: String) ->
     // comment above for the exact bug this fixes.
     let relative_path = relative_to_root(&root_dir, &file_path, "git_get_file_commit_history")?;
 
-    let log_output = match run_git(&root_dir, "git_get_file_commit_history", &[
-        "log",
-        "--format=%H|%P|%an|%cr|%s|%d",
-        "--max-count=100",
-        "--follow",
-        "--",
-        &relative_path,
-    ]) {
+    let log_output = match run_git(
+        &root_dir,
+        "git_get_file_commit_history",
+        &[
+            "log",
+            "--format=%H|%P|%an|%cr|%s|%d",
+            "--max-count=100",
+            "--follow",
+            "--",
+            &relative_path,
+        ],
+    ) {
         Ok(output) => output,
         // Matches git_get_commit_history's own permissive fallback: treated
         // as "no history yet" rather than propagated as an error.
@@ -1247,7 +1377,11 @@ pub async fn git_get_file_commit_history(root_dir: String, file_path: String) ->
         }
 
         let hash = parts[0].trim().to_string();
-        let short_hash = if hash.len() >= 7 { hash[0..7].to_string() } else { hash.clone() };
+        let short_hash = if hash.len() >= 7 {
+            hash[0..7].to_string()
+        } else {
+            hash.clone()
+        };
         let parents: Vec<String> = parts[1].split_whitespace().map(|s| s.to_string()).collect();
         let author = parts[2].trim().to_string();
         let date = parts[3].trim().to_string();
@@ -1342,10 +1476,18 @@ pub struct SubmoduleState {
 /// output at all -- verified directly).
 fn classify_submodule_state(parent_root: &str, submodule_relative_path: &str) -> SubmoduleState {
     let output = Command::new("git")
-        .args(["status", "--porcelain=v2", "-z", "--", submodule_relative_path])
+        .args([
+            "status",
+            "--porcelain=v2",
+            "-z",
+            "--",
+            submodule_relative_path,
+        ])
         .current_dir(parent_root)
         .output();
-    let Ok(output) = output else { return SubmoduleState::default() };
+    let Ok(output) = output else {
+        return SubmoduleState::default();
+    };
     if !output.status.success() {
         return SubmoduleState::default();
     }
@@ -1398,20 +1540,36 @@ fn resolve_head_state(root_dir: &str) -> GitHeadState {
         (None, None) => "unborn", // defensive: neither a symbolic ref nor a resolvable commit
     };
 
-    GitHeadState { mode: mode.to_string(), branch, oid }
+    GitHeadState {
+        mode: mode.to_string(),
+        branch,
+        oid,
+    }
 }
 
 /// Discovers the Git repository rooted at (or containing) `root_dir`: its
 /// canonical worktree path, resolved git dir, and `HEAD` tri-state.
 pub fn discover_repository(root_dir: &str) -> Result<GitRepository, GitError> {
-    let toplevel_output = run_git(root_dir, "git_discover_repository", &["rev-parse", "--show-toplevel"])?;
-    let worktree_path_raw = String::from_utf8_lossy(&toplevel_output.stdout).trim().to_string();
+    let toplevel_output = run_git(
+        root_dir,
+        "git_discover_repository",
+        &["rev-parse", "--show-toplevel"],
+    )?;
+    let worktree_path_raw = String::from_utf8_lossy(&toplevel_output.stdout)
+        .trim()
+        .to_string();
     let worktree_path = std::fs::canonicalize(&worktree_path_raw)
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or(worktree_path_raw);
 
-    let git_dir_output = run_git(root_dir, "git_discover_repository", &["rev-parse", "--git-dir"])?;
-    let git_dir_raw = String::from_utf8_lossy(&git_dir_output.stdout).trim().to_string();
+    let git_dir_output = run_git(
+        root_dir,
+        "git_discover_repository",
+        &["rev-parse", "--git-dir"],
+    )?;
+    let git_dir_raw = String::from_utf8_lossy(&git_dir_output.stdout)
+        .trim()
+        .to_string();
     let git_dir_path = Path::new(&git_dir_raw);
     let git_dir_abs = if git_dir_path.is_absolute() {
         git_dir_path.to_path_buf()
@@ -1464,12 +1622,18 @@ pub async fn git_discover_repository(root_dir: String) -> Result<GitRepository, 
 /// checklist, added here since it parses easily alongside this commit's
 /// other work).
 pub fn discover_linked_worktrees(root_dir: &str) -> Result<Vec<GitRepository>, GitError> {
-    let output = run_git(root_dir, "git_discover_linked_worktrees", &["worktree", "list", "--porcelain"])?;
+    let output = run_git(
+        root_dir,
+        "git_discover_linked_worktrees",
+        &["worktree", "list", "--porcelain"],
+    )?;
     let text = String::from_utf8_lossy(&output.stdout);
 
     let mut worktrees = Vec::new();
     for block in text.split("\n\n") {
-        let path = block.lines().find_map(|line| line.strip_prefix("worktree "));
+        let path = block
+            .lines()
+            .find_map(|line| line.strip_prefix("worktree "));
         if let Some(path) = path {
             if let Ok(repo) = discover_repository(path) {
                 worktrees.push(repo);
@@ -1482,7 +1646,9 @@ pub fn discover_linked_worktrees(root_dir: &str) -> Result<Vec<GitRepository>, G
 /// Lists every linked worktree of the repository at `root_dir`, including
 /// the main worktree itself.
 #[tauri::command]
-pub async fn git_discover_linked_worktrees(root_dir: String) -> Result<Vec<GitRepository>, GitError> {
+pub async fn git_discover_linked_worktrees(
+    root_dir: String,
+) -> Result<Vec<GitRepository>, GitError> {
     discover_linked_worktrees(&root_dir)
 }
 
@@ -1508,11 +1674,33 @@ pub fn discover_workspace_repositories(root_dir: &str) -> Result<Vec<GitReposito
                 candidates.insert(repo.id.clone(), repo);
             }
         }
-        let Ok(entries) = std::fs::read_dir(&directory) else { continue };
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
         for entry in entries.flatten() {
-            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) { continue; }
+            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
+                continue;
+            }
             let name = entry.file_name();
-            if matches!(name.to_str(), Some(".git" | "node_modules" | "target" | "dist" | "build" | "vendor" | ".venv" | "venv" | ".cache" | ".next" | "__pycache__" | ".rusty")) { continue; }
+            if matches!(
+                name.to_str(),
+                Some(
+                    ".git"
+                        | "node_modules"
+                        | "target"
+                        | "dist"
+                        | "build"
+                        | "vendor"
+                        | ".venv"
+                        | "venv"
+                        | ".cache"
+                        | ".next"
+                        | "__pycache__"
+                        | ".rusty"
+                )
+            ) {
+                continue;
+            }
             directories.push(entry.path());
         }
     }
@@ -1538,14 +1726,22 @@ pub fn discover_workspace_repositories(root_dir: &str) -> Result<Vec<GitReposito
         }
     }
     let mut result: Vec<_> = repositories.into_values().collect();
-    result.sort_by_key(|repo| (Some(&repo.id) != preferred_id.as_ref(), repo.worktree_path.clone()));
+    result.sort_by_key(|repo| {
+        (
+            Some(&repo.id) != preferred_id.as_ref(),
+            repo.worktree_path.clone(),
+        )
+    });
     Ok(result)
 }
 
 #[tauri::command]
-pub async fn git_discover_workspace_repositories(root_dir: String) -> Result<Vec<GitRepository>, String> {
+pub async fn git_discover_workspace_repositories(
+    root_dir: String,
+) -> Result<Vec<GitRepository>, String> {
     tokio::task::spawn_blocking(move || discover_workspace_repositories(&root_dir))
-        .await.map_err(|error| error.to_string())?
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 struct SubmoduleStatusEntry {
@@ -1575,7 +1771,12 @@ fn parse_submodule_status_line(line: &str) -> Option<SubmoduleStatusEntry> {
     let mut parts = rest.splitn(2, ' ');
     let sha = parts.next()?.to_string();
     let remainder = parts.next()?.trim();
-    let relative_path = remainder.split(" (").next().unwrap_or(remainder).trim().to_string();
+    let relative_path = remainder
+        .split(" (")
+        .next()
+        .unwrap_or(remainder)
+        .trim()
+        .to_string();
     if sha.is_empty() || relative_path.is_empty() {
         return None;
     }
@@ -1601,12 +1802,18 @@ fn parse_submodule_status_line(line: &str) -> Option<SubmoduleStatusEntry> {
 /// to descend into.
 pub fn discover_submodules(root_dir: &str) -> Result<Vec<GitRepository>, GitError> {
     let root_repo = discover_repository(root_dir)?;
-    let output = run_git(root_dir, "git_discover_submodules", &["submodule", "status", "--recursive"])?;
+    let output = run_git(
+        root_dir,
+        "git_discover_submodules",
+        &["submodule", "status", "--recursive"],
+    )?;
     let text = String::from_utf8_lossy(&output.stdout);
 
     let mut results = Vec::new();
     for line in text.lines() {
-        let Some(entry) = parse_submodule_status_line(line) else { continue };
+        let Some(entry) = parse_submodule_status_line(line) else {
+            continue;
+        };
         let full_path = Path::new(root_dir).join(&entry.relative_path);
         let full_path_str = full_path.to_string_lossy().into_owned();
 
@@ -1621,7 +1828,10 @@ pub fn discover_submodules(root_dir: &str) -> Result<Vec<GitRepository>, GitErro
         let (immediate_parent_dir, path_within_immediate_parent) = match full_path.parent() {
             Some(parent) if entry.relative_path.contains('/') => (
                 parent.to_string_lossy().into_owned(),
-                full_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                full_path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
             ),
             _ => (root_dir.to_string(), entry.relative_path.clone()),
         };
@@ -1634,7 +1844,10 @@ pub fn discover_submodules(root_dir: &str) -> Result<Vec<GitRepository>, GitErro
                 repo.kind = "submodule".to_string();
                 repo.parent_id = Some(parent_id);
                 repo.submodule_path = Some(entry.relative_path);
-                repo.submodule_state = Some(classify_submodule_state(&immediate_parent_dir, &path_within_immediate_parent));
+                repo.submodule_state = Some(classify_submodule_state(
+                    &immediate_parent_dir,
+                    &path_within_immediate_parent,
+                ));
                 results.push(repo);
             }
             // If discover_repository fails despite git reporting this
@@ -1656,7 +1869,11 @@ pub fn discover_submodules(root_dir: &str) -> Result<Vec<GitRepository>, GitErro
                 // is meaningful even though nothing is checked out. A
                 // consumer should check `initialized` before reading `head`
                 // at all for a submodule entry.
-                head: GitHeadState { mode: "unborn".to_string(), branch: None, oid: Some(entry.sha) },
+                head: GitHeadState {
+                    mode: "unborn".to_string(),
+                    branch: None,
+                    oid: Some(entry.sha),
+                },
                 // No working tree exists to classify at all.
                 submodule_state: None,
             });
@@ -1680,7 +1897,11 @@ pub async fn git_discover_submodules(root_dir: String) -> Result<Vec<GitReposito
 /// first is optional, not required, before calling that.
 #[tauri::command]
 pub async fn git_submodule_init(root_dir: String, submodule_path: String) -> Result<(), GitError> {
-    run_git(&root_dir, "git_submodule_init", &["submodule", "init", "--", &submodule_path])?;
+    run_git(
+        &root_dir,
+        "git_submodule_init",
+        &["submodule", "init", "--", &submodule_path],
+    )?;
     Ok(())
 }
 
@@ -1693,8 +1914,18 @@ pub async fn git_submodule_init(root_dir: String, submodule_path: String) -> Res
 /// `-c protocol.file.allow=always` (not local repo config) is what a
 /// local-path submodule clone actually needs to succeed.
 #[tauri::command]
-pub async fn git_submodule_update(root_dir: String, submodule_path: String, recursive: bool) -> Result<(), GitError> {
-    let mut args = vec!["-c", "protocol.file.allow=always", "submodule", "update", "--init"];
+pub async fn git_submodule_update(
+    root_dir: String,
+    submodule_path: String,
+    recursive: bool,
+) -> Result<(), GitError> {
+    let mut args = vec![
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "update",
+        "--init",
+    ];
     if recursive {
         args.push("--recursive");
     }
@@ -1710,7 +1941,11 @@ pub async fn git_submodule_update(root_dir: String, submodule_path: String, recu
 /// submodule otherwise keeps using the URL it was originally cloned with.
 #[tauri::command]
 pub async fn git_submodule_sync(root_dir: String, submodule_path: String) -> Result<(), GitError> {
-    run_git(&root_dir, "git_submodule_sync", &["submodule", "sync", "--", &submodule_path])?;
+    run_git(
+        &root_dir,
+        "git_submodule_sync",
+        &["submodule", "sync", "--", &submodule_path],
+    )?;
     Ok(())
 }
 

@@ -66,11 +66,8 @@ pub struct ManagedQuota {
 }
 
 pub(super) fn binary_or_error(app: &AppHandle, provider: &str) -> Result<PathBuf, String> {
-    resolve_managed_binary(app, provider).ok_or_else(|| {
-        format!(
-            "The {provider} runtime is not installed. Sign in to download it."
-        )
-    })
+    resolve_managed_binary(app, provider)
+        .ok_or_else(|| format!("The {provider} runtime is not installed. Sign in to download it."))
 }
 
 fn string_field(value: Option<&Value>, key: &str) -> Option<String> {
@@ -103,7 +100,11 @@ pub(super) struct RpcChild {
 }
 
 impl RpcChild {
-    pub(super) async fn spawn(binary: &Path, args: &[&str], framing: Framing) -> Result<Self, String> {
+    pub(super) async fn spawn(
+        binary: &Path,
+        args: &[&str],
+        framing: Framing,
+    ) -> Result<Self, String> {
         let mut child = Command::new(binary)
             .args(args)
             .stdin(Stdio::piped())

@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use harness_workspace::{FileInfo, FsWorkspace, SearchResult, Workspace, WorkspaceError, WorkspaceMode};
+use harness_workspace::{
+    FileInfo, FsWorkspace, SearchResult, Workspace, WorkspaceError, WorkspaceMode,
+};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -122,7 +124,13 @@ mod tests {
             event = outbound.recv() => event.expect("read() issued a HostToolCall"),
             _ = &mut read_future => panic!("read() resolved before its call was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
+        let BridgeEvent::HostToolCall {
+            call_id,
+            tool,
+            input,
+            ..
+        } = event
+        else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "workspace.read");
@@ -133,7 +141,9 @@ mod tests {
 
         bridge.complete(&call_id, Ok(json!({"content": "hello from the host"})));
 
-        let content = read_future.await.expect("read() should resolve once completed");
+        let content = read_future
+            .await
+            .expect("read() should resolve once completed");
         assert_eq!(content, "hello from the host");
     }
 
@@ -151,7 +161,13 @@ mod tests {
             event = outbound.recv() => event.expect("write() issued a HostToolCall"),
             _ = &mut write_future => panic!("write() resolved before its call was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
+        let BridgeEvent::HostToolCall {
+            call_id,
+            tool,
+            input,
+            ..
+        } = event
+        else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "workspace.write");
@@ -159,10 +175,15 @@ mod tests {
             input.get("path").and_then(|v| v.as_str()),
             Some(root.join("sub/file.txt").to_string_lossy().as_ref()),
         );
-        assert_eq!(input.get("content").and_then(|v| v.as_str()), Some("new content"));
+        assert_eq!(
+            input.get("content").and_then(|v| v.as_str()),
+            Some("new content")
+        );
 
         bridge.complete(&call_id, Ok(json!(null)));
-        write_future.await.expect("write() should resolve once completed");
+        write_future
+            .await
+            .expect("write() should resolve once completed");
     }
 
     #[tokio::test]
@@ -183,7 +204,9 @@ mod tests {
         };
         bridge.complete(&call_id, Err("ENOENT".to_string()));
 
-        let error = read_future.await.expect_err("a host failure must surface as an error");
+        let error = read_future
+            .await
+            .expect_err("a host failure must surface as an error");
         assert!(matches!(error, WorkspaceError::ToolFailed(message) if message == "ENOENT"));
     }
 

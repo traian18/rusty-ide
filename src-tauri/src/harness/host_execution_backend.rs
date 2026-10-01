@@ -42,7 +42,9 @@ impl HostExecutionBackend {
             descriptor: BackendDescriptor {
                 id: BackendId::new(),
                 name: "Host-routed".to_string(),
-                description: "Forwards model execution to the IDE instead of calling a provider directly.".to_string(),
+                description:
+                    "Forwards model execution to the IDE instead of calling a provider directly."
+                        .to_string(),
                 capabilities: BackendCapabilities {
                     streaming: true,
                     tool_calls: true,
@@ -76,10 +78,11 @@ impl ExecutionBackend for HostExecutionBackend {
         sink: broadcast::Sender<ExecutionEvent>,
         cancel: CancellationToken,
     ) -> Result<ExecutionResult, ExecutionError> {
-        let payload = serde_json::to_value(&request).map_err(|error| ExecutionError::BackendError {
-            message: format!("failed to serialize ExecutionRequest: {error}"),
-            code: "HOST_SERIALIZE_FAILED".to_string(),
-        })?;
+        let payload =
+            serde_json::to_value(&request).map_err(|error| ExecutionError::BackendError {
+                message: format!("failed to serialize ExecutionRequest: {error}"),
+                code: "HOST_SERIALIZE_FAILED".to_string(),
+            })?;
         let (_call_id, mut rx) = self.bridge.call_streaming("backend.execute", payload);
 
         loop {
@@ -145,20 +148,42 @@ mod tests {
         // a `tokio::select!` that stops polling the future the moment the
         // HostExecuteCall arrives would leave it permanently un-driven,
         // and every push_event()/events.recv() after that would hang.
-        let execute_handle = tokio::spawn(async move { backend.execute(request(), sink, cancel).await });
+        let execute_handle =
+            tokio::spawn(async move { backend.execute(request(), sink, cancel).await });
 
-        let event = outbound.recv().await.expect("bridge emitted a HostExecuteCall");
+        let event = outbound
+            .recv()
+            .await
+            .expect("bridge emitted a HostExecuteCall");
         let BridgeEvent::HostExecuteCall { call_id, tool, .. } = event else {
             panic!("expected a HostExecuteCall event");
         };
         assert_eq!(tool, "backend.execute");
 
-        bridge.push_event(&call_id, ExecutionEvent::TextDelta { request_id: RequestId::new(), delta: "Hel".to_string() });
-        bridge.push_event(&call_id, ExecutionEvent::TextDelta { request_id: RequestId::new(), delta: "lo".to_string() });
+        bridge.push_event(
+            &call_id,
+            ExecutionEvent::TextDelta {
+                request_id: RequestId::new(),
+                delta: "Hel".to_string(),
+            },
+        );
+        bridge.push_event(
+            &call_id,
+            ExecutionEvent::TextDelta {
+                request_id: RequestId::new(),
+                delta: "lo".to_string(),
+            },
+        );
 
-        let first = events.recv().await.expect("first delta forwarded to the sink");
+        let first = events
+            .recv()
+            .await
+            .expect("first delta forwarded to the sink");
         assert!(matches!(first, ExecutionEvent::TextDelta { ref delta, .. } if delta == "Hel"));
-        let second = events.recv().await.expect("second delta forwarded to the sink");
+        let second = events
+            .recv()
+            .await
+            .expect("second delta forwarded to the sink");
         assert!(matches!(second, ExecutionEvent::TextDelta { ref delta, .. } if delta == "lo"));
 
         let final_result = ExecutionResult {

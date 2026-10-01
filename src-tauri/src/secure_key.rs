@@ -86,7 +86,8 @@ impl FileStore {
     }
 
     fn write(&self, key: &[u8]) -> Result<(), String> {
-        write_private(&self.path, key).map_err(|e| format!("could not write {}: {e}", self.path.display()))
+        write_private(&self.path, key)
+            .map_err(|e| format!("could not write {}: {e}", self.path.display()))
     }
 
     /// Overwrites before unlinking. Best effort only: SSD wear levelling and
@@ -96,7 +97,8 @@ impl FileStore {
             return Ok(());
         }
         let _ = write_private(&self.path, &[0u8; KEY_LEN]);
-        fs::remove_file(&self.path).map_err(|e| format!("could not remove {}: {e}", self.path.display()))
+        fs::remove_file(&self.path)
+            .map_err(|e| format!("could not remove {}: {e}", self.path.display()))
     }
 }
 
@@ -147,7 +149,11 @@ fn resolve(
     match keychain.read() {
         Ok(Some(key)) if key.len() == KEY_LEN => {
             retire_file(file, marker);
-            return Ok(Resolved { key, backend: KeyBackend::Keychain, fallback_reason: None });
+            return Ok(Resolved {
+                key,
+                backend: KeyBackend::Keychain,
+                fallback_reason: None,
+            });
         }
         Ok(_) => {}
         Err(reason) => return fall_back_to_file(file, marker, reason),
@@ -163,7 +169,11 @@ fn resolve(
     match stored {
         Ok(()) => {
             retire_file(file, marker);
-            Ok(Resolved { key, backend: KeyBackend::Keychain, fallback_reason: None })
+            Ok(Resolved {
+                key,
+                backend: KeyBackend::Keychain,
+                fallback_reason: None,
+            })
         }
         Err(reason) => from_file(file, Some(key), Some(reason)),
     }
@@ -189,7 +199,11 @@ fn fall_back_to_file(file: &FileStore, marker: &Path, reason: String) -> Result<
     from_file(file, None, Some(reason))
 }
 
-fn from_file(file: &FileStore, candidate: Option<Vec<u8>>, reason: Option<String>) -> Result<Resolved, String> {
+fn from_file(
+    file: &FileStore,
+    candidate: Option<Vec<u8>>,
+    reason: Option<String>,
+) -> Result<Resolved, String> {
     let key = match file.read_valid()? {
         Some(existing) => existing,
         None => {
@@ -198,7 +212,11 @@ fn from_file(file: &FileStore, candidate: Option<Vec<u8>>, reason: Option<String
             key
         }
     };
-    Ok(Resolved { key, backend: KeyBackend::File, fallback_reason: reason })
+    Ok(Resolved {
+        key,
+        backend: KeyBackend::File,
+        fallback_reason: reason,
+    })
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -206,7 +224,11 @@ fn open_keychain(identifier: &str) -> Option<Result<Box<dyn KeychainLike>, Strin
     if cfg!(all(target_os = "macos", debug_assertions)) {
         return None;
     }
-    let service = if cfg!(debug_assertions) { format!("{identifier}.dev") } else { identifier.to_string() };
+    let service = if cfg!(debug_assertions) {
+        format!("{identifier}.dev")
+    } else {
+        identifier.to_string()
+    };
     Some(
         keychain::KeychainStore::open(&service, "secure-storage-master-key")
             .map(|store| Box::new(store) as Box<dyn KeychainLike>),
@@ -222,8 +244,14 @@ fn resolve_in(dir: &Path, identifier: &str) -> Result<Resolved, String> {
     // Dev and release builds have separate webview origins, hence separate
     // localStorage blobs -- they get separate keys too, so migrating one
     // build's key into the keychain never strands the other build's data.
-    let stem = if cfg!(debug_assertions) { "secure_storage.dev" } else { "secure_storage" };
-    let file = FileStore { path: dir.join(format!("{stem}.key")) };
+    let stem = if cfg!(debug_assertions) {
+        "secure_storage.dev"
+    } else {
+        "secure_storage"
+    };
+    let file = FileStore {
+        path: dir.join(format!("{stem}.key")),
+    };
     let marker = dir.join(format!("{stem}.keychain"));
 
     if cfg!(debug_assertions) && !file.path.exists() {
@@ -232,7 +260,12 @@ fn resolve_in(dir: &Path, identifier: &str) -> Result<Resolved, String> {
     }
 
     let opened = open_keychain(identifier);
-    let keychain = opened.as_ref().map(|result| result.as_ref().map(|store| store.as_ref()).map_err(Clone::clone));
+    let keychain = opened.as_ref().map(|result| {
+        result
+            .as_ref()
+            .map(|store| store.as_ref())
+            .map_err(Clone::clone)
+    });
     resolve(keychain, &file, &marker)
 }
 
@@ -250,11 +283,14 @@ pub async fn get_storage_key(app: tauri::AppHandle) -> Result<StorageKey, String
     let identifier = app.config().identifier.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut cached = RESOLVED.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut cached = RESOLVED
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(hit) = cached.as_ref() {
             return Ok(hit.clone());
         }
-        fs::create_dir_all(&dir).map_err(|e| format!("could not create app local data dir: {e}"))?;
+        fs::create_dir_all(&dir)
+            .map_err(|e| format!("could not create app local data dir: {e}"))?;
         let resolved = resolve_in(&dir, &identifier)?;
         let key = StorageKey {
             key: base64::engine::general_purpose::STANDARD.encode(&resolved.key),
@@ -309,9 +345,15 @@ mod tests {
 
     fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
-        let file = FileStore { path: dir.path().join("secure_storage.key") };
+        let file = FileStore {
+            path: dir.path().join("secure_storage.key"),
+        };
         let marker = dir.path().join("secure_storage.keychain");
-        Fixture { _dir: dir, file, marker }
+        Fixture {
+            _dir: dir,
+            file,
+            marker,
+        }
     }
 
     fn some(keychain: &FakeKeychain) -> Option<Result<&dyn KeychainLike, String>> {
@@ -323,7 +365,10 @@ mod tests {
         let f = fixture();
         let key = generate_key();
         f.file.write(&key).unwrap();
-        let keychain = FakeKeychain { stored: RefCell::new(Some(key.clone())), ..Default::default() };
+        let keychain = FakeKeychain {
+            stored: RefCell::new(Some(key.clone())),
+            ..Default::default()
+        };
 
         let resolved = resolve(some(&keychain), &f.file, &f.marker).unwrap();
 
@@ -342,7 +387,10 @@ mod tests {
 
         let resolved = resolve(some(&keychain), &f.file, &f.marker).unwrap();
 
-        assert_eq!(resolved.key, key, "existing encrypted data must stay decryptable");
+        assert_eq!(
+            resolved.key, key,
+            "existing encrypted data must stay decryptable"
+        );
         assert_eq!(keychain.stored.borrow().as_deref(), Some(key.as_slice()));
         assert!(!f.file.path.exists());
         assert!(f.marker.exists());
@@ -365,7 +413,10 @@ mod tests {
         let f = fixture();
         let key = generate_key();
         f.file.write(&key).unwrap();
-        let keychain = FakeKeychain { stored: RefCell::new(Some(vec![1, 2, 3])), ..Default::default() };
+        let keychain = FakeKeychain {
+            stored: RefCell::new(Some(vec![1, 2, 3])),
+            ..Default::default()
+        };
 
         let resolved = resolve(some(&keychain), &f.file, &f.marker).unwrap();
 
@@ -377,7 +428,8 @@ mod tests {
     fn falls_back_to_the_file_when_the_store_cannot_be_opened() {
         let f = fixture();
 
-        let resolved = resolve(Some(Err("no session bus".to_string())), &f.file, &f.marker).unwrap();
+        let resolved =
+            resolve(Some(Err("no session bus".to_string())), &f.file, &f.marker).unwrap();
 
         assert_eq!(resolved.backend, KeyBackend::File);
         assert_eq!(resolved.fallback_reason.as_deref(), Some("no session bus"));
@@ -387,7 +439,10 @@ mod tests {
     #[test]
     fn keeps_the_file_and_same_key_when_the_keychain_write_fails() {
         let f = fixture();
-        let keychain = FakeKeychain { fail_write: true, ..Default::default() };
+        let keychain = FakeKeychain {
+            fail_write: true,
+            ..Default::default()
+        };
 
         let resolved = resolve(some(&keychain), &f.file, &f.marker).unwrap();
 
@@ -401,7 +456,10 @@ mod tests {
         let f = fixture();
         let key = generate_key();
         f.file.write(&key).unwrap();
-        let keychain = FakeKeychain { garble_read_back: true, ..Default::default() };
+        let keychain = FakeKeychain {
+            garble_read_back: true,
+            ..Default::default()
+        };
 
         let resolved = resolve(some(&keychain), &f.file, &f.marker).unwrap();
 
@@ -415,7 +473,10 @@ mod tests {
     fn refuses_to_invent_a_key_when_an_already_migrated_keychain_is_unreachable() {
         let f = fixture();
         write_private(&f.marker, b"keychain\n").unwrap();
-        let keychain = FakeKeychain { fail_read: true, ..Default::default() };
+        let keychain = FakeKeychain {
+            fail_read: true,
+            ..Default::default()
+        };
 
         let error = resolve(some(&keychain), &f.file, &f.marker).unwrap_err();
 
@@ -429,7 +490,10 @@ mod tests {
         write_private(&f.marker, b"keychain\n").unwrap();
         let key = generate_key();
         f.file.write(&key).unwrap();
-        let keychain = FakeKeychain { fail_read: true, ..Default::default() };
+        let keychain = FakeKeychain {
+            fail_read: true,
+            ..Default::default()
+        };
 
         let resolved = resolve(some(&keychain), &f.file, &f.marker).unwrap();
 

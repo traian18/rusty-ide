@@ -8,7 +8,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use harness_tools::{CancellationToken, ToolDescriptor, ToolError, ToolExecutor, ToolInput, ToolResult};
+use harness_tools::{
+    CancellationToken, ToolDescriptor, ToolError, ToolExecutor, ToolInput, ToolResult,
+};
 use serde_json::json;
 
 use super::host_bridge::HostBridge;
@@ -80,7 +82,9 @@ mod tests {
         let executor = HostToolExecutor::new(descriptor("ask_user_question"), bridge.clone());
 
         let execute_future = executor.execute(
-            ToolInput { arguments: json!({"question": "Which model?"}) },
+            ToolInput {
+                arguments: json!({"question": "Which model?"}),
+            },
             CancellationToken::new(),
         );
         tokio::pin!(execute_future);
@@ -89,7 +93,13 @@ mod tests {
             event = outbound.recv() => event.expect("execute() issued a HostToolCall"),
             _ = &mut execute_future => panic!("resolved before it was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool, input, .. } = event else {
+        let BridgeEvent::HostToolCall {
+            call_id,
+            tool,
+            input,
+            ..
+        } = event
+        else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool, "ask_user_question");
@@ -97,7 +107,9 @@ mod tests {
 
         bridge.complete(&call_id, Ok(json!({"answer": "opus"})));
 
-        let result = execute_future.await.expect("infrastructure-level Err was not expected");
+        let result = execute_future
+            .await
+            .expect("infrastructure-level Err was not expected");
         assert!(!result.is_error);
         assert_eq!(result.output, json!({"answer": "opus"}));
     }
@@ -108,7 +120,12 @@ mod tests {
         let bridge = Arc::new(HostBridge::new(tx));
         let executor = HostToolExecutor::new(descriptor("write_plan"), bridge.clone());
 
-        let execute_future = executor.execute(ToolInput { arguments: json!({}) }, CancellationToken::new());
+        let execute_future = executor.execute(
+            ToolInput {
+                arguments: json!({}),
+            },
+            CancellationToken::new(),
+        );
         tokio::pin!(execute_future);
 
         let event = tokio::select! {
@@ -120,7 +137,9 @@ mod tests {
         };
         bridge.complete(&call_id, Err("plan filename was invalid".to_string()));
 
-        let result = execute_future.await.expect("a host failure is Ok(ToolResult{is_error:true}), not Err");
+        let result = execute_future
+            .await
+            .expect("a host failure is Ok(ToolResult{is_error:true}), not Err");
         assert!(result.is_error);
         assert_eq!(result.output, json!({"error": "plan filename was invalid"}));
     }
@@ -132,7 +151,12 @@ mod tests {
         let executor = HostToolExecutor::new(descriptor("report_progress"), bridge);
         let cancel = CancellationToken::new();
 
-        let execute_future = executor.execute(ToolInput { arguments: json!({}) }, cancel.clone());
+        let execute_future = executor.execute(
+            ToolInput {
+                arguments: json!({}),
+            },
+            cancel.clone(),
+        );
         tokio::pin!(execute_future);
 
         let _ = tokio::select! {
@@ -157,7 +181,12 @@ mod tests {
 
         let execute_future = harness_tools::with_tool_call_id(
             "model-call-7".to_string(),
-            executor.execute(ToolInput { arguments: json!({"path": "a.ts"}) }, CancellationToken::new()),
+            executor.execute(
+                ToolInput {
+                    arguments: json!({"path": "a.ts"}),
+                },
+                CancellationToken::new(),
+            ),
         );
         tokio::pin!(execute_future);
 
@@ -165,7 +194,12 @@ mod tests {
             event = outbound.recv() => event.expect("execute() issued a HostToolCall"),
             _ = &mut execute_future => panic!("resolved before it was answered"),
         };
-        let BridgeEvent::HostToolCall { call_id, tool_call_id, .. } = event else {
+        let BridgeEvent::HostToolCall {
+            call_id,
+            tool_call_id,
+            ..
+        } = event
+        else {
             panic!("expected a HostToolCall event");
         };
         assert_eq!(tool_call_id.as_deref(), Some("model-call-7"));

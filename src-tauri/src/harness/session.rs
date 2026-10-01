@@ -28,10 +28,7 @@ impl HarnessState {
     /// `harness_subscribe` call is lost.
     ///
     /// Provider inference never installs or starts a managed agent CLI.
-    pub async fn create_session(
-        &self,
-        recipe: SessionRecipe,
-    ) -> Result<SessionId, String> {
+    pub async fn create_session(&self, recipe: SessionRecipe) -> Result<SessionId, String> {
         let harness = self.harness().await;
         self.create_session_on(&harness, recipe).await
     }
@@ -48,7 +45,9 @@ impl HarnessState {
 
         let mut recipe = recipe;
         let workflow_document = recipe.workflow.take();
-        let mut builder = build_session_builder(harness, recipe, bridge.clone()).await.map_err(|error| error.to_string())?;
+        let mut builder = build_session_builder(harness, recipe, bridge.clone())
+            .await
+            .map_err(|error| error.to_string())?;
         let mut workflow = None;
         if let Some(document) = workflow_document {
             let (configured, key) = super::workflow::configure(builder, document)?;
@@ -79,7 +78,10 @@ impl HarnessState {
     /// exactly one subscriber). A second call, or a call for an unknown
     /// session, is an error rather than silently returning an empty
     /// channel the caller would wait on forever.
-    pub fn take_inbox(&self, session_id: SessionId) -> Result<mpsc::UnboundedReceiver<BridgeEvent>, String> {
+    pub fn take_inbox(
+        &self,
+        session_id: SessionId,
+    ) -> Result<mpsc::UnboundedReceiver<BridgeEvent>, String> {
         let taken = self
             .with_session(&session_id, |entry| entry.inbox.lock().unwrap().take())
             .ok_or_else(|| "no such session".to_string())?;
@@ -93,7 +95,11 @@ impl HarnessState {
     /// variant, and rejecting it here in favor of forcing every caller
     /// through the dedicated command would be a surprising, undocumented
     /// restriction on a type this module didn't define.
-    pub async fn mutate(&self, session_id: SessionId, command: MutationCommand) -> Result<(), String> {
+    pub async fn mutate(
+        &self,
+        session_id: SessionId,
+        command: MutationCommand,
+    ) -> Result<(), String> {
         let handle = self
             .with_session(&session_id, |entry| entry.handle.clone())
             .ok_or_else(|| "no such session".to_string())?;
@@ -108,7 +114,9 @@ impl HarnessState {
             MutationCommand::ResolvePermission { id, decision } => {
                 handle.resolve_permission(id, decision).await
             }
-            MutationCommand::ConfigureExecution { params } => handle.set_execution_params(*params).await,
+            MutationCommand::ConfigureExecution { params } => {
+                handle.set_execution_params(*params).await
+            }
             MutationCommand::CloseSession => {
                 let outcome = handle.close().await;
                 self.close_session(session_id).await.ok();
@@ -149,10 +157,15 @@ impl HarnessState {
         &self,
         session_id: SessionId,
         call_id: &str,
-        result: Result<harness_protocol::backend::ExecutionResult, harness_protocol::backend::ExecutionError>,
+        result: Result<
+            harness_protocol::backend::ExecutionResult,
+            harness_protocol::backend::ExecutionError,
+        >,
     ) -> Result<(), String> {
-        self.with_session(&session_id, |entry| entry.bridge.finish_stream(call_id, result))
-            .ok_or_else(|| "no such session".to_string())
+        self.with_session(&session_id, |entry| {
+            entry.bridge.finish_stream(call_id, result)
+        })
+        .ok_or_else(|| "no such session".to_string())
     }
 
     pub fn session_snapshot(&self, session_id: SessionId) -> Result<SessionSnapshotWire, String> {
@@ -180,7 +193,11 @@ impl HarnessState {
         }
         entry.bridge.fail_all("session closed");
         entry.pump.abort();
-        entry.handle.close().await.map_err(|error| error.to_string())
+        entry
+            .handle
+            .close()
+            .await
+            .map_err(|error| error.to_string())
     }
 }
 
@@ -202,7 +219,9 @@ pub async fn list_models(
         .map_err(|error| error.to_string())
 }
 
-pub fn list_providers(harness: &harness_engine::Harness) -> Result<Vec<harness_engine::ProviderDescriptor>, String> {
+pub fn list_providers(
+    harness: &harness_engine::Harness,
+) -> Result<Vec<harness_engine::ProviderDescriptor>, String> {
     harness.list_providers().map_err(|error| error.to_string())
 }
 
@@ -222,7 +241,9 @@ mod integration_tests {
 
     use async_trait::async_trait;
     use harness_engine::Harness;
-    use harness_protocol::backend::{BackendCapabilities, BackendDescriptor, ExecutionEvent, ExecutionResult};
+    use harness_protocol::backend::{
+        BackendCapabilities, BackendDescriptor, ExecutionEvent, ExecutionResult,
+    };
     use harness_protocol::commands::UserInput;
     use harness_protocol::events::AgentEvent;
     use harness_protocol::ids::{BackendId, RequestId, ToolCallId};
@@ -276,7 +297,11 @@ mod integration_tests {
                 .with_events(vec![
                     ExecutionEvent::ToolCallRequested {
                         request_id,
-                        call: ToolCall { id: ToolCallId::new(), name: tool_name.to_string(), arguments },
+                        call: ToolCall {
+                            id: ToolCallId::new(),
+                            name: tool_name.to_string(),
+                            arguments,
+                        },
                     },
                     ExecutionEvent::Completed {
                         request_id,
@@ -299,7 +324,10 @@ mod integration_tests {
 
     #[tokio::test]
     async fn create_session_mutate_and_host_tool_result_round_trip_a_tool_call() {
-        let backend = make_tool_call_backend("ask_user_question", serde_json::json!({"question": "which model?"}));
+        let backend = make_tool_call_backend(
+            "ask_user_question",
+            serde_json::json!({"question": "which model?"}),
+        );
 
         let harness = Harness::builder()
             .register_integration(Arc::new(FakeIntegrationFactory { backend }))
@@ -321,7 +349,9 @@ mod integration_tests {
         // rather than `HarnessState::harness()`'s hardcoded seven real ones.
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
         let bridge = Arc::new(HostBridge::new(outbound_tx.clone()));
-        let builder = build_session_builder(&harness, recipe, bridge.clone()).await.expect("recipe should convert");
+        let builder = build_session_builder(&harness, recipe, bridge.clone())
+            .await
+            .expect("recipe should convert");
         let handle = builder.start().await.expect("session should start");
         let session_id = handle.session_id();
         let pump = super::super::spawn_event_pump(handle.subscribe(), outbound_tx.clone());
@@ -342,11 +372,19 @@ mod integration_tests {
 
         // Drive it exactly the way the Tauri commands would.
         state
-            .mutate(session_id, MutationCommand::Prompt(UserInput { text: "hi".into(), attachments: vec![] }))
+            .mutate(
+                session_id,
+                MutationCommand::Prompt(UserInput {
+                    text: "hi".into(),
+                    attachments: vec![],
+                }),
+            )
             .await
             .expect("prompt should be accepted");
 
-        let mut inbox = state.take_inbox(session_id).expect("session should still have an inbox");
+        let mut inbox = state
+            .take_inbox(session_id)
+            .expect("session should still have an inbox");
 
         // Wait for the HostToolCall the scripted ToolCallRequested triggers.
         let call_id = loop {
@@ -361,14 +399,20 @@ mod integration_tests {
         };
 
         state
-            .host_tool_result(session_id, &call_id, Ok(serde_json::json!({"answer": "opus"})))
+            .host_tool_result(
+                session_id,
+                &call_id,
+                Ok(serde_json::json!({"answer": "opus"})),
+            )
             .expect("session should still be registered");
 
         // Wait for the session to report the tool call completed.
         let mut saw_completed = false;
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
         while tokio::time::Instant::now() < deadline {
-            let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(100), inbox.recv()).await else {
+            let Ok(Some(event)) =
+                tokio::time::timeout(Duration::from_millis(100), inbox.recv()).await
+            else {
                 continue;
             };
             if let BridgeEvent::Event(envelope) = event {
@@ -378,7 +422,10 @@ mod integration_tests {
                 }
             }
         }
-        assert!(saw_completed, "expected a ToolCallCompleted event after answering the host tool call");
+        assert!(
+            saw_completed,
+            "expected a ToolCallCompleted event after answering the host tool call"
+        );
     }
     #[tokio::test]
     async fn all_subscription_adapters_start_with_harness_owned_build_tools() {
@@ -396,5 +443,4 @@ mod integration_tests {
             state.close_session(session_id).await.unwrap();
         }
     }
-
 }

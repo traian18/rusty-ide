@@ -1,26 +1,26 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod git;
 mod dir_listing;
 mod fs_watch;
-mod shell_exec;
-mod usage_tracking;
-mod observability_store;
-mod secure_key;
-mod startup_window;
+mod git;
 #[cfg(feature = "core-harness")]
 mod harness;
+mod observability_store;
+mod secure_key;
+mod shell_exec;
+mod startup_window;
+mod usage_tracking;
 
+use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use tauri_plugin_window_state::StateFlags;
-use tauri::Manager;
-use tauri::Emitter;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem, MasterPty};
-use std::io::{Write, Read};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use tauri::Emitter;
+use tauri::Manager;
+use tauri_plugin_window_state::StateFlags;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct FileEntry {
@@ -79,7 +79,6 @@ fn terminal_shell_command() -> (String, Vec<&'static str>) {
     }
 }
 
-
 fn get_tab_id(tab_id: Option<String>) -> String {
     let t = tab_id.unwrap_or_default();
     if t.is_empty() {
@@ -96,13 +95,19 @@ async fn read_file_vfs(
     tab_id: Option<String>,
 ) -> Result<String, String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [read_file_vfs] called for path: {}, tab_id: {}", path, tid);
+    println!(
+        "Rust [read_file_vfs] called for path: {}, tab_id: {}",
+        path, tid
+    );
     let vfs = state.0.lock().map_err(|e| e.to_string())?;
 
     // Check VFS first
     if let Some(tab_map) = vfs.get(&tid) {
         if let Some(content) = tab_map.get(&path) {
-            println!("Rust [read_file_vfs] cache hit in VFS memory for tab: {}", tid);
+            println!(
+                "Rust [read_file_vfs] cache hit in VFS memory for tab: {}",
+                tid
+            );
             return Ok(content.clone());
         }
     }
@@ -145,7 +150,10 @@ async fn write_file_vfs(
         if !entry.contains(&path) {
             entry.push(path.clone());
         }
-        println!("Rust [write_file_vfs] tracked file for node: {} under tab: {}", nid, tid);
+        println!(
+            "Rust [write_file_vfs] tracked file for node: {} under tab: {}",
+            nid, tid
+        );
     }
 
     Ok(())
@@ -206,7 +214,10 @@ async fn remove_file_vfs(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [remove_file_vfs] removing path: {} from VFS for tab: {}", path, tid);
+    println!(
+        "Rust [remove_file_vfs] removing path: {} from VFS for tab: {}",
+        path, tid
+    );
     let mut vfs = state.0.lock().map_err(|e| e.to_string())?;
     if let Some(tab_map) = vfs.get_mut(&tid) {
         tab_map.remove(&path);
@@ -265,21 +276,38 @@ async fn delete_node_vfs_files(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [delete_node_vfs_files] deleting all VFS files for node: {} under tab: {}", node_id, tid);
+    println!(
+        "Rust [delete_node_vfs_files] deleting all VFS files for node: {} under tab: {}",
+        node_id, tid
+    );
     let mut tracker = tracker_state.0.lock().map_err(|e| e.to_string())?;
     let unreferenced_files = if let Some(tab_tracker) = tracker.get_mut(&tid) {
         if let Some(files) = tab_tracker.remove(&node_id) {
-            println!("Rust [delete_node_vfs_files] found {} files to delete: {:?}", files.len(), files);
+            println!(
+                "Rust [delete_node_vfs_files] found {} files to delete: {:?}",
+                files.len(),
+                files
+            );
             files
                 .into_iter()
-                .filter(|file_path| !tab_tracker.values().any(|tracked| tracked.contains(file_path)))
+                .filter(|file_path| {
+                    !tab_tracker
+                        .values()
+                        .any(|tracked| tracked.contains(file_path))
+                })
                 .collect()
         } else {
-            println!("Rust [delete_node_vfs_files] no files tracked for node: {} under tab: {}", node_id, tid);
+            println!(
+                "Rust [delete_node_vfs_files] no files tracked for node: {} under tab: {}",
+                node_id, tid
+            );
             Vec::new()
         }
     } else {
-        println!("Rust [delete_node_vfs_files] no files tracked for tab: {}", tid);
+        println!(
+            "Rust [delete_node_vfs_files] no files tracked for tab: {}",
+            tid
+        );
         Vec::new()
     };
     drop(tracker);
@@ -289,7 +317,10 @@ async fn delete_node_vfs_files(
         if let Some(tab_map) = vfs.get_mut(&tid) {
             for file_path in unreferenced_files {
                 tab_map.remove(&file_path);
-                println!("Rust [delete_node_vfs_files] removed final VFS reference: {}", file_path);
+                println!(
+                    "Rust [delete_node_vfs_files] removed final VFS reference: {}",
+                    file_path
+                );
             }
         }
     }
@@ -308,7 +339,10 @@ async fn get_all_node_vfs_files(
     tab_id: Option<String>,
 ) -> Result<Vec<NodeFilesResponse>, String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [get_all_node_vfs_files] fetching tracked files for tab: {}", tid);
+    println!(
+        "Rust [get_all_node_vfs_files] fetching tracked files for tab: {}",
+        tid
+    );
     let tracker = tracker_state.0.lock().map_err(|e| e.to_string())?;
     let result: Vec<NodeFilesResponse> = if let Some(tab_tracker) = tracker.get(&tid) {
         tab_tracker
@@ -321,7 +355,11 @@ async fn get_all_node_vfs_files(
     } else {
         Vec::new()
     };
-    println!("Rust [get_all_node_vfs_files] found {} nodes with tracked files for tab: {}", result.len(), tid);
+    println!(
+        "Rust [get_all_node_vfs_files] found {} nodes with tracked files for tab: {}",
+        result.len(),
+        tid
+    );
     Ok(result)
 }
 
@@ -331,7 +369,10 @@ async fn export_vfs_contents(
     tab_id: Option<String>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [export_vfs_contents] exporting VFS files for tab: {}", tid);
+    println!(
+        "Rust [export_vfs_contents] exporting VFS files for tab: {}",
+        tid
+    );
     let vfs = state.0.lock().map_err(|e| e.to_string())?;
     let mut result = std::collections::HashMap::new();
     if let Some(tab_map) = vfs.get(&tid) {
@@ -339,7 +380,11 @@ async fn export_vfs_contents(
             result.insert(k.clone(), v.clone());
         }
     }
-    println!("Rust [export_vfs_contents] exported {} files for tab: {}", result.len(), tid);
+    println!(
+        "Rust [export_vfs_contents] exported {} files for tab: {}",
+        result.len(),
+        tid
+    );
     Ok(result)
 }
 
@@ -350,13 +395,20 @@ async fn import_vfs_contents(
     files: std::collections::HashMap<String, String>,
 ) -> Result<(), String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [import_vfs_contents] importing {} files into VFS for tab: {}", files.len(), tid);
+    println!(
+        "Rust [import_vfs_contents] importing {} files into VFS for tab: {}",
+        files.len(),
+        tid
+    );
     let mut vfs = state.0.lock().map_err(|e| e.to_string())?;
     let tab_map = vfs.entry(tid.clone()).or_insert_with(HashMap::new);
     for (path, content) in files {
         tab_map.insert(path, content);
     }
-    println!("Rust [import_vfs_contents] import complete for tab: {}", tid);
+    println!(
+        "Rust [import_vfs_contents] import complete for tab: {}",
+        tid
+    );
     Ok(())
 }
 
@@ -366,7 +418,10 @@ async fn export_vfs_tracker(
     tab_id: Option<String>,
 ) -> Result<std::collections::HashMap<String, Vec<String>>, String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [export_vfs_tracker] exporting node file tracking for tab: {}", tid);
+    println!(
+        "Rust [export_vfs_tracker] exporting node file tracking for tab: {}",
+        tid
+    );
     let tracker = tracker_state.0.lock().map_err(|e| e.to_string())?;
     let mut result = std::collections::HashMap::new();
     if let Some(tab_tracker) = tracker.get(&tid) {
@@ -374,7 +429,11 @@ async fn export_vfs_tracker(
             result.insert(node_id.clone(), files.clone());
         }
     }
-    println!("Rust [export_vfs_tracker] exported tracking for {} nodes in tab: {}", result.len(), tid);
+    println!(
+        "Rust [export_vfs_tracker] exported tracking for {} nodes in tab: {}",
+        result.len(),
+        tid
+    );
     Ok(result)
 }
 
@@ -385,7 +444,11 @@ async fn import_vfs_tracker(
     tab_id: Option<String>,
 ) -> Result<(), String> {
     let tid = get_tab_id(tab_id);
-    println!("Rust [import_vfs_tracker] importing tracking for {} nodes in tab: {}", tracker.len(), tid);
+    println!(
+        "Rust [import_vfs_tracker] importing tracking for {} nodes in tab: {}",
+        tracker.len(),
+        tid
+    );
     let mut state = tracker_state.0.lock().map_err(|e| e.to_string())?;
     let tab_tracker = state.entry(tid.clone()).or_insert_with(HashMap::new);
     for (node_id, files) in tracker {
@@ -469,7 +532,10 @@ async fn write_file_disk(
     content: String,
     tab_id: Option<String>,
 ) -> Result<(), String> {
-    println!("Rust [write_file_disk] writing path directly to disk: {}", path);
+    println!(
+        "Rust [write_file_disk] writing path directly to disk: {}",
+        path
+    );
     let path_buf = PathBuf::from(&path);
     if let Some(parent) = path_buf.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
@@ -689,7 +755,10 @@ async fn create_terminal_session(
     rows: u16,
     cwd: Option<String>,
 ) -> Result<(), String> {
-    println!("Rust [create_terminal_session] session_id: {}, cols: {}, rows: {}, cwd: {:?}", session_id, cols, rows, cwd);
+    println!(
+        "Rust [create_terminal_session] session_id: {}, cols: {}, rows: {}, cwd: {:?}",
+        session_id, cols, rows, cwd
+    );
 
     {
         let map = state.0.lock().map_err(|e| e.to_string())?;
@@ -697,7 +766,7 @@ async fn create_terminal_session(
             return Ok(());
         }
     }
-    
+
     let (shell, shell_args) = terminal_shell_command();
 
     let pty_system = NativePtySystem::default();
@@ -709,7 +778,7 @@ async fn create_terminal_session(
     };
 
     let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
-    
+
     let mut cmd = CommandBuilder::new(&shell);
     cmd.args(shell_args);
     // portable-pty assigns this PTY as the controlling TTY by default, so the
@@ -730,11 +799,14 @@ async fn create_terminal_session(
 
     {
         let mut map = state.0.lock().map_err(|e| e.to_string())?;
-        map.insert(session_id.clone(), TerminalSession {
-            master,
-            writer,
-            child,
-        });
+        map.insert(
+            session_id.clone(),
+            TerminalSession {
+                master,
+                writer,
+                child,
+            },
+        );
     }
 
     let output_event = format!("terminal-output-{}", session_id);
@@ -790,7 +862,10 @@ async fn write_to_terminal(
     let session = map
         .get_mut(&session_id)
         .ok_or_else(|| format!("Terminal session '{session_id}' does not exist"))?;
-    session.writer.write_all(input.as_bytes()).map_err(|e| e.to_string())?;
+    session
+        .writer
+        .write_all(input.as_bytes())
+        .map_err(|e| e.to_string())?;
     session.writer.flush().map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -806,12 +881,15 @@ async fn resize_terminal(
     let session = map
         .get(&session_id)
         .ok_or_else(|| format!("Terminal session '{session_id}' does not exist"))?;
-    session.master.resize(PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    }).map_err(|e| e.to_string())?;
+    session
+        .master
+        .resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -826,7 +904,6 @@ async fn close_terminal_session(
     }
     Ok(())
 }
-
 
 #[tauri::command]
 async fn move_file_or_dir(src: String, dest: String) -> Result<(), String> {
@@ -885,7 +962,9 @@ pub enum FileOpenSafety {
 fn sniff_text_file(path: &Path, max_bytes: u64) -> std::io::Result<FileOpenSafety> {
     let metadata = std::fs::metadata(path)?;
     if metadata.len() > max_bytes {
-        return Ok(FileOpenSafety::TooLarge { size_bytes: metadata.len() });
+        return Ok(FileOpenSafety::TooLarge {
+            size_bytes: metadata.len(),
+        });
     }
 
     let mut file = std::fs::File::open(path)?;
@@ -893,7 +972,9 @@ fn sniff_text_file(path: &Path, max_bytes: u64) -> std::io::Result<FileOpenSafet
     let mut buffer = [0u8; 1024];
     let bytes_read = file.read(&mut buffer)?;
     if buffer[..bytes_read].contains(&0) {
-        return Ok(FileOpenSafety::Binary { size_bytes: metadata.len() });
+        return Ok(FileOpenSafety::Binary {
+            size_bytes: metadata.len(),
+        });
     }
 
     Ok(FileOpenSafety::Safe)
@@ -942,7 +1023,8 @@ const MAX_DOCUMENT_BYTES: u64 = 100 * 1024 * 1024;
 #[tauri::command]
 async fn read_file_as_base64(path: String) -> Result<String, String> {
     let path_buf = resolve_path(&path);
-    let metadata = std::fs::metadata(&path_buf).map_err(|e| format!("File not found: {} ({})", path, e))?;
+    let metadata =
+        std::fs::metadata(&path_buf).map_err(|e| format!("File not found: {} ({})", path, e))?;
     if metadata.len() > MAX_IMAGE_PREVIEW_BYTES {
         return Err(format!(
             "Image is {} bytes, over the {} byte preview limit",
@@ -958,7 +1040,8 @@ async fn read_file_as_base64(path: String) -> Result<String, String> {
 #[tauri::command]
 async fn read_binary_file_base64(path: String) -> Result<String, String> {
     let path_buf = resolve_path(&path);
-    let metadata = std::fs::metadata(&path_buf).map_err(|e| format!("File not found: {} ({})", path, e))?;
+    let metadata =
+        std::fs::metadata(&path_buf).map_err(|e| format!("File not found: {} ({})", path, e))?;
     if metadata.len() > MAX_DOCUMENT_BYTES {
         return Err(format!(
             "Document file is {} bytes, over the {} byte limit",
@@ -984,7 +1067,11 @@ mod file_open_safety_tests {
 
         let result = sniff_text_file(&path, 1024 * 1024).unwrap();
 
-        assert!(matches!(result, FileOpenSafety::Safe), "expected Safe, got {:?}", result);
+        assert!(
+            matches!(result, FileOpenSafety::Safe),
+            "expected Safe, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -994,11 +1081,16 @@ mod file_open_safety_tests {
         let mut file = std::fs::File::create(&path).unwrap();
         // A real PNG-like byte sequence: the point is the embedded NUL,
         // not authenticity of the format.
-        file.write_all(&[0x89, 0x50, 0x4E, 0x47, 0x00, 0x0D, 0x0A]).unwrap();
+        file.write_all(&[0x89, 0x50, 0x4E, 0x47, 0x00, 0x0D, 0x0A])
+            .unwrap();
 
         let result = sniff_text_file(&path, 1024 * 1024).unwrap();
 
-        assert!(matches!(result, FileOpenSafety::Binary { .. }), "expected Binary, got {:?}", result);
+        assert!(
+            matches!(result, FileOpenSafety::Binary { .. }),
+            "expected Binary, got {:?}",
+            result
+        );
     }
 
     #[test]
@@ -1026,9 +1118,13 @@ mod file_open_safety_tests {
         let path = dir.path().join("sample.bin");
         std::fs::write(&path, b"hello binary").unwrap();
 
-        let b64 = super::read_binary_file_base64(path.to_string_lossy().to_string()).await.unwrap();
+        let b64 = super::read_binary_file_base64(path.to_string_lossy().to_string())
+            .await
+            .unwrap();
         use base64::Engine;
-        let decoded = base64::engine::general_purpose::STANDARD.decode(b64).unwrap();
+        let decoded = base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .unwrap();
         assert_eq!(decoded, b"hello binary");
     }
 }
@@ -1111,8 +1207,13 @@ async fn search_project(
             }
 
             if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                let rel_path = path.strip_prefix(&*root_path)
+                let name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let rel_path = path
+                    .strip_prefix(&*root_path)
                     .unwrap_or(path)
                     .to_string_lossy()
                     .into_owned();
@@ -1140,14 +1241,16 @@ async fn search_project(
                             re.is_match(raw_line)
                         } else if match_case {
                             if whole_word {
-                                raw_line.split(|c: char| !c.is_alphanumeric() && c != '_')
+                                raw_line
+                                    .split(|c: char| !c.is_alphanumeric() && c != '_')
                                     .any(|w| w == query.as_str())
                             } else {
                                 raw_line.contains(query.as_str())
                             }
                         } else {
                             if whole_word {
-                                raw_line.split(|c: char| !c.is_alphanumeric() && c != '_')
+                                raw_line
+                                    .split(|c: char| !c.is_alphanumeric() && c != '_')
                                     .any(|w| w.to_lowercase() == query_lower.as_str())
                             } else {
                                 raw_line.to_lowercase().contains(query_lower.as_str())
@@ -1188,16 +1291,16 @@ async fn search_project(
             (true, false) => std::cmp::Ordering::Greater,
             (true, true) => {
                 // Sort content matches alphabetically by path, then line number
-                a.match_val.path.cmp(&b.match_val.path)
+                a.match_val
+                    .path
+                    .cmp(&b.match_val.path)
                     .then_with(|| a.match_val.line.cmp(&b.match_val.line))
             }
         }
     });
 
-    let mut final_results: Vec<SearchMatch> = scored_results
-        .into_iter()
-        .map(|r| r.match_val)
-        .collect();
+    let mut final_results: Vec<SearchMatch> =
+        scored_results.into_iter().map(|r| r.match_val).collect();
 
     final_results.truncate(150);
     Ok(final_results)
@@ -1214,7 +1317,11 @@ pub(crate) fn chrono_now_iso8601() -> String {
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let (days, secs_of_day) = (secs / 86_400, secs % 86_400);
-    let (hour, minute, second) = (secs_of_day / 3600, (secs_of_day % 3600) / 60, secs_of_day % 60);
+    let (hour, minute, second) = (
+        secs_of_day / 3600,
+        (secs_of_day % 3600) / 60,
+        secs_of_day % 60,
+    );
 
     // Howard Hinnant's civil_from_days algorithm.
     let z = days as i64 + 719_468;
@@ -1238,9 +1345,7 @@ pub(crate) fn chrono_now_iso8601() -> String {
 pub fn run() {
     // Restore geometry before showing the window. Fullscreen, visibility and
     // minimization are session-only: startup must present an accessible window.
-    let window_state_flags = StateFlags::SIZE
-        | StateFlags::POSITION
-        | StateFlags::MAXIMIZED;
+    let window_state_flags = StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED;
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

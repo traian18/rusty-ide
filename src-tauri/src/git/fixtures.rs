@@ -68,7 +68,11 @@ impl GitFixture {
         let empty_hooks_dir = root.path().join(".rusty-test-empty-hooks");
         std::fs::create_dir_all(&empty_hooks_dir).expect("failed to create empty hooks dir");
 
-        let fixture = GitFixture { root, empty_config, empty_hooks_dir };
+        let fixture = GitFixture {
+            root,
+            empty_config,
+            empty_hooks_dir,
+        };
 
         let mut args: Vec<&str> = vec!["-c", "init.defaultBranch=main"];
         args.extend_from_slice(init_args);
@@ -79,7 +83,11 @@ impl GitFixture {
         fixture.git_ok(&["config", "tag.gpgsign", "false"]);
         fixture.git_ok(&["config", "gc.auto", "0"]);
         fixture.git_ok(&["config", "core.autocrlf", "false"]);
-        fixture.git_ok(&["config", "core.hooksPath", &fixture.empty_hooks_dir.to_string_lossy()]);
+        fixture.git_ok(&[
+            "config",
+            "core.hooksPath",
+            &fixture.empty_hooks_dir.to_string_lossy(),
+        ]);
         fixture.git_ok(&["config", "protocol.file.allow", "always"]);
 
         // The sentinel config file/dir above live directly under the repo
@@ -95,7 +103,8 @@ impl GitFixture {
                 std::fs::create_dir_all(parent).ok();
             }
             let sentinel_names = ".rusty-test-empty-gitconfig\n.rusty-test-empty-hooks\n";
-            std::fs::write(&exclude_path, sentinel_names).expect("failed to write .git/info/exclude");
+            std::fs::write(&exclude_path, sentinel_names)
+                .expect("failed to write .git/info/exclude");
         }
 
         fixture
@@ -230,7 +239,14 @@ impl GitFixture {
     /// was sufficient was wrong and untested (this method was `#[allow(dead_code)]`
     /// until PR 5 commit 1 first exercised it).
     pub fn add_submodule(&self, source: &Path, rel: &str) -> &Self {
-        self.git_ok(&["-c", "protocol.file.allow=always", "submodule", "add", &source.to_string_lossy(), rel]);
+        self.git_ok(&[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            &source.to_string_lossy(),
+            rel,
+        ]);
         self
     }
 
@@ -283,11 +299,17 @@ mod smoke_tests {
         parent.add_submodule(std::path::Path::new(&source.path_str()), "sub");
 
         let gitmodules_path = std::path::Path::new(&parent.path_str()).join(".gitmodules");
-        assert!(gitmodules_path.exists(), "expected .gitmodules to be created");
+        assert!(
+            gitmodules_path.exists(),
+            "expected .gitmodules to be created"
+        );
         let contents = std::fs::read_to_string(&gitmodules_path).unwrap();
         assert!(contents.contains("path = sub"));
         assert!(
-            std::path::Path::new(&parent.path_str()).join("sub").join("readme.md").exists(),
+            std::path::Path::new(&parent.path_str())
+                .join("sub")
+                .join("readme.md")
+                .exists(),
             "expected the submodule to be checked out into the parent's working tree"
         );
     }
@@ -299,9 +321,15 @@ mod smoke_tests {
         let worktree = main.add_linked_worktree("wt", "feature");
 
         let dot_git = std::path::Path::new(&worktree.path_str()).join(".git");
-        assert!(dot_git.is_file(), "a linked worktree's .git must be a FILE, not a directory");
+        assert!(
+            dot_git.is_file(),
+            "a linked worktree's .git must be a FILE, not a directory"
+        );
         let contents = std::fs::read_to_string(&dot_git).unwrap();
-        assert!(contents.starts_with("gitdir:"), "expected a `gitdir: <path>` pointer, got: {contents}");
+        assert!(
+            contents.starts_with("gitdir:"),
+            "expected a `gitdir: <path>` pointer, got: {contents}"
+        );
     }
 
     #[test]
@@ -330,7 +358,14 @@ mod smoke_tests {
         // clone (of "inner") runs inside "outer-sub", a fresh submodule
         // checkout with no local config of its own -- the top-level `-c`
         // flag applies to the whole recursive operation regardless.
-        outer.git_ok(&["-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive"]);
+        outer.git_ok(&[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "update",
+            "--init",
+            "--recursive",
+        ]);
 
         let nested_leaf = std::path::Path::new(&outer.path_str())
             .join("outer-sub")
