@@ -14,15 +14,17 @@ export function RunTrajectoryView() {
     (source === "all" || entry.source === source) &&
     (!query.trim() || JSON.stringify(entry).toLowerCase().includes(query.trim().toLowerCase()))
   ) ?? [], [run, query, source]);
+  const loading = Boolean(run && snapshot.loadingEntries.has(run.id));
+  const loadError = run ? snapshot.entryErrors.get(run.id) : undefined;
   return <>
     <div className={styles.trajectoryControls}>
       <label>Run
-        <select aria-label="Select run" value={run?.id ?? ""} onChange={(event) => { setSelected(event.target.value); setSource("all"); }}>
+        <select id="trajectory-run-select" aria-label="Select run" value={run?.id ?? ""} onChange={(event) => { setSelected(event.target.value); setSource("all"); }}>
           {snapshot.runs.map((item) => <option key={item.id} value={item.id}>{new Date(item.startedAt).toLocaleString()} · {item.origin.displayLabel} · {item.status}</option>)}
         </select>
       </label>
-      <input aria-label="Search trajectory" placeholder="Search prompts, tools, results and errors" value={query} onChange={(event) => setQuery(event.target.value)} />
-      <select aria-label="Filter trajectory source" value={source} onChange={(event) => setSource(event.target.value)}>
+      <input id="trajectory-search-input" aria-label="Search trajectory" placeholder="Search prompts, tools, results and errors" value={query} onChange={(event) => setQuery(event.target.value)} />
+      <select id="trajectory-source-select" aria-label="Filter trajectory source" value={source} onChange={(event) => setSource(event.target.value)}>
         <option value="all">All event sources</option>
         {sources.map((item) => <option key={item}>{item}</option>)}
       </select>
@@ -41,11 +43,13 @@ export function RunTrajectoryView() {
           </dl>
           {run.omittedEntries > 0 && <p role="status">{run.omittedEntries} older events not shown to keep memory bounded; the full trace is saved in .rusty/observability/trajectories/{run.id}.jsonl.</p>}
           <div className={styles.rowActions}>
-            <button type="button" onClick={() => navigator.clipboard?.writeText(JSON.stringify(run, null, 2))}>Copy redacted run</button>
-            <button type="button" disabled={run.status === "running"} onClick={() => trajectories.remove((item) => item.id === run.id)}>Delete run trace</button>
+            <button id="trajectory-copy-run" type="button" onClick={() => navigator.clipboard?.writeText(JSON.stringify(run, null, 2))}>Copy redacted run</button>
+            <button id="trajectory-delete-run" type="button" disabled={run.status === "running"} onClick={() => trajectories.remove((item) => item.id === run.id)}>Delete run trace</button>
           </div>
         </div>
-        {entries.length === 0 && <div className={styles.empty}>No matching events</div>}
+        {loading && <div className={styles.empty} role="status">Loading event trace…</div>}
+        {loadError && <div className={styles.storageError}>Could not load this trace: {loadError}</div>}
+        {!loading && !loadError && entries.length === 0 && <div className={styles.empty}>No matching events</div>}
         {entries.map((entry, index) => <details key={entry.id} className={styles.trajectoryEntry}>
           <summary><span>{entry.sequence ?? index + 1} · {entry.source}</span><small>{new Date(entry.timestamp).toLocaleTimeString()} · {entry.payloadState}</small></summary>
           <div className={styles.detail}>

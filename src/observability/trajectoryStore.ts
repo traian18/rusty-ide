@@ -27,15 +27,18 @@ export interface RunTrajectory {
   /** Tokens per model: the run's own model(s) and any model a tool delegated to. */
   usage?: RunUsage;
 }
-interface Snapshot { runs: RunTrajectory[]; error?: string }
+interface Snapshot {
+  runs: RunTrajectory[];
+  error?: string;
+  loadingEntries: ReadonlySet<string>;
+  entryErrors: ReadonlyMap<string, string>;
+}
 const LEGACY_KEY = "rusty.run-trajectories.v1";
-// In-memory view budget only; every entry is also appended to disk.
+// Approximate in-memory guard. JSON string lengths are cached per immutable
+// entry; metadata gets a small fixed allowance per run.
 const MEMORY_BYTES = 2_000_000;
 const MAX_ENTRIES_IN_MEMORY = 1500;
 const MAX_RUNS = 100;
-/** Coalesces change notifications while a session streams: the snapshot
- * itself is always current, subscribers (React) just re-render at most
- * this often instead of once per event. */
 const NOTIFY_INTERVAL_MS = 120;
 const TOKEN_FIELDS = ["totalTokens", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"] as const;
 
@@ -49,8 +52,6 @@ function sizeOfEntry(entry: TrajectoryEntry): number {
   }
   return size;
 }
-/** Entry sizes are measured once and cached, so a new event costs one
- * entry's serialization instead of re-serializing every run in memory. */
 function sizeOfRun(run: RunTrajectory): number {
   let size = runBytes.get(run);
   if (size === undefined) {
@@ -73,7 +74,7 @@ const rootOf = (run: Pick<RunTrajectory, "context">): Root => run.context?.works
 const indexLine = ({ entries: _entries, omittedEntries: _omitted, ...meta }: RunTrajectory) => meta;
 
 export class TrajectoryStore {
-  private snapshot: Snapshot = { runs: [] };
+  private snapshot: Snapshot = { runs: [], loadingEntries: new Set(), entryErrors: new Map() };
   private listeners = new Set<() => void>();
   private timer?: ReturnType<typeof setTimeout>;
   private notifyTimer?: ReturnType<typeof setTimeout>;
@@ -84,10 +85,14 @@ export class TrajectoryStore {
   private dirtyRuns = new Set<string>();
   private pendingEntries = new Map<string, { root: Root; entries: TrajectoryEntry[] }>();
   private entriesLoaded = new Set<string>();
+  private loadingEntries = new Set<string>();
+  private entryErrors = new Map<string, string>();
   private roots: Root[] = [undefined];
   private rootKey?: string;
   private loadToken = 0;
   private migrated = false;
+  private totalBytes = 0;
+  private accountedRuns = new Map<string, RunTrajectory>();
 
   constructor(private persistence: ObservabilityPersistence = defaultPersistence()) {}
 
@@ -124,38 +129,37 @@ export class TrajectoryStore {
         const kept = inMemory.get(raw.id);
         loaded.push(kept ?? { ...raw, status: raw.status === "running" ? "interrupted" : raw.status, entries: [], omittedEntries: 0 });
       }
-      this.update([...unsaved, ...loaded].sort((a, b) => b.startedAt.localeCompare(a.startedAt)), false);
+      this.update([...unsaved, ...loaded].sort((a, b) => b.startedAt.localeCompare(a.startedAt)), false, true);
       this.setError(undefined);
-      await this.loadEntriesWithinBudget(token);
     } catch (error) {
       this.setError(error);
     }
   }
 
-  /** Loads a run's full trace from disk (e.g. when it is selected in the inspector). */
+  /** Demand-loads a historical run once. Concurrent calls share the same in-flight state. */
   async ensureEntries(id: string): Promise<void> {
     const run = this.snapshot.runs.find((item) => item.id === id);
-    if (!run || this.entriesLoaded.has(id) || this.live.has(id)) return;
-    this.entriesLoaded.add(id);
+    if (!run || this.entriesLoaded.has(id) || this.loadingEntries.has(id) || this.live.has(id)) return;
+    this.loadingEntries.add(id);
+    this.entryErrors.delete(id);
+    this.publishEntryState();
     try {
       const entries = await this.persistence.loadTrajectory(rootOf(run), id) as TrajectoryEntry[];
       const omitted = Math.max(0, entries.length - MAX_ENTRIES_IN_MEMORY);
+      this.entriesLoaded.add(id);
       this.update(this.snapshot.runs.map((item) => item.id === id ? { ...item, entries: entries.slice(omitted), omittedEntries: omitted } : item), false);
     } catch (error) {
-      this.entriesLoaded.delete(id);
+      this.entryErrors.set(id, error instanceof Error ? error.message : String(error));
       this.setError(error);
+    } finally {
+      this.loadingEntries.delete(id);
+      this.publishEntryState();
     }
   }
 
-  private async loadEntriesWithinBudget(token: number) {
-    let budget = MEMORY_BYTES - JSON.stringify(this.snapshot.runs).length;
-    for (const run of this.snapshot.runs) {
-      if (token !== this.loadToken || budget <= 0) return;
-      if (this.live.has(run.id) || this.entriesLoaded.has(run.id)) continue;
-      await this.ensureEntries(run.id);
-      const loaded = this.snapshot.runs.find((item) => item.id === run.id);
-      budget -= loaded ? JSON.stringify(loaded.entries).length : 0;
-    }
+  private publishEntryState() {
+    this.snapshot = { ...this.snapshot, loadingEntries: new Set(this.loadingEntries), entryErrors: new Map(this.entryErrors) };
+    this.emit();
   }
 
   private async migrateLegacy() {
@@ -199,16 +203,13 @@ export class TrajectoryStore {
       const block = (payload as Record<string, { message_id?: string; delta?: string }> | null)?.[source];
       if (typeof block?.delta === "string") {
         const previous = this.pendingText;
-        if (previous && previous.runId === id && previous.source === source &&
-            previous.messageId === block.message_id && previous.metadata.agentId === metadata.agentId &&
-            previous.delta.length + block.delta.length <= 8192) {
+        if (previous && previous.runId === id && previous.source === source && previous.messageId === block.message_id && previous.metadata.agentId === metadata.agentId && previous.delta.length + block.delta.length <= 8192) {
           previous.delta += block.delta;
           previous.metadata.eventCount = (previous.metadata.eventCount ?? 1) + 1;
           previous.metadata.lastSequence = metadata.sequence;
         } else {
           this.drainText();
-          this.pendingText = { runId: id, source, messageId: block.message_id ?? "", delta: block.delta,
-            metadata: { ...metadata, eventCount: 1, lastSequence: metadata.sequence } };
+          this.pendingText = { runId: id, source, messageId: block.message_id ?? "", delta: block.delta, metadata: { ...metadata, eventCount: 1, lastSequence: metadata.sequence } };
         }
         if (!this.streamTimer) this.streamTimer = setTimeout(() => this.drainText(), 250);
         return;
@@ -222,9 +223,7 @@ export class TrajectoryStore {
     this.streamTimer = undefined;
     const pending = this.pendingText;
     this.pendingText = undefined;
-    if (pending) this.appendEntry(pending.runId, pending.source, {
-      [pending.source]: { message_id: pending.messageId, delta: pending.delta },
-    }, pending.metadata);
+    if (pending) this.appendEntry(pending.runId, pending.source, { [pending.source]: { message_id: pending.messageId, delta: pending.delta } }, pending.metadata);
   }
   private appendEntry(id: string, source: string, payload: unknown, metadata: EntryMetadata) {
     const run = this.snapshot.runs.find((item) => item.id === id);
@@ -242,17 +241,13 @@ export class TrajectoryStore {
       return { ...item, entries: entries.slice(omitted), omittedEntries: item.omittedEntries + omitted };
     }));
   }
-  /** Replaces one model's usage within a run (e.g. the run model's running total). */
   setUsage(id: string, key: string, entry: ModelUsageEntry) {
     this.updateUsage(id, (usage) => ({ ...usage, [key]: entry }));
   }
-  /** Adds an increment to one model's usage within a run (e.g. one delegated tool request). */
   addUsage(id: string, key: string, entry: Omit<ModelUsageEntry, "tokens">, delta: ExecutionTokensSnapshot) {
     this.updateUsage(id, (usage) => {
       const tokens: ExecutionTokensSnapshot = { ...usage[key]?.tokens };
-      for (const field of TOKEN_FIELDS) {
-        if (delta[field] !== undefined) tokens[field] = (tokens[field] ?? 0) + delta[field]!;
-      }
+      for (const field of TOKEN_FIELDS) if (delta[field] !== undefined) tokens[field] = (tokens[field] ?? 0) + delta[field]!;
       return { ...usage, [key]: { ...usage[key], ...entry, tokens } };
     });
   }
@@ -271,7 +266,6 @@ export class TrajectoryStore {
     this.update(this.snapshot.runs.map((run) => run.id === id ? { ...run, status, finishedAt } : run));
     void this.flush();
   }
-  /** `persist: false` when the caller already deletes the history on disk by a wider scope. */
   remove(matches: (run: RunTrajectory) => boolean, { persist = true }: { persist?: boolean } = {}) {
     const removed = this.snapshot.runs.filter((run) => run.status !== "running" && matches(run));
     if (removed.length === 0) return;
@@ -279,16 +273,13 @@ export class TrajectoryStore {
       this.dirtyRuns.delete(run.id);
       this.pendingEntries.delete(run.id);
       this.entriesLoaded.delete(run.id);
+      this.loadingEntries.delete(run.id);
+      this.entryErrors.delete(run.id);
     }
     const ids = new Set(removed.map((run) => run.id));
     this.update(this.snapshot.runs.filter((run) => !ids.has(run.id)), false);
-    if (persist) {
-      for (const run of removed) {
-        this.persistence.delete(rootOf(run), { kind: "run", id: run.id }).catch((error) => this.setError(error));
-      }
-    }
+    if (persist) for (const run of removed) this.persistence.delete(rootOf(run), { kind: "run", id: run.id }).catch((error) => this.setError(error));
   }
-  /** Re-queues live runs after their workspace history was wiped on disk. */
   repersistLive(matches: (run: RunTrajectory) => boolean = () => true) {
     for (const run of this.snapshot.runs) {
       if (!this.live.has(run.id) || !matches(run)) continue;
@@ -347,17 +338,29 @@ export class TrajectoryStore {
       for (const listener of this.listeners) listener();
     }, NOTIFY_INTERVAL_MS);
   }
-  private update(runs: RunTrajectory[], persist = true) {
+  private update(runs: RunTrajectory[], persist = true, recalculate = false) {
     const cutoff = this.retentionDays === null ? -Infinity : Date.now() - this.retentionDays * 86_400_000;
     runs = runs.filter((run) => this.live.has(run.id) || Date.parse(run.startedAt) >= cutoff).slice(0, MAX_RUNS);
-    let excess = runs.reduce((total, run) => total + sizeOfRun(run), 0) - MEMORY_BYTES;
-    // Evict the oldest entries of the oldest runs first, one slice per run.
-    for (let index = runs.length - 1; excess > 0 && index >= 0; index--) {
+
+    if (recalculate || this.accountedRuns.size === 0) {
+      this.totalBytes = runs.reduce((total, run) => total + sizeOfRun(run), 0);
+    } else {
+      const nextIds = new Set(runs.map((run) => run.id));
+      for (const [id, previous] of this.accountedRuns) if (!nextIds.has(id)) this.totalBytes -= sizeOfRun(previous);
+      for (const run of runs) {
+        const previous = this.accountedRuns.get(run.id);
+        if (previous !== run) this.totalBytes += sizeOfRun(run) - (previous ? sizeOfRun(previous) : 0);
+      }
+    }
+
+    // Only enter eviction work when the tracked total crosses the budget.
+    for (let index = runs.length - 1; this.totalBytes > MEMORY_BYTES && index >= 0; index--) {
       const run = runs[index];
       let drop = 0;
-      while (drop < run.entries.length && excess > 0) excess -= sizeOfEntry(run.entries[drop++]);
+      while (drop < run.entries.length && this.totalBytes > MEMORY_BYTES) this.totalBytes -= sizeOfEntry(run.entries[drop++]);
       if (drop > 0) runs = runs.map((item, i) => i === index ? { ...item, entries: item.entries.slice(drop), omittedEntries: item.omittedEntries + drop } : item);
     }
+    this.accountedRuns = new Map(runs.map((run) => [run.id, run]));
     this.snapshot = { ...this.snapshot, runs };
     this.emit();
     if (persist) this.schedule();
