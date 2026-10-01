@@ -55,6 +55,39 @@ export function stepUpTargets(
   return targets;
 }
 
+/**
+ * Every AUTO level's model the session can use without changing provider or
+ * core integration -- the candidates for choosing a model per workflow step,
+ * which (unlike a mid-run step-up) may also go down to a cheaper level. A
+ * level whose model sits on another provider has no entry. Each target's
+ * params set the reasoning effort explicitly: the choice applies to one
+ * request, so nothing is inherited from the run's base model.
+ */
+export function inPlaceLevelTargets(
+  levels: DecideStepUpConfig["levels"],
+  provider: CustomProvider | undefined,
+  baseModel: string,
+): Partial<Record<AutoLevel, StepUpTarget>> {
+  const targets: Partial<Record<AutoLevel, StepUpTarget>> = {};
+  if (!provider || (provider.transport && provider.transport !== "http")) return targets;
+  const base = mapProviderToIntegration(provider, baseModel);
+  if (!base.supported) return targets;
+  for (const level of AUTO_LEVELS) {
+    const candidate = levels[level];
+    if (!candidate || candidate.providerId !== provider.id) continue;
+    const mapped = mapProviderToIntegration(provider, candidate.model);
+    if (!mapped.supported || mapped.integration !== base.integration) continue;
+    if (JSON.stringify(mapped.integration_config ?? null) !== JSON.stringify(base.integration_config ?? null)) continue;
+    targets[level] = {
+      level,
+      name: candidate.name,
+      model: candidate.model,
+      params: { model: mapped.model ?? candidate.model, ...(mapped.reasoningEffort ? { reasoning_effort: mapped.reasoningEffort } : {}) },
+    };
+  }
+  return targets;
+}
+
 const LEVEL_INSTRUCTIONS =
   "Given what the agent has done so far and the decision it now faces, how capable must the AI model be to complete the rest of this request well? Choose the lowest level that is enough: more capable models are slower and more expensive, so a stronger model than needed is a worse answer.";
 

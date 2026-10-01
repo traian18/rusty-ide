@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "id": "refactor",
+  "revision": 1,
+  "name": "Refactor safely",
+  "description": "Improve structure without changing behavior: Analyze, Plan the behavior to preserve and small edits, Refactor, Verify that behavior is unchanged, then Review.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "review",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze",
+      "name": "Analyze",
+      "type": "agent",
+      "config": {
+        "instructions": "Analyze how the existing code relates to workflow_input.request. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Search before reading, then trace the entry points, data and control flow, dependencies and conventions that matter, citing exact files and symbols and marking each claim as confirmed or a hypothesis. Return a written analysis: current behavior, relevant files and symbols, flow, constraints, risks and edge cases, the likely change surface, and open questions. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "analyze"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "plan",
+      "name": "Plan",
+      "type": "agent",
+      "config": {
+        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Use workflow_input.analyze for how the current code works and where the change belongs. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "plan"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "analyze",
+          "source": {
+            "type": "node_output",
+            "node_id": "analyze",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "refactor",
+      "name": "Refactor",
+      "type": "agent",
+      "config": {
+        "instructions": "Refactor following workflow_input.plan to improve structure without changing observable behavior. State the behavior that must not change and establish a baseline (existing tests or checks) before editing. Work in small focused edits, re-run the relevant checks after significant edits and after the last edit, keep unrelated work and public APIs intact, and do not mix in feature changes. Finish with a written handoff: the behavior preserved and the baseline, structural changes by area, files changed, checks run with results, behavior-preservation evidence, deviations and deferred cleanup. Never imply unverified work passed. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "refactor"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Verify the refactor against workflow_input.request, workflow_input.plan and the Refactor handoff in workflow_input.refactor. The behavior the plan says must not change is the main requirement: independently run the relevant tests or checks, inspect the changed files, and look for any observable behavior or public API change. Do not edit files or run destructive commands. Finish with a clear written verdict: what was verified with evidence, what changed behavior or remains unverified, and precise next actions. A blocked or incomplete refactor must be reported as such. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "refactor",
+          "source": {
+            "type": "node_output",
+            "node_id": "refactor",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "type": "agent",
+      "config": {
+        "instructions": "Review the changes made for workflow_input.request against the plan in workflow_input.plan, the Refactor handoff in workflow_input.refactor and the verification in workflow_input.verify. Inspect the actual changed files rather than the summaries, and judge correctness, edge cases, regressions, maintainability and test coverage. Return prioritized findings, each with a severity (blocker, high, medium or low), the exact file and symbol, why it is a problem, its impact and a concrete fix; separate confirmed defects from risks and suggestions, and say plainly when there are no material findings. Do not modify files or run commands. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "review"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "refactor",
+          "source": {
+            "type": "node_output",
+            "node_id": "refactor",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "verify",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1660,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "review",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1980,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-analyze",
+      "source": "input",
+      "target": "analyze",
+      "condition": "on_success"
+    },
+    {
+      "id": "analyze-plan",
+      "source": "analyze",
+      "target": "plan",
+      "condition": "on_success"
+    },
+    {
+      "id": "plan-refactor",
+      "source": "plan",
+      "target": "refactor",
+      "condition": "on_success"
+    },
+    {
+      "id": "refactor-verify",
+      "source": "refactor",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-review",
+      "source": "verify",
+      "target": "review",
+      "condition": "on_success"
+    },
+    {
+      "id": "review-output",
+      "source": "review",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "end_to_end",
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

@@ -28,6 +28,15 @@ export type CommonEvent =
   | { kind: "files_changed"; paths: string[] }
   | { kind: "command_output"; content: string }
   | { kind: "command_complete" }
+  /** A workflow that may hand over to another, at the end of one of its steps. */
+  | {
+      kind: "workflow_boundary";
+      /** "checking" while the router decides; then how it ended. */
+      status: "checking" | "continue" | "switch";
+      workflow: string;
+      /** The step that just finished. */
+      step: string;
+    }
   /** Progress of one step of a workflow run (`.rusty/workflows`). */
   | {
       kind: "workflow_step";

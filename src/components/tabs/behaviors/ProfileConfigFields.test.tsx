@@ -72,7 +72,7 @@ it("edits typed nested tool arguments without asking for JSON", () => {
 });
 
 it("renders the built-in profile with structured controls and keeps it read-only", () => {
-  act(() => root.render(<ProfileInspector profile={STARTER_PROFILES[1]} readOnly issues={[]} profileIds={[]} isDefault={false} onChange={vi.fn()} onSetDefault={vi.fn()} />));
+  act(() => root.render(<ProfileInspector profile={STARTER_PROFILES.find((profile) => profile.id === "rusty-ide.builtin.build")!} readOnly issues={[]} profileIds={[]} isDefault={false} onChange={vi.fn()} onSetDefault={vi.fn()} />));
   expect(host.textContent).toContain("Per-tool settings");
   expect(host.textContent).toContain("Additional attempts");
   expect([...host.querySelectorAll("textarea")].some((input) => input.value.trim().startsWith("{"))).toBe(false);

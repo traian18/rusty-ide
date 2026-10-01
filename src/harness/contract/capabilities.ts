@@ -170,6 +170,22 @@ export interface TestBuildInput {
 
 // --- the registry -------------------------------------------------------
 
+/** A workflow run that ended by handing over to another workflow at a step boundary. */
+export interface WorkflowSwitch {
+  /** The workflow handed over to: its id, display name and where the IDE reads it from. */
+  id: string;
+  name: string;
+  path: string;
+  /** Why, in a sentence the user can read. */
+  reason: string;
+  /** How sure the router was. */
+  confidence: number;
+  /** What the next workflow starts from: the work finished before the hand-over. */
+  context: string;
+  /** The workflow that handed over, and the step it handed over after. */
+  from: { name: string; step: string };
+}
+
 export interface CapabilityMap {
   inline_chat: {
     input: InlineChatInput;
@@ -179,7 +195,7 @@ export interface CapabilityMap {
   agent_chat: {
     input: AgentChatInput;
     event: CommonEvent;
-    result: { response: string; modifiedFiles: string[]; subagents: unknown[] };
+    result: { response: string; modifiedFiles: string[]; subagents: unknown[]; switchTo?: WorkflowSwitch };
   };
   execute_node: {
     input: ExecuteNodeInput;

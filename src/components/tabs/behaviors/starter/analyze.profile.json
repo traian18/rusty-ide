@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "analyze",
+  "revision": 2,
+  "name": "Analyze",
+  "description": "Explains how the current code works, where a change belongs, and what it may affect.",
+  "status": "published",
+  "instructions": {"mode": "append", "text": "Inspect the workspace and trace the existing behavior before proposing implementation details. Cite relevant files and symbols. Explain the data flow, dependencies, affected areas, constraints, and likely implementation scope. Do not modify files or run commands. Finish with actionable findings suitable for a planning handoff, including important risks and open questions.", "variants": {}},
+  "tools": {"type": "allow_list", "tools": ["read_file", "list_files", "search_codebase", "report_progress", "ask_user_question"]}, "tool_overrides": {}, "execution": {}, "limits": {},
+  "rules": [{"id": "analyze-read-only", "on": "PreToolUse", "when": {"tool": ["write_file", "run_command"]}, "do": {"deny": {"reason": "Analyze is read-only. Describe code findings instead of modifying files or running commands."}}}],
+  "completion_gate": {"checks": [{"id": "analyzed-workspace", "require": {"calls": {"tool": ["read_file", "search_codebase"], "gte": 1}}, "feedback": "Trace the relevant workspace code and cite files or symbols before completing the analysis."}], "max_continuations": 2, "on_exhausted": "fail"},
+  "children": {"type": "inherit"}, "metadata": {"editor": {"position": {"x": 400, "y": 340}}}
+}

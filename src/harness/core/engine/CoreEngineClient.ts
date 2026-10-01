@@ -46,6 +46,9 @@ export interface CoreEngine {
   /** Starts the workflow the session's recipe carries; resolves to the run id. */
   startWorkflow?(sessionId: string, input: unknown, checkpoint?: unknown): Promise<string>;
   workflowControl?(sessionId: string, control: WorkflowControl): Promise<void>;
+  /** The running workflow's state (finished steps' outputs included); with
+   * `afterStep` it waits briefly for that step to settle first. */
+  workflowState?(sessionId: string, afterStep?: string): Promise<unknown>;
   /** Changes a running workflow step's execution params (its model). */
   configureStepExecution?(sessionId: string, stepSessionId: string, params: ExecutionParams): Promise<void>;
 }
@@ -191,6 +194,10 @@ export class CoreEngineClient implements CoreEngine {
 
   workflowControl(sessionId: string, control: WorkflowControl): Promise<void> {
     return invoke("harness_workflow_control", { sessionId, control });
+  }
+
+  workflowState(sessionId: string, afterStep?: string): Promise<unknown> {
+    return invoke("harness_workflow_state", { sessionId, afterStep: afterStep ?? null });
   }
 
   configureStepExecution(sessionId: string, stepSessionId: string, params: ExecutionParams): Promise<void> {

@@ -3,7 +3,11 @@ import type { CustomProvider } from "../../../store/types";
 import type { CoreCapabilityDefinition } from "../CoreHarness";
 import { agentChatDefinition } from "./agent_chat";
 import { applyDecideToolHandler, applyDecideToolToRecipe } from "./decideTool";
+import { executionObservability } from "../../../observability/executionStore";
+import { jevSelectionRecord } from "../../../observability/modelSelectionRecord";
+import { agentChatBoundary, agentChatSwitched } from "./flowSwitching";
 import { createRiskReview } from "./riskReview";
+import { prepareStepRequest } from "./stepModelSelection";
 import { applySmartToolHandlers, applySmartToolsToRecipe, type SmartToolDescriptions } from "./smartTools";
 
 const DESCRIPTIONS: SmartToolDescriptions = {
@@ -39,6 +43,28 @@ const decideConfig = (input: AgentChatInput) => (input.planOnly ? undefined : in
 
 export const smartAgentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
   ...agentChatDefinition,
+  // A workflow run the chat lets hand over holds after each step and asks the flow router whether to carry on.
+  switchesFlows: (input) => Boolean(input.workflow && input.flowSwitching && input.flowSwitching.targets.length > 0),
+  workflowBoundary: agentChatBoundary,
+  workflowSwitched: (outcome, _input, ctx) => agentChatSwitched(outcome, ctx),
+  // An AUTO workflow run rates each step on its own and runs it on that level's model.
+  prepareExecution: (request, input, ctx, onEvent, signal) => {
+    if (!input.autoStepModels || !input.workflow) return request;
+    const step = typeof ctx.scratch.workflowStep === "string" ? ctx.scratch.workflowStep : undefined;
+    return prepareStepRequest({
+      request,
+      config: input.autoStepModels,
+      provider: input.customProvider as CustomProvider | undefined,
+      baseModel: input.model,
+      step,
+      scratch: ctx.scratch,
+      signal,
+      onEvent,
+      onTrace: (trace) => executionObservability.recordStandalone(
+        jevSelectionRecord(trace, { tabId: input.tabId, workspaceRoot: input.workspaceRoot, step }),
+      ),
+    });
+  },
   recipe: (input: AgentChatInput) => applyDecideToolToRecipe(
     applySmartToolsToRecipe(agentChatDefinition.recipe!(input), input, DESCRIPTIONS),
     decideConfig(input),

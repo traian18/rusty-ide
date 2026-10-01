@@ -125,6 +125,92 @@ describe("AgentWorkflowBar", () => {
     expect(container.querySelector('[aria-label="Stop following this workflow"]')).toBeNull();
   });
 
+  it("labels stages apart from end-to-end workflows and says what a stage does with the last result", async () => {
+    const stage = { ...WORKFLOW, metadata: { kind: "stage" }, nodes: [
+      ...WORKFLOW.nodes,
+    ].map((node) => node.id === "build" ? { ...node, input_bindings: [{ target: "context", source: { type: "run_input", pointer: "/context" } }] } : node) };
+    const props = await render({
+      workflows: [
+        { path: "builtin:pipeline", name: "Plan, build, verify" },
+        { path: "builtin:stage", name: "Research & analyze", kind: "stage", description: "Investigate a specific piece of functionality." },
+      ],
+    });
+    expect(await optionLabels()).toEqual(["Single agent", "Workflow: Plan, build, verify", "Stage: Research & analyze"]);
+
+    await render({ ...props, selected: "builtin:stage", definition: stage });
+    expect(container.textContent).toContain("Your next message runs this stage, building on the last result in this chat.");
+    expect(container.querySelector(".summary, [class*=summary]")?.getAttribute("title")).toBe("Investigate a specific piece of functionality.");
+
+    // After a stage completes the user is pointed at the next move, not just "run it again".
+    await render({ ...props, selected: "builtin:stage", definition: stage, run: { status: "completed", startedAt: 0, steps: {} } });
+    expect(container.textContent).toContain("Stage complete. Amend it in your next message or pick the next stage; it builds on this result.");
+  });
+
+  it("does not claim a workflow builds on earlier results when it never reads them", async () => {
+    await render({ workflows: [{ path: "/w/flow.json", name: "Plan and build" }], selected: "/w/flow.json", definition: WORKFLOW });
+    expect(container.textContent).toContain("Your next message runs this workflow.");
+    expect(container.textContent).not.toContain("building on");
+  });
+
+  describe("Auto and flow switching", () => {
+    const workflows = [{ path: "/w/flow.json", name: "Plan and build" }];
+    const toggle = () => container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+
+    it("offers Auto only when Rusty can choose, and says what it needs when it cannot", async () => {
+      await render({ workflows });
+      expect(await optionLabels()).toEqual(["Single agent", "Workflow: Plan and build"]);
+
+      const props = await render({ workflows, autoAvailable: true });
+      expect(await optionLabels()).toEqual(["Single agent", "Auto: choose a workflow for each message", "Workflow: Plan and build"]);
+      await pick("Auto: choose a workflow for each message");
+      expect(props.onSelect).toHaveBeenCalledWith("auto");
+
+      // A saved Auto chat still shows it, with what is missing.
+      await render({ workflows, selected: "auto" });
+      expect(await optionLabels()).toContain("Auto (needs OpenRouter and a JEV model)");
+    });
+
+    it("shows Auto, then the workflow it chose, in the chip and the step list", async () => {
+      await render({ workflows, autoAvailable: true, selected: "auto" });
+      expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Auto");
+      expect(container.textContent).toContain("Each message picks the best workflow, or answers directly. Anything that edits files asks first.");
+      expect(container.textContent).toContain("Design workflows");
+
+      await render({ workflows, autoAvailable: true, selected: "auto", definition: { ...WORKFLOW, name: "Research & analyze" } });
+      expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Auto · Research & analyze");
+      expect(container.textContent).toContain("Last: Research & analyze. Your next message picks again");
+      expect([...container.querySelectorAll("ol li")].map((item) => item.getAttribute("aria-label"))).toEqual(["Input: not run", "Build: not run", "Output: not run"]);
+    });
+
+    it("lets the user allow flow switching for a workflow or for Auto, and locks it during a run", async () => {
+      expect(toggle()).toBeNull();
+      await render({ workflows });
+      expect(toggle()).toBeNull();
+
+      const onFlowSwitchingChange = vi.fn();
+      await render({ workflows, selected: "/w/flow.json", definition: WORKFLOW, flowSwitching: false, onFlowSwitchingChange });
+      expect(container.textContent).toContain("Allow flow switching");
+      expect(toggle()!.checked).toBe(false);
+      await act(async () => toggle()!.click());
+      expect(onFlowSwitchingChange).toHaveBeenCalledWith(true);
+
+      await render({ workflows, selected: "/w/flow.json", definition: WORKFLOW, flowSwitching: true, onFlowSwitchingChange });
+      expect(toggle()!.checked).toBe(true);
+      await render({ workflows, selected: "/w/flow.json", definition: WORKFLOW, flowSwitching: true, onFlowSwitchingChange, disabled: true });
+      expect(toggle()!.disabled).toBe(true);
+      await render({ workflows, autoAvailable: true, selected: "auto", onFlowSwitchingChange });
+      expect(toggle()).not.toBeNull();
+    });
+
+    it("explains what switching does, or that the workflow declares nothing to switch to", async () => {
+      const label = () => container.querySelector("label[title]")?.getAttribute("title");
+      await render({ workflows, selected: "/w/flow.json", definition: WORKFLOW, onFlowSwitchingChange: vi.fn() });
+      expect(label()).toBe("This workflow does not declare any workflow to hand over to.");
+      await render({ workflows, selected: "/w/flow.json", definition: { ...WORKFLOW, metadata: { switch_to: ["diagnose"] } }, onFlowSwitchingChange: vi.fn() });
+      expect(label()).toMatch(/Switching to a workflow that edits files asks you first/);
+    });
+  });
+
   it("reports the last run's failure and marks a missing workflow", async () => {
     await render({
       selected: "/w/gone.json",

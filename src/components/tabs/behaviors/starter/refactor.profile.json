@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "refactor",
+  "revision": 1,
+  "name": "Refactor",
+  "description": "Makes behavior-preserving source improvements and requires verification after edits.",
+  "status": "published",
+  "instructions": {"mode":"append","text":"Improve code structure without changing observable behavior unless the user explicitly requests otherwise. Establish the current behavior and scope before editing, make focused source changes, and verify after the last edit. For essential checks, use the approval-gated run_command tool with structured argv only; never use sh -c or bash -c, and never use commands for file inspection or edits. In a Tauri app, npm run dev is frontend-only; use program: \"npm\", args: [\"run\", \"tauri\", \"dev\"] for desktop startup and [\"run\", \"tauri\", \"build\"] for packaging. Report behavior-preservation evidence and all checks run.","variants":{}},
+  "tools":{"type":"inherit"},"tool_overrides":{"run_command":{"description_append":"Use approved structured commands only for essential verification; do not delete data or publish anything."}},"execution":{},"limits":{},
+  "rules":[{"id":"refactor-failed-tool","on":"PostToolUseFailure","do":{"inject":{"text":"Read the failed tool result and correct the cause before trying an alternative."}},"max_fires":6}],
+  "completion_gate":{"checks":[{"id":"refactor-verified","require":{"any":[{"calls":{"tool":"write_file","eq":0}},{"since_last_call":{"of":"write_file","called":["read_file","run_command"],"gte":1}}]},"feedback":"Verify the refactor after the final edit with a targeted check or by reading the changed file."}],"max_continuations":3,"on_exhausted":"fail"},
+  "children":{"type":"inherit"},"metadata":{"editor":{"position":{"x":400,"y":620}}}
+}

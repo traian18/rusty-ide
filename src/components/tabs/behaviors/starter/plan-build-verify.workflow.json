@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "id": "plan-build-verify",
-  "revision": 3,
+  "revision": 5,
   "name": "Plan, build, verify",
-  "description": "Plan the change, build it, then review the implementation and checks. Each agent passes its written handoff to the next step.",
+  "description": "Plan the change, build it, then independently verify it. Plan is read-only, Build edits the workspace, Verify checks the result without editing. Each agent passes its written handoff to the next step.",
   "status": "draft",
   "input_schema": null,
   "output_contract": {
@@ -152,7 +152,10 @@
           "type": "inherit"
         },
         "context_mode": "isolated_child",
-        "structured_output": "text"
+        "structured_output": "text",
+        "profile": {
+          "id": "verify"
+        }
       },
       "input_bindings": [
         {
@@ -254,5 +257,11 @@
     }
   ],
   "policies": {},
-  "metadata": {}
+  "metadata": {
+    "switch_to": [
+      "investigate",
+      "diagnose",
+      "security-audit"
+    ]
+  }
 }

@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "id": "check-changes",
+  "revision": 1,
+  "name": "Verify & review changes",
+  "description": "Independently check work that has already been done: Verify runs the checks and inspects the workspace, then Review gives prioritized findings on correctness and maintainability. Nothing is edited.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "review",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Verify the work described in workflow_input.request. workflow_input.context, when it is not empty, holds the plan, findings or summary from earlier in this conversation. Inspect the actual workspace (and, where available, the approved read-only git status and diff commands) to see what changed rather than trusting any summary, and run appropriate tests or checks. Do not edit files or run destructive commands. Check each requested change or plan step and identify omissions, regressions and unverified claims. Finish with a clear written verdict: what was verified with evidence, what failed or remains blocked, and precise next actions. A blocked or incomplete build must be reported as such, not approved. Use ordinary text or Markdown; no JSON or status field is required. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "type": "agent",
+      "config": {
+        "instructions": "Review the changes made for workflow_input.request against the verification in workflow_input.verify. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Inspect the actual changed files rather than the summaries, and judge correctness, edge cases, regressions, maintainability and test coverage. Return prioritized findings, each with a severity (blocker, high, medium or low), the exact file and symbol, why it is a problem, its impact and a concrete fix; separate confirmed defects from risks and suggestions, and say plainly when there are no material findings. Do not modify files or run commands. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "review"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        },
+        {
+          "target": "verify",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "review",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-verify",
+      "source": "input",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-review",
+      "source": "verify",
+      "target": "review",
+      "condition": "on_success"
+    },
+    {
+      "id": "review-output",
+      "source": "review",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "stage",
+    "route": {
+      "when": "The user wants work that was already done, their own changes or the previous result, checked or reviewed for correctness, regressions and quality, without anything being edited."
+    },
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

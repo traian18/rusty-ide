@@ -10,11 +10,14 @@ import v2Workflow from "./starter/v2/plan-build-verify.workflow.json";
 import {
   STARTER_PROFILES,
   STARTER_WORKFLOW,
+  STARTER_WORKFLOWS,
   STARTER_WORKFLOW_ID,
   BUILTIN_WORKFLOW_PATH,
   builtinWorkflowDocument,
   isStarterWorkflowPath,
+  starterWorkflowPaths,
 } from "./starterFlow";
+import v3Workflow from "./starter/v3/plan-build-verify.workflow.json";
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const nodes = STARTER_WORKFLOW.nodes as JsonObject[];
@@ -61,7 +64,7 @@ describe("the starter flow documents", () => {
       .filter((node) => node.type === "agent")
       .filter((node) => (node.config as JsonObject).profile)
       .map((node) => String(((node.config as JsonObject).profile as JsonObject).id));
-    expect(named).toEqual(["rusty-ide.builtin.plan", "rusty-ide.builtin.build"]);
+    expect(named).toEqual(["rusty-ide.builtin.plan", "rusty-ide.builtin.build", "rusty-ide.builtin.verify"]);
     for (const id of named) expect(profileIds).toContain(id);
     for (const id of [...profileIds, STARTER_WORKFLOW_ID]) {
       expect(id).toMatch(ID_PATTERN);
@@ -85,12 +88,16 @@ describe("the starter flow documents", () => {
   });
 
   it("keeps Plan read-only and Build able to edit", () => {
-    const [plan, build] = STARTER_PROFILES;
+    const profile = (name: string) => STARTER_PROFILES.find((entry) => entry.id === `rusty-ide.builtin.${name}`)!;
+    const [plan, build, verify] = [profile("plan"), profile("build"), profile("verify")];
     const allowed = (plan.tools as JsonObject).tools as string[];
     expect((plan.tools as JsonObject).type).toBe("allow_list");
     expect(allowed).toEqual(expect.arrayContaining(["read_file", "list_files", "search_codebase"]));
     for (const tool of ["write_file", "run_command", "agent_spawn"]) expect(allowed).not.toContain(tool);
     expect(build.tools).toEqual({ type: "inherit" });
+    // Verify keeps the full read/run set but may not edit.
+    expect(verify.tools).toEqual({ type: "inherit" });
+    expect(JSON.stringify(verify.rules)).toContain("write_file");
   });
 
   it("is complete: nothing in it is a blank placeholder", () => {
@@ -143,7 +150,11 @@ describe("built-in workflow availability", () => {
   it("is available in any project without writing files", async () => {
     for (const project of ["/project", "/other"]) {
       const { documents } = await behaviorService.loadWorkflows(project);
-      expect(documents.map((doc) => doc.path)).toEqual([BUILTIN_WORKFLOW_PATH]);
+      expect(documents.map((doc) => doc.path)).toEqual(starterWorkflowPaths());
+      expect(documents[0].path).toBe(BUILTIN_WORKFLOW_PATH);
+      for (const [index, path] of starterWorkflowPaths().entries()) {
+        expect(await behaviorService.readWorkflow(path)).toEqual(STARTER_WORKFLOWS[index]);
+      }
       expect(await behaviorService.readWorkflow(BUILTIN_WORKFLOW_PATH)).toEqual(STARTER_WORKFLOW);
     }
     expect(files.size).toBe(0);
@@ -153,21 +164,29 @@ describe("built-in workflow availability", () => {
     files.set("/project/.rusty/workflows/mine.json", JSON.stringify({ ...v2Workflow, id: "mine", name: "Mine" }));
     const { documents } = await behaviorService.loadWorkflows("/project");
     expect(files.has(legacyPath)).toBe(false);
-    expect(documents).toHaveLength(2);
-    expect(documents[1].document.id).toBe("mine");
+    expect(documents).toHaveLength(STARTER_WORKFLOWS.length + 1);
+    expect(documents.at(-1)!.document.id).toBe("mine");
   });
   it("keeps a customized starter file alongside the built-in", async () => {
     const custom = { ...previousWorkflow, name: "My changes" };
     files.set(legacyPath, JSON.stringify(custom));
-    expect((await behaviorService.loadWorkflows("/project")).documents).toHaveLength(2);
+    expect((await behaviorService.loadWorkflows("/project")).documents).toHaveLength(STARTER_WORKFLOWS.length + 1);
     expect(await behaviorService.readWorkflow(legacyPath)).toEqual(custom);
+  });
+  it("recognises the previously shipped revision as an unmodified starter", async () => {
+    files.set(legacyPath, JSON.stringify(v3Workflow));
+    const { documents } = await behaviorService.loadWorkflows("/project");
+    expect(files.has(legacyPath)).toBe(false);
+    expect(documents).toHaveLength(STARTER_WORKFLOWS.length);
   });
   it("restores old chat references after an unmodified starter is removed", async () => {
     expect(await behaviorService.readWorkflow(legacyPath)).toEqual(STARTER_WORKFLOW);
   });
   it("cannot be saved or deleted and returns independent copies", async () => {
-    await expect(behaviorService.save(BUILTIN_WORKFLOW_PATH, STARTER_WORKFLOW)).rejects.toThrow("read-only");
-    await expect(behaviorService.remove(BUILTIN_WORKFLOW_PATH)).rejects.toThrow("cannot be deleted");
+    for (const path of starterWorkflowPaths()) {
+      await expect(behaviorService.save(path, STARTER_WORKFLOW)).rejects.toThrow("read-only");
+      await expect(behaviorService.remove(path)).rejects.toThrow("cannot be deleted");
+    }
     const copy = builtinWorkflowDocument(); copy.name = "Changed";
     expect(builtinWorkflowDocument().name).not.toBe("Changed");
     expect(isStarterWorkflowPath(BUILTIN_WORKFLOW_PATH)).toBe(true);

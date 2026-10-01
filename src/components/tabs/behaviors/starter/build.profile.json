@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "id": "build",
-  "revision": 3,
+  "revision": 4,
   "name": "Build",
   "description": "Implements a plan in the workspace: reads before editing, writes complete files, and checks its work before reporting.",
-  "status": "draft",
+  "status": "published",
   "instructions": {
     "mode": "append",
-    "text": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
+    "text": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. For essential commands, use approval-gated run_command with program: \"npm\" and literal args; never use sh -c or bash -c, and never use commands to inspect or edit files. In a Tauri app, npm run dev is frontend-only: use npm run tauri dev for the desktop application and npm run tauri build for a distributable build. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
     "variants": {}
   },
   "tools": {
@@ -18,7 +18,7 @@
       "description_append": "Read the file first and write its complete updated content; never abbreviate with placeholders such as \"rest of the file unchanged\"."
     },
     "run_command": {
-      "description_append": "Prefer the project's own test, type-check, and build commands. Do not run commands that delete data or publish anything."
+      "description_append": "Use only approved structured argv for essential checks: program \"npm\" with literal args such as [\"run\", \"typecheck\"], [\"run\", \"tauri\", \"dev\"], or [\"run\", \"tauri\", \"build\"]. Do not run commands that delete data or publish anything."
     }
   },
   "execution": {},

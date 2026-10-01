@@ -1,0 +1,273 @@
+{
+  "schema_version": 1,
+  "id": "documentation",
+  "revision": 1,
+  "name": "Write documentation",
+  "description": "Analyze what exists, write documentation grounded in the code, then Review it for accuracy: Analyze, Document, Review.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "review",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze",
+      "name": "Analyze",
+      "type": "agent",
+      "config": {
+        "instructions": "Analyze how the existing code relates to workflow_input.request. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Search before reading, then trace the entry points, data and control flow, dependencies and conventions that matter, citing exact files and symbols and marking each claim as confirmed or a hypothesis. Return a written analysis: current behavior, relevant files and symbols, flow, constraints, risks and edge cases, the likely change surface, and open questions. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "analyze"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "document",
+      "name": "Document",
+      "type": "agent",
+      "config": {
+        "instructions": "Write or update documentation for workflow_input.request using workflow_input.analyze. Identify the audience and follow the project's existing documentation structure and style. Ground every statement in code you have read; do not document behavior that does not exist. Change documentation files only. Finish with a written handoff: audience and goal, files created or changed, the main additions, examples included and how they were checked, cross-references updated, and anything a maintainer must confirm. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "document"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "analyze",
+          "source": {
+            "type": "node_output",
+            "node_id": "analyze",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "review",
+      "name": "Review",
+      "type": "agent",
+      "config": {
+        "instructions": "Review the documentation changes for workflow_input.request against the code described in workflow_input.analyze and the Document handoff in workflow_input.document. Open the changed documents and check every claim, command and example against the implementation, and check clarity for the stated audience and consistency with neighbouring documents. Return prioritized findings, each with a severity (blocker, high, medium or low), the exact file and passage, why it is wrong or unclear and the corrected text; say plainly when there are no material findings. Do not modify files or run commands. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "review"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "analyze",
+          "source": {
+            "type": "node_output",
+            "node_id": "analyze",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "document",
+          "source": {
+            "type": "node_output",
+            "node_id": "document",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "review",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-analyze",
+      "source": "input",
+      "target": "analyze",
+      "condition": "on_success"
+    },
+    {
+      "id": "analyze-document",
+      "source": "analyze",
+      "target": "document",
+      "condition": "on_success"
+    },
+    {
+      "id": "document-review",
+      "source": "document",
+      "target": "review",
+      "condition": "on_success"
+    },
+    {
+      "id": "review-output",
+      "source": "review",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "end_to_end",
+    "switch_to": [
+      "investigate"
+    ]
+  }
+}

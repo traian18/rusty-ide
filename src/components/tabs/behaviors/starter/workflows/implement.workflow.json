@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "id": "implement",
+  "revision": 1,
+  "name": "Build & verify",
+  "description": "Carry out an approved plan, or a clearly scoped request, and have the result independently verified. Plans from an earlier Architect & plan or Debug & plan a fix run are picked up automatically.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "verify",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "type": "agent",
+      "config": {
+        "instructions": "Implement workflow_input.request. workflow_input.context, when it is not empty, holds an approved plan or findings from earlier in this conversation: if it contains ordered steps, treat them as your checklist and start with targeted reads of the files they name; otherwise inspect the relevant code and make the focused changes the request asks for. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what you did for each requested change or plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt, and never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "build"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Verify the work described in workflow_input.request, using workflow_input.build for the Build handoff. workflow_input.context, when it is not empty, holds the plan, findings or summary from earlier in this conversation. Inspect the actual workspace (and, where available, the approved read-only git status and diff commands) to see what changed rather than trusting any summary, and run appropriate tests or checks. Do not edit files or run destructive commands. Check each requested change or plan step and identify omissions, regressions and unverified claims. Finish with a clear written verdict: what was verified with evidence, what failed or remains blocked, and precise next actions. A blocked or incomplete build must be reported as such, not approved. Use ordinary text or Markdown; no JSON or status field is required. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        },
+        {
+          "target": "build",
+          "source": {
+            "type": "node_output",
+            "node_id": "build",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "verify",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-build",
+      "source": "input",
+      "target": "build",
+      "condition": "on_success"
+    },
+    {
+      "id": "build-verify",
+      "source": "build",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-output",
+      "source": "verify",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "stage",
+    "route": {
+      "when": "The user clearly approves going ahead and wants the change made now: 'do it', 'go ahead and build that', or a specific, already-decided change. This edits files."
+    },
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

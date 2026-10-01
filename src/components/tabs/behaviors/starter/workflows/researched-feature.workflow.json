@@ -1,0 +1,390 @@
+{
+  "schema_version": 1,
+  "id": "researched-feature",
+  "revision": 1,
+  "name": "Research, design & build",
+  "description": "For features that depend on unfamiliar libraries, standards or architectural choices: Research, Architect, Plan, Build, Verify.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "verify",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "type": "agent",
+      "config": {
+        "instructions": "Research the question in workflow_input.request. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Inspect the relevant workspace context first, then use external sources for what the workspace cannot answer; prefer primary sources and record links. Return a research brief in ordinary text or Markdown: the question and constraints, relevant workspace context, findings with sources, viable alternatives and their trade-offs, a recommendation, and unresolved unknowns. Separate sourced facts from your own judgement. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "research"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "architect",
+      "name": "Architect",
+      "type": "agent",
+      "config": {
+        "instructions": "Design the solution to workflow_input.request. Use workflow_input.research for the sourced options and recommendation. Start from the current architecture and its conventions, compare at least two alternatives, and recommend the simplest design that meets the constraints. Specify the components and their responsibilities, contracts or data shapes, data and control flow, failure behavior, and compatibility and migration. Return a written design: goals and constraints, the chosen design, alternatives rejected and why, risks, and acceptance criteria. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "architect"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "research",
+          "source": {
+            "type": "node_output",
+            "node_id": "research",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "plan",
+      "name": "Plan",
+      "type": "agent",
+      "config": {
+        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Implement the chosen design in workflow_input.architect without reopening it unless the code contradicts it. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "plan"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "architect",
+          "source": {
+            "type": "node_output",
+            "node_id": "architect",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "type": "agent",
+      "config": {
+        "instructions": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "build"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Review the original request, the plan and the Build handoff against the actual workspace. Inspect relevant code and run appropriate tests or checks with the available tools. Do not merely accept the Build claims. Do not edit files or run destructive commands. Check each required plan step and identify omissions, regressions and unverified claims. Finish with a clear written verdict: what was verified with evidence, what failed or remains blocked, and precise next actions. A blocked or incomplete build must be reported as such, not approved. Use ordinary text or Markdown; no JSON or status field is required.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "build",
+          "source": {
+            "type": "node_output",
+            "node_id": "build",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1660,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "verify",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1980,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-research",
+      "source": "input",
+      "target": "research",
+      "condition": "on_success"
+    },
+    {
+      "id": "research-architect",
+      "source": "research",
+      "target": "architect",
+      "condition": "on_success"
+    },
+    {
+      "id": "architect-plan",
+      "source": "architect",
+      "target": "plan",
+      "condition": "on_success"
+    },
+    {
+      "id": "plan-build",
+      "source": "plan",
+      "target": "build",
+      "condition": "on_success"
+    },
+    {
+      "id": "build-verify",
+      "source": "build",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-output",
+      "source": "verify",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "end_to_end",
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

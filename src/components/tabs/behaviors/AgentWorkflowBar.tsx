@@ -10,15 +10,27 @@ import React, { useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Check, Loader2, PencilLine, Workflow as WorkflowIcon, X } from "lucide-react";
 import { Button, IconButton } from "../../ui";
 import { Select } from "./ChoiceSelect";
-import type { WorkflowStepStatus } from "../../../harness/core/workflowRun";
+import { workflowUsesContext, type WorkflowStepStatus } from "../../../harness/core/workflowRun";
 import { type JsonObject, layoutSteps, stepsOf } from "./behaviorModel";
 import type { WorkflowRunView } from "./workflowRunStore";
 import styles from "./AgentWorkflowBar.module.css";
-import { isStarterWorkflowPath } from "./starterFlow";
+import { AUTO_FLOW, workflowSwitchTargets } from "./flowCatalog";
+import { isStarterWorkflowPath, workflowKind, type BuiltinWorkflowKind } from "./starterFlow";
 
 export interface WorkflowChoice {
   path: string;
   name: string;
+  /** A stage is a short run that stops at a handoff to review; the rest run a whole pipeline. */
+  kind?: BuiltinWorkflowKind;
+  description?: string;
+  /** Short id (without the built-in namespace), what the router and `switch_to` refer to. */
+  id?: string;
+  /** When the router should pick it (`metadata.route.when`); absent means it is never auto-picked. */
+  route?: string;
+  /** Whether any step can change files. */
+  edits?: boolean;
+  /** Ids it may hand over to mid-run (`metadata.switch_to`). */
+  switchTo?: string[];
 }
 
 export interface AgentWorkflowBarProps {
@@ -33,6 +45,11 @@ export interface AgentWorkflowBarProps {
   running: boolean;
   /** The choice cannot change (a run is in progress). */
   disabled: boolean;
+  /** Rusty can choose the workflow for each message (OpenRouter and a JEV model are connected). */
+  autoAvailable?: boolean;
+  /** A running workflow may hand over to another at a step boundary. */
+  flowSwitching?: boolean;
+  onFlowSwitchingChange?: (allowed: boolean) => void;
   onSelect: (path: string | undefined) => void;
   /** Open the Behaviors tab on `path`, or to create a workflow. */
   onEdit: (path: string | undefined) => void;
@@ -63,6 +80,9 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   run,
   running,
   disabled,
+  autoAvailable = false,
+  flowSwitching = false,
+  onFlowSwitchingChange,
   onSelect,
   onEdit,
 }) => {
@@ -73,8 +93,13 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
     setCollapsed(!collapsed);
     try { localStorage.setItem("rusty_workflow_bar_collapsed", String(!collapsed)); } catch { /* optional preference */ }
   };
-  const current = workflows.find((workflow) => workflow.path === selected);
-  const name = current?.name ?? (selected ? selected.split("/").pop() ?? selected : "");
+  const auto = selected === AUTO_FLOW;
+  // With Auto, `definition` is the workflow Rusty chose for the latest message.
+  const chosen = typeof definition?.name === "string" ? definition.name : undefined;
+  const current = auto ? undefined : workflows.find((workflow) => workflow.path === selected);
+  const name = auto
+    ? chosen ? `Auto · ${chosen}` : "Auto"
+    : current?.name ?? (selected ? selected.split("/").pop() ?? selected : "");
 
   // Steps in the order they run (left to right on the canvas).
   const steps = useMemo(() => {
@@ -87,25 +112,35 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
 
   const options = [
     { value: SINGLE, label: "Single agent" },
-    ...workflows.map((workflow) => ({ value: workflow.path, label: `Workflow: ${workflow.name}` })),
+    ...(autoAvailable || auto ? [{ value: AUTO_FLOW, label: autoAvailable ? "Auto: choose a workflow for each message" : "Auto (needs OpenRouter and a JEV model)" }] : []),
+    ...workflows.map((workflow) => ({ value: workflow.path, label: `${workflow.kind === "stage" ? "Stage" : "Workflow"}: ${workflow.name}` })),
     ...(selected && !current ? [{ value: selected, label: `Workflow: ${name} (missing)` }] : []),
   ];
 
+  const kind = current?.kind ?? workflowKind(definition);
+  const handsOver = auto || workflowSwitchTargets(definition).length > 0;
+  const usesContext = workflowUsesContext(definition);
   const showRun = Boolean(selected && run && (running || run.status !== "running"));
   const currentIndex = running && run?.current ? steps.findIndex((step) => step.id === run.current) : -1;
   const activeStep = currentIndex >= 0 ? steps[currentIndex] : undefined;
   const currentProgress = activeStep ? run?.steps[activeStep.id] : undefined;
   const summary = !selected
     ? "Each message runs one agent loop."
-    : running
+    : auto && !running && !definition
+      ? "Each message picks the best workflow, or answers directly. Anything that edits files asks first."
+      : running
       ? activeStep
         ? `Running step ${currentIndex + 1} of ${steps.length}: ${activeStep.name}${
             currentProgress?.status === "waiting" ? " (waiting for permission)" : currentProgress && currentProgress.attempt > 1 ? ` (attempt ${currentProgress.attempt})` : ""
           }`
         : "Starting the workflow…"
       : run && run.status !== "running"
-        ? `Last run ${run.status}. Your next message runs it again.`
-        : "Your next message runs this workflow.";
+        ? run.status === "completed" && kind === "stage"
+          ? "Stage complete. Amend it in your next message or pick the next stage; it builds on this result."
+          : `Last run ${run.status}. Your next message runs it again.`
+        : auto
+          ? `Last: ${chosen}. Your next message picks again${usesContext ? ", building on the last result in this chat" : ""}.`
+          : `Your next message runs this ${kind === "stage" ? "stage" : "workflow"}${usesContext ? ", building on the last result in this chat" : ""}.`;
 
   if (collapsed) return (
     <div className={styles.collapsed}>
@@ -139,9 +174,25 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
             ) : null}
           </span>
         ) : null}
-        <span className={styles.summary}>{summary}</span>
-        <Button type="button" variant="ghost" icon={<PencilLine size={14} />} onClick={() => onEdit(selected)}>
-          {selected ? isStarterWorkflowPath(selected) ? "View workflow" : "Edit workflow" : workflows.length ? "Design workflows" : "Create a workflow"}
+        {selected && onFlowSwitchingChange ? (
+          <label
+            className={styles.toggle}
+            title={handsOver
+              ? "After each step Rusty checks whether what it found means another workflow is the right one, and hands over with the work so far. Switching to a workflow that edits files asks you first."
+              : "This workflow does not declare any workflow to hand over to."}
+          >
+            <input
+              type="checkbox"
+              checked={flowSwitching}
+              disabled={disabled}
+              onChange={(event) => onFlowSwitchingChange(event.target.checked)}
+            />
+            Allow flow switching
+          </label>
+        ) : null}
+        <span className={styles.summary} title={current?.description ?? (typeof definition?.description === "string" ? definition.description : undefined)}>{summary}</span>
+        <Button type="button" variant="ghost" icon={<PencilLine size={14} />} onClick={() => onEdit(auto ? undefined : selected)}>
+          {selected && !auto ? isStarterWorkflowPath(selected) ? "View workflow" : "Edit workflow" : workflows.length ? "Design workflows" : "Create a workflow"}
         </Button>
       </div>
       {selected && steps.length ? (

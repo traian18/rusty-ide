@@ -379,6 +379,18 @@ pub async fn harness_workflow_control(
     state.workflow_control(session_id, control).await
 }
 
+/// The running workflow's state (finished steps' outputs included). With
+/// `after_step` it waits briefly for that step to settle first.
+#[tauri::command]
+pub async fn harness_workflow_state(
+    state: State<'_, HarnessState>,
+    session_id: String,
+    after_step: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let session_id = parse_session_id(&session_id)?;
+    state.workflow_state(session_id, after_step).await
+}
+
 #[tauri::command]
 pub fn behavior_templates() -> harness_engine::validation::Templates {
     harness_engine::validation::templates()

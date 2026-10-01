@@ -1376,6 +1376,8 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             harness::commands::harness_workflow_control,
             #[cfg(feature = "core-harness")]
+            harness::commands::harness_workflow_state,
+            #[cfg(feature = "core-harness")]
             harness::commands::harness_configure_step_execution,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_create_session,

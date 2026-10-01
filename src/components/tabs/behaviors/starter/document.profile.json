@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "document",
+  "revision": 1,
+  "name": "Document",
+  "description": "Updates documentation from current code and behavior while limiting writes to documentation files.",
+  "status": "published",
+  "instructions": {"mode":"append","text":"Ground documentation changes in the current code and verified behavior. Read relevant implementation and existing documentation first. You may write only documentation files such as Markdown, MDX, or text documentation; do not change source code, configuration, dependencies, or generated artifacts. Keep examples accurate, explain prerequisites and limitations, and report files updated plus any facts that remain unverified.","variants":{}},
+  "tools":{"type":"inherit"},"tool_overrides":{"write_file":{"description_append":"Only write documentation files. Read each file before replacing it and write complete content."}},"execution":{},"limits":{},
+  "rules":[{"id":"document-only-writes","on":"PreToolUse","when":{"tool":["run_command"]},"do":{"deny":{"reason":"Documentation work does not run commands. Inspect code and update documentation only."}}}],
+  "completion_gate":{"checks":[{"id":"documentation-grounded","require":{"calls":{"tool":["read_file","search_codebase"],"gte":1}},"feedback":"Read the relevant code or existing docs before completing documentation changes."}],"max_continuations":2,"on_exhausted":"fail"},
+  "children":{"type":"inherit"},"metadata":{"editor":{"position":{"x":60,"y":620}}}
+}

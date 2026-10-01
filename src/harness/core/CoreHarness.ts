@@ -32,8 +32,17 @@ import { CoreEngineClient, type BridgeEvent, type CoreEngine, type HostToolOutco
 import { isExecutionError, type ExecutionError, type ExecutionEvent, type ExecutionRequest, type ExecutionResult } from "./engine/ExecutionProtocol";
 import type { ExecutionParams, SessionRecipe } from "./SessionRecipe";
 import { createTranscript, type Transcript } from "./transcript";
+import { appliedModel } from "./appliedModels";
 import { toolDecisionObserver } from "./toolDecisionObserver";
-import { describeWorkflowEvent, stepNames, workflowOutcome, type WorkflowEventEnvelope } from "./workflowRun";
+import {
+  describeWorkflowEvent,
+  finishedAgentSteps,
+  remainingAgentSteps,
+  stepNames,
+  workflowOutcome,
+  type FinishedStep,
+  type WorkflowEventEnvelope,
+} from "./workflowRun";
 import { executionObservability } from "../../observability/executionStore";
 import type { ExecutionOrigin } from "../../observability/types";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../contract/observability";
@@ -111,6 +120,24 @@ export interface RunContext {
   scratch: Record<string, unknown>;
 }
 
+export interface WorkflowBoundaryContext<K extends CapabilityName> {
+  input: CapabilityInput<K>;
+  host: RunHost;
+  ctx: RunContext;
+  onEvent: (event: CapabilityEvent<K>) => void;
+  signal: AbortSignal;
+  /** The step that just finished. */
+  step: { id: string; name: string };
+  /** Every agent step finished so far, in order, with its output as text. */
+  finished: FinishedStep[];
+  /** The agent steps still to run, by name. */
+  remaining: string[];
+  /** The request the workflow was started with. */
+  request: string;
+}
+
+export type WorkflowBoundaryDecision = { type: "continue" } | { type: "switch"; outcome: unknown };
+
 export interface CoreCapabilityDefinition<K extends CapabilityName> {
   readonly capability: K;
   /** Whether this capability can run on core at all for this specific
@@ -181,6 +208,31 @@ export interface CoreCapabilityDefinition<K extends CapabilityName> {
     ctx: RunContext,
     onEvent: (event: CapabilityEvent<K>) => void,
   ): Record<string, HostToolHandler>;
+  /** Called with every model request the IDE is about to answer, so a
+   * capability can change how it runs -- AUTO picks a model per workflow
+   * step here. Return the request to send (the same one when nothing
+   * changes). It may take a moment (the model turn waits for it) but must
+   * not throw: a rejection is ignored and the original request is sent. */
+  prepareExecution?(
+    request: ExecutionRequest,
+    input: CapabilityInput<K>,
+    ctx: RunContext,
+    onEvent: (event: CapabilityEvent<K>) => void,
+    signal: AbortSignal,
+  ): Promise<ExecutionRequest> | ExecutionRequest;
+  /** Whether this run may hand over to another workflow at a step boundary
+   * (see `workflowBoundary`). Only then does the harness pause the run at the
+   * start of each step that has another agent step after it. */
+  switchesFlows?(input: CapabilityInput<K>): boolean;
+  /** Called when an agent step of a workflow run has finished and another
+   * agent step would follow. The run is paused meanwhile: it carries on only
+   * when this returns `continue`. A `switch` ends the run (cancelled, keeping
+   * what finished) and `workflowSwitched` turns its outcome into the result.
+   * Must not throw: a failure is treated as `continue`. */
+  workflowBoundary?(context: WorkflowBoundaryContext<K>): Promise<WorkflowBoundaryDecision>;
+  /** The capability result for a run that handed over (`workflowBoundary`
+   * returned `switch`). Required whenever `workflowBoundary` can. */
+  workflowSwitched?(outcome: unknown, input: CapabilityInput<K>, ctx: RunContext): CapabilityResult<K>;
   /** workspaceRoot/model/provider for `controlPlane.recordUsage` -- kept
    * separate from `recipe()` because not everything a recipe needs
    * (`integration_config` carries secrets) belongs in a usage ledger. */
@@ -531,7 +583,6 @@ export class CoreHarness implements AgentHarness {
     const handleHostExecuteCall = (data: { call_id: string; tool: string; input: ExecutionRequest }) => {
       if (!sessionId) return;
       const sid = sessionId;
-      observe(() => trajectories.append(runId, "Model request", data.input));
       // Every event and the terminal result are separate Tauri invokes,
       // and Tauri makes no ordering guarantee between independent invokes
       // -- so they are chained here to run strictly one after another. The
@@ -549,15 +600,30 @@ export class CoreHarness implements AgentHarness {
         delivery = delivery.then(send).catch(() => {});
         return delivery;
       };
-      this.executionAnswerer
-        .execute(
-          data.input,
-          input.customProvider,
-          (event) => {
-            void enqueue(() => this.engine.hostExecuteEvent(sid, data.call_id, event));
-          },
-          controller.signal,
-        )
+      const execute = (request: ExecutionRequest): Promise<ExecutionResult> => {
+        observe(() => trajectories.append(runId, "Model request", request));
+        try {
+          return this.executionAnswerer.execute(
+            request,
+            input.customProvider,
+            (event) => {
+              void enqueue(() => this.engine.hostExecuteEvent(sid, data.call_id, event));
+            },
+            controller.signal,
+          );
+        } catch (error: unknown) {
+          return Promise.reject(error);
+        }
+      };
+      // The capability may adjust the request first (a per-step model), and
+      // the turn waits for it; a failure there never costs the model turn.
+      // Without that hook the answerer starts synchronously, as it always has.
+      const prepared = definition.prepareExecution
+        ? Promise.resolve()
+            .then(() => definition.prepareExecution!(data.input, input, runContext, onEvent, controller.signal))
+            .catch(() => data.input)
+        : undefined;
+      (prepared ? prepared.then(execute) : execute(data.input))
         .then(
           (result) => enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: true, result })),
           (error: unknown) =>
@@ -587,7 +653,10 @@ export class CoreHarness implements AgentHarness {
         return;
       }
       if ("UsageUpdated" in event) {
-        usage.session(envelope, event.UsageUpdated.usage);
+        // A workflow step switched to another model by AUTO is stamped with the
+        // model core configured; account for the one that really ran.
+        const ranOn = appliedModel(runContext.scratch, envelope.run_id);
+        usage.session(envelope, ranOn ? { ...(event.UsageUpdated.usage as object), model: ranOn } : event.UsageUpdated.usage);
         // The run's own display counts everything its agents spent, subagents included.
         onEvent({ kind: "usage", usage: usage.runTotal() } as CapabilityEvent<K>);
         return;
@@ -731,10 +800,90 @@ export class CoreHarness implements AgentHarness {
     const workflowId = workflow ? String((workflow.definition as { id?: unknown } | null)?.id ?? "") : "";
     const workflowNames = workflow ? stepNames(workflow.definition) : {};
 
+    // --- handing over at a step boundary ----------------------------------
+    // Pausing at a step's start lets that step finish while the next one is
+    // held; at its end the definition decides whether the run carries on.
+    const handsOver = Boolean(workflow && definition.workflowBoundary && definition.switchesFlows?.(input));
+    const stepTypes = new Map(
+      ((workflow?.definition as { nodes?: Array<{ id?: unknown; type?: unknown }> } | null)?.nodes ?? []).map((node) => [String(node.id), String(node.type)]),
+    );
+    // The step the run is held after, while it is held.
+    let heldAfter: string | undefined;
+    const control = (type: "pause" | "resume" | "cancel") =>
+      sessionId && this.engine.workflowControl ? this.engine.workflowControl(sessionId, { type }) : Promise.reject(new Error("This build of the harness cannot control workflows."));
+
+    const decideBoundary = async (nodeId: string) => {
+      const sid = sessionId;
+      if (!sid || !workflow || !definition.workflowBoundary) return;
+      const stepName = workflowNames[nodeId] ?? nodeId;
+      const workflowName = String((workflow.definition as { name?: unknown } | null)?.name ?? workflowId);
+      onEvent({ kind: "workflow_boundary", status: "checking", workflow: workflowName, step: stepName } as CapabilityEvent<K>);
+      let decision: WorkflowBoundaryDecision = { type: "continue" };
+      try {
+        const state = await this.engine.workflowState?.(sid, nodeId);
+        decision = await definition.workflowBoundary({
+          input,
+          host,
+          ctx: runContext,
+          onEvent,
+          signal: controller.signal,
+          step: { id: nodeId, name: stepName },
+          finished: finishedAgentSteps(workflow.definition, state),
+          remaining: remainingAgentSteps(workflow.definition, nodeId).map((id) => workflowNames[id] ?? id),
+          request: String((workflow.input as { request?: unknown } | null)?.request ?? ""),
+        });
+      } catch (error: unknown) {
+        observe(() => trajectories.append(runId, "Flow boundary failed", { error: errorMessage(error) }));
+      }
+      // The run was stopped or finished while the decision was pending.
+      if (settled || controller.signal.aborted) return;
+      if (decision.type === "switch") {
+        runContext.scratch.flowSwitch = decision.outcome;
+        onEvent({ kind: "workflow_boundary", status: "switch", workflow: workflowName, step: stepName } as CapabilityEvent<K>);
+        await control("cancel").catch((error: unknown) => {
+          // Could not end the run: let it go on rather than leave it paused.
+          delete runContext.scratch.flowSwitch;
+          onEvent({ kind: "log", message: `Could not hand over: ${errorMessage(error)}` } as CapabilityEvent<K>);
+          return control("resume").catch(() => {});
+        });
+        return;
+      }
+      onEvent({ kind: "workflow_boundary", status: "continue", workflow: workflowName, step: stepName } as CapabilityEvent<K>);
+      await control("resume").catch((error: unknown) => {
+        onEvent({ kind: "log", message: `Could not resume the workflow: ${errorMessage(error)}` } as CapabilityEvent<K>);
+      });
+    };
+
+    const handleBoundaryEvent = (event: WorkflowEventEnvelope["event"]) => {
+      if (!handsOver || settled) return;
+      const nodeId = typeof event.node_id === "string" ? event.node_id : "";
+      if (event.type === "step_started") {
+        if (stepTypes.get(nodeId) !== "agent" || heldAfter !== undefined) return;
+        if (remainingAgentSteps(workflow!.definition, nodeId).length === 0) return;
+        heldAfter = nodeId;
+        control("pause").catch(() => {
+          // Already paused or finished: nothing to hold.
+          if (heldAfter === nodeId) heldAfter = undefined;
+        });
+        return;
+      }
+      if (heldAfter !== nodeId) return;
+      if (event.type === "step_succeeded") {
+        heldAfter = undefined;
+        void decideBoundary(nodeId);
+      } else if (event.type === "step_failed" || event.type === "step_retry_scheduled") {
+        // The failure path must not be held: release the pause so retries and failure edges proceed.
+        heldAfter = undefined;
+        control("resume").catch(() => {});
+      }
+    };
+
     const handleWorkflowEvent = (envelope: WorkflowEventEnvelope) => {
       const { log, step } = describeWorkflowEvent(envelope, workflowNames);
       if (log) onEvent({ kind: "log", message: log } as CapabilityEvent<K>);
+      if (step?.status === "running") runContext.scratch.workflowStep = workflowNames[step.nodeId] ?? step.nodeId;
       if (step) onEvent({ kind: "workflow_step", workflowId, ...step, name: workflowNames[step.nodeId] ?? step.nodeId } as CapabilityEvent<K>);
+      handleBoundaryEvent(envelope.event);
     };
 
     const handleStepAgentEvent = (envelope: AgentEventEnvelope) => {
@@ -758,6 +907,16 @@ export class CoreHarness implements AgentHarness {
       onEvent({ kind: "workflow_checkpoint", state } as CapabilityEvent<K>);
       const outcome = workflowOutcome(state);
       if (outcome.status === "cancelled") {
+        // A run that handed over was cancelled on purpose: it succeeded in
+        // passing its work on, and its result says where.
+        if (runContext.scratch.flowSwitch !== undefined && definition.workflowSwitched) {
+          try {
+            settle({ status: "completed", result: definition.workflowSwitched(runContext.scratch.flowSwitch, input, runContext) });
+          } catch (error: unknown) {
+            settle({ status: "failed", error: { code: "CORE_RESULT_FAILED", message: errorMessage(error) } });
+          }
+          return;
+        }
         settle({ status: "cancelled" });
         return;
       }

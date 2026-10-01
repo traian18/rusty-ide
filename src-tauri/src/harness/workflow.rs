@@ -22,18 +22,44 @@ use tokio::task::JoinHandle;
 
 use super::{BridgeEvent, HarnessState};
 
+/// The profiles every workspace has without seeding files: the documents the
+/// Behaviors tab lists as built-in (`STARTER_PROFILES` in starterFlow.ts), read
+/// from the same files. Keep the two lists in step.
+const BUILTIN_PROFILES: [&str; 12] = [
+    include_str!("../../../src/components/tabs/behaviors/starter/research.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/analyze.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/plan.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/build.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/verify.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/review.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/debug.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/architect.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/security.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/document.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/refactor.profile.json"),
+    include_str!("../../../src/components/tabs/behaviors/starter/optimize.profile.json"),
+];
+
+/// The built-in profile documents under their `rusty-ide.builtin.` ids.
+fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
+    BUILTIN_PROFILES
+        .iter()
+        .map(|source| {
+            let mut profile: serde_json::Value = serde_json::from_str(source).map_err(|error| error.to_string())?;
+            let id = profile["id"].as_str().ok_or("a built-in profile has no id")?.to_owned();
+            profile["id"] = serde_json::json!(format!("rusty-ide.builtin.{id}"));
+            Ok(profile)
+        })
+        .collect()
+}
+
 /// Registers `document` on a fresh per-session orchestration config and
 /// enables it on `builder`. Drafts are allowed for both the workflow and the
 /// profiles its steps name: the Behaviors canvas creates both as drafts.
 pub fn configure(builder: SessionBuilder, document: serde_json::Value) -> Result<(SessionBuilder, (String, u64)), String> {
     // App-owned profiles are available in every project without seeding files.
     let profiles = harness_engine::ProfilesConfig::default();
-    for source in [
-        include_str!("../../../src/components/tabs/behaviors/starter/plan.profile.json"),
-        include_str!("../../../src/components/tabs/behaviors/starter/build.profile.json"),
-    ] {
-        let mut profile: serde_json::Value = serde_json::from_str(source).map_err(|error| error.to_string())?;
-        profile["id"] = serde_json::json!(format!("rusty-ide.builtin.{}", profile["id"].as_str().unwrap()));
+    for profile in builtin_profiles()? {
         profiles.register_json(profile).map_err(|error| error.to_string())?;
     }
     let config = OrchestrationConfig::default().allow_drafts(true);
@@ -185,6 +211,41 @@ impl HarnessState {
         result.map_err(|error| error.to_string())
     }
 }
+
+impl HarnessState {
+    /// The run's current state, so the IDE can read finished steps' outputs
+    /// while the run is paused or still going. With `after_step` it first
+    /// waits (a few seconds at most) for that step to leave its attempt: the
+    /// runner publishes an event before it updates the watched state.
+    pub async fn workflow_state(&self, session_id: SessionId, after_step: Option<String>) -> Result<serde_json::Value, String> {
+        let handle = self
+            .with_session(&session_id, |entry| entry.workflow_run.lock().unwrap().as_ref().map(|run| run.handle.clone()))
+            .ok_or_else(|| "no such session".to_string())?
+            .ok_or_else(|| "no workflow is running on this session".to_string())?;
+        let mut watch = handle.watch();
+        let settled = async {
+            loop {
+                let value = serde_json::to_value(&*watch.borrow()).unwrap_or_default();
+                let reached = match &after_step {
+                    Some(node) => matches!(
+                        value["steps"][node.as_str()]["status"].as_str(),
+                        Some("succeeded" | "failed" | "skipped" | "cancelled")
+                    ),
+                    None => true,
+                };
+                if reached || watch.changed().await.is_err() {
+                    return value;
+                }
+            }
+        };
+        Ok(tokio::time::timeout(STATE_WAIT, settled)
+            .await
+            .unwrap_or_else(|_| serde_json::to_value(handle.snapshot()).unwrap_or_default()))
+    }
+}
+
+/// How long `workflow_state` waits for a step to settle before answering with what it has.
+const STATE_WAIT: Duration = Duration::from_secs(3);
 
 /// Short unique suffix for run ids (time-based; runs are per session).
 fn uuid_like() -> String {
@@ -343,26 +404,97 @@ mod tests {
         assert!(error.contains("orchestration definition"), "{error}");
     }
 
-    // The Plan → Build → Verify flow the IDE seeds into a workspace's
-    // `.rusty/` folder, read from the same files the frontend imports.
+    // The Plan → Build → Verify flow, read from the same files the frontend imports.
     const STARTER_WORKFLOW: &str =
         include_str!("../../../src/components/tabs/behaviors/starter/plan-build-verify.workflow.json");
-    const STARTER_PLAN: &str = include_str!("../../../src/components/tabs/behaviors/starter/plan.profile.json");
-    const STARTER_BUILD: &str = include_str!("../../../src/components/tabs/behaviors/starter/build.profile.json");
+
+    /// Every other built-in workflow (`starter/workflows/`), by file name.
+    const BUILTIN_WORKFLOWS: [(&str, &str); 14] = [
+        ("investigate", include_str!("../../../src/components/tabs/behaviors/starter/workflows/investigate.workflow.json")),
+        ("design", include_str!("../../../src/components/tabs/behaviors/starter/workflows/design.workflow.json")),
+        ("diagnose", include_str!("../../../src/components/tabs/behaviors/starter/workflows/diagnose.workflow.json")),
+        ("implement", include_str!("../../../src/components/tabs/behaviors/starter/workflows/implement.workflow.json")),
+        ("security-audit", include_str!("../../../src/components/tabs/behaviors/starter/workflows/security-audit.workflow.json")),
+        ("check-changes", include_str!("../../../src/components/tabs/behaviors/starter/workflows/check-changes.workflow.json")),
+        ("analyzed-feature", include_str!("../../../src/components/tabs/behaviors/starter/workflows/analyzed-feature.workflow.json")),
+        ("researched-feature", include_str!("../../../src/components/tabs/behaviors/starter/workflows/researched-feature.workflow.json")),
+        ("bug-fix", include_str!("../../../src/components/tabs/behaviors/starter/workflows/bug-fix.workflow.json")),
+        ("careful-change", include_str!("../../../src/components/tabs/behaviors/starter/workflows/careful-change.workflow.json")),
+        ("security-remediation", include_str!("../../../src/components/tabs/behaviors/starter/workflows/security-remediation.workflow.json")),
+        ("refactor", include_str!("../../../src/components/tabs/behaviors/starter/workflows/refactor.workflow.json")),
+        ("optimize-performance", include_str!("../../../src/components/tabs/behaviors/starter/workflows/optimize-performance.workflow.json")),
+        ("documentation", include_str!("../../../src/components/tabs/behaviors/starter/workflows/documentation.workflow.json")),
+    ];
 
     fn starter(text: &str) -> serde_json::Value {
         serde_json::from_str(text).expect("a starter document is valid JSON")
     }
 
+    /// The built-in profiles under the plain ids the bundled workflows name.
+    fn starter_library() -> Vec<serde_json::Value> {
+        BUILTIN_PROFILES.iter().map(|source| starter(source)).collect()
+    }
+
+    fn builtin_workflows() -> Vec<(String, serde_json::Value)> {
+        std::iter::once(("plan-build-verify".to_string(), starter(STARTER_WORKFLOW)))
+            .chain(BUILTIN_WORKFLOWS.iter().map(|(name, source)| ((*name).to_string(), starter(source))))
+            .collect()
+    }
+
     #[test]
-    fn the_starter_flow_compiles_without_issues() {
-        let library = vec![starter(STARTER_PLAN), starter(STARTER_BUILD)];
+    fn every_builtin_profile_is_valid_and_registered_natively() {
+        let library = starter_library();
+        assert_eq!(library.len(), 12);
         for profile in &library {
             let issues = harness_engine::validation::validate_profile(profile, &library);
-            assert!(issues.is_empty(), "{issues:?}");
+            assert!(issues.is_empty(), "{}: {issues:?}", profile["id"]);
         }
-        let issues = harness_engine::validation::validate_orchestration(&starter(STARTER_WORKFLOW), &library);
-        assert!(issues.is_empty(), "{issues:?}");
+        let registered = builtin_profiles().expect("the built-in profiles are valid JSON");
+        let ids: Vec<_> = registered.iter().map(|profile| profile["id"].as_str().unwrap().to_owned()).collect();
+        assert!(ids.iter().all(|id| id.starts_with("rusty-ide.builtin.")), "{ids:?}");
+        let profiles = harness_engine::ProfilesConfig::default();
+        for profile in registered {
+            profiles.register_json(profile).expect("a built-in profile registers");
+        }
+    }
+
+    #[test]
+    fn every_builtin_workflow_compiles_without_issues() {
+        let library = starter_library();
+        let known: Vec<_> = library.iter().map(|profile| profile["id"].as_str().unwrap().to_owned()).collect();
+        let workflows = builtin_workflows();
+        assert_eq!(workflows.len(), 15);
+        for (name, workflow) in &workflows {
+            let issues = harness_engine::validation::validate_orchestration(workflow, &library);
+            assert!(issues.is_empty(), "{name}: {issues:?}");
+            // Each agent step is a profile-backed step on a profile that ships with the app.
+            for node in workflow["nodes"].as_array().unwrap().iter().filter(|node| node["type"] == "agent") {
+                let profile = node["config"]["profile"]["id"].as_str().unwrap_or_else(|| panic!("{name}/{}: no profile", node["id"]));
+                assert!(known.iter().any(|id| id == profile), "{name}/{}: unknown profile {profile}", node["id"]);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn builtin_workflows_create_sessions_with_their_builtin_profiles() {
+        for (name, workflow) in builtin_workflows() {
+            let mut document = workflow;
+            for node in document["nodes"].as_array_mut().unwrap() {
+                if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                    node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+                }
+            }
+            let state = HarnessState::new();
+            let recipe: SessionRecipe = serde_json::from_value(json!({
+                "workspace": { "root": "/tmp", "binding": "host" },
+                "integration": "host",
+                "host_tools": [{ "name": "read_file", "description": "Read a file" }],
+                "workflow": document,
+            }))
+            .unwrap();
+            let session = state.create_session(recipe).await.unwrap_or_else(|error| panic!("{name}: {error}"));
+            state.close_session(session).await.unwrap();
+        }
     }
 
     /// `host_validated_fallback` would still send the provider's native schema
@@ -417,7 +549,10 @@ mod tests {
         let recipe = json!({
             "workspace": { "root": directory.path(), "binding": "host" },
             "integration": "host", "workflow": document,
-            "host_tools": [{ "name": "list_files", "description": "List workspace files" }],
+            "host_tools": [
+                { "name": "list_files", "description": "List workspace files" },
+                { "name": "read_file", "description": "Read a file" },
+            ],
         });
         let mut session = state.create_session(serde_json::from_value(recipe.clone()).unwrap()).await.unwrap();
         let mut inbox = state.take_inbox(session).unwrap();
@@ -450,9 +585,11 @@ mod tests {
                     if turn >= 2 { assert!(prompt.contains(plan), "Plan arrives verbatim"); }
                     if turn >= 4 { assert!(prompt.contains(build), "Build arrives verbatim, including failure"); }
                     let request_id = RequestId::new();
+                    // Verify's completion gate wants inspection evidence: it reads a file.
                     let event = if turn % 2 == 0 {
+                        let name = if turn == 4 { "read_file" } else { "list_files" };
                         ExecutionEvent::ToolCallRequested { request_id, call: ToolCall {
-                            id: ToolCallId::new(), name: "list_files".into(), arguments: json!({"path": "."}),
+                            id: ToolCallId::new(), name: name.into(), arguments: json!({"path": "."}),
                         } }
                     } else { ExecutionEvent::TextDelta { request_id, delta: replies[turn / 2].into() } };
                     state.host_execute_event(session, &call_id, event).unwrap();
@@ -485,6 +622,228 @@ mod tests {
                 _ => {}
             }
         }
+        state.close_session(session).await.unwrap();
+    }
+
+    /// A stage workflow end to end: the earlier result reaches the first step as
+    /// `context`, the first step's written handoff reaches the second, and the
+    /// read-only profiles are never offered a tool that edits or runs.
+    #[tokio::test]
+    async fn a_stage_workflow_passes_context_and_handoffs_between_profiles() {
+        let mut document = starter(BUILTIN_WORKFLOWS.iter().find(|(name, _)| *name == "investigate").unwrap().1);
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+            }
+        }
+        let state = HarnessState::new();
+        let recipe: SessionRecipe = serde_json::from_value(json!({
+            "workspace": { "root": "/tmp", "binding": "host" },
+            "integration": "host",
+            "host_tools": [
+                { "name": "read_file", "description": "Read a file" },
+                { "name": "write_file", "description": "Write a file" },
+                { "name": "run_command", "description": "Run a command" },
+            ],
+            "workflow": document,
+        }))
+        .unwrap();
+        let session = state.create_session(recipe).await.expect("session with a stage workflow");
+        let mut inbox = state.take_inbox(session).unwrap();
+        state
+            .start_workflow(session, json!({ "request": "how does sync work", "context": "EARLIER-RESULT" }))
+            .await
+            .expect("run starts");
+
+        let brief = "## Brief\nUse the queue.";
+        let analysis = "## Analysis\nThe queue lives in sync.rs.";
+        let mut prompts = Vec::new();
+        let mut offered = Vec::new();
+        let mut turn = 0;
+        let final_state = loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv()).await.unwrap().unwrap();
+            match event {
+                BridgeEvent::HostExecuteCall { call_id, input, .. } => {
+                    prompts.push(
+                        input["messages"].as_array().unwrap().iter()
+                            .flat_map(|message| message["content"].as_array().unwrap())
+                            .filter_map(|block| block["Text"]["text"].as_str())
+                            .collect::<Vec<_>>().join("\n"),
+                    );
+                    offered.push(input["tools"].to_string());
+                    let request_id = RequestId::new();
+                    // Each step reads a file (its completion gate), then writes its handoff.
+                    let (event, finish) = if turn % 2 == 0 {
+                        let call = ToolCall { id: ToolCallId::new(), name: "read_file".into(), arguments: json!({"path": "a.rs"}) };
+                        (ExecutionEvent::ToolCallRequested { request_id, call }, "tool_use")
+                    } else {
+                        let text = if turn == 1 { brief } else { analysis };
+                        (ExecutionEvent::TextDelta { request_id, delta: text.into() }, "end_turn")
+                    };
+                    state.host_execute_event(session, &call_id, event).unwrap();
+                    state.host_execute_result(session, &call_id, Ok(ExecutionResult {
+                        request_id, usage: ModelUsage::default(), cost: Cost::default(), finish_reason: finish.into(),
+                    })).unwrap();
+                    turn += 1;
+                }
+                BridgeEvent::HostToolCall { call_id, .. } => {
+                    state.host_tool_result(session, &call_id, Ok(json!({ "content": "fn main() {}" }))).unwrap();
+                }
+                BridgeEvent::WorkflowFinished { state } => break state,
+                _ => {}
+            }
+        };
+
+        assert_eq!(final_state["status"], "completed", "{final_state}");
+        assert_eq!(final_state["final_output"], analysis);
+        assert_eq!(turn, 4, "two steps of a read and a reply each");
+        assert!(prompts[0].contains("EARLIER-RESULT"), "Research receives the earlier result as context");
+        assert!(prompts[0].contains("how does sync work"));
+        assert!(prompts[2].contains(brief), "Analyze receives Research's handoff verbatim");
+        for tools in &offered {
+            assert!(tools.contains("read_file"), "{tools}");
+            assert!(!tools.contains("write_file") && !tools.contains("run_command"), "read-only profiles are not offered edit or run tools: {tools}");
+        }
+        state.close_session(session).await.unwrap();
+    }
+
+    /// A started stage run whose model turns the caller answers one at a time.
+    struct StageRun {
+        state: HarnessState,
+        session: SessionId,
+        inbox: tokio::sync::mpsc::UnboundedReceiver<BridgeEvent>,
+        turn: usize,
+    }
+
+    const BRIEF: &str = "## Brief\nUse the queue.";
+    const ANALYSIS: &str = "## Analysis\nThe queue lives in sync.rs.";
+
+    async fn start_investigate() -> StageRun {
+        let mut document = starter(BUILTIN_WORKFLOWS.iter().find(|(name, _)| *name == "investigate").unwrap().1);
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+            }
+        }
+        let state = HarnessState::new();
+        let recipe: SessionRecipe = serde_json::from_value(json!({
+            "workspace": { "root": "/tmp", "binding": "host" },
+            "integration": "host",
+            "host_tools": [{ "name": "read_file", "description": "Read a file" }],
+            "workflow": document,
+        }))
+        .unwrap();
+        let session = state.create_session(recipe).await.expect("session");
+        let inbox = state.take_inbox(session).unwrap();
+        state.start_workflow(session, json!({ "request": "how does sync work", "context": "" })).await.expect("run starts");
+        StageRun { state, session, inbox, turn: 0 }
+    }
+
+    impl StageRun {
+        /// Answers model turns until `stop` says the events so far are enough, or the
+        /// run goes quiet for `quiet`. Each step reads a file, then writes its handoff.
+        async fn pump(&mut self, quiet: Duration, mut stop: impl FnMut(&BridgeEvent) -> bool) -> Vec<BridgeEvent> {
+            let mut seen = Vec::new();
+            while let Ok(Some(event)) = tokio::time::timeout(quiet, self.inbox.recv()).await {
+                match &event {
+                    BridgeEvent::HostExecuteCall { call_id, .. } => {
+                        let request_id = RequestId::new();
+                        let (event, finish) = if self.turn.is_multiple_of(2) {
+                            let call = ToolCall { id: ToolCallId::new(), name: "read_file".into(), arguments: json!({"path": "a.rs"}) };
+                            (ExecutionEvent::ToolCallRequested { request_id, call }, "tool_use")
+                        } else {
+                            let text = if self.turn == 1 { BRIEF } else { ANALYSIS };
+                            (ExecutionEvent::TextDelta { request_id, delta: text.into() }, "end_turn")
+                        };
+                        self.state.host_execute_event(self.session, call_id, event).unwrap();
+                        self.state.host_execute_result(self.session, call_id, Ok(ExecutionResult {
+                            request_id, usage: ModelUsage::default(), cost: Cost::default(), finish_reason: finish.into(),
+                        })).unwrap();
+                        self.turn += 1;
+                    }
+                    BridgeEvent::HostToolCall { call_id, .. } => {
+                        self.state.host_tool_result(self.session, call_id, Ok(json!({ "content": "fn main() {}" }))).unwrap();
+                    }
+                    _ => {}
+                }
+                let done = stop(&event);
+                seen.push(event);
+                if done {
+                    break;
+                }
+            }
+            seen
+        }
+    }
+
+    fn started(events: &[BridgeEvent], node: &str) -> bool {
+        events.iter().any(|event| matches!(event, BridgeEvent::WorkflowEvent(envelope)
+            if envelope["event"]["type"] == "step_started" && envelope["event"]["node_id"] == node))
+    }
+
+    fn succeeded(event: &BridgeEvent, node: &str) -> bool {
+        matches!(event, BridgeEvent::WorkflowEvent(envelope)
+            if envelope["event"]["type"] == "step_succeeded" && envelope["event"]["node_id"] == node)
+    }
+
+    /// The foundation of mid-run flow switching: pausing during a step lets that
+    /// step finish, holds the next one, and exposes the finished output.
+    #[tokio::test]
+    async fn pausing_mid_step_holds_the_next_step_until_resume() {
+        let mut run = start_investigate().await;
+        // Wait for the first model turn of Research, then pause while it is still running.
+        run.pump(Duration::from_secs(5), |event| matches!(event, BridgeEvent::HostExecuteCall { .. })).await;
+        run.state.workflow_control(run.session, WorkflowControl::Pause).await.expect("pause is legal mid-step");
+
+        let before = run.pump(Duration::from_millis(600), |_| false).await;
+        assert!(before.iter().any(|event| succeeded(event, "research")), "the running step still finishes");
+        assert!(!started(&before, "analyze"), "the next step is not admitted while paused");
+
+        let snapshot = run.state.workflow_state(run.session, Some("research".into())).await.unwrap();
+        assert_eq!(snapshot["status"], "paused", "{snapshot}");
+        assert_eq!(snapshot["steps"]["research"]["status"], "succeeded");
+        assert_eq!(snapshot["steps"]["research"]["output"], BRIEF, "the finished step's output is readable");
+        assert_ne!(snapshot["steps"]["analyze"]["status"], "running");
+
+        run.state.workflow_control(run.session, WorkflowControl::Resume).await.expect("resume");
+        let after = run.pump(Duration::from_secs(5), |event| matches!(event, BridgeEvent::WorkflowFinished { .. })).await;
+        assert!(started(&after, "analyze"), "the next step runs after resume");
+        let Some(BridgeEvent::WorkflowFinished { state: finished }) = after.last() else { panic!("the run finishes") };
+        assert_eq!(finished["status"], "completed");
+        assert_eq!(finished["final_output"], ANALYSIS);
+        run.state.close_session(run.session).await.unwrap();
+    }
+
+    /// Cancelling a paused run is how a switch ends the old flow: it must keep what finished.
+    #[tokio::test]
+    async fn cancelling_a_paused_run_keeps_the_finished_steps_outputs() {
+        let mut run = start_investigate().await;
+        run.pump(Duration::from_secs(5), |event| matches!(event, BridgeEvent::HostExecuteCall { .. })).await;
+        run.state.workflow_control(run.session, WorkflowControl::Pause).await.unwrap();
+        let before = run.pump(Duration::from_millis(600), |_| false).await;
+        assert!(before.iter().any(|event| succeeded(event, "research")));
+
+        run.state.workflow_control(run.session, WorkflowControl::Cancel).await.unwrap();
+        let after = run.pump(Duration::from_secs(5), |event| matches!(event, BridgeEvent::WorkflowFinished { .. })).await;
+        assert!(!started(&after, "analyze"), "the cancelled run never starts the next step");
+        let Some(BridgeEvent::WorkflowFinished { state: finished }) = after.last() else { panic!("the run finishes") };
+        assert_eq!(finished["status"], "cancelled", "{finished}");
+        assert_eq!(finished["steps"]["research"]["output"], BRIEF);
+        run.state.close_session(run.session).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_state_of_a_session_without_a_run_is_an_error() {
+        let state = HarnessState::new();
+        let recipe: SessionRecipe = serde_json::from_value(json!({
+            "workspace": { "root": "/tmp", "binding": "host" },
+            "integration": "host",
+            "workflow": workflow_document(),
+        }))
+        .unwrap();
+        let session = state.create_session(recipe).await.unwrap();
+        let error = state.workflow_state(session, None).await.expect_err("nothing is running");
+        assert!(error.contains("no workflow"), "{error}");
         state.close_session(session).await.unwrap();
     }
 

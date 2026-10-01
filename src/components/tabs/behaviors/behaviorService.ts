@@ -10,7 +10,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { type Issue, type Json, type JsonObject, isObject, stableStringify } from "./behaviorModel";
 
-import { BUILTIN_WORKFLOW_PATH, builtinWorkflowDocument, isUnmodifiedStarter } from "./starterFlow";
+import { builtinWorkflowDocument, isStarterWorkflowPath, isUnmodifiedStarter, starterWorkflowPaths } from "./starterFlow";
 
 export const PROFILES_DIR = ".rusty/profiles";
 export const WORKFLOWS_DIR = ".rusty/workflows";
@@ -91,12 +91,15 @@ export const behaviorService = {
         catch (error) { loaded.failures.push({ path: doc.path, error: String(error) }); }
       } else documents.push(doc);
     }
-    const document = builtinWorkflowDocument();
-    return { ...loaded, documents: [{ path: BUILTIN_WORKFLOW_PATH, document, saved: stableStringify(document) }, ...documents] };
+    const builtins = starterWorkflowPaths().map((path) => {
+      const document = builtinWorkflowDocument(path);
+      return { path, document, saved: stableStringify(document) };
+    });
+    return { ...loaded, documents: [...builtins, ...documents] };
   },
 
   async readWorkflow(path: string): Promise<JsonObject> {
-    if (path === BUILTIN_WORKFLOW_PATH) return builtinWorkflowDocument();
+    if (isStarterWorkflowPath(path)) return builtinWorkflowDocument(path);
     try {
       const document = JSON.parse(await invoke<string>("read_file_disk", { path })) as JsonObject;
       return isUnmodifiedStarter(document) ? builtinWorkflowDocument() : document;
@@ -140,7 +143,7 @@ export const behaviorService = {
   },
 
   async save(path: string, document: JsonObject): Promise<string> {
-    if (path === BUILTIN_WORKFLOW_PATH) throw new Error("Built-in workflows are read-only");
+    if (isStarterWorkflowPath(path)) throw new Error("Built-in workflows are read-only");
     await ensureDir(path.slice(0, path.lastIndexOf("/")));
     const content = stableStringify(document);
     await invoke("write_file_disk", { path, content });
@@ -148,7 +151,7 @@ export const behaviorService = {
   },
 
   async remove(path: string): Promise<void> {
-    if (path === BUILTIN_WORKFLOW_PATH) throw new Error("Built-in workflows cannot be deleted");
+    if (isStarterWorkflowPath(path)) throw new Error("Built-in workflows cannot be deleted");
     await invoke("delete_file_or_dir", { path });
   },
 

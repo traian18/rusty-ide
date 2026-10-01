@@ -125,7 +125,7 @@ describe("BehaviorsTab", () => {
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    root.unmount();
     container.remove();
     vi.unstubAllGlobals();
   });
@@ -139,6 +139,42 @@ describe("BehaviorsTab", () => {
     await act(async () => button(container, "Plan and build").click());
     expect(button(container, "Plan and build").className).toMatch(/listItemActive/);
     expect(inputLabelled(container, "Name").value).toBe("Plan and build");
+  });
+
+  it("discovers seeded profiles and workflows, excludes config.json, and preserves valid profiles when one is malformed", async () => {
+    const seededProfileIds = [
+      "profile-analyzer",
+      "profile-researcher",
+      "profile-implementer",
+      "profile-reviewer",
+      "profile-architect",
+      "profile-debugger",
+      "profile-doc-writer",
+      "profile-optimizer",
+      "profile-refactorer",
+      "profile-security-auditor",
+    ];
+    for (const id of seededProfileIds) {
+      files[`/ws/.rusty/profiles/${id}.json`] = JSON.stringify({ schema_version: 1, id, revision: 1, name: id });
+    }
+    files["/ws/.rusty/profiles/broken.json"] = "{";
+    for (const id of ["feature-delivery", "bug-resolution", "safe-refactor", "documentation"]) {
+      files[`/ws/.rusty/workflows/${id}.json`] = JSON.stringify({ ...workflow, id, name: id, nodes: [{ ...workflow.nodes[0] }, { ...workflow.nodes[1], config: { instructions: "Do it", profile: { id: "profile-analyzer" } } }] });
+    }
+
+    // Separate updates, or React batches them into "no change" and never reloads.
+    await act(async () => { useWorkspaceStore.setState({ rootPath: undefined }); });
+    await act(async () => { useWorkspaceStore.setState({ rootPath: "/ws" }); });
+    await flush();
+    await act(async () => button(container, "Profiles").click());
+    for (const id of seededProfileIds) expect(button(container, id)).toBeDefined();
+    expect(container.textContent).not.toContain("config.json");
+    expect(container.textContent).toContain("broken.json");
+    expect(files["/ws/.rusty/profiles/demo.json"]).toBe(JSON.stringify(demo));
+    expect(Object.keys(written)).toEqual([]);
+
+    await act(async () => button(container, "Workflows").click());
+    for (const id of ["feature-delivery", "bug-resolution", "safe-refactor", "documentation"]) expect(button(container, id)).toBeDefined();
   });
 
   it("edits a profile, shows core validation, and saves it to .rusty/profiles", async () => {

@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
-import { snapshotJevDecisionTool, snapshotJevRiskReview } from "../../services/jevDecisionToolSnapshot";
+import { snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
+import { chooseFlow, type AskOption, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
 import { useWorkspaceStore, AgentMessage } from "../../store";
-import { resolveSkill, toSkillData, DEFAULT_SKILL_ID } from "../../config/skillDefinitions";
+import { resolveSkill, toSkillData, DEFAULT_SKILL_ID, BUILT_IN_SKILL_IDS } from "../../config/skillDefinitions";
 import { CustomSelect } from "../CustomSelect";
 import { invoke } from "@tauri-apps/api/core";
 import { Chat, SubagentActivity } from "../ui/Chat";
@@ -19,12 +20,12 @@ import { commandPermissionService } from "../../services/commandPermissionServic
 import type { RunHandle } from "../../harness/contract";
 import { registerTabStop, unregisterTabStop } from "../../tabs/tabStopRegistry";
 import { TokenBadge, TokenUsageLike } from "../ui/TokenBadge/TokenBadge";
-import { AgentChatSaveQueue, readChatWorkflow, readModifiedFiles } from "../../services/agentChatPersistence";
+import { AgentChatSaveQueue, readChatWorkflow, readFlowSwitching, readModifiedFiles } from "../../services/agentChatPersistence";
 import { AgentChatResponseStream } from "../../services/agentChatResponseStream";
 import { buildAttachmentContext } from "../../services/contextAttachmentService";
 import type { TabOfType } from "../../tabs/types";
 import { executionObservability } from "../../observability/executionStore";
-import { jevSelectionRecord } from "../../observability/modelSelectionRecord";
+import { jevFlowRecord, jevSelectionRecord } from "../../observability/modelSelectionRecord";
 import {
   AUTO_MODEL_ID,
   AUTO_LEVEL_LABELS,
@@ -35,9 +36,10 @@ import {
   IntelligentModelSelectionError,
 } from "../../services/intelligentModelSelector";
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
-import { workflowInputFor, readWorkflowCheckpoint, stepNames, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
+import { workflowInputFor, readWorkflowCheckpoint, stepNames, workflowUsesContext, priorWorkflowContext, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
 import { behaviorService } from "./behaviors/behaviorService";
-import { BUILTIN_WORKFLOW_PATH, STARTER_WORKFLOW } from "./behaviors/starterFlow";
+import { BUILTIN_WORKFLOW_PATH, STARTER_PROFILES, STARTER_WORKFLOW, workflowKind } from "./behaviors/starterFlow";
+import { AUTO_FLOW, shortWorkflowId, workflowMayEdit, workflowRoute, workflowSwitchTargets } from "./behaviors/flowCatalog";
 import { loadAgentModelSelection, saveAgentModelSelection } from "../../preferences/agentModelSelection";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
@@ -54,6 +56,20 @@ interface SavedChat {
   preview: string;
   messageCount: number;
 }
+
+/** What one run of a turn is started from. A workflow that hands over starts the next run from this. */
+interface LaunchPlan {
+  workflowDefinition: Record<string, unknown> | undefined;
+  workflowId: string;
+  /** What the run starts from when a previous run handed over (else the chat's last result). */
+  context?: string;
+  /** Hand-overs still allowed in this turn. */
+  switchesLeft: number;
+  /** Workflows already run in this turn (by short id): none is run twice. */
+  visited: string[];
+}
+
+const MAX_FLOW_SWITCHES_PER_MESSAGE = 2;
 
 export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
@@ -123,6 +139,15 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const agentWorkflowRequest = useWorkflowRunStore((state) => state.agentRequest);
   const workflowRuns = useWorkflowRunStore((state) => state.runs);
   const [workflowOptions, setWorkflowOptions] = useState<WorkflowChoice[]>([]);
+  const workflowOptionsRef = useRef<WorkflowChoice[]>([]);
+  workflowOptionsRef.current = workflowOptions;
+  // Whether a running workflow may hand over to another at a step boundary. Per chat, like the workflow.
+  const [flowSwitching, setFlowSwitchingState] = useState(false);
+  const flowSwitchingRef = useRef(false);
+  // With Auto, the workflow chosen for the latest message (drives the bar's steps).
+  const [autoWorkflow, setAutoWorkflow] = useState<string | undefined>();
+  // How the previous workflow run ended, which the Auto router sees.
+  const lastWorkflowRunRef = useRef<{ name: string; status: string } | undefined>(undefined);
   const questionResolversRef = useRef<Map<string, (answer: string) => void>>(new Map());
   const consoleMessageIdRef = useRef<string | null>(null);
   const consoleBufferRef = useRef<string>("");
@@ -146,13 +171,21 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       return;
     }
     let cancelled = false;
-    void behaviorService.loadWorkflows(rootPath)
-      .then(({ documents }) => {
+    void Promise.all([behaviorService.loadWorkflows(rootPath), behaviorService.loadProfiles(rootPath)])
+      .then(([{ documents }, { documents: profiles }]) => {
         if (cancelled) return;
+        // Whether a workflow edits is read from the profiles its steps run under.
+        const library = [...profiles.map((profile) => profile.document), ...STARTER_PROFILES];
         setWorkflowOptions(
           documents.map(({ path, document }) => ({
             path,
             name: String(document.name ?? document.id ?? path.split("/").pop()),
+            kind: workflowKind(document),
+            description: typeof document.description === "string" ? document.description : undefined,
+            id: shortWorkflowId(String(document.id ?? "")),
+            route: workflowRoute(document)?.when,
+            edits: workflowMayEdit(document, library),
+            switchTo: workflowSwitchTargets(document),
           })),
         );
       });
@@ -161,18 +194,20 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     };
   }, [rootPath, workflowCatalogVersion]);
 
-  // The followed workflow's document, for the bar's step list.
+  // The followed workflow's document, for the bar's step list. With Auto that
+  // is whichever workflow was chosen for the latest message.
+  const activeWorkflowPath = chatWorkflow === AUTO_FLOW ? autoWorkflow : chatWorkflow;
   useEffect(() => {
-    if (!chatWorkflow) {
+    if (!activeWorkflowPath) {
       setWorkflowDocument(undefined);
       return;
     }
     let cancelled = false;
-    behaviorService.readWorkflow(chatWorkflow)
+    behaviorService.readWorkflow(activeWorkflowPath)
       .then((document) => {
         if (cancelled) return;
         setWorkflowDocument(document);
-        if (document.id === STARTER_WORKFLOW.id && chatWorkflow !== BUILTIN_WORKFLOW_PATH) {
+        if (chatWorkflow !== AUTO_FLOW && document.id === STARTER_WORKFLOW.id && chatWorkflow !== BUILTIN_WORKFLOW_PATH) {
           chatWorkflowRef.current = BUILTIN_WORKFLOW_PATH;
           setChatWorkflowState(BUILTIN_WORKFLOW_PATH);
         }
@@ -181,7 +216,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     return () => {
       cancelled = true;
     };
-  }, [chatWorkflow, workflowCatalogVersion]);
+  }, [activeWorkflowPath, chatWorkflow, workflowCatalogVersion]);
 
   // Build model options including AUTO if intelligent selection is enabled
   const modelOptions = useCallback(() => {
@@ -321,6 +356,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       chatSaveQueueRef.current = new AgentChatSaveQueue(chat.path);
       setModifiedFiles(readModifiedFiles(parsed.modifiedFiles));
       setChatWorkflow(readChatWorkflow(parsed.workflow), { persist: false });
+      setFlowSwitching(readFlowSwitching(parsed.flowSwitching), { persist: false });
+      lastWorkflowRunRef.current = undefined;
       setWorkflowCheckpoint(parsed.workflowCheckpoint);
       setSubagents([]);
     } catch (e) {
@@ -335,6 +372,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     chatSaveQueueRef.current = new AgentChatSaveQueue();
     setModifiedFiles([]);
     setChatWorkflow(undefined, { persist: false });
+    setFlowSwitching(false, { persist: false });
+    lastWorkflowRunRef.current = undefined;
     setSubagents([]);
   };
 
@@ -413,6 +452,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setIsStreaming(false);
     setStreamingLabel("Model is thinking…");
     setAgentQuestions([]);
+    // Anything still waiting on an answer (a run's question, Auto's choice) is released as declined.
+    for (const resolve of questionResolversRef.current.values()) resolve("");
     questionResolversRef.current.clear();
     saveChatHistory();
   };
@@ -429,8 +470,16 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     return () => unregisterTabStop(tab.id);
   }, [tab.id]);
 
+  /** Puts a question to the user outside a run (Auto choosing a workflow). */
+  const askUser = (question: string, options: AskOption[]) =>
+    new Promise<string>((resolve) => {
+      const requestId = crypto.randomUUID();
+      questionResolversRef.current.set(requestId, resolve);
+      setAgentQuestions((prev) => [...prev, { requestId, question, options }]);
+    });
+
   const handleAgentQuestionAnswer = (answer: string) => {
-    if (agentQuestions.length === 0 || !agentRunRef.current) return;
+    if (agentQuestions.length === 0) return;
     const currentQuestion = agentQuestions[0];
     questionResolversRef.current.get(currentQuestion.requestId)?.(answer);
     questionResolversRef.current.delete(currentQuestion.requestId);
@@ -443,7 +492,14 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
 
   const handleSendMessage = async (attachedFiles: { path: string; name: string; isDir?: boolean }[]) => {
     if ((!message.trim() && attachedFiles.length === 0) || isAgentBusy) return;
-    if (!hasSelectedSkill) {
+    const chosenWorkflow = chatWorkflowRef.current;
+    // With Auto, Rusty chooses the workflow after the message is in the chat.
+    const auto = chosenWorkflow === AUTO_FLOW;
+    let followedWorkflow = auto ? undefined : chosenWorkflow;
+    // A workflow's steps get their tools from their own profiles, so the
+    // chat's skill plays no part in a workflow run (it stays on Build). Auto
+    // may still answer with the single agent, which needs one.
+    if ((!chosenWorkflow || auto) && !hasSelectedSkill) {
       notify("Skill Required", "Select an Agent Tab skill before sending a prompt.", "error");
       return;
     }
@@ -451,7 +507,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     // The saved file is what runs, read fresh so edits saved in the
     // Behaviors tab since the last message apply.
     let workflowDefinition: Record<string, unknown> | undefined;
-    const followedWorkflow = chatWorkflowRef.current;
     if (followedWorkflow) {
       try {
         workflowDefinition = await behaviorService.readWorkflow(followedWorkflow);
@@ -460,7 +515,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         return;
       }
     }
-    const workflowId = workflowDefinition ? String(workflowDefinition.id ?? "") : "";
+    let workflowId = workflowDefinition ? String(workflowDefinition.id ?? "") : "";
 
     const now = Date.now();
     const attachments = attachedFiles.map((a) => ({ path: a.path, name: a.name, isDir: a.isDir }));
@@ -507,348 +562,498 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setIsStreaming(true);
     setStreamingLabel("Model is thinking…");
 
-    const wsRootPath = useWorkspaceStore.getState().rootPath;
-    const currentProviders = useWorkspaceStore.getState().customProviders;
-    const currentActiveProviderId = useWorkspaceStore.getState().activeCustomProviderId;
-    const currentProviderStatus = useWorkspaceStore.getState().providerStatus;
-
-    // Resolve AUTO to a concrete model before execution
-    let concreteModelId = selectedModel;
-    // With AUTO, JEV decisions can later step the run up to a higher level's model.
-    let autoStepUp: DecideStepUpConfig | undefined;
-    if (selectedModel === AUTO_MODEL_ID) {
-      setStreamingLabel("Selecting the best model…");
-      const jevProvider = findOpenRouterJevProvider(currentProviders, intelligentModelSelectionSettings.jevModelId);
-      if (!jevProvider) {
-        addAgentMessage(tab.id, {
-          id: `msg_${Date.now()}`,
-          role: "assistant" as const,
-          content: "OpenRouter JEV provider not available for intelligent model selection.",
-          timestamp: new Date().toISOString(),
+    if (auto) {
+      setStreamingLabel("Choosing a workflow…");
+      const routerConfig = snapshotFlowRouter(useWorkspaceStore.getState());
+      const candidates: FlowCandidate[] = workflowOptionsRef.current
+        .filter((option) => option.route && option.id)
+        .map((option) => ({
+          id: option.id!,
+          name: `${option.kind === "stage" ? "Stage" : "Workflow"}: ${option.name}`,
+          criterion: option.route!,
+          edits: Boolean(option.edits),
+          path: option.path,
+        }));
+      let choice: FlowChoice = { type: "single" };
+      if (!routerConfig) {
+        responseStreamRef.current?.progress("↳ AUTO · OpenRouter and a JEV model are needed to choose a workflow; answering directly.");
+      } else if (candidates.length > 0) {
+        choice = await chooseFlow({
+          message: userText,
+          lastResult: priorWorkflowContext(useWorkspaceStore.getState().agentChats[tab.id] || []),
+          lastRun: lastWorkflowRunRef.current,
+          candidates,
+          router: {
+            ...routerConfig,
+            onTrace: (trace) => executionObservability.recordStandalone(
+              jevFlowRecord(trace, { tabId: tab.id, workspaceRoot: useWorkspaceStore.getState().rootPath || undefined }),
+            ),
+          },
+          ask: askUser,
+          announce: (line) => responseStreamRef.current?.progress(line),
         });
+      }
+      if (!isStreamingRef.current) return; // stopped while choosing
+      if (choice.type === "cancelled") {
+        responseStreamRef.current?.progress("↳ AUTO · Nothing was started.");
         isStreamingRef.current = false;
         setIsStreaming(false);
-        notify("Model Selection Failed", "OpenRouter provider is not configured.", "error");
+        setStreamingLabel("Model is thinking…");
+        setAgentQuestions([]);
+        questionResolversRef.current.clear();
+        lastUserMessageIdRef.current = null;
+        lastConsoleMessageIdRef.current = null;
+        responseStreamRef.current = null;
+        saveChatHistory();
         return;
       }
+      if (choice.type === "workflow") {
+        try {
+          workflowDefinition = await behaviorService.readWorkflow(choice.candidate.path);
+          followedWorkflow = choice.candidate.path;
+        } catch (error) {
+          notify("Workflow unavailable", `Could not read ${choice.candidate.path}: ${String(error)}. Answering directly.`, "error");
+        }
+      }
+      setAutoWorkflow(followedWorkflow);
+      workflowId = workflowDefinition ? String(workflowDefinition.id ?? "") : "";
+      // A failed run resumes only on the workflow it belongs to.
+      if (workflowCheckpointRef.current && workflowCheckpointRef.current.definition_id !== workflowId) setWorkflowCheckpoint(undefined);
+      setStreamingLabel("Model is thinking…");
+    }
 
-      const { candidates, missing } = resolveLevelCandidates(
+    /** Starts one run for the message: a single agent, or a workflow. A
+     * workflow that hands over ends with `switchTo`, and the next run starts
+     * from here in the same turn. */
+    const launch = async (plan: LaunchPlan): Promise<void> => {
+      const { workflowDefinition, workflowId } = plan;
+      const wsRootPath = useWorkspaceStore.getState().rootPath;
+      const currentProviders = useWorkspaceStore.getState().customProviders;
+      const currentActiveProviderId = useWorkspaceStore.getState().activeCustomProviderId;
+      const currentProviderStatus = useWorkspaceStore.getState().providerStatus;
+
+      // Resolve AUTO to a concrete model before execution
+      let concreteModelId = selectedModel;
+      // With AUTO, JEV decisions can later step the run up to a higher level's model.
+      let autoStepUp: DecideStepUpConfig | undefined;
+      // With AUTO on a workflow, each agent step picks its own model (see
+      // stepModelSelection.ts) instead of the whole message being rated once.
+      let autoStepModels: ReturnType<typeof snapshotStepModels>;
+      if (selectedModel === AUTO_MODEL_ID) {
+        setStreamingLabel("Selecting the best model…");
+        const jevProvider = findOpenRouterJevProvider(currentProviders, intelligentModelSelectionSettings.jevModelId);
+        if (!jevProvider) {
+          addAgentMessage(tab.id, {
+            id: `msg_${Date.now()}`,
+            role: "assistant" as const,
+            content: "OpenRouter JEV provider not available for intelligent model selection.",
+            timestamp: new Date().toISOString(),
+          });
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          notify("Model Selection Failed", "OpenRouter provider is not configured.", "error");
+          return;
+        }
+
+        const { candidates, missing } = resolveLevelCandidates(
+          currentProviders,
+          currentProviderStatus,
+          currentActiveProviderId,
+          intelligentModelSelectionSettings.levelModels,
+        );
+        try {
+          if (missing.length > 0) {
+            throw new IntelligentModelSelectionError(
+              `No available model is set for ${missing.map((level) => AUTO_LEVEL_LABELS[level]).join(", ")}. Choose one in Settings → Intelligence.`,
+            );
+          }
+          const levelCandidates = candidates as LevelCandidates;
+          const levels = Object.fromEntries(Object.entries(levelCandidates).map(([level, candidate]) => [
+            level,
+            { providerId: candidate.provider.id, model: candidate.model.id, name: candidate.model.name },
+          ]));
+          if (workflowDefinition) {
+            // Steps start on the Standard level's model and move to the level
+            // JEV rates them at, just before their first model turn.
+            concreteModelId = levelCandidates.standard.model.id;
+            autoStepUp = { level: "standard", levels };
+            autoStepModels = snapshotStepModels(useWorkspaceStore.getState(), levels);
+            if (!autoStepModels) throw new IntelligentModelSelectionError("OpenRouter JEV is not available for choosing each step's model.");
+            setStreamingLabel("Choosing a model for each step…");
+          } else {
+            const selection = await selectIntelligentModel(
+              messageToSend,
+              jevProvider,
+              levelCandidates,
+              intelligentModelSelectionSettings.jevModelId,
+              (trace) => executionObservability.recordStandalone(
+                jevSelectionRecord(trace, { tabId: tab.id, workspaceRoot: wsRootPath || undefined }),
+              ),
+            );
+            concreteModelId = selection.candidate.model.id;
+            autoStepUp = { level: selection.level, levels };
+            const confidence = (selection.confidence * 100).toFixed(0);
+            setStreamingLabel(`${AUTO_LEVEL_LABELS[selection.level]} task${selection.escalated ? " (stepped up)" : ""} · ${selection.candidate.model.name} (${confidence}% confidence)…`);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof IntelligentModelSelectionError
+            ? error.message
+            : "An unexpected error occurred during model selection.";
+          addAgentMessage(tab.id, {
+            id: `msg_${Date.now()}`,
+            role: "assistant" as const,
+            content: `Model selection error: ${errorMessage}\n\nPlease select a model manually.`,
+            timestamp: new Date().toISOString(),
+          });
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          notify("Model Selection Failed", errorMessage, "error");
+          return;
+        }
+      }
+
+      const resolution = resolveExecutionProvider(
         currentProviders,
         currentProviderStatus,
         currentActiveProviderId,
-        intelligentModelSelectionSettings.levelModels,
+        concreteModelId,
       );
-      try {
-        if (missing.length > 0) {
-          throw new IntelligentModelSelectionError(
-            `No available model is set for ${missing.map((level) => AUTO_LEVEL_LABELS[level]).join(", ")}. Choose one in Settings → Intelligence.`,
-          );
-        }
-        const selection = await selectIntelligentModel(
-          messageToSend,
-          jevProvider,
-          candidates as LevelCandidates,
-          intelligentModelSelectionSettings.jevModelId,
-          (trace) => executionObservability.recordStandalone(
-            jevSelectionRecord(trace, { tabId: tab.id, workspaceRoot: wsRootPath || undefined }),
-          ),
-        );
-        concreteModelId = selection.candidate.model.id;
-        const levelCandidates = candidates as LevelCandidates;
-        autoStepUp = {
-          level: selection.level,
-          levels: Object.fromEntries(Object.entries(levelCandidates).map(([level, candidate]) => [
-            level,
-            { providerId: candidate.provider.id, model: candidate.model.id, name: candidate.model.name },
-          ])),
-        };
-        const confidence = (selection.confidence * 100).toFixed(0);
-        setStreamingLabel(`${AUTO_LEVEL_LABELS[selection.level]} task${selection.escalated ? " (stepped up)" : ""} · ${selection.candidate.model.name} (${confidence}% confidence)…`);
-      } catch (error) {
-        const errorMessage = error instanceof IntelligentModelSelectionError
-          ? error.message
-          : "An unexpected error occurred during model selection.";
+      if (!resolution.ok) {
         addAgentMessage(tab.id, {
           id: `msg_${Date.now()}`,
           role: "assistant" as const,
-          content: `Model selection error: ${errorMessage}\n\nPlease select a model manually.`,
+          content: resolution.message,
           timestamp: new Date().toISOString(),
         });
         isStreamingRef.current = false;
         setIsStreaming(false);
-        notify("Model Selection Failed", errorMessage, "error");
+        notify("Cannot send message", resolution.message, "error");
         return;
       }
-    }
+      const prov = resolution.provider;
+      const chatHistory = useWorkspaceStore.getState().agentChats[tab.id] || [];
+      const currentSkills = useWorkspaceStore.getState().skills;
+      const resolved = resolveSkill(currentSkills, workflowDefinition ? BUILT_IN_SKILL_IDS.BUILD : selectedSkillId);
+      const skillData = toSkillData(resolved);
 
-    const resolution = resolveExecutionProvider(
-      currentProviders,
-      currentProviderStatus,
-      currentActiveProviderId,
-      concreteModelId,
-    );
-    if (!resolution.ok) {
-      addAgentMessage(tab.id, {
-        id: `msg_${Date.now()}`,
-        role: "assistant" as const,
-        content: resolution.message,
-        timestamp: new Date().toISOString(),
+      // Offer every connected server; the session's execution policy decides
+      // which ones the active skill actually gets (skillExecutionPolicy.ts).
+      const mcpServers = Object.values(useWorkspaceStore.getState().mcpServers).filter((server) => server.enabled);
+
+      const host = createRunHost({
+        readFile: (path) => invoke<string>("read_file_disk", { path }),
+        writeFile: async (path, content) => {
+          await invoke("write_file_disk", { path, content });
+        },
+        askQuestion: (question) =>
+          new Promise<string>((resolve) => {
+            questionResolversRef.current.set(question.requestId, resolve);
+            setAgentQuestions((prev) => {
+              if (prev.some((q) => q.requestId === question.requestId)) return prev;
+              return [...prev, question];
+            });
+          }),
       });
-      isStreamingRef.current = false;
-      setIsStreaming(false);
-      notify("Cannot send message", resolution.message, "error");
-      return;
-    }
-    const prov = resolution.provider;
-    const chatHistory = useWorkspaceStore.getState().agentChats[tab.id] || [];
-    const currentSkills = useWorkspaceStore.getState().skills;
-    const resolved = resolveSkill(currentSkills, selectedSkillId);
-    const skillData = toSkillData(resolved);
-
-    // Offer every connected server; the session's execution policy decides
-    // which ones the active skill actually gets (skillExecutionPolicy.ts).
-    const mcpServers = Object.values(useWorkspaceStore.getState().mcpServers).filter((server) => server.enabled);
-
-    const host = createRunHost({
-      readFile: (path) => invoke<string>("read_file_disk", { path }),
-      writeFile: async (path, content) => {
-        await invoke("write_file_disk", { path, content });
-      },
-      askQuestion: (question) =>
-        new Promise<string>((resolve) => {
-          questionResolversRef.current.set(question.requestId, resolve);
-          setAgentQuestions((prev) => {
-            if (prev.some((q) => q.requestId === question.requestId)) return prev;
-            return [...prev, question];
-          });
-        }),
-    });
-    // While a workflow runs, the status line names its current step.
-    let workflowStep: string | undefined;
-    const setRunLabel = (label: string) => setStreamingLabel(workflowStep ? `${workflowStep} · ${label}` : label);
-    const workflowStepTypes: Record<string, string> = Object.fromEntries(
-      (Array.isArray(workflowDefinition?.nodes) ? (workflowDefinition.nodes as Array<{ id?: unknown; type?: unknown }>) : [])
-        .map((node) => [String(node.id), String(node.type)]),
-    );
-    const run = harness.run(
-      "agent_chat",
-      {
-        tabId: tab.id,
-        message: messageToSend,
-        model: concreteModelId,
-        workspaceRoot: wsRootPath,
-        chatHistory: chatHistory
-          .filter((m: any) => m.id !== userMessage.id && (m.role === "user" || m.role === "assistant"))
-          .map((m: any) => ({
-            role: m.role,
-            content:
-              m.role === "user" && m.attachmentContext
-                ? `${m.content}\n\n${m.attachmentContext}`
-                : m.content,
-          })),
-        customProvider: prov,
-        skill: skillData,
-        mcpServers,
-        webSearchApiKeys: useWorkspaceStore.getState().webSearchApiKeys,
-        planOnly: false,
-        vfsOnly: false,
-        lspSettings: { ...useWorkspaceStore.getState().lspSettings, enabled: false },
-        smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
-        jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState(), autoStepUp),
-        jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
-        workflow: workflowDefinition ? { definition: workflowDefinition, input: workflowInputFor(messageToSend, Boolean(workflowDefinition.input_schema)), checkpoint: workflowCheckpointRef.current } : undefined,
-      },
-      host,
-      (event) => {
-        switch (event.kind) {
-          case "command_output":
-            consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, event.content);
-            scheduleConsoleFlush();
-            break;
-          case "command_complete":
-            scheduleTreeRefresh();
-            break;
-          case "files_changed":
-            setModifiedFiles([...modifiedFilesRef.current, ...event.paths]);
-            scheduleTreeRefresh();
-            break;
-          case "log": {
-            const line = event.message.endsWith("\n") ? event.message : `${event.message}\n`;
-            consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, line);
-            scheduleConsoleFlush();
-            if (event.message.startsWith("Calling ")) {
-              setRunLabel(event.message.replace(/\.\.\.$/, "…"));
-            } else if (event.message.includes("completed") || event.message.includes("failed")) {
-              setRunLabel("Processing results…");
+      // While a workflow runs, the status line names its current step.
+      let workflowStep: string | undefined;
+      const setRunLabel = (label: string) => setStreamingLabel(workflowStep ? `${workflowStep} · ${label}` : label);
+      const workflowStepTypes: Record<string, string> = Object.fromEntries(
+        (Array.isArray(workflowDefinition?.nodes) ? (workflowDefinition.nodes as Array<{ id?: unknown; type?: unknown }>) : [])
+          .map((node) => [String(node.id), String(node.type)]),
+      );
+      // Whether this run may hand over to another workflow at a step boundary, and to which.
+      const flowSwitchingConfig = (() => {
+        if (!flowSwitchingRef.current || !workflowDefinition || plan.switchesLeft <= 0) return undefined;
+        const router = snapshotFlowRouter(useWorkspaceStore.getState());
+        if (!router) return undefined;
+        const targets = workflowSwitchTargets(workflowDefinition as JsonObject)
+          .map((id) => workflowOptionsRef.current.find((option) => option.id === id))
+          .filter((option): option is WorkflowChoice & { id: string } => Boolean(option?.id) && !plan.visited.includes(option!.id!))
+          .map((option) => ({
+            id: option.id,
+            path: option.path,
+            name: `${option.kind === "stage" ? "Stage" : "Workflow"}: ${option.name}`,
+            when: option.route ?? option.description ?? option.name,
+            edits: Boolean(option.edits),
+          }));
+        return targets.length > 0 ? { router, workflowName: String(workflowDefinition.name ?? workflowId), targets } : undefined;
+      })();
+      const run = harness.run(
+        "agent_chat",
+        {
+          tabId: tab.id,
+          message: messageToSend,
+          model: concreteModelId,
+          workspaceRoot: wsRootPath,
+          chatHistory: chatHistory
+            .filter((m: any) => m.id !== userMessage.id && (m.role === "user" || m.role === "assistant"))
+            .map((m: any) => ({
+              role: m.role,
+              content:
+                m.role === "user" && m.attachmentContext
+                  ? `${m.content}\n\n${m.attachmentContext}`
+                  : m.content,
+            })),
+          customProvider: prov,
+          skill: skillData,
+          mcpServers,
+          webSearchApiKeys: useWorkspaceStore.getState().webSearchApiKeys,
+          planOnly: false,
+          vfsOnly: false,
+          lspSettings: { ...useWorkspaceStore.getState().lspSettings, enabled: false },
+          smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
+          jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState(), autoStepUp),
+          jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
+          ...(autoStepModels ? { autoStepModels } : {}),
+          ...(flowSwitchingConfig ? { flowSwitching: flowSwitchingConfig } : {}),
+          workflow: workflowDefinition ? {
+            definition: workflowDefinition,
+            // A stage picks up the result the previous run left in this chat, or
+            // the work a workflow finished before it handed over.
+            input: workflowInputFor(
+              messageToSend,
+              Boolean(workflowDefinition.input_schema),
+              workflowUsesContext(workflowDefinition) ? plan.context ?? priorWorkflowContext(chatHistory) : undefined,
+            ),
+            checkpoint: workflowCheckpointRef.current,
+          } : undefined,
+        },
+        host,
+        (event) => {
+          switch (event.kind) {
+            case "command_output":
+              consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, event.content);
+              scheduleConsoleFlush();
+              break;
+            case "command_complete":
+              scheduleTreeRefresh();
+              break;
+            case "files_changed":
+              setModifiedFiles([...modifiedFilesRef.current, ...event.paths]);
+              scheduleTreeRefresh();
+              break;
+            case "log": {
+              const line = event.message.endsWith("\n") ? event.message : `${event.message}\n`;
+              consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, line);
+              scheduleConsoleFlush();
+              if (event.message.startsWith("Calling ")) {
+                setRunLabel(event.message.replace(/\.\.\.$/, "…"));
+              } else if (event.message.includes("completed") || event.message.includes("failed")) {
+                setRunLabel("Processing results…");
+              }
+              break;
             }
-            break;
-          }
-          case "usage":
-            setRunUsage(event.usage);
-            break;
-          case "token": {
-            setRunLabel("Generating response…");
-            responseStreamRef.current?.append(event.content, event.messageId);
-            scheduleStreamingResponseFlush();
-            break;
-          }
-          case "progress":
-            responseStreamRef.current?.progress(event.content);
-            break;
-          case "workflow_checkpoint":
-            setWorkflowCheckpoint(event.state);
-            break;
-          case "workflow_step": {
-            useWorkflowRunStore.getState().step(event.workflowId, event);
-            const name = event.name ?? event.nodeId;
-            const attempt = event.attempt > 1 ? ` (attempt ${event.attempt})` : "";
-            if (event.status === "running") {
-              workflowStep = `${name}${attempt}`;
-              setRunLabel("Working…");
-              // Mark where each agent step's output begins in the chat.
-              if (workflowStepTypes[event.nodeId] === "agent") {
-                responseStreamRef.current?.progress(`**▶ ${name}**${attempt}`);
+            case "usage":
+              setRunUsage(event.usage);
+              break;
+            case "token": {
+              setRunLabel("Generating response…");
+              responseStreamRef.current?.append(event.content, event.messageId);
+              scheduleStreamingResponseFlush();
+              break;
+            }
+            case "progress":
+              responseStreamRef.current?.progress(event.content);
+              break;
+            case "workflow_checkpoint":
+              setWorkflowCheckpoint(event.state);
+              break;
+            case "workflow_boundary":
+              if (event.status === "checking") setRunLabel("Checking whether to switch flows…");
+              break;
+            case "workflow_step": {
+              useWorkflowRunStore.getState().step(event.workflowId, event);
+              const name = event.name ?? event.nodeId;
+              const attempt = event.attempt > 1 ? ` (attempt ${event.attempt})` : "";
+              if (event.status === "running") {
+                workflowStep = `${name}${attempt}`;
+                setRunLabel("Working…");
+                // Mark where each agent step's output begins in the chat.
+                if (workflowStepTypes[event.nodeId] === "agent") {
+                  responseStreamRef.current?.progress(`**▶ ${name}**${attempt}`);
+                  scheduleStreamingResponseFlush();
+                }
+              } else if (event.status === "waiting") {
+                setRunLabel("Waiting for your permission…");
+              } else if (event.status === "failed") {
+                responseStreamRef.current?.progress(`**✗ ${name} failed**${event.message ? `: ${event.message}` : ""}`);
                 scheduleStreamingResponseFlush();
               }
-            } else if (event.status === "waiting") {
-              setRunLabel("Waiting for your permission…");
-            } else if (event.status === "failed") {
-              responseStreamRef.current?.progress(`**✗ ${name} failed**${event.message ? `: ${event.message}` : ""}`);
-              scheduleStreamingResponseFlush();
+              break;
             }
-            break;
+            case "subagent": {
+              const subagent = event.subagent;
+              if (!(subagent as any)?.id) break;
+              const incoming = {
+                ...(subagent as any),
+                updatedAt: (subagent as any).updatedAt || new Date().toISOString(),
+              } as SubagentActivity & { previousId?: string; appendLog?: string; logs?: string[] };
+              setSubagents((prev) => {
+                const index = prev.findIndex((item) =>
+                  item.id === incoming.id || (!!incoming.previousId && item.id === incoming.previousId)
+                );
+                const incomingLogs = [
+                  ...(Array.isArray(incoming.logs) ? incoming.logs : []),
+                  ...(incoming.appendLog ? [incoming.appendLog] : []),
+                ];
+                const cleanIncoming = { ...incoming };
+                delete cleanIncoming.appendLog;
+                delete cleanIncoming.previousId;
+                if (index === -1) {
+                  return [...prev, { ...cleanIncoming, logs: incomingLogs }];
+                }
+                const next = [...prev];
+                const currentLogs = next[index].logs || [];
+                const mergedLogs = [...currentLogs];
+                for (const log of incomingLogs) {
+                  if (log && mergedLogs[mergedLogs.length - 1] !== log) mergedLogs.push(log);
+                }
+                next[index] = { ...next[index], ...cleanIncoming, id: incoming.id, logs: mergedLogs.slice(-200) };
+                return next;
+              });
+              break;
+            }
           }
-          case "subagent": {
-            const subagent = event.subagent;
-            if (!(subagent as any)?.id) break;
-            const incoming = {
-              ...(subagent as any),
-              updatedAt: (subagent as any).updatedAt || new Date().toISOString(),
-            } as SubagentActivity & { previousId?: string; appendLog?: string; logs?: string[] };
-            setSubagents((prev) => {
-              const index = prev.findIndex((item) =>
-                item.id === incoming.id || (!!incoming.previousId && item.id === incoming.previousId)
-              );
-              const incomingLogs = [
-                ...(Array.isArray(incoming.logs) ? incoming.logs : []),
-                ...(incoming.appendLog ? [incoming.appendLog] : []),
-              ];
-              const cleanIncoming = { ...incoming };
-              delete cleanIncoming.appendLog;
-              delete cleanIncoming.previousId;
-              if (index === -1) {
-                return [...prev, { ...cleanIncoming, logs: incomingLogs }];
-              }
-              const next = [...prev];
-              const currentLogs = next[index].logs || [];
-              const mergedLogs = [...currentLogs];
-              for (const log of incomingLogs) {
-                if (log && mergedLogs[mergedLogs.length - 1] !== log) mergedLogs.push(log);
-              }
-              next[index] = { ...next[index], ...cleanIncoming, id: incoming.id, logs: mergedLogs.slice(-200) };
-              return next;
-            });
-            break;
-          }
+        },
+        { surface: "agent-tab", tabId: tab.id, displayLabel: tab.title || "Agent" },
+      );
+      if (workflowId) {
+        useWorkflowRunStore.getState().begin(workflowId);
+        const steps = workflowCheckpointRef.current?.steps as Record<string, { status?: string; attempts?: unknown[] }> | undefined;
+        for (const [nodeId, step] of Object.entries(steps ?? {})) {
+          if (step.status === "succeeded") useWorkflowRunStore.getState().step(workflowId, {
+            nodeId, status: "succeeded", attempt: step.attempts?.length ?? 1,
+          });
         }
-      },
-      { surface: "agent-tab", tabId: tab.id, displayLabel: tab.title || "Agent" },
-    );
-    if (workflowId) {
-      useWorkflowRunStore.getState().begin(workflowId);
-      const steps = workflowCheckpointRef.current?.steps as Record<string, { status?: string; attempts?: unknown[] }> | undefined;
-      for (const [nodeId, step] of Object.entries(steps ?? {})) {
-        if (step.status === "succeeded") useWorkflowRunStore.getState().step(workflowId, {
-          nodeId, status: "succeeded", attempt: step.attempts?.length ?? 1,
+        setWorkflowRunning(true);
+        void run.done.then((outcome) => {
+          setWorkflowRunning(false);
+          lastWorkflowRunRef.current = {
+            name: String(workflowDefinition?.name ?? workflowId),
+            status: outcome.status === "completed" ? "completed" : outcome.status === "failed" ? "failed" : "was cancelled",
+          };
+          useWorkflowRunStore.getState().finish(workflowId, outcome.status, outcome.status === "failed" ? outcome.error.message : undefined);
         });
       }
-      setWorkflowRunning(true);
-      void run.done.then((outcome) => {
-        setWorkflowRunning(false);
-        useWorkflowRunStore.getState().finish(workflowId, outcome.status, outcome.status === "failed" ? outcome.error.message : undefined);
-      });
-    }
-    void run.done.then(async (outcome) => {
-      if (outcome.status === "completed") {
-        const { response, modifiedFiles: files, subagents: completedSubagents } = outcome.result;
-        if (consoleFlushTimeoutRef.current) {
-          clearTimeout(consoleFlushTimeoutRef.current);
+      if (!workflowId) lastWorkflowRunRef.current = undefined;
+      void run.done.then(async (outcome) => {
+        if (outcome.status === "completed") {
+          const { response, modifiedFiles: files, subagents: completedSubagents } = outcome.result;
+          if (consoleFlushTimeoutRef.current) {
+            clearTimeout(consoleFlushTimeoutRef.current);
+            consoleFlushTimeoutRef.current = null;
+          }
+          flushConsoleBuffer();
+          if (streamingResponseFlushTimeoutRef.current) {
+            clearTimeout(streamingResponseFlushTimeoutRef.current);
+            streamingResponseFlushTimeoutRef.current = null;
+          }
+          setModifiedFiles([...modifiedFilesRef.current, ...files]);
+          files.forEach((filePath) => {
+            const path = filePath.startsWith("/") || !rootPath
+              ? filePath
+              : `${rootPath.replace(/[\\\/]$/, "")}/${filePath.replace(/^\.\//, "")}`;
+            const fileName = path.split(/[\\\/]/).pop() || path;
+            openTab({ type: "file", path, title: fileName });
+          });
+          // Refresh after opening the returned files.  The agent may have
+          // created them during the run, so the explorer must observe the
+          // completed writes rather than only the command-output refresh.
+          if (files.length > 0 && rootPath) {
+            await refreshTree();
+          }
+
+          const finalResponse = response || "Agent complete.";
+          if (completedSubagents.length > 0) {
+            // The completed response can contain each subagent's full result.
+            // Keep the panel focused on status and its last few activity lines.
+            setSubagents((completedSubagents as SubagentActivity[]).map((subagent) => ({
+              ...subagent,
+              logs: (subagent.logs || []).slice(-4),
+            })));
+          }
+          // The run handed over: the same turn goes on in the workflow it chose.
+          const switchTo = outcome.result.switchTo;
+          if (switchTo && plan.switchesLeft > 0 && isStreamingRef.current) {
+            responseStreamRef.current?.finish(finalResponse);
+            responseStreamRef.current = new AgentChatResponseStream(
+              (added) => addAgentMessage(tab.id, added),
+              (id, content) => updateAgentMessage(tab.id, id, content),
+            );
+            agentRunRef.current = null;
+            setStreamingLabel(`Starting ${switchTo.name}…`);
+            try {
+              const nextDefinition = await behaviorService.readWorkflow(switchTo.path);
+              if (isStreamingRef.current) {
+                // A chat that follows one workflow now follows the one it handed over to; Auto keeps choosing per message.
+                if (chatWorkflowRef.current === AUTO_FLOW) setAutoWorkflow(switchTo.path);
+                else setChatWorkflow(switchTo.path);
+                await launch({
+                  workflowDefinition: nextDefinition,
+                  workflowId: String(nextDefinition.id ?? ""),
+                  context: switchTo.context,
+                  switchesLeft: plan.switchesLeft - 1,
+                  visited: [...plan.visited, switchTo.id],
+                });
+                return;
+              }
+            } catch (error) {
+              notify("Could not hand over", `Could not read ${switchTo.path}: ${String(error)}. The turn ends here.`, "error");
+            }
+          }
+          isStreamingRef.current = false;
+          lastUserMessageIdRef.current = null;
+          lastConsoleMessageIdRef.current = null;
+          responseStreamRef.current?.finish(finalResponse);
+          responseStreamRef.current = null;
+          setIsStreaming(false);
+          setStreamingLabel("Model is thinking…");
+          setAgentQuestions([]);
+          questionResolversRef.current.clear();
+          agentRunRef.current = null;
+          saveChatHistory();
+          return;
+        }
+
+        if (outcome.status === "failed") {
+          const message = outcome.error.message;
+          consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, `Error: ${message}\n`);
+          if (consoleFlushTimeoutRef.current) clearTimeout(consoleFlushTimeoutRef.current);
           consoleFlushTimeoutRef.current = null;
+          flushConsoleBuffer();
+          if (streamingResponseFlushTimeoutRef.current) {
+            clearTimeout(streamingResponseFlushTimeoutRef.current);
+            streamingResponseFlushTimeoutRef.current = null;
+          }
+          flushStreamingResponseBuffer();
+          addAgentMessage(tab.id, {
+            id: `msg_${Date.now()}`,
+            role: "assistant" as const,
+            content: `Error: ${message}`,
+            timestamp: new Date().toISOString(),
+          });
+          isStreamingRef.current = false;
+          lastUserMessageIdRef.current = null;
+          lastConsoleMessageIdRef.current = null;
+          responseStreamRef.current = null;
+          setIsStreaming(false);
+          setStreamingLabel("Model is thinking…");
+          setAgentQuestions([]);
+          questionResolversRef.current.clear();
+          agentRunRef.current = null;
+          notify("Agent Error", `The agent encountered an error: ${message}`, "error");
+          saveChatHistory();
         }
-        flushConsoleBuffer();
-        if (streamingResponseFlushTimeoutRef.current) {
-          clearTimeout(streamingResponseFlushTimeoutRef.current);
-          streamingResponseFlushTimeoutRef.current = null;
-        }
-        setModifiedFiles([...modifiedFilesRef.current, ...files]);
-        files.forEach((filePath) => {
-          const path = filePath.startsWith("/") || !rootPath
-            ? filePath
-            : `${rootPath.replace(/[\\\/]$/, "")}/${filePath.replace(/^\.\//, "")}`;
-          const fileName = path.split(/[\\\/]/).pop() || path;
-          openTab({ type: "file", path, title: fileName });
-        });
-        // Refresh after opening the returned files.  The agent may have
-        // created them during the run, so the explorer must observe the
-        // completed writes rather than only the command-output refresh.
-        if (files.length > 0 && rootPath) {
-          await refreshTree();
-        }
+      });
+      agentRunRef.current = run;
+    };
 
-        const finalResponse = response || "Agent complete.";
-        if (completedSubagents.length > 0) {
-          // The completed response can contain each subagent's full result.
-          // Keep the panel focused on status and its last few activity lines.
-          setSubagents((completedSubagents as SubagentActivity[]).map((subagent) => ({
-            ...subagent,
-            logs: (subagent.logs || []).slice(-4),
-          })));
-        }
-        isStreamingRef.current = false;
-        lastUserMessageIdRef.current = null;
-        lastConsoleMessageIdRef.current = null;
-        responseStreamRef.current?.finish(finalResponse);
-        responseStreamRef.current = null;
-        setIsStreaming(false);
-        setStreamingLabel("Model is thinking…");
-        setAgentQuestions([]);
-        questionResolversRef.current.clear();
-        agentRunRef.current = null;
-        saveChatHistory();
-        return;
-      }
-
-      if (outcome.status === "failed") {
-        const message = outcome.error.message;
-        consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, `Error: ${message}\n`);
-        if (consoleFlushTimeoutRef.current) clearTimeout(consoleFlushTimeoutRef.current);
-        consoleFlushTimeoutRef.current = null;
-        flushConsoleBuffer();
-        if (streamingResponseFlushTimeoutRef.current) {
-          clearTimeout(streamingResponseFlushTimeoutRef.current);
-          streamingResponseFlushTimeoutRef.current = null;
-        }
-        flushStreamingResponseBuffer();
-        addAgentMessage(tab.id, {
-          id: `msg_${Date.now()}`,
-          role: "assistant" as const,
-          content: `Error: ${message}`,
-          timestamp: new Date().toISOString(),
-        });
-        isStreamingRef.current = false;
-        lastUserMessageIdRef.current = null;
-        lastConsoleMessageIdRef.current = null;
-        responseStreamRef.current = null;
-        setIsStreaming(false);
-        setStreamingLabel("Model is thinking…");
-        setAgentQuestions([]);
-        questionResolversRef.current.clear();
-        agentRunRef.current = null;
-        notify("Agent Error", `The agent encountered an error: ${message}`, "error");
-        saveChatHistory();
-      }
+    await launch({
+      workflowDefinition,
+      workflowId,
+      switchesLeft: MAX_FLOW_SWITCHES_PER_MESSAGE,
+      visited: workflowDefinition ? [shortWorkflowId(workflowId)] : [],
     });
-    agentRunRef.current = run;
   };
 
   const handleOpenModifiedFile = (filePath: string) => {
@@ -863,7 +1068,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const messages = useWorkspaceStore.getState().agentChats[tab.id] || [];
     const queue = chatSaveQueueRef.current;
     try {
-      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current, workflowCheckpointRef.current);
+      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current, workflowCheckpointRef.current, flowSwitchingRef.current);
       if (chatSaveQueueRef.current === queue) setActiveChatPath(queue.path);
       await loadChatHistory();
     } catch (error) {
@@ -879,6 +1084,13 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setWorkflowCheckpoint(undefined);
     chatWorkflowRef.current = path;
     setChatWorkflowState(path);
+    setAutoWorkflow(undefined);
+    if (persist && (useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) void saveChatHistory();
+  };
+
+  const setFlowSwitching = (allowed: boolean, { persist = true }: { persist?: boolean } = {}) => {
+    flowSwitchingRef.current = allowed;
+    setFlowSwitchingState(allowed);
     if (persist && (useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) void saveChatHistory();
   };
 
@@ -893,6 +1105,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentWorkflowRequest, isAgentBusy]);
 
+  // With Auto the skill is locked only while the workflow it chose is running; between messages it may still answer directly.
+  const skillLocked = chatWorkflow === AUTO_FLOW ? Boolean(autoWorkflow) && workflowRunning : Boolean(chatWorkflow);
   const availableModelOptions = modelOptions();
   const currentModelOptions = selectedModel && !availableModelOptions.some((option) => option.id === selectedModel)
     ? [...availableModelOptions, { id: selectedModel, name: `${selectedModel} (unavailable)` }]
@@ -1013,17 +1227,28 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               placeholder={modelPlaceholder}
               className="w-64"
             />
-            <CustomSelect
-              value={selectedSkillId || DEFAULT_SKILL_ID}
-              onChange={(val) => {
-                if (!val) return;
-                setSelectedSkillId(val);
-                setActiveSkill(val);
-              }}
-              options={skills.filter(s => !s.isInternal).map(s => ({ id: s.id, name: s.name }))}
-              placeholder="Select skill"
-              className="w-48"
-            />
+            {/* Workflow steps get their tools from their own profiles, so a followed
+                workflow keeps the skill on Build (the full tool set) and the picker inert. */}
+            <div
+              className="flex items-center space-x-2"
+              title={skillLocked ? "While a workflow is followed, each step's profile decides its tools, so the skill stays on Build." : undefined}
+            >
+              <CustomSelect
+                value={skillLocked ? BUILT_IN_SKILL_IDS.BUILD : selectedSkillId || DEFAULT_SKILL_ID}
+                onChange={(val) => {
+                  if (!val) return;
+                  setSelectedSkillId(val);
+                  setActiveSkill(val);
+                }}
+                options={skills.filter(s => !s.isInternal).map(s => ({ id: s.id, name: s.name }))}
+                placeholder="Select skill"
+                className="w-48"
+                disabled={skillLocked}
+              />
+              {skillLocked ? (
+                <span className="text-[10px] font-mono text-[var(--text-muted)] whitespace-nowrap">tools set per step</span>
+              ) : null}
+            </div>
             {modifiedFiles.length > 0 && (
               <span className="flex items-center space-x-1.5 px-2.5 py-1 bg-[var(--color-status-success-bg)] border border-[var(--color-status-success-border)] rounded-lg text-[10px] font-mono text-[var(--color-status-success)]">
                 <CheckCircle2 size={11} />
@@ -1078,6 +1303,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               run={workflowDocument ? workflowRuns[String(workflowDocument.id ?? "")] : undefined}
               running={workflowRunning}
               disabled={isAgentBusy}
+              autoAvailable={Boolean(findOpenRouterJevProvider(customProviders, intelligentModelSelectionSettings.jevModelId))}
+              flowSwitching={flowSwitching}
+              onFlowSwitchingChange={(allowed) => setFlowSwitching(allowed)}
               onSelect={(path) => {
                 setChatWorkflow(path);
               }}
@@ -1086,7 +1314,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
                 openTab({ type: "behaviors" });
               }}
             />
-            {workflowCheckpoint && !isAgentBusy && (
+            {workflowCheckpoint && !isAgentBusy && chatWorkflow !== AUTO_FLOW && (
               <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)] py-2">
                 <span>Your next message resumes {stepNames(workflowDocument)[workflowCheckpoint.failed_step] ?? workflowCheckpoint.failed_step}. Completed steps are retained.</span>
                 <button type="button" className="underline" onClick={() => { setWorkflowCheckpoint(undefined); void saveChatHistory(); }}>Start over instead</button>
@@ -1096,7 +1324,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               value={message}
               onChange={setMessage}
               onSend={handleSendMessage}
-              disabled={isAgentBusy || !hasSelectedSkill}
+              disabled={isAgentBusy || (!hasSelectedSkill && (!chatWorkflow || chatWorkflow === AUTO_FLOW))}
               isStreaming={isAgentBusy}
               onStop={handleStopExecution}
               agentQuestion={agentQuestion}

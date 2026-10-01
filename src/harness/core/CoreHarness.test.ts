@@ -7,6 +7,7 @@ import type { ToolExecutionObserver } from "../contract/observability";
 import { createRecordingHost } from "../testing/recordingHost";
 import { describeAgentHarnessContract, type ContractRun } from "../testing/contractTests";
 import type { BridgeEvent, CoreEngine, HostExecuteOutcome, HostToolOutcome } from "./engine/CoreEngineClient";
+import { recordAppliedModel } from "./appliedModels";
 import { CoreHarness, type CoreCapabilityDefinition, type ExecutionAnswerer, type HostToolCall, type HostToolHandler } from "./CoreHarness";
 import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "./engine/ExecutionProtocol";
 import { inlineChatDefinition } from "./definitions/inline_chat";
@@ -171,7 +172,7 @@ const INPUT: InlineChatInput = {
   },
 };
 
-function startRun(): ContractRun & {
+function startRun(definition: CoreCapabilityDefinition<"inline_chat"> = inlineChatDefinition): ContractRun & {
   engine: FakeCoreEngine;
   controlPlane: ReturnType<typeof fakeControlPlane>;
   executionAnswerer: FakeExecutionAnswerer;
@@ -183,7 +184,7 @@ function startRun(): ContractRun & {
     engine,
     controlPlane,
     executionAnswerer,
-    definitions: { inline_chat: inlineChatDefinition },
+    definitions: { inline_chat: definition },
   });
   const { host, calls } = createRecordingHost();
   const events: ContractRun["events"] = [];
@@ -483,6 +484,35 @@ describe("CoreHarness-specific behavior", () => {
     handle.cancel();
   });
 
+  it("records a step's usage under the model AUTO switched it to, not the one core configured", async () => {
+    const { controlPlane, engine, driver } = startRun({
+      ...inlineChatDefinition,
+      prepareExecution: (request, _input, ctx) => {
+        recordAppliedModel(ctx.scratch, request.run_id, "claude-opus-4-1");
+        return request;
+      },
+    });
+    await driver.acceptStart();
+    const usage = (runId: string | null, total: number) => ({
+      ...envelope({ UsageUpdated: { usage: { agent_id: "agent-1", model: "claude-sonnet-4-5", timestamp: "", metrics: { total_requests: 0, total_tokens: total } } } as never }),
+      run_id: runId,
+    });
+    engine.emit(engine.lastSessionId(), {
+      kind: "host_execute_call",
+      data: { call_id: "call-exec", tool: "backend.execute", input: { request_id: "req-1", run_id: "run-step", system_prompt: "", messages: [], tools: [], extended_thinking: false, params: {} } },
+    });
+    await Promise.resolve();
+    engine.emit(engine.lastSessionId(), { kind: "event", data: usage("run-step", 100) } as never);
+    // A run nothing switched keeps the model core named.
+    engine.emit(engine.lastSessionId(), { kind: "event", data: usage("run-other", 40) } as never);
+    await Promise.resolve();
+
+    expect(controlPlane.recorded.map((sample) => [sample.model, sample.usage.totalTokens])).toEqual([
+      ["claude-opus-4-1", 100],
+      ["claude-sonnet-4-5", 40],
+    ]);
+  });
+
   it("records a subagent's usage under the model it actually runs on", async () => {
     const { controlPlane, engine, driver, events } = startRun();
     await driver.acceptStart();
@@ -663,6 +693,57 @@ describe("CoreHarness-specific behavior", () => {
     expect(executionAnswerer.calls).toHaveLength(1);
     expect(executionAnswerer.calls[0].request).toEqual(request);
     expect(executionAnswerer.calls[0].customProvider).toEqual(INPUT.customProvider);
+  });
+
+  describe("prepareExecution", () => {
+    const REQUEST: ExecutionRequest = {
+      request_id: "req-1", run_id: "run-1", system_prompt: "", messages: [], tools: [], extended_thinking: false, params: { model: "base" },
+    };
+    const emitCall = (engine: FakeCoreEngine) =>
+      engine.emit(engine.lastSessionId(), { kind: "host_execute_call", data: { call_id: "call-exec", tool: "backend.execute", input: REQUEST } });
+    const settle = async () => { for (let tick = 0; tick < 10; tick += 1) await Promise.resolve(); };
+
+    it("makes the model turn wait for the prepared request and answers with it", async () => {
+      let release!: (request: ExecutionRequest) => void;
+      const prepared = new Promise<ExecutionRequest>((resolve) => { release = resolve; });
+      const seen: unknown[] = [];
+      const { engine, driver, executionAnswerer } = startRun({
+        ...inlineChatDefinition,
+        prepareExecution: (request, input, ctx) => {
+          seen.push({ request, hasInput: Boolean(input), scratch: typeof ctx.scratch });
+          return prepared;
+        },
+      });
+      await driver.acceptStart();
+      emitCall(engine);
+      await settle();
+      expect(executionAnswerer.calls).toHaveLength(0);
+
+      release({ ...REQUEST, params: { model: "chosen" } });
+      await settle();
+      expect(executionAnswerer.calls).toHaveLength(1);
+      expect(executionAnswerer.calls[0].request.params.model).toBe("chosen");
+      expect(seen).toEqual([{ request: REQUEST, hasInput: true, scratch: "object" }]);
+    });
+
+    it("answers with the original request when preparing it fails", async () => {
+      const { engine, driver, executionAnswerer } = startRun({
+        ...inlineChatDefinition,
+        prepareExecution: () => Promise.reject(new Error("selection service down")),
+      });
+      await driver.acceptStart();
+      emitCall(engine);
+      await settle();
+      expect(executionAnswerer.calls).toHaveLength(1);
+      expect(executionAnswerer.calls[0].request).toEqual(REQUEST);
+    });
+
+    it("starts the answerer synchronously when the definition has no hook", async () => {
+      const { engine, driver, executionAnswerer } = startRun();
+      await driver.acceptStart();
+      emitCall(engine);
+      expect(executionAnswerer.calls).toHaveLength(1);
+    });
   });
 
   it("streams the answerer's events back via hostExecuteEvent, then the terminal result via hostExecuteResult", async () => {

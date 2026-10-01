@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "optimize",
+  "revision": 1,
+  "name": "Optimize",
+  "description": "Improves measurable performance with baseline and post-change evidence.",
+  "status": "published",
+  "instructions": {"mode":"append","text":"Optimize only against a stated metric and workload. Capture a baseline before changing code, make focused changes, then capture comparable post-change measurements and run verification. Use the approval-gated run_command tool only for essential measurement or verification with structured argv: program and literal args, never sh -c or bash -c, and never for file inspection or editing. In a Tauri app, npm run dev is frontend-only; use program: \"npm\", args: [\"run\", \"tauri\", \"dev\"] for desktop startup and [\"run\", \"tauri\", \"build\"] for packaging. Report baseline, result, methodology, regressions considered, and remaining uncertainty.","variants":{}},
+  "tools":{"type":"inherit"},"tool_overrides":{"run_command":{"description_append":"Use approved structured, non-destructive commands for measurements and verification only."}},"execution":{},"limits":{},
+  "rules":[{"id":"optimize-failed-tool","on":"PostToolUseFailure","do":{"inject":{"text":"Inspect the command or tool error and correct the measurement or verification setup before continuing."}},"max_fires":6}],
+  "completion_gate":{"checks":[{"id":"optimization-verified","require":{"any":[{"calls":{"tool":"write_file","eq":0}},{"since_last_call":{"of":"write_file","called":["run_command","read_file"],"gte":1}}]},"feedback":"After the last optimization edit, run or inspect a verification check and include baseline and post-change evidence."}],"max_continuations":3,"on_exhausted":"fail"},
+  "children":{"type":"inherit"},"metadata":{"editor":{"position":{"x":740,"y":620}}}
+}

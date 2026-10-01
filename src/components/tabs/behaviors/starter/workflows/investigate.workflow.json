@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "id": "investigate",
+  "revision": 1,
+  "name": "Research & analyze",
+  "description": "Investigate a specific piece of functionality. Research gathers sourced options and background, then Analyze ties them to how the code actually works. Read-only; it stops with a findings handoff you can review before moving on to design or planning.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "analyze",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "type": "agent",
+      "config": {
+        "instructions": "Research the question in workflow_input.request. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Inspect the relevant workspace context first, then use external sources for what the workspace cannot answer; prefer primary sources and record links. Return a research brief in ordinary text or Markdown: the question and constraints, relevant workspace context, findings with sources, viable alternatives and their trade-offs, a recommendation, and unresolved unknowns. Separate sourced facts from your own judgement. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "research"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze",
+      "name": "Analyze",
+      "type": "agent",
+      "config": {
+        "instructions": "Analyze how the existing code relates to workflow_input.request. Use workflow_input.research for the external findings and check what applies to this codebase. Search before reading, then trace the entry points, data and control flow, dependencies and conventions that matter, citing exact files and symbols and marking each claim as confirmed or a hypothesis. Return a written analysis: current behavior, relevant files and symbols, flow, constraints, risks and edge cases, the likely change surface, and open questions. Do not modify files or run commands. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "analyze"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "research",
+          "source": {
+            "type": "node_output",
+            "node_id": "research",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "analyze",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-research",
+      "source": "input",
+      "target": "research",
+      "condition": "on_success"
+    },
+    {
+      "id": "research-analyze",
+      "source": "research",
+      "target": "analyze",
+      "condition": "on_success"
+    },
+    {
+      "id": "analyze-output",
+      "source": "analyze",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "stage",
+    "route": {
+      "when": "The user wants to understand or investigate how some existing functionality works, or how a technology or approach compares, before deciding anything: questions like 'how does X work', 'what are my options for Y', 'where is Z handled'. Nothing needs to change yet."
+    },
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "debug",
+  "revision": 1,
+  "name": "Debug",
+  "description": "Reproduces failures, gathers evidence, and identifies root causes before proposing a fix.",
+  "status": "published",
+  "instructions": {"mode":"append","text":"Reproduce the reported problem when possible, inspect the relevant code and evidence, and identify the root cause. Remain read-only until the user explicitly authorizes a fix. You may use run_command only for essential, approved, non-destructive reproduction or checks. Use structured argv only: for a Tauri desktop app use program: \"npm\" with args such as [\"run\", \"tauri\", \"dev\"] or [\"run\", \"typecheck\"]; never use sh -c or bash -c, and never use commands to inspect or edit files. Report reproduction steps, evidence, root cause, scope, and a safe proposed fix.","variants":{}},
+  "tools":{"type":"inherit"},
+  "tool_overrides":{"run_command":{"description_append":"Use only approved structured, non-destructive commands for reproduction or validation. For Tauri, npm run dev is frontend-only; npm run tauri dev starts the desktop app."}},
+  "execution":{},"limits":{},
+  "rules":[{"id":"debug-read-only","on":"PreToolUse","when":{"tool":["write_file"]},"do":{"deny":{"reason":"Debug is read-only until the user authorizes a fix. Gather evidence and propose the change instead."}}}],
+  "completion_gate":{"checks":[{"id":"debug-evidence","require":{"calls":{"tool":["read_file","search_codebase","run_command"],"gte":1}},"feedback":"Inspect the relevant implementation or reproduce the issue before reporting a root cause."}],"max_continuations":2,"on_exhausted":"fail"},
+  "children":{"type":"inherit"},"metadata":{"editor":{"position":{"x":700,"y":340}}}
+}

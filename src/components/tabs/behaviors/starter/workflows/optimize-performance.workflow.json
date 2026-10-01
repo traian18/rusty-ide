@@ -1,0 +1,274 @@
+{
+  "schema_version": 1,
+  "id": "optimize-performance",
+  "revision": 1,
+  "name": "Optimize performance",
+  "description": "Measured performance work: Analyze finds the candidate bottlenecks, Optimize measures a baseline, changes one thing and measures again, Verify reproduces the result.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "verify",
+      "pointer": ""
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "analyze",
+      "name": "Analyze",
+      "type": "agent",
+      "config": {
+        "instructions": "Analyze how the existing code relates to workflow_input.request. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Identify the hot paths and the metric worth measuring; the next step does the measuring. Search before reading, then trace the entry points, data and control flow, dependencies and conventions that matter, citing exact files and symbols and marking each claim as confirmed or a hypothesis. Return a written analysis: current behavior, relevant files and symbols, flow, constraints, risks and edge cases, the likely change surface, and open questions. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "analyze"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "optimize",
+      "name": "Optimize",
+      "type": "agent",
+      "config": {
+        "instructions": "Optimize for the goal in workflow_input.request using workflow_input.analyze. Define the metric and workload, capture a baseline before changing anything (approved structured commands only), identify the actual bottleneck from evidence, make one focused change, and measure again under the same conditions. Preserve behavior and public APIs, and run the relevant tests. Finish with a written handoff: the metric and goal, methodology, baseline, bottleneck evidence, the change, the after-measurement and comparison, correctness checks, and remaining opportunities. Do not claim an improvement you did not measure. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "optimize"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "analyze",
+          "source": {
+            "type": "node_output",
+            "node_id": "analyze",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Verify the optimization against workflow_input.request, the Analyze findings in workflow_input.analyze and the Optimize handoff in workflow_input.optimize. Re-run the stated measurement yourself when an approved structured command allows it, run the relevant correctness checks, and inspect the changed files. Do not edit files or run destructive commands. Finish with a clear written verdict: whether the claimed improvement is reproduced, whether behavior is preserved, what remains unverified, and precise next actions. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "analyze",
+          "source": {
+            "type": "node_output",
+            "node_id": "analyze",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "optimize",
+          "source": {
+            "type": "node_output",
+            "node_id": "optimize",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "verify",
+          "pointer": ""
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-analyze",
+      "source": "input",
+      "target": "analyze",
+      "condition": "on_success"
+    },
+    {
+      "id": "analyze-optimize",
+      "source": "analyze",
+      "target": "optimize",
+      "condition": "on_success"
+    },
+    {
+      "id": "optimize-verify",
+      "source": "optimize",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-output",
+      "source": "verify",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {},
+  "metadata": {
+    "kind": "end_to_end",
+    "switch_to": [
+      "investigate",
+      "diagnose"
+    ]
+  }
+}

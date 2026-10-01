@@ -13,6 +13,11 @@ export function readChatWorkflow(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
+/** Whether a saved conversation lets a running workflow hand over to another (off in older files). */
+export function readFlowSwitching(value: unknown): boolean {
+  return value === true;
+}
+
 /** Each conversation owns its save queue. Capture JSON before an async
  * write so closing a tab or switching chats cannot change what is saved. */
 export class AgentChatSaveQueue {
@@ -25,12 +30,13 @@ export class AgentChatSaveQueue {
   }
 
   /** `workflow` is the path of the workflow this chat follows, if any. */
-  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown): Promise<void> {
+  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
       tabId, messages, modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
       ...(workflow ? { workflow } : {}),
       ...(workflowCheckpoint ? { workflowCheckpoint } : {}),
+      ...(flowSwitching ? { flowSwitching: true } : {}),
     });
     this.pending = this.pending.catch(() => {}).then(async () => {
       if (this.path) {

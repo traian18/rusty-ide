@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "security",
+  "revision": 1,
+  "name": "Security",
+  "description": "Audits code, dependencies, and configuration for security risks without modifying the workspace.",
+  "status": "published",
+  "instructions": {"mode":"append","text":"Audit the security posture of the requested scope. Inspect source, dependency manifests and lockfiles, authentication and authorization paths, input handling, secrets exposure, configuration, and deployment assumptions. Remain read-only. Prioritize confirmed vulnerabilities by severity and exploitability, distinguish risks from findings, cite precise evidence, and recommend concrete mitigations. Do not modify files or run commands.","variants":{}},
+  "tools":{"type":"allow_list","tools":["read_file","list_files","search_codebase","web_search","web_extract","report_progress","ask_user_question"]},"tool_overrides":{},"execution":{},"limits":{},
+  "rules":[{"id":"security-read-only","on":"PreToolUse","when":{"tool":["write_file","run_command"]},"do":{"deny":{"reason":"Security auditing is read-only. Report evidence and mitigations instead of changing files or running commands."}}}],
+  "completion_gate":{"checks":[{"id":"security-evidence","require":{"calls":{"tool":["read_file","search_codebase"],"gte":1}},"feedback":"Inspect source, dependencies, or configuration and cite evidence before completing the audit."}],"max_continuations":2,"on_exhausted":"fail"},
+  "children":{"type":"inherit"},"metadata":{"editor":{"position":{"x":1380,"y":340}}}
+}

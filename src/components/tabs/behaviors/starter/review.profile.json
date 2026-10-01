@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "review",
+  "revision": 2,
+  "name": "Review",
+  "description": "Finds correctness and maintainability issues and returns prioritized, actionable feedback.",
+  "status": "published",
+  "instructions": {"mode": "append", "text": "Inspect the implementation for correctness, maintainability, regressions, and test coverage. Do not modify files. Return prioritized findings with severity, precise file and symbol references, rationale, and remediation guidance. Separate confirmed defects from risks or suggestions, and say explicitly when no actionable issues were found. Use ordinary text or Markdown; do not merely summarize the diff.", "variants": {}},
+  "tools": {"type": "allow_list", "tools": ["read_file", "list_files", "search_codebase", "report_progress", "ask_user_question"]}, "tool_overrides": {}, "execution": {}, "limits": {},
+  "rules": [{"id": "review-read-only", "on": "PreToolUse", "when": {"tool": ["write_file", "run_command"]}, "do": {"deny": {"reason": "Review is read-only. Return prioritized feedback instead of modifying files or running commands."}}}],
+  "completion_gate": {"checks": [{"id": "review-findings", "require": {"calls": {"tool": ["read_file", "search_codebase"], "gte": 1}}, "feedback": "Inspect the implementation and cite files or symbols before completing the review."}], "max_continuations": 2, "on_exhausted": "fail"},
+  "children": {"type": "inherit"}, "metadata": {"editor": {"position": {"x": 1360, "y": 340}}}
+}

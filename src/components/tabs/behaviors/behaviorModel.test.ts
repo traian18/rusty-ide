@@ -21,6 +21,7 @@ import {
   type Issue,
   type JsonObject,
 } from "./behaviorModel";
+import { STARTER_PROFILES, STARTER_WORKFLOW } from "./starterFlow";
 
 const issue = (path: string): Issue => ({ path, code: "x", message: path, blocking: true });
 
@@ -31,6 +32,24 @@ describe("positions", () => {
     expect(positionOf(placed)).toEqual({ x: 10, y: 21 });
     expect((placed.metadata as JsonObject).owner).toBe("me");
     expect(positionOf(profile)).toBeUndefined();
+  });
+});
+
+describe("starter profiles", () => {
+  it("registers the complete app-owned catalog once and aligns workflow references", () => {
+    const ids = STARTER_PROFILES.map((profile) => String(profile.id));
+    expect(ids).toEqual([
+      "rusty-ide.builtin.research", "rusty-ide.builtin.analyze", "rusty-ide.builtin.plan",
+      "rusty-ide.builtin.build", "rusty-ide.builtin.verify", "rusty-ide.builtin.review",
+      "rusty-ide.builtin.debug", "rusty-ide.builtin.architect", "rusty-ide.builtin.security",
+      "rusty-ide.builtin.document", "rusty-ide.builtin.refactor", "rusty-ide.builtin.optimize",
+    ]);
+    expect(new Set(ids).size).toBe(ids.length);
+    const profiles = stepsOf(STARTER_WORKFLOW)
+      .map((step) => (step.config as JsonObject).profile as JsonObject | undefined)
+      .filter((profile): profile is JsonObject => Boolean(profile))
+      .map((profile) => String(profile.id));
+    expect(profiles).toEqual(["rusty-ide.builtin.plan", "rusty-ide.builtin.build", "rusty-ide.builtin.verify"]);
   });
 });
 

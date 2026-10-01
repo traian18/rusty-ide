@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "id": "research",
+  "revision": 2,
+  "name": "Research",
+  "description": "Investigates external sources and workspace context to produce sourced options and recommendations without editing files.",
+  "status": "published",
+  "instructions": {"mode": "append", "text": "Investigate the request using workspace context and external research tools. Do not modify files or run commands. Prefer primary, relevant sources and distinguish facts from assumptions. Produce a research brief in ordinary text or Markdown with sources, findings, alternatives, trade-offs, a recommendation, and unresolved unknowns. Do not present unsourced guesses as conclusions.", "variants": {}},
+  "tools": {"type": "allow_list", "tools": ["read_file", "list_files", "search_codebase", "web_search", "web_extract", "report_progress", "ask_user_question"]},
+  "tool_overrides": {}, "execution": {}, "limits": {},
+  "rules": [{"id": "research-read-only", "on": "PreToolUse", "when": {"tool": ["write_file", "run_command"]}, "do": {"deny": {"reason": "Research is read-only. Report findings instead of modifying files or running commands."}}}],
+  "completion_gate": {"checks": [{"id": "research-brief", "require": {"calls": {"tool": ["read_file", "search_codebase", "web_search", "web_extract"], "gte": 1}}, "feedback": "Research the workspace or sources before completing, then provide sourced findings and a recommendation."}], "max_continuations": 2, "on_exhausted": "fail"},
+  "children": {"type": "inherit"}, "metadata": {"editor": {"position": {"x": 60, "y": 340}}}
+}
