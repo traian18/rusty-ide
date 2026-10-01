@@ -101,7 +101,15 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           export APPLE_API_KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey.p8"
-          npm run tauri build -- --bundles app
+          set -o pipefail
+          if ! npm run tauri build -- --bundles app 2>&1 | tee "$RUNNER_TEMP/tauri-build.log"; then
+            # Job logs need a GitHub login to read, but annotations are public:
+            # surface the end of the build output there so a failed release can
+            # be diagnosed without downloading logs.
+            TAIL="$(tail -n 60 "$RUNNER_TEMP/tauri-build.log" | tr '\r\n' '||' | cut -c1-6000)"
+            echo "::error title=tauri build failed::${TAIL}"
+            exit 1
+          fi
 
       - name: Package and sign DMG
         env:
