@@ -5,7 +5,15 @@ import styles from "./Behaviors.module.css";
 
 export const PROFILE_TOOLS = [
   ...SKILL_TOOLS,
+  // These follow a skill grant rather than needing their own: edit_file rides on
+  // Write Files, project_info on Read Files, run_check and install_dependencies on
+  // Run Commands. A profile can still name them to allow or deny one on its own.
+  { id: "edit_file", label: "Edit Part of a File" },
+  { id: "project_info", label: "Project Info" },
+  { id: "run_check", label: "Run Project Checks" },
+  { id: "install_dependencies", label: "Install Dependencies" },
   { id: "open_document", label: "Open Document" },
+  { id: "web_extract", label: "Extract from Web Page" },
   { id: "web_fetch", label: "Fetch Web Page" },
   { id: "report_progress", label: "Report Progress" },
   { id: "ask_user_question", label: "Ask User a Question" },

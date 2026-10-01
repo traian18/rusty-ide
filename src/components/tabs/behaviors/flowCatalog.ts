@@ -51,11 +51,13 @@ function coversTool(when: Json | undefined, tool: string): boolean {
 }
 
 /** Whether a step under `profile` can change files: not when its allow-list
- * leaves out `write_file`, nor when a rule denies `write_file` before it runs. */
+ * leaves out both `write_file` and `edit_file`, nor when a rule denies
+ * `write_file` before it runs (rusty-core applies a rule for `write_file` to
+ * `edit_file` too). */
 export function profileMayEdit(profile: JsonObject | undefined): boolean {
   if (!profile) return true;
   const tools = profile.tools;
-  if (isObject(tools) && tools.type === "allow_list" && Array.isArray(tools.tools) && !tools.tools.includes("write_file")) return false;
+  if (isObject(tools) && tools.type === "allow_list" && Array.isArray(tools.tools) && !tools.tools.some((tool) => tool === "write_file" || tool === "edit_file")) return false;
   const rules = Array.isArray(profile.rules) ? profile.rules : [];
   const denies = rules.some((rule) =>
     isObject(rule) && rule.on === "PreToolUse" && isObject(rule.do) && "deny" in rule.do && coversTool(rule.when, "write_file"),

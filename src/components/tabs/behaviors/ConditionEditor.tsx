@@ -10,13 +10,13 @@ const kinds = [
   ["always", "Always"], ["tool", "Tool matches"], ["arg", "Tool argument matches"],
   ["result_contains", "Tool result contains text"], ["turn", "Turn number"],
   ["calls", "Tool call count"], ["turns_since_call", "Turns since a tool ran"],
-  ["since_last_call", "Tools run after another tool"], ["repeated_call", "Repeated identical calls"],
+  ["since_last_call", "Tools run after another tool"], ["tool_offered", "A tool is available to the agent"], ["repeated_call", "Repeated identical calls"],
   ["profile_entered_from", "Previous profile"], ["all", "All conditions"], ["any", "Any condition"], ["not", "Condition is not met"],
 ];
 const defaults: Record<string, Json> = {
   always: {}, tool: ["read_file"], arg: { pointer: "/path", contains: "" }, result_contains: "",
   turn: { gte: 1 }, calls: { tool: ["read_file"], gte: 1 }, turns_since_call: { tool: ["read_file"], gte: 1 },
-  since_last_call: { of: ["write_file"], called: ["run_command"], gte: 1 }, repeated_call: { gte: 3 },
+  since_last_call: { of: ["write_file"], called: ["run_command"], gte: 1 }, tool_offered: ["run_check"], repeated_call: { gte: 3 },
   profile_entered_from: "", all: [{ tool: ["read_file"] }], any: [{ tool: ["read_file"] }], not: { tool: ["read_file"] },
 };
 export const names = (value: Json | undefined): string[] => typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
@@ -33,11 +33,17 @@ export function ConditionEditor({ value, onChange, profileIds, label = "Conditio
   return <div className={styles.configGroup}>
     <Select aria-label={label} value={kind} options={kinds.filter(([key]) => key !== "always" || optional).map(([key, title]) => ({ value: key, label: title }))}
       onChange={(event) => onChange(event.target.value === "always" ? undefined : { [event.target.value]: defaults[event.target.value] })} />
-    {kind === "tool" ? <ToolSelector value={names(body)} onChange={set} /> : null}
+    {kind === "tool" || kind === "tool_offered" ? <ToolSelector value={names(body)} onChange={set} /> : null}
     {kind === "profile_entered_from" ? <div role="group" aria-label="Previous profiles">{[...new Set([...profileIds, ...names(body)])].map((id) => <label key={id} className={styles.toolOption}><input type="checkbox" checked={names(body).includes(id)} onChange={(event) => set(event.target.checked ? [...names(body), id] : names(body).filter((name) => name !== id))} />{id}</label>)}</div> : null}
     {kind === "result_contains" ? <Input aria-label="Result contains" value={String(body ?? "")} onChange={(event) => set(event.target.value)} /> : null}
     {["calls", "turns_since_call"].includes(kind) ? tools("tool", "Count calls of these tools") : null}
     {kind === "since_last_call" ? <>{tools("of", "After these tools")}{tools("called", "Require these tools afterwards")}</> : null}
+    {["calls", "turns_since_call", "since_last_call"].includes(kind) ? <div>
+      <p className={styles.muted}>{kind === "since_last_call" ? "Count the tools afterwards that" : "Count calls that"}</p>
+      <Select aria-label={`${label} outcome`} value={String(data.outcome ?? "any")}
+        options={[{ value: "any", label: "Ran (any result)" }, { value: "succeeded", label: "Succeeded" }, { value: "failed", label: "Failed (the tool reported an error)" }]}
+        onChange={(event) => set(assign(data, "outcome", event.target.value === "any" ? undefined : event.target.value))} />
+    </div> : null}
     {["turn", "calls", "turns_since_call", "since_last_call", "repeated_call"].includes(kind) ? <div className={styles.row}>
       {[["eq", "Exactly"], ["gte", "At least"], ["lte", "At most"]].map(([key, title]) => <label key={key}>{title}<Input aria-label={`${label} ${title}`} type="number" min={0} placeholder="Not set" value={data[key] === undefined ? "" : String(data[key])} onChange={(event) => set(assign(data, key, optionalNumber(event.target.value)))} /></label>)}
     </div> : null}

@@ -51,6 +51,9 @@ describe("profileMayEdit", () => {
     expect(profileMayEdit(tools("allow_list", ["read_file", "write_file"]) as JsonObject)).toBe(true);
     expect(profileMayEdit(tools("inherit") as JsonObject)).toBe(true);
   });
+  it("can edit through edit_file alone, since it changes files as write_file does", () => {
+    expect(profileMayEdit(tools("allow_list", ["read_file", "edit_file"]) as JsonObject)).toBe(true);
+  });
   it("cannot edit when a PreToolUse rule denies write_file", () => {
     expect(profileMayEdit({ ...tools("inherit"), ...deny({ tool: ["write_file"] }) } as JsonObject)).toBe(false);
     expect(profileMayEdit({ ...tools("inherit"), ...deny({ tool: "write_file" }) } as JsonObject)).toBe(false);

@@ -625,6 +625,114 @@ mod tests {
         state.close_session(session).await.unwrap();
     }
 
+    /// The built-in Build and Verify profiles hold a step to its checks when
+    /// the session can run one: Build cannot finish after editing until a
+    /// `run_check` has run since its last edit (reading the file back does not
+    /// count), a failing check is followed by a reminder not to hide it, and
+    /// Verify cannot finish on file reads alone.
+    #[tokio::test]
+    async fn build_and_verify_must_run_a_check_when_they_can_run_one() {
+        let state = HarnessState::new();
+        let directory = tempfile::tempdir().unwrap();
+        let mut document = starter(STARTER_WORKFLOW);
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+            }
+        }
+        let recipe = json!({
+            "workspace": { "root": directory.path(), "binding": "host" },
+            "integration": "host", "workflow": document,
+            "host_tools": [
+                { "name": "list_files", "description": "List workspace files" },
+                { "name": "read_file", "description": "Read a file" },
+                { "name": "write_file", "description": "Write a file" },
+                { "name": "run_check", "description": "Run a check" },
+            ],
+        });
+        let session = state.create_session(serde_json::from_value(recipe).unwrap()).await.unwrap();
+        let mut inbox = state.take_inbox(session).unwrap();
+        state.start_workflow(session, json!({"request": "Implement the requested feature"})).await.unwrap();
+
+        // One scripted model turn per request; `None` is a text answer.
+        let script: [Option<&str>; 11] = [
+            Some("list_files"), // Plan looks around
+            None,               // ... and plans
+            Some("write_file"), // Build edits
+            Some("read_file"),  // ... reads the file back, which the old gate accepted as checking
+            None,               // ... and tries to finish: rejected, no check has run
+            Some("run_check"),  // ... runs the check, which fails
+            Some("run_check"),  // ... runs it again, which passes
+            None,               // ... and finishes
+            None,               // Verify tries to finish without running a check: rejected
+            Some("run_check"),  // ... runs one
+            None,               // ... and reports
+        ];
+        let mut turn = 0;
+        let mut checks_run = 0;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv()).await.unwrap().unwrap();
+            match event {
+                BridgeEvent::HostExecuteCall { call_id, input, .. } => {
+                    // Everything the model is sent, whatever the block type: a rule's
+                    // reminder rides on the tail of the request, which after a tool call
+                    // is the tool's result rather than a plain text block.
+                    let prompt = input["messages"].to_string();
+                    match turn {
+                        5 => assert!(
+                            prompt.contains("[checked-after-editing] You changed files but have not run a check since your last edit."),
+                            "reading the file back does not satisfy Build's gate: {prompt}"
+                        ),
+                        6 => assert!(
+                            prompt.contains("A check failed after your last edit and none has passed since."),
+                            "a failing check is followed by a reminder not to hide it: {prompt}"
+                        ),
+                        9 => assert!(
+                            prompt.contains("[verification-evidence] Reading files is not verification."),
+                            "Verify is sent back to run a check: {prompt}"
+                        ),
+                        _ => {}
+                    }
+                    let request_id = RequestId::new();
+                    let (event, finish) = match script[turn] {
+                        Some(name) => (
+                            ExecutionEvent::ToolCallRequested { request_id, call: ToolCall {
+                                id: ToolCallId::new(), name: name.into(), arguments: json!({"check": "typecheck", "path": "."}),
+                            } },
+                            "tool_use",
+                        ),
+                        None => (ExecutionEvent::TextDelta { request_id, delta: format!("Handoff {turn}") }, "end_turn"),
+                    };
+                    state.host_execute_event(session, &call_id, event).unwrap();
+                    state.host_execute_result(session, &call_id, Ok(ExecutionResult {
+                        request_id, usage: ModelUsage::default(), cost: Cost::default(), finish_reason: finish.into(),
+                    })).unwrap();
+                    turn += 1;
+                }
+                BridgeEvent::HostToolCall { call_id, tool, .. } => {
+                    let result = if tool == "run_check" {
+                        checks_run += 1;
+                        // The first check fails; a failed check is a failed tool call.
+                        if checks_run == 1 { Err("typecheck for the workspace root: FAILED".to_string()) } else { Ok(json!("typecheck for the workspace root: PASSED")) }
+                    } else {
+                        Ok(json!({"files": []}))
+                    };
+                    state.host_tool_result(session, &call_id, result).unwrap();
+                }
+                BridgeEvent::WorkflowFinished { state: checkpoint } => {
+                    assert_eq!(checkpoint["status"], "completed", "{checkpoint}");
+                    assert_eq!(checkpoint["steps"]["build"]["attempts"].as_array().unwrap().len(), 1, "the gate held Build to one attempt");
+                    assert_eq!(checkpoint["steps"]["verify"]["attempts"].as_array().unwrap().len(), 1);
+                    assert_eq!(turn, 11, "every scripted turn was used, and no more");
+                    assert_eq!(checks_run, 3, "two in Build and one in Verify");
+                    break;
+                }
+                _ => {}
+            }
+        }
+        state.close_session(session).await.unwrap();
+    }
+
     /// A stage workflow end to end: the earlier result reaches the first step as
     /// `context`, the first step's written handoff reaches the second, and the
     /// read-only profiles are never offered a tool that edits or runs.

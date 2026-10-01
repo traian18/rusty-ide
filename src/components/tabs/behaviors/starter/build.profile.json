@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "id": "build",
-  "revision": 4,
+  "revision": 5,
   "name": "Build",
-  "description": "Implements a plan in the workspace: reads before editing, writes complete files, and checks its work before reporting.",
+  "description": "Implements a plan in the workspace: reads before editing, makes targeted edits, and runs the project's checks after its last edit before reporting.",
   "status": "published",
   "instructions": {
     "mode": "append",
-    "text": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. For essential commands, use approval-gated run_command with program: \"npm\" and literal args; never use sh -c or bash -c, and never use commands to inspect or edit files. In a Tauri app, npm run dev is frontend-only: use npm run tauri dev for the desktop application and npm run tauri build for a distributable build. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
+    "text": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Call project_info once to learn what kind of project this is and which commands check it, then verify your work with run_check (typecheck, lint, test or build) after your last edit and fix recoverable failures. If a check reports that the cause is the environment (a missing tool or uninstalled dependencies), call install_dependencies and run the check again instead of editing code. Use approval-gated run_command only for something run_check cannot express, with structured argv (program and literal args, never sh -c or bash -c), and never to inspect or edit files. If checks were already failing before your change, say so in your handoff instead of hiding or ignoring them. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
     "variants": {}
   },
   "tools": {
@@ -15,10 +15,10 @@
   },
   "tool_overrides": {
     "write_file": {
-      "description_append": "Read the file first and write its complete updated content; never abbreviate with placeholders such as \"rest of the file unchanged\"."
+      "description_append": "Use it for a new file or a deliberate full rewrite, and write the complete content: never abbreviate with placeholders such as \"rest of the file unchanged\". Change an existing file with edit_file."
     },
     "run_command": {
-      "description_append": "Use only approved structured argv for essential checks: program \"npm\" with literal args such as [\"run\", \"typecheck\"], [\"run\", \"tauri\", \"dev\"], or [\"run\", \"tauri\", \"build\"]. Do not run commands that delete data or publish anything."
+      "description_append": "Use run_check for the project's typecheck, lint, test and build. Use this only for something run_check cannot express, with structured argv (program and literal args). Do not run commands that delete data or publish anything."
     }
   },
   "execution": {},
@@ -27,12 +27,49 @@
     {
       "id": "build-failed-tool",
       "on": "PostToolUseFailure",
+      "when": {
+        "not": {
+          "tool": [
+            "run_check"
+          ]
+        }
+      },
       "do": {
         "inject": {
           "text": "That tool call failed. Read the error and fix the cause; do not repeat the same call unchanged."
         }
       },
       "max_fires": 8
+    },
+    {
+      "id": "build-failing-check",
+      "on": "BeforeModelRequest",
+      "when": {
+        "all": [
+          {
+            "since_last_call": {
+              "of": "write_file",
+              "called": "run_check",
+              "outcome": "failed",
+              "gte": 1
+            }
+          },
+          {
+            "since_last_call": {
+              "of": "write_file",
+              "called": "run_check",
+              "outcome": "succeeded",
+              "eq": 0
+            }
+          }
+        ]
+      },
+      "do": {
+        "inject": {
+          "text": "A check failed after your last edit and none has passed since. If your change caused the failures, fix them and run the check again; running it again after a fix is expected. If they were already failing before your change, do not hide them: name the failing checks, and what you verified instead, in your handoff. Never describe this work as passing."
+        }
+      },
+      "max_fires": 6
     }
   ],
   "completion_gate": {
@@ -50,16 +87,32 @@
             {
               "since_last_call": {
                 "of": "write_file",
-                "called": [
-                  "run_command",
-                  "read_file"
-                ],
+                "called": "run_check",
                 "gte": 1
               }
+            },
+            {
+              "all": [
+                {
+                  "not": {
+                    "tool_offered": "run_check"
+                  }
+                },
+                {
+                  "since_last_call": {
+                    "of": "write_file",
+                    "called": [
+                      "run_command",
+                      "read_file"
+                    ],
+                    "gte": 1
+                  }
+                }
+              ]
             }
           ]
         },
-        "feedback": "You changed files but have not checked them since your last edit. Run the project's tests or type-check, or read the changed file back, then report."
+        "feedback": "You changed files but have not run a check since your last edit. Call run_check (typecheck, lint, test or build) now; reading the changed file back does not count. If a check fails because of your change, fix it and run it again."
       }
     ],
     "max_continuations": 3,
