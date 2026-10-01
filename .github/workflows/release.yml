@@ -106,7 +106,8 @@ jobs:
             # Job logs need a GitHub login to read, but annotations are public:
             # surface the end of the build output there so a failed release can
             # be diagnosed without downloading logs.
-            TAIL="$(tail -n 60 "$RUNNER_TEMP/tauri-build.log" | tr '\r\n' '||' | cut -c1-6000)"
+            # Colours and the long "Compiling" run-up are noise; keep the end of what is left.
+            TAIL="$(perl -pe 's/\e\[[0-9;]*[A-Za-z]//g' "$RUNNER_TEMP/tauri-build.log" | grep -v '^ *Compiling ' | tail -n 60 | tr '\r\n' '||' | tail -c 5500)"
             echo "::error title=tauri build failed::${TAIL}"
             exit 1
           fi
