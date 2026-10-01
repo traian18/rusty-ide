@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
 import { chooseFlow, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
@@ -44,6 +44,7 @@ import { AUTO_FLOW, shortWorkflowId, workflowMayEdit, workflowRoute, workflowSwi
 import { loadAgentModelSelection, saveAgentModelSelection } from "../../preferences/agentModelSelection";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
+import { recentPrompts, userPrompts } from "../../services/promptHistory";
 import type { JsonObject } from "./behaviors/behaviorModel";
 
 interface AgentTabProps {
@@ -56,6 +57,8 @@ interface SavedChat {
   savedAt: string;
   preview: string;
   messageCount: number;
+  /** The prompts the user sent in this chat, oldest first: what the chat box offers on the up arrow. */
+  prompts: string[];
 }
 
 /** What one run of a turn is started from. A workflow that hands over starts the next run from this. */
@@ -118,6 +121,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   // Chat history panel state
   const [showHistory, setShowHistory] = useState(true);
   const [chatHistory, setChatHistory] = useState<SavedChat[]>([]);
+  // This chat's prompts, then the saved chats' when it has fewer than the box offers. Reuses the
+  // chats the history panel already read, so it costs no extra file access.
+  const promptHistory = useMemo(() => recentPrompts(userPrompts(agentChats), chatHistory), [agentChats, chatHistory]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [activeChatPath, setActiveChatPath] = useState<string | null>(null);
 
@@ -326,6 +332,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             savedAt: parsed.savedAt || "",
             preview,
             messageCount: messages.length,
+            prompts: userPrompts(messages),
           });
         } catch (e) {
           console.error(`Failed to read chat ${file.path}:`, e);
@@ -1345,6 +1352,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               onStop={handleStopExecution}
               agentQuestion={agentQuestion}
               onAgentQuestionAnswer={handleAgentQuestionAnswer}
+              promptHistory={promptHistory}
               placeholder="Message agent... (type @ to reference files)"
             />
           </div>

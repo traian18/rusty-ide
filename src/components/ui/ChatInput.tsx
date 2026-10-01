@@ -1,9 +1,11 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Send, X, FileText, Folder, Paperclip, Square, CircleHelp } from "lucide-react";
 import { useWorkspaceStore } from "../../store";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { searchService } from "../../services/searchService";
 import styles from "./ChatInput.module.css";
+import { PromptHistoryMenu } from "./PromptHistoryMenu";
+import { CLOSED, stepPromptMenu, type PromptMenuState } from "./promptHistoryNav";
 // Moved to shared/agent-protocol/rpc.ts (PR 4c) so both the client and the
 // sidecar share one definition; re-exported here unchanged so existing
 // importers of this module are unaffected.
@@ -20,7 +22,11 @@ interface ChatInputProps {
   onStop?: () => void;
   agentQuestion?: AgentQuestion | null;
   onAgentQuestionAnswer?: (answer: string) => void;
+  /** The user's earlier prompts, newest first, offered when they press the up arrow. */
+  promptHistory?: readonly string[];
 }
+
+const NO_PROMPTS: readonly string[] = [];
 
 interface FileItem {
   name: string;
@@ -38,6 +44,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onStop,
   agentQuestion,
   onAgentQuestionAnswer,
+  promptHistory = NO_PROMPTS,
 }) => {
   const fileTree = useWorkspaceStore((state) => state.fileTree);
   const rootPath = useWorkspaceStore((state) => state.rootPath);
@@ -47,6 +54,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [suggestions, setSuggestions] = useState<FileItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [suggestionTriggerIndex, setSuggestionTriggerIndex] = useState(-1);
+  const [promptMenu, setPromptMenu] = useState<PromptMenuState>(CLOSED);
+  // The menu lists the prompts oldest first, so the newest sits next to the box.
+  const promptsOldestFirst = useMemo(() => [...promptHistory].reverse(), [promptHistory]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
@@ -85,6 +95,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     const handleOutsideClick = (e: MouseEvent) => {
       if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
         setShowSuggestions(false);
+      }
+      if (!(e.target as Element).closest?.('[aria-label="Recent prompts"]')) {
+        setPromptMenu(CLOSED);
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
@@ -147,8 +160,36 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Handle keydown for autocompletion suggestions
+  const pickPrompt = (prompt: string) => {
+    onChange(prompt);
+    setPromptMenu(CLOSED);
+    // Leave the caret after the prompt, ready to edit or send.
+    setTimeout(() => {
+      const textarea = textareaRef.current;
+      if (textarea) {
+        textarea.setSelectionRange(prompt.length, prompt.length);
+        textarea.focus();
+      }
+    }, 0);
+  };
+
+  // Handle keydown for autocompletion suggestions and the recent-prompts menu
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!(showSuggestions && suggestions.length > 0)) {
+      const { selectionStart, selectionEnd } = e.currentTarget;
+      const step = stepPromptMenu(
+        promptMenu,
+        { key: e.key, shiftKey: e.shiftKey, altKey: e.altKey, ctrlKey: e.ctrlKey, metaKey: e.metaKey, isComposing: e.nativeEvent.isComposing },
+        { prompts: promptsOldestFirst, value, caretAtStart: selectionStart === 0 && selectionEnd === 0, disabled: disabled || Boolean(agentQuestion) },
+      );
+      setPromptMenu(step.state);
+      if (step.handled) {
+        e.preventDefault();
+        if (step.pick !== undefined) pickPrompt(step.pick);
+        return;
+      }
+    }
+
     if (showSuggestions && suggestions.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -180,6 +221,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     onChange(text);
+    setPromptMenu(CLOSED);
 
     const selectionStart = e.target.selectionStart;
     const beforeCursor = text.substring(0, selectionStart);
@@ -376,6 +418,16 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         </div>
       )}
 
+      {/* 2b. Recent prompts (up arrow) */}
+      {promptMenu.open && promptsOldestFirst.length > 0 && !disabled && !agentQuestion && (
+        <PromptHistoryMenu
+          prompts={promptsOldestFirst}
+          selectedIndex={Math.min(promptMenu.index, promptsOldestFirst.length - 1)}
+          onPick={pickPrompt}
+          onHover={(index) => setPromptMenu({ open: true, index })}
+        />
+      )}
+
       {/* 3. Text Area Input */}
       <div className="px-2.5 py-1.5">
         <textarea
@@ -383,6 +435,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           value={value}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
+          onBlur={() => setPromptMenu(CLOSED)}
           placeholder={agentQuestion ? "Type a different answer, then press Enter..." : placeholder}
           disabled={disabled && !agentQuestion}
           className="w-full bg-transparent border-none outline-none py-0.5 text-[length:var(--font-size-chat-md)] text-[var(--text-light)] placeholder-[var(--text-muted)] resize-none font-sans leading-relaxed min-h-[28px] select-text focus:ring-0 focus:outline-none"
