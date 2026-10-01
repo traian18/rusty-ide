@@ -26,7 +26,6 @@ describe("AgentWorkflowBar", () => {
       running: false,
       disabled: false,
       onSelect: vi.fn(),
-      onEdit: vi.fn(),
       ...props,
     };
     await act(async () => root.render(<AgentWorkflowBar {...full} />));
@@ -59,14 +58,11 @@ describe("AgentWorkflowBar", () => {
     vi.unstubAllGlobals();
   });
 
-  it("is always there, even before any workflow exists", async () => {
-    const props = await render({});
+  it("shows single-agent mode without explanatory guidance", async () => {
+    await render({});
     expect(trigger().textContent).toBe("Single agent");
     expect(await optionLabels()).toEqual(["Single agent"]);
-    expect(container.textContent).toContain("Each message runs one agent loop.");
-    const create = [...container.querySelectorAll("button")].find((button) => button.textContent === "Create a workflow")!;
-    await act(async () => create.click());
-    expect(props.onEdit).toHaveBeenCalledWith(undefined);
+    expect(container.textContent).not.toContain("Each message runs one agent loop.");
   });
 
   it("hides the controls without changing the workflow and remembers the choice", async () => {
@@ -92,7 +88,7 @@ describe("AgentWorkflowBar", () => {
 
     await render({ ...props, selected: "/w/flow.json", definition: WORKFLOW });
     expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Plan and build");
-    expect(container.textContent).toContain("Your next message runs this workflow.");
+    expect(container.textContent).not.toContain("Your next message runs this workflow.");
     const steps = [...container.querySelectorAll("ol li")].map((item) => item.getAttribute("aria-label"));
     expect(steps).toEqual(["Input: not run", "Build: not run", "Output: not run"]);
   });
@@ -138,17 +134,16 @@ describe("AgentWorkflowBar", () => {
     expect(await optionLabels()).toEqual(["Single agent", "Workflow: Plan, build, verify", "Stage: Research & analyze"]);
 
     await render({ ...props, selected: "builtin:stage", definition: stage });
-    expect(container.textContent).toContain("Your next message runs this stage, building on the last result in this chat.");
-    expect(container.querySelector(".summary, [class*=summary]")?.getAttribute("title")).toBe("Investigate a specific piece of functionality.");
+    expect(container.textContent).not.toContain("Your next message runs this stage");
+    expect(container.querySelector(".summary, [class*=summary]")?.getAttribute("title")).toBeNull();
 
-    // After a stage completes the user is pointed at the next move, not just "run it again".
     await render({ ...props, selected: "builtin:stage", definition: stage, run: { status: "completed", startedAt: 0, steps: {} } });
-    expect(container.textContent).toContain("Stage complete. Amend it in your next message or pick the next stage; it builds on this result.");
+    expect(container.textContent).not.toContain("Stage complete.");
   });
 
   it("does not claim a workflow builds on earlier results when it never reads them", async () => {
     await render({ workflows: [{ path: "/w/flow.json", name: "Plan and build" }], selected: "/w/flow.json", definition: WORKFLOW });
-    expect(container.textContent).toContain("Your next message runs this workflow.");
+    expect(container.textContent).not.toContain("Your next message runs this workflow.");
     expect(container.textContent).not.toContain("building on");
   });
 
@@ -173,12 +168,12 @@ describe("AgentWorkflowBar", () => {
     it("shows Auto, then the workflow it chose, in the chip and the step list", async () => {
       await render({ workflows, autoAvailable: true, selected: "auto" });
       expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Auto");
-      expect(container.textContent).toContain("Each message picks the best workflow, or answers directly. Anything that edits files asks first.");
-      expect(container.textContent).toContain("Design workflows");
+      expect(container.textContent).not.toContain("Each message picks the best workflow, or answers directly. Anything that edits files asks first.");
+      expect(container.textContent).not.toContain("Design workflows");
 
       await render({ workflows, autoAvailable: true, selected: "auto", definition: { ...WORKFLOW, name: "Research & analyze" } });
       expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Auto · Research & analyze");
-      expect(container.textContent).toContain("Last: Research & analyze. Your next message picks again");
+      expect(container.textContent).not.toContain("Last: Research & analyze. Your next message picks again");
       expect([...container.querySelectorAll("ol li")].map((item) => item.getAttribute("aria-label"))).toEqual(["Input: not run", "Build: not run", "Output: not run"]);
     });
 
@@ -217,7 +212,7 @@ describe("AgentWorkflowBar", () => {
       definition: WORKFLOW,
       run: { status: "failed", startedAt: 0, error: "Verify failed", steps: { build: { nodeId: "build", status: "failed", attempt: 1 } } },
     });
-    expect(container.textContent).toContain("Last run failed. Your next message runs it again.");
+    expect(container.textContent).not.toContain("Last run failed. Your next message runs it again.");
     expect(container.textContent).toContain("Verify failed");
     expect(await optionLabels()).toContain("Workflow: gone.json (missing)");
   });

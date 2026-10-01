@@ -6,16 +6,16 @@
  * shows each step's progress in order.
  */
 
-import React, { useId, useMemo, useState } from "react";
-import { ChevronDown, ChevronUp, Check, Info, Loader2, PencilLine, Workflow as WorkflowIcon, X } from "lucide-react";
-import { Button, IconButton, Tooltip } from "../../ui";
+import React, { useMemo, useState } from "react";
+import { ChevronDown, ChevronUp, Check, Loader2, Workflow as WorkflowIcon, X } from "lucide-react";
+import { IconButton } from "../../ui";
 import { Select } from "./ChoiceSelect";
-import { workflowUsesContext, type WorkflowStepStatus } from "../../../harness/core/workflowRun";
+import { type WorkflowStepStatus } from "../../../harness/core/workflowRun";
 import { type JsonObject, layoutSteps, stepsOf } from "./behaviorModel";
 import type { WorkflowRunView } from "./workflowRunStore";
 import styles from "./AgentWorkflowBar.module.css";
 import { AUTO_FLOW, workflowSwitchTargets } from "./flowCatalog";
-import { isStarterWorkflowPath, workflowKind, type BuiltinWorkflowKind } from "./starterFlow";
+import type { BuiltinWorkflowKind } from "./starterFlow";
 
 export interface WorkflowChoice {
   path: string;
@@ -51,8 +51,6 @@ export interface AgentWorkflowBarProps {
   flowSwitching?: boolean;
   onFlowSwitchingChange?: (allowed: boolean) => void;
   onSelect: (path: string | undefined) => void;
-  /** Open the Behaviors tab on `path`, or to create a workflow. */
-  onEdit: (path: string | undefined) => void;
 }
 
 const SINGLE = "";
@@ -84,7 +82,6 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   flowSwitching = false,
   onFlowSwitchingChange,
   onSelect,
-  onEdit,
 }) => {
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("rusty_workflow_bar_collapsed") === "true"; } catch { return false; }
@@ -117,37 +114,23 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
     ...(selected && !current ? [{ value: selected, label: `Workflow: ${name} (missing)` }] : []),
   ];
 
-  const kind = current?.kind ?? workflowKind(definition);
   const handsOver = auto || workflowSwitchTargets(definition).length > 0;
-  const usesContext = workflowUsesContext(definition);
   const showRun = Boolean(selected && run && (running || run.status !== "running"));
-  const stageComplete = Boolean(!running && run?.status === "completed" && kind === "stage");
-  const stageCompletionTooltipId = useId();
   const currentIndex = running && run?.current ? steps.findIndex((step) => step.id === run.current) : -1;
   const activeStep = currentIndex >= 0 ? steps[currentIndex] : undefined;
   const currentProgress = activeStep ? run?.steps[activeStep.id] : undefined;
-  const summary = !selected
-    ? "Each message runs one agent loop."
-    : auto && !running && !definition
-      ? "Each message picks the best workflow, or answers directly. Anything that edits files asks first."
-      : running
-      ? activeStep
-        ? `Running step ${currentIndex + 1} of ${steps.length}: ${activeStep.name}${
-            currentProgress?.status === "waiting" ? " (waiting for permission)" : currentProgress && currentProgress.attempt > 1 ? ` (attempt ${currentProgress.attempt})` : ""
-          }`
-        : "Starting the workflow…"
-      : run && run.status !== "running"
-        ? run.status === "completed" && kind === "stage"
-          ? "Stage complete. Amend it in your next message or pick the next stage; it builds on this result."
-          : `Last run ${run.status}. Your next message runs it again.`
-        : auto
-          ? `Last: ${chosen}. Your next message picks again${usesContext ? ", building on the last result in this chat" : ""}.`
-          : `Your next message runs this ${kind === "stage" ? "stage" : "workflow"}${usesContext ? ", building on the last result in this chat" : ""}.`;
+  const summary = running
+    ? activeStep
+      ? `Running step ${currentIndex + 1} of ${steps.length}: ${activeStep.name}${
+          currentProgress?.status === "waiting" ? " (waiting for permission)" : currentProgress && currentProgress.attempt > 1 ? ` (attempt ${currentProgress.attempt})` : ""
+        }`
+      : "Starting the workflow…"
+    : "";
 
   if (collapsed) return (
     <div className={styles.collapsed}>
-      <Button type="button" variant="ghost" icon={<ChevronDown size={14} />} aria-expanded={false} onClick={toggleCollapsed}>Show workflow</Button>
       <span className={styles.summary}>{running ? activeStep ? `Running: ${activeStep.name}` : "Workflow running…" : name || "Single agent"}</span>
+      <IconButton icon={<ChevronDown size={14} />} label="Show workflow bar" aria-expanded={false} onClick={toggleCollapsed} />
     </div>
   );
 
@@ -176,60 +159,48 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
             ) : null}
           </span>
         ) : null}
-        {selected && onFlowSwitchingChange ? (
-          <label
-            className={styles.toggle}
-            title={handsOver
-              ? "After each step Rusty checks whether what it found means another workflow is the right one, and hands over with the work so far. Switching to a workflow that edits files asks you first."
-              : "This workflow does not declare any workflow to hand over to."}
-          >
-            <input
-              type="checkbox"
-              checked={flowSwitching}
-              disabled={disabled}
-              onChange={(event) => onFlowSwitchingChange(event.target.checked)}
-            />
-            Allow flow switching
-          </label>
+        {selected && steps.length ? (
+          <ol className={styles.steps} aria-label="Workflow steps">
+            {steps.map((step, index) => {
+              const progress = showRun ? run?.steps[step.id] : undefined;
+              const label = progress ? STATUS_LABEL[progress.status] : "not run";
+              return (
+                <li
+                  key={step.id}
+                  className={`${styles.step} ${progress ? STATUS_CLASS[progress.status] : ""} ${step.id === activeStep?.id ? styles.current : ""}`}
+                  aria-current={step.id === activeStep?.id ? "step" : undefined}
+                  title={progress?.message ?? `${step.name}: ${label}`}
+                  aria-label={`${step.name}: ${label}`}
+                >
+                  {index > 0 ? <span className={styles.arrow} aria-hidden>→</span> : null}
+                  {progress?.status === "running" ? <Loader2 size={11} className={styles.spin} aria-hidden /> : null}
+                  <span>{step.name}</span>
+                  {progress && progress.attempt > 1 ? <span className={styles.attempt}>×{progress.attempt}</span> : null}
+                </li>
+              );
+            })}
+            {showRun && run?.status === "failed" && run.error ? <li className={styles.error}>{run.error}</li> : null}
+          </ol>
         ) : null}
-        <span
-          className={`${styles.summary} ${stageComplete ? styles.summaryIcon : ""}`}
-          title={stageComplete ? undefined : current?.description ?? (typeof definition?.description === "string" ? definition.description : undefined)}
-        >
-          {stageComplete ? (
-            <Tooltip id={stageCompletionTooltipId} label={summary} placement="top">
-              <button type="button" className={styles.infoTrigger} aria-label="Stage completion guidance">
-                <Info size={15} aria-hidden />
-              </button>
-            </Tooltip>
-          ) : summary}
+        <span className={styles.summary}>
+          {summary}
         </span>
-        <Button type="button" variant="ghost" icon={<PencilLine size={14} />} onClick={() => onEdit(auto ? undefined : selected)}>
-          {selected && !auto ? isStarterWorkflowPath(selected) ? "View workflow" : "Edit workflow" : workflows.length ? "Design workflows" : "Create a workflow"}
-        </Button>
       </div>
-      {selected && steps.length ? (
-        <ol className={styles.steps} aria-label="Workflow steps">
-          {steps.map((step, index) => {
-            const progress = showRun ? run?.steps[step.id] : undefined;
-            const label = progress ? STATUS_LABEL[progress.status] : "not run";
-            return (
-              <li
-                key={step.id}
-                className={`${styles.step} ${progress ? STATUS_CLASS[progress.status] : ""} ${step.id === activeStep?.id ? styles.current : ""}`}
-                aria-current={step.id === activeStep?.id ? "step" : undefined}
-                title={progress?.message ?? `${step.name}: ${label}`}
-                aria-label={`${step.name}: ${label}`}
-              >
-                {index > 0 ? <span className={styles.arrow} aria-hidden>→</span> : null}
-                {progress?.status === "running" ? <Loader2 size={11} className={styles.spin} aria-hidden /> : null}
-                <span>{step.name}</span>
-                {progress && progress.attempt > 1 ? <span className={styles.attempt}>×{progress.attempt}</span> : null}
-              </li>
-            );
-          })}
-          {showRun && run?.status === "failed" && run.error ? <li className={styles.error}>{run.error}</li> : null}
-        </ol>
+      {selected && onFlowSwitchingChange ? (
+        <label
+          className={styles.toggle}
+          title={handsOver
+            ? "After each step Rusty checks whether what it found means another workflow is the right one, and hands over with the work so far. Switching to a workflow that edits files asks you first."
+            : "This workflow does not declare any workflow to hand over to."}
+        >
+          <input
+            type="checkbox"
+            checked={flowSwitching}
+            disabled={disabled}
+            onChange={(event) => onFlowSwitchingChange(event.target.checked)}
+          />
+          Allow flow switching
+        </label>
       ) : null}
     </div>
   );

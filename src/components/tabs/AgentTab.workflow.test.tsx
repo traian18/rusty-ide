@@ -147,7 +147,7 @@ describe("Agent chat workflows", () => {
     expect(builtIn).toContain("Stage: Research & analyze");
     expect(builtIn[0]).toBe("Workflow: Plan, build, verify");
     await act(async () => select().click());
-    expect(container.textContent).toContain("Each message runs one agent loop.");
+    expect(container.textContent).not.toContain("Each message runs one agent loop.");
   });
 
   it("restores a saved chat's workflow and forgets it for a new chat", async () => {
@@ -268,7 +268,7 @@ describe("Agent chat workflows", () => {
       },
     });
     await choose(STAGE_PATH);
-    expect(container.textContent).toContain("building on the last result in this chat");
+    expect(container.textContent).not.toContain("building on the last result in this chat");
     await send("go with the queue, skip the migration");
     expect(run.mock.calls[0][1].workflow.input).toEqual({
       request: "go with the queue, skip the migration",

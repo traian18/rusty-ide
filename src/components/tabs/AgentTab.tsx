@@ -1332,10 +1332,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               onSelect={(path) => {
                 setChatWorkflow(path);
               }}
-              onEdit={(path) => {
-                if (path) useWorkflowRunStore.getState().requestBehaviorsWorkflow(path);
-                openTab({ type: "behaviors" });
-              }}
             />
             {workflowCheckpoint && !isAgentBusy && chatWorkflow !== AUTO_FLOW && (
               <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)] py-2">
