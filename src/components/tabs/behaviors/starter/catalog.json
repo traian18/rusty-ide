@@ -990,7 +990,7 @@
     {
       "schema_version": 1,
       "id": "plan-build-verify",
-      "revision": 8,
+      "revision": 9,
       "name": "Plan, build, verify",
       "status": "draft",
       "input_schema": null,
@@ -1038,7 +1038,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -1063,116 +1063,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -1193,51 +1084,6 @@
           }
         },
         {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "build",
           "name": "Build",
           "type": "agent",
@@ -1247,7 +1093,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -1280,31 +1126,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -1318,7 +1140,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
+                "x": 660,
                 "y": 80
               }
             }
@@ -1435,7 +1257,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1260,
+                "x": 960,
                 "y": 80
               }
             }
@@ -1481,7 +1303,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -1508,7 +1330,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -1523,14 +1345,8 @@
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -1576,7 +1392,7 @@
     {
       "schema_version": 1,
       "id": "investigate",
-      "revision": 2,
+      "revision": 3,
       "name": "Research & analyze",
       "status": "draft",
       "input_schema": null,
@@ -1627,7 +1443,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "research"
             }
@@ -1652,26 +1468,7 @@
             "type": "inline",
             "name": "research",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -1692,43 +1489,6 @@
           }
         },
         {
-          "id": "research_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "research",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "analyze",
           "name": "Analyze",
           "type": "agent",
@@ -1738,7 +1498,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "analyze"
             }
@@ -1771,26 +1531,7 @@
             "type": "inline",
             "name": "analyze",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -1804,44 +1545,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "analyze_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "analyze",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -1855,7 +1559,7 @@
             "source": {
               "type": "node_output",
               "node_id": "analyze",
-              "pointer": "/summary"
+              "pointer": ""
             },
             "strict": false
           },
@@ -1868,7 +1572,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -1883,26 +1587,14 @@
           "condition": "on_success"
         },
         {
-          "id": "research-research_gate",
+          "id": "research-analyze",
           "source": "research",
-          "target": "research_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "research_gate-analyze",
-          "source": "research_gate",
           "target": "analyze",
           "condition": "on_success"
         },
         {
-          "id": "analyze-analyze_gate",
+          "id": "analyze-output",
           "source": "analyze",
-          "target": "analyze_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "analyze_gate-output",
-          "source": "analyze_gate",
           "target": "output",
           "condition": "on_success"
         }
@@ -1921,16 +1613,16 @@
         "source": {
           "type": "node_output",
           "node_id": "analyze",
-          "pointer": "/summary"
+          "pointer": ""
         },
         "strict": false
       },
-      "description": "Research & analyze: inspect the requested scope with explicit completion status and preserved conversation context. Findings and unknowns remain visible in the final report."
+      "description": "Research & analyze: inspect the requested scope with preserved conversation context. Findings and unknowns remain visible in the final report."
     },
     {
       "schema_version": 1,
       "id": "design",
-      "revision": 2,
+      "revision": 3,
       "name": "Architect & plan",
       "status": "draft",
       "input_schema": null,
@@ -1976,7 +1668,7 @@
           "name": "Architect",
           "type": "agent",
           "config": {
-            "instructions": "Start from workflow_input.request. Design components, interfaces, data flow and failure handling. Compare viable alternatives and explain the chosen design, compatibility constraints and implementation boundaries. Finish with a clear summary. Finish with exactly `## status` and `## summary` sections. Put only complete, blocked, or incomplete in the status section.",
+            "instructions": "Start from workflow_input.request. Design components, interfaces, data flow and failure handling. Compare viable alternatives and explain the chosen design, compatibility constraints and implementation boundaries. Finish with a clear summary.",
             "tools": {
               "type": "inherit"
             },
@@ -2006,26 +1698,7 @@
             "type": "inline",
             "name": "architect",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -2046,48 +1719,11 @@
           }
         },
         {
-          "id": "architect_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "architect",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
           "config": {
-            "instructions": "Plan the request. Write the requirements with acceptance criteria, and ordered tasks that change the code. Every task must change the workspace; things only someone outside it can do (credential rotation, deployments, history rewrites) go in the summary as follow-ups for the user. Finish with exactly `## status`, `## requirements`, `## tasks`, and `## summary` sections. Put only ready, blocked, or incomplete in status. Under requirements, use `### R…` headings, requirement text, then `#### criteria` with `- C…: observable criterion` bullets. Under tasks, use `### T…` headings, `requirement_ids: ...`, `criterion_ids: ...`, and `depends_on: ...` lines followed by the task instructions.",
+            "instructions": "Plan the request. Write the requirements with acceptance criteria, and ordered tasks that change the code. Every task must change the workspace; things only someone outside it can do (credential rotation, deployments, history rewrites) go in the summary as follow-ups for the user.",
             "tools": {
               "type": "inherit"
             },
@@ -2125,116 +1761,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -2248,52 +1775,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -2320,7 +1802,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -2335,26 +1817,14 @@
           "condition": "on_success"
         },
         {
-          "id": "architect-architect_gate",
+          "id": "architect-plan",
           "source": "architect",
-          "target": "architect_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "architect_gate-plan",
-          "source": "architect_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-output",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-output",
-          "source": "plan_gate",
           "target": "output",
           "condition": "on_success"
         }
@@ -2367,116 +1837,7 @@
           "type": "inline",
           "name": "result",
           "schema": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "status",
-              "requirements",
-              "tasks",
-              "summary"
-            ],
-            "properties": {
-              "status": {
-                "type": "string",
-                "enum": [
-                  "ready",
-                  "blocked",
-                  "incomplete"
-                ]
-              },
-              "requirements": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "text",
-                    "criteria"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "text": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "criteria": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "id",
-                          "text"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "text": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "tasks": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "requirement_ids",
-                    "criterion_ids",
-                    "depends_on",
-                    "instructions"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "requirement_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "criterion_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "depends_on": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "instructions": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              },
-              "summary": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
+            "type": "string"
           }
         },
         "source": {
@@ -2486,12 +1847,12 @@
         },
         "strict": false
       },
-      "description": "Architect & plan: inspect the requested scope with explicit completion status and preserved conversation context. Findings and unknowns remain visible in the final report."
+      "description": "Architect & plan: inspect the requested scope with preserved conversation context. Findings and unknowns remain visible in the final report."
     },
     {
       "schema_version": 1,
       "id": "diagnose",
-      "revision": 2,
+      "revision": 3,
       "name": "Debug & plan a fix",
       "status": "draft",
       "input_schema": null,
@@ -2542,7 +1903,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "debug"
             }
@@ -2567,26 +1928,7 @@
             "type": "inline",
             "name": "debug",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -2607,43 +1949,6 @@
           }
         },
         {
-          "id": "debug_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "debug",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -2653,7 +1958,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -2686,116 +1991,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -2809,52 +2005,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -2881,7 +2032,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -2896,26 +2047,14 @@
           "condition": "on_success"
         },
         {
-          "id": "debug-debug_gate",
+          "id": "debug-plan",
           "source": "debug",
-          "target": "debug_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "debug_gate-plan",
-          "source": "debug_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-output",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-output",
-          "source": "plan_gate",
           "target": "output",
           "condition": "on_success"
         }
@@ -2928,116 +2067,7 @@
           "type": "inline",
           "name": "result",
           "schema": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "status",
-              "requirements",
-              "tasks",
-              "summary"
-            ],
-            "properties": {
-              "status": {
-                "type": "string",
-                "enum": [
-                  "ready",
-                  "blocked",
-                  "incomplete"
-                ]
-              },
-              "requirements": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "text",
-                    "criteria"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "text": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "criteria": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "id",
-                          "text"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "text": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "tasks": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "requirement_ids",
-                    "criterion_ids",
-                    "depends_on",
-                    "instructions"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "requirement_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "criterion_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "depends_on": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "instructions": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              },
-              "summary": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
+            "type": "string"
           }
         },
         "source": {
@@ -3047,12 +2077,12 @@
         },
         "strict": false
       },
-      "description": "Debug & plan a fix: inspect the requested scope with explicit completion status and preserved conversation context. Findings and unknowns remain visible in the final report."
+      "description": "Debug & plan a fix: inspect the requested scope with preserved conversation context. Findings and unknowns remain visible in the final report."
     },
     {
       "schema_version": 1,
       "id": "implement",
-      "revision": 4,
+      "revision": 5,
       "name": "Build & verify",
       "status": "draft",
       "input_schema": null,
@@ -3103,7 +2133,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -3128,116 +2158,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -3258,51 +2179,6 @@
           }
         },
         {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "build",
           "name": "Build",
           "type": "agent",
@@ -3312,7 +2188,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -3345,31 +2221,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -3383,7 +2235,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
+                "x": 660,
                 "y": 80
               }
             }
@@ -3500,7 +2352,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1260,
+                "x": 960,
                 "y": 80
               }
             }
@@ -3546,7 +2398,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -3573,7 +2425,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -3588,14 +2440,8 @@
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -3641,7 +2487,7 @@
     {
       "schema_version": 1,
       "id": "security-audit",
-      "revision": 2,
+      "revision": 3,
       "name": "Security audit & fix plan",
       "status": "draft",
       "input_schema": null,
@@ -3691,7 +2537,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "security"
             }
@@ -3716,26 +2562,7 @@
             "type": "inline",
             "name": "audit",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -3756,43 +2583,6 @@
           }
         },
         {
-          "id": "audit_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "audit",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -3802,7 +2592,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -3835,116 +2625,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -3958,52 +2639,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -4030,7 +2666,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -4045,26 +2681,14 @@
           "condition": "on_success"
         },
         {
-          "id": "audit-audit_gate",
+          "id": "audit-plan",
           "source": "audit",
-          "target": "audit_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "audit_gate-plan",
-          "source": "audit_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-output",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-output",
-          "source": "plan_gate",
           "target": "output",
           "condition": "on_success"
         }
@@ -4077,116 +2701,7 @@
           "type": "inline",
           "name": "result",
           "schema": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "status",
-              "requirements",
-              "tasks",
-              "summary"
-            ],
-            "properties": {
-              "status": {
-                "type": "string",
-                "enum": [
-                  "ready",
-                  "blocked",
-                  "incomplete"
-                ]
-              },
-              "requirements": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "text",
-                    "criteria"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "text": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "criteria": {
-                      "type": "array",
-                      "items": {
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": [
-                          "id",
-                          "text"
-                        ],
-                        "properties": {
-                          "id": {
-                            "type": "string",
-                            "minLength": 1
-                          },
-                          "text": {
-                            "type": "string",
-                            "minLength": 1
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-              },
-              "tasks": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "id",
-                    "requirement_ids",
-                    "criterion_ids",
-                    "depends_on",
-                    "instructions"
-                  ],
-                  "properties": {
-                    "id": {
-                      "type": "string",
-                      "minLength": 1
-                    },
-                    "requirement_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "criterion_ids": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "depends_on": {
-                      "type": "array",
-                      "items": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    },
-                    "instructions": {
-                      "type": "string",
-                      "minLength": 1
-                    }
-                  }
-                }
-              },
-              "summary": {
-                "type": "string",
-                "minLength": 1
-              }
-            }
+            "type": "string"
           }
         },
         "source": {
@@ -4196,12 +2711,12 @@
         },
         "strict": false
       },
-      "description": "Security audit & fix plan: inspect the requested scope with explicit completion status and preserved conversation context. Findings and unknowns remain visible in the final report."
+      "description": "Security audit & fix plan: inspect the requested scope with preserved conversation context. Findings and unknowns remain visible in the final report."
     },
     {
       "schema_version": 1,
       "id": "check-changes",
-      "revision": 2,
+      "revision": 3,
       "name": "Verify & review changes",
       "status": "draft",
       "input_schema": null,
@@ -4252,7 +2767,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "review"
             }
@@ -4277,26 +2792,7 @@
             "type": "inline",
             "name": "review",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -4317,43 +2813,6 @@
           }
         },
         {
-          "id": "review_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "review",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "verify",
           "name": "Verify",
           "type": "agent",
@@ -4363,7 +2822,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "verify"
             }
@@ -4396,26 +2855,7 @@
             "type": "inline",
             "name": "verify",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -4429,44 +2869,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "verify_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "verify",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -4480,7 +2883,7 @@
             "source": {
               "type": "node_output",
               "node_id": "verify",
-              "pointer": "/summary"
+              "pointer": ""
             },
             "strict": false
           },
@@ -4493,7 +2896,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -4508,26 +2911,14 @@
           "condition": "on_success"
         },
         {
-          "id": "review-review_gate",
+          "id": "review-verify",
           "source": "review",
-          "target": "review_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "review_gate-verify",
-          "source": "review_gate",
           "target": "verify",
           "condition": "on_success"
         },
         {
-          "id": "verify-verify_gate",
+          "id": "verify-output",
           "source": "verify",
-          "target": "verify_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "verify_gate-output",
-          "source": "verify_gate",
           "target": "output",
           "condition": "on_success"
         }
@@ -4546,16 +2937,16 @@
         "source": {
           "type": "node_output",
           "node_id": "verify",
-          "pointer": "/summary"
+          "pointer": ""
         },
         "strict": false
       },
-      "description": "Verify & review changes: inspect the requested scope with explicit completion status and preserved conversation context. Findings and unknowns remain visible in the final report."
+      "description": "Verify & review changes: inspect the requested scope with preserved conversation context. Findings and unknowns remain visible in the final report."
     },
     {
       "schema_version": 1,
       "id": "analyzed-feature",
-      "revision": 4,
+      "revision": 5,
       "name": "Analyze, plan & build",
       "status": "draft",
       "input_schema": null,
@@ -4603,7 +2994,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "analyze"
             }
@@ -4628,26 +3019,7 @@
             "type": "inline",
             "name": "analyze",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -4668,43 +3040,6 @@
           }
         },
         {
-          "id": "analyze_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "analyze",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -4714,7 +3049,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -4747,116 +3082,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -4870,52 +3096,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -4931,7 +3112,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -4972,31 +3153,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -5010,7 +3167,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -5135,7 +3292,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -5181,7 +3338,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -5208,7 +3365,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -5223,26 +3380,14 @@
           "condition": "on_success"
         },
         {
-          "id": "analyze-analyze_gate",
+          "id": "analyze-plan",
           "source": "analyze",
-          "target": "analyze_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "analyze_gate-plan",
-          "source": "analyze_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -5288,7 +3433,7 @@
     {
       "schema_version": 1,
       "id": "researched-feature",
-      "revision": 4,
+      "revision": 5,
       "name": "Research, design & build",
       "status": "draft",
       "input_schema": null,
@@ -5336,7 +3481,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "research"
             }
@@ -5361,26 +3506,7 @@
             "type": "inline",
             "name": "research",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -5401,43 +3527,6 @@
           }
         },
         {
-          "id": "research_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "research",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "architect",
           "name": "Architect",
           "type": "agent",
@@ -5447,7 +3536,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "architect"
             }
@@ -5480,26 +3569,7 @@
             "type": "inline",
             "name": "architect",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -5513,44 +3583,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "architect_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "architect",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -5566,7 +3599,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -5607,116 +3640,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -5730,52 +3654,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1860,
+                "x": 960,
                 "y": 80
               }
             }
@@ -5791,7 +3670,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -5840,31 +3719,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -5878,7 +3733,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -6011,7 +3866,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -6057,7 +3912,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2760,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -6084,7 +3939,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 3060,
+                "x": 2160,
                 "y": 80
               }
             }
@@ -6099,38 +3954,20 @@
           "condition": "on_success"
         },
         {
-          "id": "research-research_gate",
+          "id": "research-architect",
           "source": "research",
-          "target": "research_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "research_gate-architect",
-          "source": "research_gate",
           "target": "architect",
           "condition": "on_success"
         },
         {
-          "id": "architect-architect_gate",
+          "id": "architect-plan",
           "source": "architect",
-          "target": "architect_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "architect_gate-plan",
-          "source": "architect_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -6176,7 +4013,7 @@
     {
       "schema_version": 1,
       "id": "bug-fix",
-      "revision": 4,
+      "revision": 5,
       "name": "Fix a bug",
       "status": "draft",
       "input_schema": null,
@@ -6224,7 +4061,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "debug"
             }
@@ -6249,26 +4086,7 @@
             "type": "inline",
             "name": "debug",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -6289,43 +4107,6 @@
           }
         },
         {
-          "id": "debug_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "debug",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -6335,7 +4116,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -6368,116 +4149,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -6491,52 +4163,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -6552,7 +4179,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -6593,31 +4220,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -6631,7 +4234,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -6756,7 +4359,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -6802,7 +4405,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -6829,7 +4432,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -6844,26 +4447,14 @@
           "condition": "on_success"
         },
         {
-          "id": "debug-debug_gate",
+          "id": "debug-plan",
           "source": "debug",
-          "target": "debug_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "debug_gate-plan",
-          "source": "debug_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -6909,7 +4500,7 @@
     {
       "schema_version": 1,
       "id": "careful-change",
-      "revision": 4,
+      "revision": 5,
       "name": "High-risk change",
       "status": "draft",
       "input_schema": null,
@@ -6957,7 +4548,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "analyze"
             }
@@ -6982,26 +4573,7 @@
             "type": "inline",
             "name": "analyze",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -7022,43 +4594,6 @@
           }
         },
         {
-          "id": "analyze_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "analyze",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -7068,7 +4603,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -7101,116 +4636,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -7224,52 +4650,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -7285,7 +4666,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -7326,31 +4707,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -7364,7 +4721,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -7489,7 +4846,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -7535,7 +4892,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -7668,7 +5025,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -7714,7 +5071,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2760,
+                "x": 2160,
                 "y": 80
               }
             }
@@ -7741,7 +5098,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 3060,
+                "x": 2460,
                 "y": 80
               }
             }
@@ -7756,26 +5113,14 @@
           "condition": "on_success"
         },
         {
-          "id": "analyze-analyze_gate",
+          "id": "analyze-plan",
           "source": "analyze",
-          "target": "analyze_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "analyze_gate-plan",
-          "source": "analyze_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -7833,7 +5178,7 @@
     {
       "schema_version": 1,
       "id": "security-remediation",
-      "revision": 4,
+      "revision": 5,
       "name": "Security remediation",
       "status": "draft",
       "input_schema": null,
@@ -7880,7 +5225,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "security"
             }
@@ -7905,26 +5250,7 @@
             "type": "inline",
             "name": "audit",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -7945,43 +5271,6 @@
           }
         },
         {
-          "id": "audit_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "audit",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -7991,7 +5280,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -8024,116 +5313,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -8147,52 +5327,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -8208,7 +5343,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "build"
             }
@@ -8249,31 +5384,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -8287,7 +5398,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -8412,7 +5523,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -8458,7 +5569,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -8591,7 +5702,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -8637,7 +5748,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2760,
+                "x": 2160,
                 "y": 80
               }
             }
@@ -8664,7 +5775,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 3060,
+                "x": 2460,
                 "y": 80
               }
             }
@@ -8679,26 +5790,14 @@
           "condition": "on_success"
         },
         {
-          "id": "audit-audit_gate",
+          "id": "audit-plan",
           "source": "audit",
-          "target": "audit_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "audit_gate-plan",
-          "source": "audit_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -8756,7 +5855,7 @@
     {
       "schema_version": 1,
       "id": "refactor",
-      "revision": 4,
+      "revision": 5,
       "name": "Refactor safely",
       "status": "draft",
       "input_schema": null,
@@ -8804,7 +5903,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "analyze"
             }
@@ -8829,26 +5928,7 @@
             "type": "inline",
             "name": "analyze",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -8869,43 +5949,6 @@
           }
         },
         {
-          "id": "analyze_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "analyze",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -8915,7 +5958,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -8948,116 +5991,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -9071,52 +6005,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -9132,7 +6021,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "refactor"
             }
@@ -9173,31 +6062,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -9211,7 +6076,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -9336,7 +6201,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -9382,7 +6247,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -9515,7 +6380,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -9561,7 +6426,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2760,
+                "x": 2160,
                 "y": 80
               }
             }
@@ -9588,7 +6453,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 3060,
+                "x": 2460,
                 "y": 80
               }
             }
@@ -9603,26 +6468,14 @@
           "condition": "on_success"
         },
         {
-          "id": "analyze-analyze_gate",
+          "id": "analyze-plan",
           "source": "analyze",
-          "target": "analyze_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "analyze_gate-plan",
-          "source": "analyze_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -9680,7 +6533,7 @@
     {
       "schema_version": 1,
       "id": "optimize-performance",
-      "revision": 4,
+      "revision": 5,
       "name": "Optimize performance",
       "status": "draft",
       "input_schema": null,
@@ -9728,7 +6581,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "analyze"
             }
@@ -9753,26 +6606,7 @@
             "type": "inline",
             "name": "analyze",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -9793,43 +6627,6 @@
           }
         },
         {
-          "id": "analyze_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "analyze",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -9839,7 +6636,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -9872,116 +6669,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -9995,52 +6683,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -10056,7 +6699,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "optimize"
             }
@@ -10097,31 +6740,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -10135,7 +6754,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -10260,7 +6879,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -10306,7 +6925,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -10333,7 +6952,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -10348,26 +6967,14 @@
           "condition": "on_success"
         },
         {
-          "id": "analyze-analyze_gate",
+          "id": "analyze-plan",
           "source": "analyze",
-          "target": "analyze_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "analyze_gate-plan",
-          "source": "analyze_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },
@@ -10413,7 +7020,7 @@
     {
       "schema_version": 1,
       "id": "documentation",
-      "revision": 2,
+      "revision": 3,
       "name": "Write documentation",
       "status": "draft",
       "input_schema": null,
@@ -10460,7 +7067,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "analyze"
             }
@@ -10485,26 +7092,7 @@
             "type": "inline",
             "name": "analyze",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "complete",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -10525,43 +7113,6 @@
           }
         },
         {
-          "id": "analyze_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "complete"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "analyze",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 660,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
           "id": "plan",
           "name": "Plan",
           "type": "agent",
@@ -10571,7 +7122,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "plan"
             }
@@ -10604,116 +7155,7 @@
             "type": "inline",
             "name": "plan",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "requirements",
-                "tasks",
-                "summary"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "ready",
-                    "blocked",
-                    "incomplete"
-                  ]
-                },
-                "requirements": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "text",
-                      "criteria"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "text": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "criteria": {
-                        "type": "array",
-                        "items": {
-                          "type": "object",
-                          "additionalProperties": false,
-                          "required": [
-                            "id",
-                            "text"
-                          ],
-                          "properties": {
-                            "id": {
-                              "type": "string",
-                              "minLength": 1
-                            },
-                            "text": {
-                              "type": "string",
-                              "minLength": 1
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "additionalProperties": false,
-                    "required": [
-                      "id",
-                      "requirement_ids",
-                      "criterion_ids",
-                      "depends_on",
-                      "instructions"
-                    ],
-                    "properties": {
-                      "id": {
-                        "type": "string",
-                        "minLength": 1
-                      },
-                      "requirement_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "criterion_ids": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "depends_on": {
-                        "type": "array",
-                        "items": {
-                          "type": "string",
-                          "minLength": 1
-                        }
-                      },
-                      "instructions": {
-                        "type": "string",
-                        "minLength": 1
-                      }
-                    }
-                  }
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -10727,52 +7169,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 960,
-                "y": 80
-              }
-            }
-          }
-        },
-        {
-          "id": "plan_gate",
-          "name": "Acceptance",
-          "type": "verify",
-          "config": {
-            "checks": [
-              {
-                "type": "required_status",
-                "pointer": "/check/status",
-                "equals": "ready"
-              }
-            ]
-          },
-          "input_bindings": [
-            {
-              "target": "check",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            },
-            {
-              "target": "plan",
-              "source": {
-                "type": "node_output",
-                "node_id": "plan",
-                "pointer": ""
-              }
-            }
-          ],
-          "output_schema": null,
-          "retry": {
-            "max_attempts": 1,
-            "retry_on": []
-          },
-          "metadata": {
-            "editor": {
-              "position": {
-                "x": 1260,
+                "x": 660,
                 "y": 80
               }
             }
@@ -10788,7 +7185,7 @@
               "type": "inherit"
             },
             "context_mode": "isolated_child",
-            "structured_output": "host_validated",
+            "structured_output": "text",
             "profile": {
               "id": "document"
             }
@@ -10829,31 +7226,7 @@
             "type": "inline",
             "name": "build",
             "schema": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "status",
-                "summary",
-                "tasks"
-              ],
-              "properties": {
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "implemented"
-                  ]
-                },
-                "summary": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "tasks": {
-                  "type": "array",
-                  "items": {
-                    "type": "object"
-                  }
-                }
-              }
+              "type": "string"
             }
           },
           "retry": {
@@ -10867,7 +7240,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1560,
+                "x": 960,
                 "y": 80
               }
             }
@@ -10992,7 +7365,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 1860,
+                "x": 1260,
                 "y": 80
               }
             }
@@ -11038,7 +7411,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2160,
+                "x": 1560,
                 "y": 80
               }
             }
@@ -11171,7 +7544,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2460,
+                "x": 1860,
                 "y": 80
               }
             }
@@ -11217,7 +7590,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 2760,
+                "x": 2160,
                 "y": 80
               }
             }
@@ -11244,7 +7617,7 @@
           "metadata": {
             "editor": {
               "position": {
-                "x": 3060,
+                "x": 2460,
                 "y": 80
               }
             }
@@ -11259,26 +7632,14 @@
           "condition": "on_success"
         },
         {
-          "id": "analyze-analyze_gate",
+          "id": "analyze-plan",
           "source": "analyze",
-          "target": "analyze_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "analyze_gate-plan",
-          "source": "analyze_gate",
           "target": "plan",
           "condition": "on_success"
         },
         {
-          "id": "plan-plan_gate",
+          "id": "plan-build",
           "source": "plan",
-          "target": "plan_gate",
-          "condition": "on_success"
-        },
-        {
-          "id": "plan_gate-build",
-          "source": "plan_gate",
           "target": "build",
           "condition": "on_success"
         },

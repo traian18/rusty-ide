@@ -28,10 +28,10 @@ describe("the starter flow documents", () => {
   it("is the flow it says it is: request → plan → build → verify → result", () => {
     expect(STARTER_WORKFLOW.id).toBe("rusty-ide.builtin.plan-build-verify");
     expect(nodes.map((node) => `${node.id}:${node.type}`)).toEqual([
-      "input:input", "plan:agent", "plan_gate:verify", "build:agent", "verify:agent", "gate:verify", "output:output",
+      "input:input", "plan:agent", "build:agent", "verify:agent", "gate:verify", "output:output",
     ]);
     expect(edges.map((edge) => `${edge.source}>${edge.target}`)).toEqual([
-      "input>plan", "plan>plan_gate", "plan_gate>build", "build>verify", "verify>gate", "gate>output",
+      "input>plan", "plan>build", "build>verify", "verify>gate", "gate>output",
     ]);
   });
 
@@ -74,7 +74,7 @@ describe("the starter flow documents", () => {
       // together with a JSON response type, and rejects a schema its
       // constraint compiler finds too large.
       // Verify returns the verdict the gate reads, so it is JSON the host validates.
-      expect(config.structured_output).toBe("host_validated");
+      expect(config.structured_output).toBe(node.id === "verify" ? "host_validated" : "text");
       // A step allow-list naming a tool the session lacks fails the whole run
       // before it starts, so narrowing happens in the profile instead.
       expect(config.tools).toEqual({ type: "inherit" });

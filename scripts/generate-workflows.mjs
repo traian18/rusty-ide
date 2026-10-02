@@ -8,10 +8,7 @@ const read = p => JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
 const string = {type:'string',minLength:1};
 const array = items => ({type:'array',items});
 const object = properties => ({type:'object',additionalProperties:false,required:Object.keys(properties),properties});
-const planSchema = object({status:{type:'string',enum:['ready','blocked','incomplete']},requirements:array(object({id:string,text:string,criteria:array(object({id:string,text:string}))})),tasks:array(object({id:string,requirement_ids:array(string),criterion_ids:array(string),depends_on:array(string),instructions:string})),summary:string});
-const reportSchema=object({status:{type:'string',enum:['complete','blocked','incomplete']},summary:string});
 const verdictSchema=object({verdict:string,criteria:array(object({id:string,status:{type:'string',enum:['pass','fail','unverified']},evidence:string})),summary:string});
-const queueSchema=object({status:{type:'string',enum:['implemented']},summary:string,tasks:array({type:'object'})});
 const schema=(name,value)=>({type:'inline',name,schema:value});
 const binding=(target,node,pointer='')=>({target,source:node?{type:'node_output',node_id:node,pointer}:{type:'run_input',pointer:`/${target}`}});
 const source=(node_id,pointer='')=>({type:'node_output',node_id,pointer});
@@ -28,7 +25,7 @@ const definitions=JSON.parse(fs.readFileSync(new URL('./workflow-catalog-source.
 const outputs=[];
 for(const [id,preps,writer,post] of catalog){
  const {stages,...old}=definitions[id];
- const workflow={...old,revision:old.revision,nodes:[],edges:[],policies:{max_total_attempts:40}};
+ const workflow={...old,revision:old.revision+1,nodes:[],edges:[],policies:{max_total_attempts:40}};
  const nodes=workflow.nodes;
  const add=n=>{n.metadata={editor:{position:{x:60+nodes.length*300,y:80}}};nodes.push(n);return n;};
  const node=(id,name,type,config,bindings=[],output=null,r={max_attempts:1,retry_on:[]})=>add({id,name,type,config,input_bindings:bindings,output_schema:output,retry:r});
@@ -36,11 +33,15 @@ for(const [id,preps,writer,post] of catalog){
  const history=[];
  const inputs=()=>[binding('request'),binding('context'),...history.map(id=>binding(id,id))];
  const gate=(id,producer,checks,repair)=>node(id,'Acceptance','verify',{checks,...(repair?{retry_target:repair}:{})},[binding('check',producer),...(history.includes('plan')?[binding('plan','plan')]:[])]);
- const addAgent=(id,name,profile,instructions,output,bindings=inputs(),extra={})=>{const markdownOnly=workflow.id==='design';const markdownLayout=id==='architect'?' Finish with exactly `## status` and `## summary` sections. Put only complete, blocked, or incomplete in the status section.':' Finish with exactly `## status`, `## requirements`, `## tasks`, and `## summary` sections. Put only ready, blocked, or incomplete in status. Under requirements, use `### R…` headings, requirement text, then `#### criteria` with `- C…: observable criterion` bullets. Under tasks, use `### T…` headings, `requirement_ids: ...`, `criterion_ids: ...`, and `depends_on: ...` lines followed by the task instructions.';node(id,name,'agent',{instructions:markdownOnly?instructions+markdownLayout:instructions,tools:{type:'inherit'},context_mode:'isolated_child',structured_output:markdownOnly?'text':'host_validated',profile:{id:profile},...extra},bindings,schema(id,output),retry);history.push(id);};
+ // Ordinary steps exchange complete prose. Only acceptance reviewers need a
+ // machine-readable verdict; successful execution already controls sequencing.
+ const addAgent=(id,name,profile,instructions,output=null,bindings=inputs(),extra={})=>{
+  node(id,name,'agent',{instructions,tools:{type:'inherit'},context_mode:'isolated_child',structured_output:output?'host_validated':'text',profile:{id:profile},...extra},bindings,schema(id,output??{type:'string'}),retry);
+  history.push(id);
+ };
  for(const prep of preps){
   if(prep==='plan'){
-   addAgent('plan','Plan','plan',planInstructions,planSchema);
-   gate('plan_gate','plan',[{type:'required_status',pointer:'/check/status',equals:'ready'}]);
+   addAgent('plan','Plan','plan',planInstructions);
   }else{
    const oldNode=stages[prep];
    let instructions=oldNode?.instructions??'Inspect the requested scope.';
@@ -48,14 +49,12 @@ for(const [id,preps,writer,post] of catalog){
    instructions=instructions.replace(/workflow_input\.(\w+)/g,(_,key)=>['request','context',...history].includes(key)?`workflow_input.${key}`:'the supplied findings');
    if(prep==='verify') instructions='Run the project\'s checks that apply to the requested changes when you can, and report what they return and whether they pass.';
    if(workflow.id==='check-changes'&&prep==='review') instructions='Review the requested changes for correctness, regressions and missing tests. Give prioritized findings with file evidence and say whether the changes are acceptable.';
-   addAgent(prep,oldNode?.name??prep,oldNode?.profile??prep,`${contextRule} ${instructions} ${reportRule}`,reportSchema);
-   gate(`${prep}_gate`,prep,[{type:'required_status',pointer:'/check/status',equals:'complete'}]);
+   addAgent(prep,oldNode?.name??prep,oldNode?.profile??prep,`${contextRule} ${instructions} ${reportRule}`);
   }
  }
  if(writer){
-  addAgent('plan','Plan','plan',planInstructions,planSchema);
-  gate('plan_gate','plan',[{type:'required_status',pointer:'/check/status',equals:'ready'}]);
-  addAgent('build','Build',writer,builderInstructions,queueSchema);
+  addAgent('plan','Plan','plan',planInstructions);
+  addAgent('build','Build',writer,builderInstructions);
   addAgent('verify','Verify','verify',verifyInstructions,verdictSchema);
   gate('gate','verify',[{type:'required_status',pointer:'/check/verdict',equals:'pass'}]);
   if(post){
@@ -69,12 +68,12 @@ for(const [id,preps,writer,post] of catalog){
   build.retry={max_attempts:3,retry_on:['backend_rate_limited','backend_timeout','verification_failed']};
   for(const id of ['gate',...(post?[`${post}_gate`]:[])])nodes.find(n=>n.id===id).config.retry_target='build';
  }
- const last=history.at(-1);const pointer=last==='plan'?'':'/summary';
+ const last=history.at(-1);const lastAgent=nodes.find(n=>n.id===last);const pointer=lastAgent.config.structured_output==='text'?'':'/summary';
  node('output','Result','output',{source:source(last,pointer),strict:false});
- workflow.output_contract={schema:schema('result',last==='plan'?planSchema:{type:'string'}),source:source(last,pointer),strict:false};
+ workflow.output_contract={schema:schema('result',{type:'string'}),source:source(last,pointer),strict:false};
  workflow.edges=nodes.slice(0,-1).map((n,i)=>({id:`${n.id}-${nodes[i+1].id}`,source:n.id,target:nodes[i+1].id,condition:'on_success'}));
  workflow.metadata={...workflow.metadata,orchestration:'task-queue-v1'};
- workflow.description=writer?'Plan the change, implement it in the workspace, then verify it was done properly. A failed verification sends the work back with the findings.':`${old.name}: inspect the requested scope with explicit completion status and preserved conversation context. Findings and unknowns remain visible in the final report.`;
+ workflow.description=writer?'Plan the change, implement it in the workspace, then verify it was done properly. A failed verification sends the work back with the findings.':`${old.name}: inspect the requested scope with preserved conversation context. Findings and unknowns remain visible in the final report.`;
  const file=id==='plan-build-verify'?'plan-build-verify.workflow.json':`workflows/${id}.workflow.json`;
  outputs.push([file,workflow]);
 }

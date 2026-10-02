@@ -96,14 +96,36 @@ describe("the built-in workflow catalog", () => {
         const mentioned = [...String(configOf(node).instructions).matchAll(/workflow_input\.(\w+)/g)].map((match) => match[1]);
         for (const name of mentioned) expect(targets, `${shortId(document)}/${node.id} mentions ${name}`).toContain(name);
         expect(String(configOf(node).instructions).length).toBeGreaterThan(80);
-        const markdownOnly = shortId(document) === "design";
-        expect(configOf(node).structured_output).toBe(markdownOnly ? "text" : "host_validated");
+        const acceptanceReviewer = ["verify", "review", "recheck"].includes(String(node.id)) && agentsOf(document).some(n => n.id === "build");
+        expect(configOf(node).structured_output).toBe(acceptanceReviewer ? "host_validated" : "text");
         expect(configOf(node).tools).toEqual({ type: "inherit" });
         expect(node.output_schema).toBeTruthy();
-        if (markdownOnly) {
-          expect(String(configOf(node).instructions)).toContain("Finish with exactly `## status`");
+        if (!acceptanceReviewer) {
+          expect((node.output_schema as JsonObject).schema).toEqual({ type: "string" });
+          expect(String(configOf(node).instructions)).not.toContain("Finish with exactly");
+          for (const binding of bindings) {
+            if ((binding.source as JsonObject).type === "node_output") {
+              expect((binding.source as JsonObject).pointer).toBe("");
+            }
+          }
         }
         seen.add(String(node.id));
+      }
+    }
+  });
+
+  it("advances ordinary steps on success without parsing status or summary fields", () => {
+    for (const document of STARTER_WORKFLOWS) {
+      const nodes = nodesOf(document);
+      for (const agent of agentsOf(document).filter(n => configOf(n).structured_output === "text")) {
+        const edge = (document.edges as JsonObject[]).find(e => e.source === agent.id)!;
+        expect(edge.condition).toBe("on_success");
+        expect(nodes.find(n => n.id === edge.target)!.type).not.toBe("verify");
+      }
+      const last = agentsOf(document).at(-1)!;
+      if (configOf(last).structured_output === "text") {
+        expect(configOf(nodes.at(-1)!).source).toEqual({ type: "node_output", node_id: last.id, pointer: "" });
+        expect((document.output_contract as JsonObject).source).toEqual(configOf(nodes.at(-1)!).source);
       }
     }
   });
@@ -122,6 +144,7 @@ describe("the built-in workflow catalog", () => {
   it("never lets a final review or security recheck bypass acceptance", () => {
     for (const document of STARTER_WORKFLOWS) {
       const nodes = nodesOf(document);
+      if (!agentsOf(document).some(n => n.id === "build")) continue;
       const last = agentsOf(document).at(-1)!;
       const edge = (document.edges as JsonObject[]).find(e => e.source === last.id)!;
       const gate = nodes.find(n => n.id === edge.target)!;
