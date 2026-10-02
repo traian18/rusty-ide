@@ -1,3 +1,4 @@
+import type { CheckEvidenceLedger } from "../checkEvidence";
 // ============================================================
 // definitions/runCheckTool.ts -- "run_check": run one of the project's own
 // checks (typecheck, lint, test, build, format, install) and get a verdict a
@@ -43,6 +44,7 @@ export const CHECK_IDS: readonly CheckId[] = ["typecheck", "lint", "test", "buil
 const isCheckId = (value: string): value is CheckId => (CHECK_IDS as readonly string[]).includes(value);
 
 type Outcome = Awaited<ReturnType<HostToolHandler>>;
+export type CheckToolOptions = GatedRunCommandOptions & { evidence?: CheckEvidenceLedger };
 
 /** How long each kind of check may run before it is reported as timed out. */
 const DEFAULT_TIMEOUT_MS: Record<CheckId, number> = {
@@ -57,10 +59,11 @@ const DEFAULT_TIMEOUT_MS: Record<CheckId, number> = {
 export const RUN_CHECK_TOOL: HostToolSpec = {
   name: "run_check",
   description:
-    "Run one of the project's own checks and get a clear pass or fail, instead of guessing a command. The commands come from project_info (package.json scripts, Cargo, pyproject, go.mod, Makefile), so you do not need to know them. The result starts with PASSED or FAILED. A failure lists its errors as file:line: message, shows test tallies, and says whether the cause is the code or the environment (a missing tool or uninstalled dependencies: then call install_dependencies and run the check again, do not edit code). A failing check is reported as a failed tool call. To run just one test while you work on it, give the test check test_name (a name or part of one) and/or test_file; this works for vitest, jest, pytest, cargo test and go test, and a filter that matches no test is reported as FAILED, not as a pass. Run the whole check before you finish. In a workspace with several projects, pass path to choose one. As with run_command, each command is shown to the user for approval. Use run_command only for something this cannot express.",
+    "Run one of the project's own checks and get a clear pass or fail, instead of guessing a command. The commands come from project_info (package.json scripts, Cargo, pyproject, go.mod, Makefile), so you do not need to know them. The result starts with PASSED or FAILED. A failure lists its errors as file:line: message, shows test tallies, and says whether the cause is the code or the environment (missing project dependencies may need installation; a missing executable is an environment blocker and cannot be fixed by invoking that same program again). A failing check is reported as a failed tool call. To run just one test while you work on it, give the test check test_name (a name or part of one) and/or test_file; this works for vitest, jest, pytest, cargo test and go test, and a filter that matches no test is reported as FAILED, not as a pass. Use focused checks while implementing a task; run required integration checks at the final validation stage. Matching host evidence may be reused within this run; set fresh for independent execution. In a workspace with several projects, pass path to choose one. As with run_command, each command is shown to the user for approval. Use run_command only for something this cannot express.",
   input_schema: {
     type: "object",
     properties: {
+      fresh: { type: "boolean", description: "Force a fresh execution instead of reusing matching evidence from this run." },
       check: {
         type: "string",
         enum: [...CHECK_IDS],
@@ -88,6 +91,7 @@ interface DetectedRunInput {
   timeout_seconds?: unknown;
   test_name?: unknown;
   test_file?: unknown;
+  fresh?: unknown;
 }
 
 /** The commands to run for a narrowed test check, or why there are none. */
@@ -106,7 +110,7 @@ function narrowAll(checks: Check[], selector: TestSelector): { ok: true; checks:
  * and `install_dependencies`, which differ only in which detected command they
  * mean and how they describe it.
  */
-async function runDetected(options: GatedRunCommandOptions, id: CheckId, input: DetectedRunInput, signal: AbortSignal): Promise<Outcome> {
+async function runDetected(options: CheckToolOptions, id: CheckId, input: DetectedRunInput, signal: AbortSignal): Promise<Outcome> {
   const { workspaceRoot, host } = options;
   const installing = id === "install";
   if (!workspaceRoot.trim()) {
@@ -139,6 +143,12 @@ async function runDetected(options: GatedRunCommandOptions, id: CheckId, input: 
   // Dependencies being missing only explains a failure of the checks that need them.
   const installNeeded = selection.installNeeded && !installing;
 
+  const evidenceKey = JSON.stringify({ id, commands, only });
+  const before = !installing ? await options.evidence?.fingerprint() : undefined;
+  const cached = input.fresh === true ? undefined : options.evidence?.find(evidenceKey, before);
+  if (cached?.result.ok) return { ok: true, output: `${cached.result.output}\nHost evidence ${cached.id}: reused matching workspace inputs from this run; no command was rerun.` };
+  options.evidence?.forget(evidenceKey);
+  if (installing) options.evidence?.invalidate();
   const outcomes: CommandOutcome[] = [];
   const report = (): CheckReport => ({ check: id, project: selection.project.path, outcomes: only ? settleNarrowed(outcomes, only) : outcomes, only });
   const total = commands.length;
@@ -170,15 +180,20 @@ async function runDetected(options: GatedRunCommandOptions, id: CheckId, input: 
       ),
     );
     if (signal.aborted) break;
+    // No other check can repair a missing executable. Report the prerequisite
+    // once instead of spending the remainder of the run repeating it.
+    if (run.status === "failed-to-start") break;
     // One test belongs to one runner: once a command has run it, the rest have nothing to add.
     if (narrowing && (outcomes[outcomes.length - 1].testsRun ?? 0) > 0) break;
   }
 
   const text = formatCheckReport(report());
-  return reportPassed(report()) ? { ok: true, output: text } : { ok: false, error: text };
+  const result: Outcome = reportPassed(report()) && !signal.aborted ? { ok: true, output: text } : { ok: false, error: text };
+  const receipt = options.evidence?.record(evidenceKey, before, await options.evidence.fingerprint(), result);
+  return receipt && result.ok ? { ok: true, output: `${text}\nHost evidence: ${receipt.id}` } : result;
 }
 
-export function runCheckTool(options: GatedRunCommandOptions): HostToolHandler {
+export function runCheckTool(options: CheckToolOptions): HostToolHandler {
   return async (args, signal) => {
     const input = (args ?? {}) as DetectedRunInput & { check?: unknown };
     const requested = typeof input.check === "string" ? input.check.trim().toLowerCase() : "";
@@ -195,7 +210,7 @@ export function runCheckTool(options: GatedRunCommandOptions): HostToolHandler {
 export const INSTALL_DEPENDENCIES_TOOL: HostToolSpec = {
   name: "install_dependencies",
   description:
-    "Install the project's dependencies with its own package manager (npm ci or npm install, pnpm, yarn, bun, uv sync, poetry install, pip install -r requirements.txt), after the user approves the command. Use it when project_info says dependencies are NOT installed, or when a check fails and says the cause is missing dependencies or tools. This is not a check and proves nothing about the code: once it succeeds, run the check you were running again.",
+    "Install the project's dependencies with its own package manager (npm ci or npm install, pnpm, yarn, bun, uv sync, poetry install, pip install -r requirements.txt), after the user approves the command. Use it when project_info says dependencies are NOT installed, or when a check identifies missing project dependencies. A missing package-manager executable is an environment blocker; this tool cannot install that executable. This is not a check and proves nothing about the code: once it succeeds, run the check you were running again.",
   input_schema: {
     type: "object",
     properties: {
@@ -206,6 +221,6 @@ export const INSTALL_DEPENDENCIES_TOOL: HostToolSpec = {
   },
 };
 
-export function installDependenciesTool(options: GatedRunCommandOptions): HostToolHandler {
+export function installDependenciesTool(options: CheckToolOptions): HostToolHandler {
   return async (args, signal) => runDetected(options, "install", (args ?? {}) as DetectedRunInput, signal);
 }

@@ -38,7 +38,7 @@ import { runShellCommand, type CommandOutput } from "./shellExec";
 
 export const GATED_RUN_COMMAND_TOOL: HostToolSpec = {
   name: "run_command",
-  description: "Last-resort tool for an essential generator or explicitly requested executable after user approval, or a build, test, typecheck or lint command that run_check cannot express. The project's own typecheck, lint, test, build and format checks have their own tool, run_check, which reports a clear pass or fail: use that for them. Use Rusty's read_file, edit_file, write_file, list_files, and search_codebase tools for workspace operations; never use this tool to inspect, search, create, edit, move, or delete files. Use separate program and args fields; do not wrap commands in sh or bash.",
+  description: "Runs a program on the user's machine after they approve it, and returns its output. Use it for builds, tests, package managers, generators, git and any other command the work needs. The project's own typecheck, lint, test, build and format checks also have run_check, which reports a clear pass or fail; prefer that for them. Use Rusty's read_file, edit_file, write_file, list_files, and search_codebase tools for workspace files; never use this tool to inspect, search, create, edit, move, or delete files. Give program and args separately and literally (program `./mvnw`, args `[\"test\"]`, cwd the project folder); do not wrap the line in sh or bash. The result is the command's output followed by `(command exited with code N)`: a non-zero code is the answer to read and act on, not a reason to stop.",
   input_schema: {
     type: "object",
     properties: {

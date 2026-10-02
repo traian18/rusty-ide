@@ -8,7 +8,6 @@ vi.mock("../../../services/intelligentModelSelector", async (importOriginal) => 
 
 import type { AgentChatInput, CapabilityEvent } from "../../contract";
 import type { WorkflowBoundaryContext } from "../CoreHarness";
-import { MAX_WORKFLOW_CONTEXT_CHARS } from "../workflowRun";
 import { agentChatBoundary, agentChatSwitched, handOverContext } from "./flowSwitching";
 
 const TARGETS = [
@@ -59,13 +58,13 @@ describe("handOverContext", () => {
     expect(text).toContain("### Build\n(no output)");
   });
 
-  it("drops the oldest steps first when it does not fit, and says so", () => {
+  it("preserves every completed step even when the prompt preview would be too long", () => {
     const steps = Array.from({ length: 4 }, (_, index) => ({ id: `s${index}`, name: `S${index + 1}`, output: "x".repeat(10_000) }));
     const text = handOverContext(from, "r", steps);
-    expect(text.length).toBeLessThanOrEqual(MAX_WORKFLOW_CONTEXT_CHARS + 200);
+    expect(text.length).toBeGreaterThan(40_000);
     expect(text).toContain("### S4");
-    expect(text).not.toContain("### S1");
-    expect(text).toMatch(/\(\d+ earlier steps? omitted\)/);
+    expect(text).toContain("### S1");
+    expect(text).not.toContain("omitted");
   });
 });
 

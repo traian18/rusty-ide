@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+mod check_fingerprint;
 mod dir_listing;
 mod fs_watch;
 mod git;
@@ -1425,6 +1426,7 @@ pub fn run() {
             search_project,
             dir_listing::list_directory,
             shell_exec::run_shell_command,
+            check_fingerprint::check_workspace_fingerprint,
             shell_exec::cancel_shell_command,
             usage_tracking::record_usage,
             usage_tracking::reset_usage_day,

@@ -25,28 +25,22 @@ use super::{BridgeEvent, HarnessState};
 /// The profiles every workspace has without seeding files: the documents the
 /// Behaviors tab lists as built-in (`STARTER_PROFILES` in starterFlow.ts), read
 /// from the same files. Keep the two lists in step.
-const BUILTIN_PROFILES: [&str; 12] = [
-    include_str!("../../../src/components/tabs/behaviors/starter/research.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/analyze.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/plan.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/build.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/verify.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/review.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/debug.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/architect.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/security.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/document.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/refactor.profile.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/optimize.profile.json"),
-];
+const BUILTIN_CATALOG: &str =
+    include_str!("../../../src/components/tabs/behaviors/starter/catalog.json");
+
+fn catalog_profiles() -> Vec<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(BUILTIN_CATALOG).expect("generated catalog")
+        ["profiles"]
+        .as_array()
+        .expect("catalog profiles")
+        .clone()
+}
 
 /// The built-in profile documents under their `rusty-ide.builtin.` ids.
 fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
-    BUILTIN_PROFILES
-        .iter()
-        .map(|source| {
-            let mut profile: serde_json::Value =
-                serde_json::from_str(source).map_err(|error| error.to_string())?;
+    catalog_profiles()
+        .into_iter()
+        .map(|mut profile| {
             let id = profile["id"]
                 .as_str()
                 .ok_or("a built-in profile has no id")?
@@ -542,48 +536,68 @@ mod tests {
         assert!(error.contains("orchestration definition"), "{error}");
     }
 
-    // The Plan → Build → Verify flow, read from the same files the frontend imports.
+    // Historical transport/retry fixtures. Active catalog validation below reads the generated manifest.
     const STARTER_WORKFLOW: &str = include_str!(
-        "../../../src/components/tabs/behaviors/starter/plan-build-verify.workflow.json"
+        "../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/plan-build-verify.workflow.json"
     );
 
-    /// Every other built-in workflow (`starter/workflows/`), by file name.
+    /// Every other built-in workflow (`starter/legacy/before-task-queue/`), by file name.
     const BUILTIN_WORKFLOWS: [(&str, &str); 14] = [
-        ("investigate", include_str!("../../../src/components/tabs/behaviors/starter/workflows/investigate.workflow.json")),
-        ("design", include_str!("../../../src/components/tabs/behaviors/starter/workflows/design.workflow.json")),
-        ("diagnose", include_str!("../../../src/components/tabs/behaviors/starter/workflows/diagnose.workflow.json")),
-        ("implement", include_str!("../../../src/components/tabs/behaviors/starter/workflows/implement.workflow.json")),
-        ("security-audit", include_str!("../../../src/components/tabs/behaviors/starter/workflows/security-audit.workflow.json")),
-        ("check-changes", include_str!("../../../src/components/tabs/behaviors/starter/workflows/check-changes.workflow.json")),
-        ("analyzed-feature", include_str!("../../../src/components/tabs/behaviors/starter/workflows/analyzed-feature.workflow.json")),
-        ("researched-feature", include_str!("../../../src/components/tabs/behaviors/starter/workflows/researched-feature.workflow.json")),
-        ("bug-fix", include_str!("../../../src/components/tabs/behaviors/starter/workflows/bug-fix.workflow.json")),
-        ("careful-change", include_str!("../../../src/components/tabs/behaviors/starter/workflows/careful-change.workflow.json")),
-        ("security-remediation", include_str!("../../../src/components/tabs/behaviors/starter/workflows/security-remediation.workflow.json")),
-        ("refactor", include_str!("../../../src/components/tabs/behaviors/starter/workflows/refactor.workflow.json")),
-        ("optimize-performance", include_str!("../../../src/components/tabs/behaviors/starter/workflows/optimize-performance.workflow.json")),
-        ("documentation", include_str!("../../../src/components/tabs/behaviors/starter/workflows/documentation.workflow.json")),
+        ("investigate", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/investigate.workflow.json")),
+        ("design", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/design.workflow.json")),
+        ("diagnose", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/diagnose.workflow.json")),
+        ("implement", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/implement.workflow.json")),
+        ("security-audit", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/security-audit.workflow.json")),
+        ("check-changes", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/check-changes.workflow.json")),
+        ("analyzed-feature", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/analyzed-feature.workflow.json")),
+        ("researched-feature", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/researched-feature.workflow.json")),
+        ("bug-fix", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/bug-fix.workflow.json")),
+        ("careful-change", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/careful-change.workflow.json")),
+        ("security-remediation", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/security-remediation.workflow.json")),
+        ("refactor", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/refactor.workflow.json")),
+        ("optimize-performance", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/optimize-performance.workflow.json")),
+        ("documentation", include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/documentation.workflow.json")),
     ];
 
     fn starter(text: &str) -> serde_json::Value {
         serde_json::from_str(text).expect("a starter document is valid JSON")
     }
 
+    /// The starter with only its first slice: Plan, Build, Verify and the gate.
+    /// The gate and loop tests are about one round of build and verify, not
+    /// about how the work is split.
+    fn one_slice(mut document: serde_json::Value) -> serde_json::Value {
+        let second = ["build_2", "verify_2", "gate_2"];
+        document["nodes"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|node| !second.contains(&node["id"].as_str().unwrap()));
+        let edges = document["edges"].as_array_mut().unwrap();
+        edges.retain(|edge| {
+            !second.contains(&edge["source"].as_str().unwrap())
+                && !second.contains(&edge["target"].as_str().unwrap())
+        });
+        edges.push(json!({"id": "gate-output", "source": "gate", "target": "output", "condition": "on_success"}));
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if node["id"] == "output" {
+                node["config"]["source"]["node_id"] = json!("verify");
+            }
+        }
+        document["output_contract"]["source"]["node_id"] = json!("verify");
+        document
+    }
+
     /// The built-in profiles under the plain ids the bundled workflows name.
     fn starter_library() -> Vec<serde_json::Value> {
-        BUILTIN_PROFILES
-            .iter()
-            .map(|source| starter(source))
-            .collect()
+        catalog_profiles()
     }
 
     fn builtin_workflows() -> Vec<(String, serde_json::Value)> {
-        std::iter::once(("plan-build-verify".to_string(), starter(STARTER_WORKFLOW)))
-            .chain(
-                BUILTIN_WORKFLOWS
-                    .iter()
-                    .map(|(name, source)| ((*name).to_string(), starter(source))),
-            )
+        serde_json::from_str::<serde_json::Value>(BUILTIN_CATALOG).unwrap()["workflows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| (w["id"].as_str().unwrap().to_owned(), w.clone()))
             .collect()
     }
 
@@ -683,10 +697,18 @@ mod tests {
             .iter()
             .filter(|node| node["type"] == "agent")
             .collect();
-        assert_eq!(agents.len(), 3, "plan, build and review");
+        assert_eq!(
+            agents.len(),
+            5,
+            "plan, then build and verify for each slice"
+        );
         for node in agents {
+            // Verify returns a verdict the gate reads, and it uses tools, so it
+            // is host-validated JSON, never the provider's native schema.
+            let verifier = node["id"].as_str().unwrap().starts_with("verify");
+            let expected = if verifier { "host_validated" } else { "text" };
             assert_eq!(
-                node["config"]["structured_output"], "text",
+                node["config"]["structured_output"], expected,
                 "{}",
                 node["id"]
             );
@@ -714,7 +736,7 @@ mod tests {
     async fn run_text_workflow(inject_failure: bool) {
         let state = HarnessState::new();
         let directory = tempfile::tempdir().unwrap();
-        let mut document = starter(STARTER_WORKFLOW);
+        let mut document = one_slice(starter(STARTER_WORKFLOW));
         // No workspace profile files needed for this transport test.
         for node in document["nodes"].as_array_mut().unwrap() {
             if let Some(id) = node["config"]["profile"]["id"].as_str() {
@@ -742,8 +764,9 @@ mod tests {
         let plan = "## Plan\n1. Preserve `\"quotes\"` and {not JSON}.\n2. Test the change.\n";
         let build =
             "Implemented step 1.\nTests failed: dependency unavailable.\nDo not approve this yet.";
-        let review = "## Review\nIncomplete: test evidence is missing. Install the dependency and rerun the tests.";
-        let replies = [plan, build, review];
+        let summary = "## Verification\nAll checks passed.";
+        let review = json!({"verdict": "pass", "summary": summary}).to_string();
+        let replies = [plan, build, review.as_str()];
         let mut turn = 0;
         let mut failure_sent = false;
         loop {
@@ -776,21 +799,38 @@ mod tests {
                         .collect::<Vec<_>>()
                         .join("\n");
                     assert!(prompt.contains(request));
-                    assert!(!prompt.contains("JSON Schema"));
+                    if turn < 4 {
+                        assert!(
+                            !prompt.contains("JSON Schema"),
+                            "Plan and Build are text steps"
+                        );
+                    }
                     assert!(input["params"]["response_format"].is_null());
+                    // A structured step (Verify) is sent its inputs as JSON, so the
+                    // same text arrives escaped; text steps get it verbatim.
+                    let escaped = |text: &str| {
+                        let quoted = serde_json::to_string(text).unwrap();
+                        quoted[1..quoted.len() - 1].to_string()
+                    };
                     if turn >= 2 {
-                        assert!(prompt.contains(plan), "Plan arrives verbatim");
+                        assert!(
+                            prompt.contains(plan) || prompt.contains(&escaped(plan)),
+                            "Plan arrives intact"
+                        );
+                    }
+                    if turn == 2 || turn == 3 {
+                        assert!(prompt.contains(plan), "Plan arrives verbatim in Build");
                     }
                     if turn >= 4 {
                         assert!(
-                            prompt.contains(build),
-                            "Build arrives verbatim, including failure"
+                            prompt.contains(build) || prompt.contains(&escaped(build)),
+                            "Build arrives intact, including failure"
                         );
                     }
                     let request_id = RequestId::new();
                     // Verify's completion gate wants inspection evidence: it reads a file.
                     let event = if turn % 2 == 0 {
-                        let name = if turn == 4 { "read_file" } else { "list_files" };
+                        let name = if turn == 0 { "list_files" } else { "read_file" };
                         ExecutionEvent::ToolCallRequested {
                             request_id,
                             call: ToolCall {
@@ -850,7 +890,10 @@ mod tests {
                         continue;
                     }
                     assert_eq!(checkpoint["status"], "completed", "{checkpoint}");
-                    assert_eq!(checkpoint["final_output"], review);
+                    assert_eq!(
+                        checkpoint["final_output"], summary,
+                        "the result is Verify's report"
+                    );
                     assert_eq!(
                         checkpoint["steps"]["plan"]["attempts"]
                             .as_array()
@@ -875,16 +918,36 @@ mod tests {
         state.close_session(session).await.unwrap();
     }
 
-    /// The built-in Build and Verify profiles hold a step to its checks when
-    /// the session can run one: Build cannot finish after editing until a
-    /// `run_check` has run since its last edit (reading the file back does not
-    /// count), a failing check is followed by a reminder not to hide it, and
-    /// Verify cannot finish on file reads alone.
+    /// Every current editing workflow has a task queue and a deterministic
+    /// criterion gate; command outcomes alone cannot establish coverage.
+    #[test]
+    fn editing_workflows_require_task_coverage() {
+        for (name, workflow) in builtin_workflows() {
+            let nodes = workflow["nodes"].as_array().unwrap();
+            if let Some(build) = nodes.iter().find(|n| n["config"]["task_queue"].is_object()) {
+                assert_eq!(
+                    build["config"]["task_queue"]["plan_pointer"], "/plan",
+                    "{name}"
+                );
+                assert!(
+                    nodes
+                        .iter()
+                        .any(
+                            |n| n["config"]["checks"].as_array().is_some_and(|checks| checks
+                                .iter()
+                                .any(|c| c["type"] == "requirements_satisfied"))
+                        ),
+                    "{name}"
+                );
+            }
+        }
+    }
+
     #[tokio::test]
-    async fn build_and_verify_must_run_a_check_when_they_can_run_one() {
+    async fn a_failed_verdict_sends_build_back_with_the_findings_until_it_passes() {
         let state = HarnessState::new();
         let directory = tempfile::tempdir().unwrap();
-        let mut document = starter(STARTER_WORKFLOW);
+        let mut document = one_slice(starter(STARTER_WORKFLOW));
         for node in document["nodes"].as_array_mut().unwrap() {
             if let Some(id) = node["config"]["profile"]["id"].as_str() {
                 node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
@@ -896,8 +959,6 @@ mod tests {
             "host_tools": [
                 { "name": "list_files", "description": "List workspace files" },
                 { "name": "read_file", "description": "Read a file" },
-                { "name": "write_file", "description": "Write a file" },
-                { "name": "run_check", "description": "Run a check" },
             ],
         });
         let session = state
@@ -913,22 +974,20 @@ mod tests {
             .await
             .unwrap();
 
-        // One scripted model turn per request; `None` is a text answer.
-        let script: [Option<&str>; 11] = [
-            Some("list_files"), // Plan looks around
-            None,               // ... and plans
-            Some("write_file"), // Build edits
-            Some("read_file"),  // ... reads the file back, which the old gate accepted as checking
-            None,               // ... and tries to finish: rejected, no check has run
-            Some("run_check"),  // ... runs the check, which fails
-            Some("run_check"),  // ... runs it again, which passes
-            None,               // ... and finishes
-            None,               // Verify tries to finish without running a check: rejected
-            Some("run_check"),  // ... runs one
-            None,               // ... and reports
+        let finding = "src/a.ts:3 typecheck error TS2322";
+        let failing =
+            json!({"verdict": format!("fail: {finding}"), "summary": "Not done."}).to_string();
+        let passing =
+            json!({"verdict": "pass", "summary": "## Verified\nAll checks passed."}).to_string();
+        // Every step is a tool call then a text answer: plan, build, verify (fails), build again, verify (passes).
+        let replies = [
+            "The plan",
+            "Built it",
+            failing.as_str(),
+            "Fixed it",
+            passing.as_str(),
         ];
         let mut turn = 0;
-        let mut checks_run = 0;
         loop {
             let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv())
                 .await
@@ -936,45 +995,40 @@ mod tests {
                 .unwrap();
             match event {
                 BridgeEvent::HostExecuteCall { call_id, input, .. } => {
-                    // Everything the model is sent, whatever the block type: a rule's
-                    // reminder rides on the tail of the request, which after a tool call
-                    // is the tool's result rather than a plain text block.
                     let prompt = input["messages"].to_string();
-                    match turn {
-                        5 => assert!(
-                            prompt.contains("[checked-after-editing] You changed files but have not run a check since your last edit."),
-                            "reading the file back does not satisfy Build's gate: {prompt}"
-                        ),
-                        6 => assert!(
-                            prompt.contains("A check failed after your last edit and none has passed since."),
-                            "a failing check is followed by a reminder not to hide it: {prompt}"
-                        ),
-                        9 => assert!(
-                            prompt.contains("[verification-evidence] Reading files is not verification."),
-                            "Verify is sent back to run a check: {prompt}"
-                        ),
-                        _ => {}
+                    if turn == 6 {
+                        assert!(
+                            prompt.contains("<rejections>"),
+                            "Build is told why it is back: {prompt}"
+                        );
+                        assert!(prompt.contains("verification_failed"), "{prompt}");
+                        assert!(
+                            prompt.contains(finding),
+                            "Build receives the checker's findings: {prompt}"
+                        );
+                    }
+                    if turn == 8 {
+                        assert!(
+                            prompt.contains("Fixed it"),
+                            "the second Verify sees the second Build: {prompt}"
+                        );
                     }
                     let request_id = RequestId::new();
-                    let (event, finish) = match script[turn] {
-                        Some(name) => (
-                            ExecutionEvent::ToolCallRequested {
-                                request_id,
-                                call: ToolCall {
-                                    id: ToolCallId::new(),
-                                    name: name.into(),
-                                    arguments: json!({"check": "typecheck", "path": "."}),
-                                },
+                    let event = if turn % 2 == 0 {
+                        let name = "read_file";
+                        ExecutionEvent::ToolCallRequested {
+                            request_id,
+                            call: ToolCall {
+                                id: ToolCallId::new(),
+                                name: name.into(),
+                                arguments: json!({"path": "."}),
                             },
-                            "tool_use",
-                        ),
-                        None => (
-                            ExecutionEvent::TextDelta {
-                                request_id,
-                                delta: format!("Handoff {turn}"),
-                            },
-                            "end_turn",
-                        ),
+                        }
+                    } else {
+                        ExecutionEvent::TextDelta {
+                            request_id,
+                            delta: replies[turn / 2].into(),
+                        }
                     };
                     state.host_execute_event(session, &call_id, event).unwrap();
                     state
@@ -985,45 +1039,183 @@ mod tests {
                                 request_id,
                                 usage: ModelUsage::default(),
                                 cost: Cost::default(),
-                                finish_reason: finish.into(),
+                                finish_reason: if turn % 2 == 0 {
+                                    "tool_use".into()
+                                } else {
+                                    "end_turn".into()
+                                },
                             }),
                         )
                         .unwrap();
                     turn += 1;
                 }
-                BridgeEvent::HostToolCall { call_id, tool, .. } => {
-                    let result = if tool == "run_check" {
-                        checks_run += 1;
-                        // The first check fails; a failed check is a failed tool call.
-                        if checks_run == 1 {
-                            Err("typecheck for the workspace root: FAILED".to_string())
-                        } else {
-                            Ok(json!("typecheck for the workspace root: PASSED"))
-                        }
-                    } else {
-                        Ok(json!({"files": []}))
-                    };
-                    state.host_tool_result(session, &call_id, result).unwrap();
+                BridgeEvent::HostToolCall { call_id, .. } => {
+                    state
+                        .host_tool_result(session, &call_id, Ok(json!({"files": []})))
+                        .unwrap();
                 }
                 BridgeEvent::WorkflowFinished { state: checkpoint } => {
                     assert_eq!(checkpoint["status"], "completed", "{checkpoint}");
-                    assert_eq!(
-                        checkpoint["steps"]["build"]["attempts"]
+                    let attempts = |step: &str| {
+                        checkpoint["steps"][step]["attempts"]
                             .as_array()
                             .unwrap()
-                            .len(),
-                        1,
-                        "the gate held Build to one attempt"
-                    );
+                            .len()
+                    };
+                    assert_eq!(attempts("plan"), 1, "Plan is not repeated");
+                    assert_eq!(attempts("build"), 2);
+                    assert_eq!(attempts("verify"), 2);
                     assert_eq!(
-                        checkpoint["steps"]["verify"]["attempts"]
+                        checkpoint["final_output"],
+                        "## Verified\nAll checks passed."
+                    );
+                    assert_eq!(turn, 10);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        state.close_session(session).await.unwrap();
+    }
+
+    /// The work is built in two slices, each verified before the next starts: a
+    /// failure in the second slice sends only the second Build back, with the
+    /// first slice's handoff still in front of it, and the result is the second
+    /// Verify's report.
+    #[tokio::test]
+    async fn a_failure_in_the_second_slice_retries_only_the_second_slice() {
+        let state = HarnessState::new();
+        let directory = tempfile::tempdir().unwrap();
+        let mut document = starter(STARTER_WORKFLOW);
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+            }
+        }
+        let recipe = json!({
+            "workspace": { "root": directory.path(), "binding": "host" },
+            "integration": "host", "workflow": document,
+            "host_tools": [
+                { "name": "list_files", "description": "List workspace files" },
+                { "name": "read_file", "description": "Read a file" },
+            ],
+        });
+        let session = state
+            .create_session(serde_json::from_value(recipe).unwrap())
+            .await
+            .unwrap();
+        let mut inbox = state.take_inbox(session).unwrap();
+        state
+            .start_workflow(
+                session,
+                json!({"request": "Implement the requested feature"}),
+            )
+            .await
+            .unwrap();
+
+        let finding = "src/b.ts:9 test failed: adds two numbers";
+        let pass = json!({"verdict": "pass", "summary": "Slice one verified."}).to_string();
+        let failing =
+            json!({"verdict": format!("fail: {finding}"), "summary": "Not done."}).to_string();
+        let done =
+            json!({"verdict": "pass", "summary": "## Verified\nBoth slices pass."}).to_string();
+        // Every step is a tool call then a text answer: plan, build, verify, build 2, verify 2 (fails),
+        // build 2 again, verify 2 (passes).
+        let replies = [
+            "## Slice 1\n1. a.ts\n## Slice 2\n2. b.ts",
+            "Built slice one",
+            pass.as_str(),
+            "Built slice two",
+            failing.as_str(),
+            "Fixed slice two",
+            done.as_str(),
+        ];
+        let mut turn = 0;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match event {
+                BridgeEvent::HostExecuteCall { call_id, input, .. } => {
+                    let prompt = input["messages"].to_string();
+                    if turn == 6 {
+                        assert!(
+                            prompt.contains("Built slice one"),
+                            "Build part 2 starts from the first slice: {prompt}"
+                        );
+                        assert!(!prompt.contains("<rejections>"), "{prompt}");
+                    }
+                    if turn == 10 {
+                        assert!(
+                            prompt.contains("<rejections>"),
+                            "Build part 2 is told why it is back: {prompt}"
+                        );
+                        assert!(
+                            prompt.contains(finding),
+                            "it receives the checker's findings: {prompt}"
+                        );
+                        assert!(
+                            prompt.contains("Built slice one"),
+                            "and still has the first slice: {prompt}"
+                        );
+                    }
+                    let request_id = RequestId::new();
+                    let event = if turn % 2 == 0 {
+                        let name = "read_file";
+                        ExecutionEvent::ToolCallRequested {
+                            request_id,
+                            call: ToolCall {
+                                id: ToolCallId::new(),
+                                name: name.into(),
+                                arguments: json!({"path": "."}),
+                            },
+                        }
+                    } else {
+                        ExecutionEvent::TextDelta {
+                            request_id,
+                            delta: replies[turn / 2].into(),
+                        }
+                    };
+                    state.host_execute_event(session, &call_id, event).unwrap();
+                    state
+                        .host_execute_result(
+                            session,
+                            &call_id,
+                            Ok(ExecutionResult {
+                                request_id,
+                                usage: ModelUsage::default(),
+                                cost: Cost::default(),
+                                finish_reason: if turn % 2 == 0 {
+                                    "tool_use".into()
+                                } else {
+                                    "end_turn".into()
+                                },
+                            }),
+                        )
+                        .unwrap();
+                    turn += 1;
+                }
+                BridgeEvent::HostToolCall { call_id, .. } => {
+                    state
+                        .host_tool_result(session, &call_id, Ok(json!({"files": []})))
+                        .unwrap();
+                }
+                BridgeEvent::WorkflowFinished { state: checkpoint } => {
+                    assert_eq!(checkpoint["status"], "completed", "{checkpoint}");
+                    let attempts = |step: &str| {
+                        checkpoint["steps"][step]["attempts"]
                             .as_array()
                             .unwrap()
-                            .len(),
-                        1
-                    );
-                    assert_eq!(turn, 11, "every scripted turn was used, and no more");
-                    assert_eq!(checks_run, 3, "two in Build and one in Verify");
+                            .len()
+                    };
+                    assert_eq!(attempts("plan"), 1, "Plan is not repeated");
+                    assert_eq!(attempts("build"), 1, "slice one is not rebuilt");
+                    assert_eq!(attempts("verify"), 1, "nor re-verified");
+                    assert_eq!(attempts("build_2"), 2);
+                    assert_eq!(attempts("verify_2"), 2);
+                    assert_eq!(checkpoint["final_output"], "## Verified\nBoth slices pass.");
+                    assert_eq!(turn, 14);
                     break;
                 }
                 _ => {}
@@ -1426,12 +1618,16 @@ mod tests {
         std::fs::create_dir_all(root.join("src")).unwrap();
         std::fs::write(
             root.join(".rusty/profiles/plan.json"),
-            include_str!("../../../src/components/tabs/behaviors/starter/v2/plan.profile.json"),
+            include_str!(
+                "../../../src/components/tabs/behaviors/starter/legacy/v2/plan.profile.json"
+            ),
         )
         .unwrap();
         std::fs::write(
             root.join(".rusty/profiles/build.json"),
-            include_str!("../../../src/components/tabs/behaviors/starter/v2/build.profile.json"),
+            include_str!(
+                "../../../src/components/tabs/behaviors/starter/legacy/v2/build.profile.json"
+            ),
         )
         .unwrap();
         std::fs::write(root.join("src/lib.rs"), "pub fn answer() -> u32 { 42 }\n").unwrap();
@@ -1458,7 +1654,7 @@ mod tests {
                 { "name": "write_file", "description": "Write a file" },
                 { "name": "list_files", "description": "List files" },
             ],
-            "workflow": starter(include_str!("../../../src/components/tabs/behaviors/starter/v2/plan-build-verify.workflow.json")),
+            "workflow": starter(include_str!("../../../src/components/tabs/behaviors/starter/legacy/v2/plan-build-verify.workflow.json")),
         }))
         .unwrap();
         let session_id = state
@@ -1596,12 +1792,23 @@ mod tests {
                 .split_once("\n</workflow_input>")
                 .unwrap()
                 .0;
-            let handoff: serde_json::Value = serde_json::from_str(handoff).unwrap();
-            assert_eq!(handoff["request"], "add answer()");
-            assert_eq!(
-                handoff["plan"], plan,
-                "Build turn {turn} must retain the full plan"
+            assert!(
+                handoff.contains("## request\nadd answer()"),
+                "Build turn {turn} receives the request as Markdown: {handoff}"
             );
+            for kept in [
+                "## plan",
+                "Add answer()",
+                "Add the function",
+                "Edit src/lib.rs",
+                "src/lib.rs",
+            ] {
+                assert!(
+                    handoff.contains(kept),
+                    "Build turn {turn} must retain the full plan ({kept}): {handoff}"
+                );
+            }
+            assert!(!handoff.contains('{'), "the handoff is Markdown, not JSON");
             if turn >= 7 {
                 assert!(
                     prompt.contains("<rejections>"),

@@ -132,7 +132,7 @@ const WorkflowSettings: React.FC<WorkflowInspectorProps> = ({ workflow, issues, 
         <JsonField
           id={field("output")}
           label="Output contract"
-          hint="The schema the workflow's result must match, and which step produces it."
+          hint="Optional. By default the result is the text of the output step; set this only to check it against a schema."
           value={workflow.output_contract}
           onChange={(value) => set("output_contract", value)}
         />
@@ -230,6 +230,15 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
                 onChange={(e) => setConfig("instructions", e.target.value)}
               />
             </Field>
+            {isObject(config.task_queue) ? (
+              <JsonField
+                id={field("task-queue")}
+                label="Task queue and reviewer"
+                hint="Runs every planned task in a fresh builder and reviewer session. Accepted tasks are saved before continuing. The review profile, full review instructions and local repair limit are shown here."
+                value={config.task_queue}
+                onChange={(value) => setConfig("task_queue", value)}
+              />
+            ) : null}
             {config.structured_output === "text" ? (
               <div>
                 <div className={styles.sectionTitle}>Context from earlier steps</div>
@@ -356,7 +365,9 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
               onChange={(e) => {
                 const source = { type: "node_output", node_id: e.target.value, pointer: "" };
                 const next = replaceStep(workflow, stepId, { ...step, config: { ...config, source } });
-                onChange({ ...next, output_contract: { ...(isObject(workflow.output_contract) ? workflow.output_contract : {}), source } });
+                // A custom output contract names its source too; keep it in step.
+                onChange(isObject(workflow.output_contract) && "source" in workflow.output_contract
+                  ? { ...next, output_contract: { ...workflow.output_contract, source } } : next);
               }} />
           </Field>
           <details><summary>Advanced source mapping</summary>

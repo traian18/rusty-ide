@@ -65,7 +65,7 @@ function setup(tree: Tree, runs: (Run | Error)[], options: { exists?: string[]; 
     throw new Error(`unexpected command ${command}`);
   });
   const decisions = [...(options.decisions ?? [])];
-  const requestPermission = vi.fn(async () => (decisions.shift() ?? "allow_once") as "allow_once" | "deny");
+  const requestPermission = vi.fn(async (_request: { description: string }) => (decisions.shift() ?? "allow_once") as "allow_once" | "deny");
   const host = {
     readFile: vi.fn(async (path: string) => {
       const relative = path.replace(/^\/ws\//, "");
@@ -106,7 +106,7 @@ describe("runCheckTool", () => {
 
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("expected a failure");
-    expect(outcome.error.startsWith("typecheck for ide: FAILED")).toBe(true);
+    expect(String(outcome.error).startsWith("typecheck for ide: FAILED")).toBe(true);
     expect(outcome.error).toContain("[1/1] npm run typecheck (cwd: ide): FAILED (exit 2)");
     expect(outcome.error).toContain("- src/a.ts:1:14 [TS2322] Type 'string' is not assignable to type 'number'.");
     expect(outcome.error).toContain("3 errors:");
@@ -117,7 +117,7 @@ describe("runCheckTool", () => {
     const outcome = await tool({ check: "typecheck" }, signal);
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
-    expect(outcome.output.startsWith("typecheck for ide: PASSED")).toBe(true);
+    expect(String(outcome.output).startsWith("typecheck for ide: PASSED")).toBe(true);
     expect(outcome.output).toContain("Overall: PASSED");
   });
 
@@ -215,7 +215,7 @@ describe("runCheckTool", () => {
       const outcome = await install(undefined, signal);
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
-      expect(outcome.output.startsWith("install for ide: PASSED")).toBe(true);
+      expect(String(outcome.output).startsWith("install for ide: PASSED")).toBe(true);
       expect(executed[0]).toMatchObject({ program: "npm", args: ["install"], cwd: "/ws/ide", timeoutMs: 600_000 });
       expect(requestPermission).toHaveBeenCalledWith(expect.objectContaining({ description: "The agent wants to install the project's dependencies: npm install" }), signal);
     });
@@ -328,8 +328,8 @@ describe("runCheckTool", () => {
 describe("INSTALL_DEPENDENCIES_TOOL", () => {
   it("takes only an optional path and timeout, and says it is not a check", () => {
     expect(INSTALL_DEPENDENCIES_TOOL.name).toBe("install_dependencies");
-    expect(INSTALL_DEPENDENCIES_TOOL.input_schema.required).toEqual([]);
-    expect(Object.keys(INSTALL_DEPENDENCIES_TOOL.input_schema.properties as object)).toEqual(["path", "timeout_seconds"]);
+    expect((INSTALL_DEPENDENCIES_TOOL.input_schema as Record<string, unknown>).required).toEqual([]);
+    expect(Object.keys((INSTALL_DEPENDENCIES_TOOL.input_schema as Record<string, unknown>).properties as object)).toEqual(["path", "timeout_seconds"]);
     expect(INSTALL_DEPENDENCIES_TOOL.description).toMatch(/not a check and proves nothing about the code/);
   });
 });
@@ -357,7 +357,7 @@ describe("running one test", () => {
     expect(asked(requestPermission)).toEqual([`The agent wants to run the project's test check (only test_name "orders checks"): npm run test -- -t orders checks`]);
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) throw new Error("expected ok");
-    expect(outcome.output.startsWith('test for web (only test_name "orders checks"): PASSED')).toBe(true);
+    expect(String(outcome.output).startsWith('test for web (only test_name "orders checks"): PASSED')).toBe(true);
     expect(outcome.output).toContain("Result: 1 passed | 49 skipped (50)");
   });
 
@@ -366,7 +366,7 @@ describe("running one test", () => {
     const outcome = await tool({ check: "test", test_name: "zzznomatch" }, signal);
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("expected a failure");
-    expect(outcome.error.startsWith('test for web (only test_name "zzznomatch"): FAILED')).toBe(true);
+    expect(String(outcome.error).startsWith('test for web (only test_name "zzznomatch"): FAILED')).toBe(true);
     expect(outcome.error).toContain("Nothing was checked");
   });
 
@@ -448,15 +448,15 @@ describe("running one test", () => {
 describe("RUN_CHECK_TOOL", () => {
   it("offers exactly the check kinds the analysis can detect, and only check is required", () => {
     expect(RUN_CHECK_TOOL.name).toBe("run_check");
-    expect(RUN_CHECK_TOOL.input_schema.required).toEqual(["check"]);
-    const props = RUN_CHECK_TOOL.input_schema.properties as Record<string, { enum?: string[] }>;
-    expect(Object.keys(props)).toEqual(["check", "path", "test_name", "test_file", "timeout_seconds"]);
+    expect((RUN_CHECK_TOOL.input_schema as Record<string, unknown>).required).toEqual(["check"]);
+    const props = (RUN_CHECK_TOOL.input_schema as Record<string, unknown>).properties as Record<string, { enum?: string[] }>;
+    expect(Object.keys(props)).toEqual(["fresh", "check", "path", "test_name", "test_file", "timeout_seconds"]);
     expect(props.check.enum).toEqual(["typecheck", "lint", "test", "build", "format"]);
   });
 
   it("does not list install among its checks, and sends the model to install_dependencies for it", () => {
     expect(CHECK_IDS).not.toContain("install");
-    expect(RUN_CHECK_TOOL.description).toMatch(/call install_dependencies and run the check again/);
+    expect(RUN_CHECK_TOOL.description).toMatch(/missing executable is an environment blocker/);
   });
 
   it("tells a model what it returns and that approval still applies", () => {

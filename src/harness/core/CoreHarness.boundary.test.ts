@@ -261,7 +261,7 @@ describe("workflow graph helpers", () => {
     const state = { steps: { build: { status: "succeeded", output: { summary: "ok" } }, plan: { status: "succeeded", output: "the plan" }, verify: { status: "running" } } };
     expect(finishedAgentSteps(WORKFLOW, state)).toEqual([
       { id: "plan", name: "Plan", output: "the plan" },
-      { id: "build", name: "Build", output: '{"summary":"ok"}' },
+      { id: "build", name: "Build", output: "## summary\nok" },
     ]);
     expect(finishedAgentSteps(WORKFLOW, undefined)).toEqual([]);
   });

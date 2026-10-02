@@ -126,6 +126,11 @@ pub async fn run_shell_command(
     let registration = CancelRegistration::new(execution_id);
 
     let mut command = Command::new(&program);
+    // Finder/Dock sessions need the same executable search path as MCP tools.
+    #[cfg(feature = "core-harness")]
+    if let Some(path) = crate::harness::user_path::user_path() {
+        command.env("PATH", path);
+    }
     command
         .args(&args)
         .current_dir(&cwd)

@@ -1,3 +1,4 @@
+import { CHAT_RENDER_CHARS } from "../../../config/chatLimits";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentChatInput } from "../../contract";
@@ -502,7 +503,7 @@ describe("agentChatDefinition", () => {
 
   it("tells the agent to put responses too long for the chat into a file, with the tool it actually has", () => {
     const prompt = agentChatDefinition.recipe!(input()).system_prompt ?? "";
-    expect(prompt).toContain("if a response would exceed about 32,000 characters");
+    expect(prompt).toContain(`if a response would exceed about ${CHAT_RENDER_CHARS.toLocaleString("en-US")} characters`);
     expect(prompt).toContain("with 'write_file' instead of the chat");
 
     const planPrompt = agentChatDefinition.recipe!(input({ planOnly: true })).system_prompt ?? "";

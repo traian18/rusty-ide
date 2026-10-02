@@ -216,6 +216,21 @@ export class TrajectoryStore {
       }
     }
     this.drainText();
+    if (source === "ModelRequestPrepared") {
+      // Redact the whole request BEFORE splitting so a credential cannot leak
+      // across chunk boundaries. Ordinary event previews keep their size caps.
+      const sanitized = sanitizeForObservability(payload, true);
+      const serialized = JSON.stringify(sanitized.value);
+      const traceId = crypto.randomUUID();
+      const parts = Math.ceil(serialized.length / 12000);
+      for (let part = 0; part < parts; part++) {
+        this.appendEntry(id, source, {
+          traceId, part: part + 1, parts, encoding: "json", state: sanitized.state,
+          content: serialized.slice(part * 12000, (part + 1) * 12000),
+        }, { ...metadata, id: `${traceId}:${part}` });
+      }
+      return;
+    }
     this.appendEntry(id, source, payload, metadata);
   }
   private drainText() {

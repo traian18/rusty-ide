@@ -139,8 +139,8 @@ describe("projectInfoTool", () => {
 
   it("advertises one optional path argument and tells models to call it before building", () => {
     expect(PROJECT_INFO_TOOL.name).toBe("project_info");
-    expect(Object.keys(PROJECT_INFO_TOOL.input_schema.properties as object)).toEqual(["path"]);
-    expect(PROJECT_INFO_TOOL.input_schema.required).toEqual([]);
+    expect(Object.keys((PROJECT_INFO_TOOL.input_schema as Record<string, unknown>).properties as object)).toEqual(["path"]);
+    expect((PROJECT_INFO_TOOL.input_schema as Record<string, unknown>).required).toEqual([]);
     expect(PROJECT_INFO_TOOL.description).toMatch(/Call it before running any build, test or verification/);
   });
 });

@@ -18,7 +18,7 @@ const HISTORY = ["ship it", "add tests", "fix the build"];
 
 let root: Root;
 let container: HTMLDivElement;
-let onSend: ReturnType<typeof vi.fn>;
+let onSend: ReturnType<typeof vi.fn<(...args: unknown[]) => void>>;
 
 function Harness({ history = HISTORY, initial = "", disabled = false }: { history?: readonly string[]; initial?: string; disabled?: boolean }) {
   const [value, setValue] = useState(initial);

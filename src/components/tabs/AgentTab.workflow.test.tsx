@@ -270,17 +270,18 @@ describe("Agent chat workflows", () => {
     await choose(STAGE_PATH);
     expect(container.textContent).not.toContain("building on the last result in this chat");
     await send("go with the queue, skip the migration");
-    expect(run.mock.calls[0][1].workflow.input).toEqual({
+    expect(run.mock.calls[0][1].workflow.input).toMatchObject({
       request: "go with the queue, skip the migration",
       attachments: [],
       context: "## Findings\nThe queue lives in sync.rs.",
+      conversation: [{ role: "user", content: "how does sync work" }, { role: "assistant", content: "## Findings\nThe queue lives in sync.rs." }, { role: "user", content: "go with the queue, skip the migration" }],
     });
   });
 
   it("gives a stage an empty context in a fresh chat", async () => {
     await choose(STAGE_PATH);
     await send("investigate the cache");
-    expect(run.mock.calls[0][1].workflow.input).toEqual({ request: "investigate the cache", attachments: [], context: "" });
+    expect(run.mock.calls[0][1].workflow.input).toMatchObject({ request: "investigate the cache", attachments: [], context: "" });
   });
 
   const finished = (response: string) => ({
@@ -311,7 +312,7 @@ describe("Agent chat workflows", () => {
     it("sends a first message exactly as typed", async () => {
       await choose(FLOW_PATH);
       await send("implement the profiles");
-      expect(run.mock.calls[0][1].workflow.input).toEqual({ request: "implement the profiles", attachments: [] });
+      expect(run.mock.calls[0][1].workflow.input).toMatchObject({ request: "implement the profiles", attachments: [] });
     });
   });
 
@@ -412,7 +413,7 @@ describe("Agent chat workflows", () => {
       expect(decisionCalls()).toHaveLength(1);
       expect(String(decisionCalls()[0][1].body)).toContain("how does sync work");
       expect(workflowId()).toBe("rusty-ide.builtin.investigate");
-      expect(run.mock.calls[0][1].workflow.input).toEqual({ request: "how does sync work", attachments: [], context: "Earlier answer about sync." });
+      expect(run.mock.calls[0][1].workflow.input).toMatchObject({ request: "how does sync work", attachments: [], context: "Earlier answer about sync." });
       expect(run.mock.calls[0][1].skill.name).toBe("build");
       expect(container.textContent).toContain("↳ AUTO · Stage: Research & analyze (90% confidence)");
       expect(questionButton("Run ")).toBeUndefined();
@@ -435,7 +436,7 @@ describe("Agent chat workflows", () => {
       expect(routerState).toContain("and what about retries");
       expect(routerState).toContain("how does sync work");
       expect(routerState).toContain("Sync lives in queue.rs.");
-      expect(run.mock.calls[1][1].workflow.input).toEqual({ request: "and what about retries", attachments: [], context: "## Findings\nSync lives in queue.rs." });
+      expect(run.mock.calls[1][1].workflow.input).toMatchObject({ request: "and what about retries", attachments: [], context: "## Findings\nSync lives in queue.rs." });
 
       // A message the router sends to the single agent still has everything said so far.
       run.mockImplementationOnce(() => finished("Retries back off twice."));
@@ -590,7 +591,7 @@ describe("Agent chat workflows", () => {
         expect(run).toHaveBeenCalledTimes(2);
         const [, second] = run.mock.calls[1];
         expect(second.workflow.definition.id).toBe("rusty-ide.builtin.diagnose");
-        expect(second.workflow.input).toEqual({ request: "investigate the cache", attachments: [], context: "Handed over: diagnose context" });
+        expect(second.workflow.input).toMatchObject({ request: "investigate the cache", attachments: [], context: "Handed over: diagnose context" });
         expect(second.skill.name).toBe("build");
         // The announcement is in the chat, and the turn did not end.
         expect(container.textContent).toContain("↪ AUTO · Handing over to Stage: Debug & plan a fix (86% confidence): it fits.");

@@ -9,7 +9,7 @@ export interface SanitizedValue {
   state: "full" | "truncated" | "redacted";
 }
 
-export function sanitizeForObservability(input: unknown): SanitizedValue {
+export function sanitizeForObservability(input: unknown, preserveContent = false): SanitizedValue {
   let redacted = false;
   let truncated = false;
   const seen = new WeakSet<object>();
@@ -24,7 +24,7 @@ export function sanitizeForObservability(input: unknown): SanitizedValue {
         redacted = true;
         return "[REDACTED]";
       });
-      if (scrubbed.length > MAX_STRING) {
+      if (!preserveContent && scrubbed.length > MAX_STRING) {
         truncated = true;
         return `${scrubbed.slice(0, MAX_STRING)}\n… [truncated ${scrubbed.length - MAX_STRING} characters]`;
       }
@@ -39,7 +39,7 @@ export function sanitizeForObservability(input: unknown): SanitizedValue {
       return `[${typeof value}]`;
     }
     if (value === null || typeof value !== "object") return value;
-    if (depth >= MAX_DEPTH) {
+    if (depth >= (preserveContent ? 100 : MAX_DEPTH)) {
       truncated = true;
       return "[depth limit]";
     }
@@ -49,14 +49,14 @@ export function sanitizeForObservability(input: unknown): SanitizedValue {
     }
     seen.add(value);
     if (Array.isArray(value)) {
-      if (value.length > 100) truncated = true;
-      return value.slice(0, 100).map((entry) => visit(entry, depth + 1));
+      if (!preserveContent && value.length > 100) truncated = true;
+      return value.slice(0, preserveContent ? undefined : 100).map((entry) => visit(entry, depth + 1));
     }
     const result: Record<string, unknown> = {};
-    for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>).slice(0, 100)) {
+    for (const [entryKey, entryValue] of Object.entries(value as Record<string, unknown>).slice(0, preserveContent ? undefined : 100)) {
       result[entryKey] = visit(entryValue, depth + 1, entryKey);
     }
-    if (Object.keys(value as object).length > 100) truncated = true;
+    if (!preserveContent && Object.keys(value as object).length > 100) truncated = true;
     return result;
   };
 
@@ -69,7 +69,7 @@ export function sanitizeForObservability(input: unknown): SanitizedValue {
     value = "[unserializable payload]";
     serialized = JSON.stringify(value);
   }
-  if (serialized && serialized.length > MAX_SERIALIZED) {
+  if (!preserveContent && serialized && serialized.length > MAX_SERIALIZED) {
     truncated = true;
     value = {
       preview: serialized.slice(0, MAX_SERIALIZED),

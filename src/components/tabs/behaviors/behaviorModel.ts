@@ -413,7 +413,9 @@ export function newWorkflow(id: string, template: JsonObject | undefined): JsonO
     if (step.type === "output") return { ...rest, config: { source, strict: false } };
     return rest;
   });
-  return { ...base, nodes, input_schema: null, output_contract: { schema, source, strict: false },
+  // No output contract: the result is the output node's text.
+  const { output_contract: _contract, ...rest } = base;
+  return { ...rest, nodes, input_schema: null,
     policies: {}, id, revision: 1, name: id, status: "draft" };
 }
 

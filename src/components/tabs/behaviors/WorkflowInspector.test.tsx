@@ -34,13 +34,18 @@ it("edits and clears optional budgets through numeric fields, preserving other s
   expect(host.querySelector('textarea[id$="policies"]')).toBeNull();
 });
 
-it("lets a text step select context without editing JSON", () => {
-  mount({ kind: "step", id: "build" });
+it("lets a workflow step select context without editing JSON", () => {
+  mount({ kind: "step", id: "build" }, {
+    ...STARTER_WORKFLOW,
+    nodes: (STARTER_WORKFLOW.nodes as JsonObject[]).map(node => node.id === "build" ? {
+      ...node, config: { ...(node.config as JsonObject), structured_output: "text" },
+    } : node),
+  });
   const planLabel = [...host.querySelectorAll("label")].find((label) => label.textContent?.trim() === "Plan")!;
   const checkbox = planLabel.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   expect(checkbox.checked).toBe(true);
   act(() => checkbox.click());
   const build = (saved.nodes as JsonObject[]).find((node) => node.id === "build")!;
-  expect(build.input_bindings).toEqual([{ target: "request", source: { type: "run_input", pointer: "/request" } }]);
+  expect(build.input_bindings).toEqual([{ target: "request", source: { type: "run_input", pointer: "/request" } }, { target: "context", source: { type: "run_input", pointer: "/context" } }]);
   expect(host.textContent).toContain("Response format");
 });

@@ -8,6 +8,8 @@
  * outcome. Pure, so the mapping is testable without a session.
  */
 
+import { markdownText } from "./markdownText";
+
 export type WorkflowStepStatus = "running" | "waiting" | "retry" | "succeeded" | "failed";
 
 export interface FailedWorkflowCheckpoint {
@@ -121,7 +123,7 @@ export function finishedAgentSteps(definition: unknown, state: unknown): Finishe
     .filter((id) => types.get(id) === "agent" && steps[id]?.status === "succeeded")
     .map((id) => {
       const output = steps[id]?.output;
-      return { id, name: names[id] ?? id, output: typeof output === "string" ? output : output === undefined || output === null ? "" : JSON.stringify(output) };
+      return { id, name: names[id] ?? id, output: output === undefined || output === null ? "" : markdownText(output) };
     });
 }
 
@@ -146,6 +148,8 @@ export function describeWorkflowEvent(
   switch (event.type) {
     case "run_started":
       return { log: "Workflow started." };
+    case "task_progress":
+      return { log: `${name}: ${event.completed} of ${event.total} tasks inspected and checkpointed.` };
     case "step_started":
       return {
         log: attempt > 1 ? `Step ${name}: attempt ${attempt}…` : `Step ${name}…`,
@@ -197,13 +201,14 @@ export function workflowOutcome(state: unknown): WorkflowOutcome {
   };
 }
 
-/** A workflow's output as chat text: its summary when it has one, else JSON. */
+/** A workflow's output as chat text: its summary first when it has one, then
+ * the rest as Markdown sections. Never JSON. */
 export function formatWorkflowOutput(output: unknown): string {
   if (typeof output === "string") return output;
-  if (output && typeof output === "object") {
-    const summary = (output as { summary?: unknown }).summary;
-    const json = "```json\n" + JSON.stringify(output, null, 2) + "\n```";
-    return typeof summary === "string" && summary ? `${summary}\n\n${json}` : json;
+  if (output && typeof output === "object" && !Array.isArray(output)) {
+    const { summary, ...rest } = output as { summary?: unknown };
+    const details = markdownText(rest);
+    return typeof summary === "string" && summary ? (details ? `${summary}\n\n${details}` : summary) : details;
   }
   return output === null || output === undefined ? "The workflow completed without output." : String(output);
 }
@@ -330,7 +335,7 @@ export function withConversation(
  * `context` (an earlier result, "" when there is none) is added for a workflow
  * whose steps read it.
  */
-export function workflowInputFor(message: string, parseJson = false, context?: string): unknown {
+export function workflowInputFor(message: string, parseJson = false, context?: string, conversation?: ReadonlyArray<{ role: string; content: string }>): unknown {
   const trimmed = message.trim();
   if (parseJson && trimmed.startsWith("{")) {
     try {
@@ -342,5 +347,5 @@ export function workflowInputFor(message: string, parseJson = false, context?: s
       // Not JSON: a request that happens to start with a brace.
     }
   }
-  return { request: message, attachments: [], ...(context === undefined ? {} : { context }) };
+  return { request: message, attachments: [], ...(context === undefined ? {} : { context }), ...(conversation ? { conversation: conversation.filter(m => m.role === "user" || (m.role === "assistant" && !NOT_A_RESULT.test(m.content))).map(({role, content}) => ({role, content})) } : {}) };
 }

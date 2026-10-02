@@ -807,7 +807,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             // that only reads the request would otherwise see a bare follow-up and
             // start from nothing, so the conversation goes behind its request.
             input: workflowUsesContext(workflowDefinition)
-              ? workflowInputFor(messageToSend, Boolean(workflowDefinition.input_schema), plan.context ?? conversationResults(chatHistory))
+              ? workflowInputFor(messageToSend, Boolean(workflowDefinition.input_schema), plan.context ?? conversationResults(chatHistory), chatHistory)
               : workflowInputFor(
                 workflowDefinition.input_schema
                   ? messageToSend

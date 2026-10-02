@@ -27,7 +27,7 @@ mod managed_models;
 mod managed_quota;
 mod recipe;
 mod session;
-mod user_path;
+pub(crate) mod user_path;
 mod workflow;
 
 pub use bridge_event::BridgeEvent;

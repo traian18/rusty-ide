@@ -10,6 +10,7 @@ export const PROFILE_TOOLS = [
   // Run Commands. A profile can still name them to allow or deny one on its own.
   { id: "edit_file", label: "Edit Part of a File" },
   { id: "project_info", label: "Project Info" },
+  { id: "read_workflow_context", label: "Read Workflow Context" },
   { id: "run_check", label: "Run Project Checks" },
   { id: "install_dependencies", label: "Install Dependencies" },
   { id: "open_document", label: "Open Document" },

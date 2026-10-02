@@ -1,3 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
+import { CheckEvidenceLedger } from "../checkEvidence";
+import { WORKFLOW_CONTEXT_TOOL, workflowContextTool } from "./workflowContextTool";
 // ============================================================
 // definitions/agent_chat.ts — agent_chat on rusty-core (Milestone C): the
 // interactive Agent Tab / Explorer chat surface, and the biggest
@@ -466,7 +469,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       throw new Error(`CoreHarness: agent_chat cannot run on core -- ${mapped.reason}`);
     }
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly) };
-    const toolSpecs = toolSpecsFor(asSkill(input.skill), mode);
+    const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : [])];
     const mcpConfigs = asMcpServerConfigs(input.mcpServers);
     const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
     for (const { reason } of skipped) console.warn(`[agent_chat] ${reason}`);
@@ -480,7 +483,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       workspace: { root: input.workspaceRoot, binding: "host" },
       integration: mapped.integration,
       integration_config: mapped.integration_config,
-      execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
+      execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort, ...(input.workflow ? { provider_options: { rusty: { trace_model_requests: true } } } : {}) },
       system_prompt: systemPrompt(
         input,
         [...toolSpecs.map((spec) => spec.name), "web_fetch", "agent_spawn"],
@@ -506,6 +509,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
 
   hostTools: (input, host: RunHost, ctx, onEvent): Record<string, HostToolHandler> => {
     const modifiedFiles = (ctx.scratch.modifiedFiles ??= new Set<string>()) as Set<string>;
+    const evidence = (ctx.scratch.checkEvidence ??= new CheckEvidenceLedger(() => invoke<string>("check_workspace_fingerprint", { root: input.workspaceRoot }))) as CheckEvidenceLedger;
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly) };
     const names = new Set(toolSpecsFor(asSkill(input.skill), mode).map((spec) => spec.name));
     const handlers: Record<string, HostToolHandler> = {};
@@ -518,11 +522,19 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (names.has("open_document")) handlers.open_document = openDocumentTool(input.workspaceRoot);
     if (names.has("web_search")) handlers.web_search = webSearchTool((input.webSearchApiKeys ?? {}) as WebSearchApiKeys, onEvent);
     if (names.has("write_plan")) handlers.write_plan = writePlanTool(host);
-    if (names.has("run_check")) handlers.run_check = runCheckTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
-    if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
+    if (names.has("run_check")) handlers.run_check = runCheckTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, evidence });
+    if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, evidence });
     if (names.has("run_command")) handlers.run_command = gatedRunCommandTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
+    if (input.workflow) {
+      const data = input.workflow.input as { conversation?: unknown; context?: unknown };
+      handlers.read_workflow_context = workflowContextTool(data.conversation ?? input.chatHistory, data.context);
+    }
     handlers.report_progress = reportProgressTool(onEvent);
     handlers.ask_user_question = askUserQuestionTool(host);
+    for (const name of ["write_file", "edit_file", "run_command", "install_dependencies"]) {
+      const handler = handlers[name];
+      if (handler) handlers[name] = async (...args) => { evidence.invalidate(); try { return await handler(...args); } finally { evidence.invalidate(); } };
+    }
     return handlers;
   },
 

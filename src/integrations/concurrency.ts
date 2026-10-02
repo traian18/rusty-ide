@@ -14,35 +14,38 @@ export interface Semaphore {
 }
 
 export function createSemaphore(maxConcurrent: number): Semaphore {
-  let active = 0;
-  const queue: Array<() => void> = [];
+  let currentActiveCount = 0; // Track the number of currently active tasks
+  const waitingQueue: Array<() => void> = []; // Queue of waiting tasks
 
+  // Function to acquire a permit to run a task
   function acquire(): Promise<void> {
-    if (active < maxConcurrent) {
-      active++;
-      return Promise.resolve();
+    if (currentActiveCount < maxConcurrent) {
+      currentActiveCount++;
+      return Promise.resolve(); // Immediately grant permit if under limit
     }
     return new Promise<void>((resolve) => {
-      queue.push(() => {
-        active++;
-        resolve();
+      waitingQueue.push(() => {
+        currentActiveCount++;
+        resolve(); // Resolve when the permit is available
       });
     });
   }
 
+  // Function to release a permit after task completion
   function release(): void {
-    active--;
-    const next = queue.shift();
-    if (next) next();
+    currentActiveCount--; // Decrease active task count
+    const nextTask = waitingQueue.shift(); // Get the next waiting task
+    if (nextTask) nextTask(); // Grant permit to the next task if available
   }
 
   return {
-    async run<T>(fn: () => Promise<T>): Promise<T> {
-      await acquire();
+    // Run a task with semaphore control
+    async run<T>(task: () => Promise<T>): Promise<T> {
+      await acquire(); // Acquire permit before running the task
       try {
-        return await fn();
+        return await task(); // Execute the task
       } finally {
-        release();
+        release(); // Ensure release of the permit when done
       }
     },
   };

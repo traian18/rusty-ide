@@ -253,7 +253,10 @@ describe("workflowRun helpers", () => {
     expect(workflowOutcome({ status: "cancelled" })).toEqual({ status: "cancelled" });
     expect(workflowOutcome({ status: "failed" })).toMatchObject({ status: "failed", code: "WORKFLOW_FAILED" });
     expect(formatWorkflowOutput("plain")).toBe("plain");
-    expect(formatWorkflowOutput({ a: 1 })).toContain("```json");
+    expect(formatWorkflowOutput({ a: 1 })).toBe("## a\n1");
+    expect(formatWorkflowOutput({ summary: "Done.", status: "ready", tasks: [{ id: "T1", instructions: "Edit it", depends_on: [] }], requirements: [{ id: "R1", text: "Show it", criteria: [{ id: "C1", text: "visible" }] }] }))
+      .toBe("Done.\n\n## status\nready\n\n## tasks\n### T1\ninstructions: Edit it\ndepends_on: \n\n## requirements\n### R1\ntext: Show it\n\n#### criteria\n- C1: visible");
+    expect(formatWorkflowOutput({ summary: "Done." })).not.toContain("{");
   });
 
   it("turns chat messages into workflow input", () => {

@@ -187,8 +187,8 @@ describe("writeTool", () => {
     });
 
     it("advertises overwrite as an optional boolean", () => {
-      expect(Object.keys(WRITE_FILE_TOOL.input_schema.properties as object)).toEqual(["path", "content", "overwrite"]);
-      expect(WRITE_FILE_TOOL.input_schema.required).toEqual(["path", "content"]);
+      expect(Object.keys((WRITE_FILE_TOOL.input_schema as Record<string, unknown>).properties as object)).toEqual(["path", "content", "overwrite"]);
+      expect((WRITE_FILE_TOOL.input_schema as Record<string, unknown>).required).toEqual(["path", "content"]);
       expect(WRITE_FILE_TOOL.description).toMatch(/refused unless overwrite is true/);
     });
   });
@@ -197,8 +197,8 @@ describe("writeTool", () => {
 describe("edit_file tool spec", () => {
   it("requires path/old_string/new_string and keeps replace_all optional", () => {
     expect(EDIT_FILE_TOOL.name).toBe("edit_file");
-    expect(EDIT_FILE_TOOL.input_schema.required).toEqual(["path", "old_string", "new_string"]);
-    expect(Object.keys(EDIT_FILE_TOOL.input_schema.properties as object)).toEqual(["path", "old_string", "new_string", "replace_all"]);
+    expect((EDIT_FILE_TOOL.input_schema as Record<string, unknown>).required).toEqual(["path", "old_string", "new_string"]);
+    expect(Object.keys((EDIT_FILE_TOOL.input_schema as Record<string, unknown>).properties as object)).toEqual(["path", "old_string", "new_string", "replace_all"]);
   });
 
   it("steers existing-file changes to edit_file and leaves write_file for new files and full rewrites", () => {
@@ -468,8 +468,8 @@ describe("listFilesTool", () => {
 
 describe("list_files tool spec", () => {
   it("advertises optional path, depth and glob", () => {
-    expect(Object.keys(LIST_FILES_TOOL.input_schema.properties as object)).toEqual(["path", "depth", "glob"]);
-    expect(LIST_FILES_TOOL.input_schema.required).toEqual([]);
+    expect(Object.keys((LIST_FILES_TOOL.input_schema as Record<string, unknown>).properties as object)).toEqual(["path", "depth", "glob"]);
+    expect((LIST_FILES_TOOL.input_schema as Record<string, unknown>).required).toEqual([]);
     expect(LIST_FILES_TOOL.description).toMatch(/With no arguments it returns an overview/);
   });
 });

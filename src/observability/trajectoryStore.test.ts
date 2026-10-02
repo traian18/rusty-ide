@@ -27,6 +27,19 @@ beforeEach(() => {
 });
 
 describe("run trajectories", () => {
+  it("persists complete native prompts with redaction before chunking", async () => {
+    const store = new TrajectoryStore(persistence); start(store);
+    const request = { system: "a".repeat(80000) + "FULL PROMPT TAIL", apiKey: "secret value", messages: Array.from({ length: 110 }, (_, i) => ({ text: `message ${i}` })) };
+    store.append("run", "ModelRequestPrepared", { ModelRequestPrepared: { request } });
+    await store.flush();
+    const entries = await persistence.loadTrajectory("/ws", "run") as Array<{ payload: { content: string; part: number; parts: number } }>;
+    expect(entries.length).toBeGreaterThan(1);
+    expect(entries.at(-1)?.payload.part).toBe(entries[0].payload.parts);
+    const restored = JSON.parse(entries.map(e => e.payload.content).join("")).ModelRequestPrepared.request;
+    expect(restored.system).toBe(request.system);
+    expect(restored.messages).toEqual(request.messages);
+    expect(restored.apiKey).toBe("[REDACTED]");
+  });
   it("loads historical metadata lazily and de-duplicates demand loads", async () => {
     const original = new TrajectoryStore(persistence); start(original);
     original.append("run", "Model request", { messages: ["hello"] });

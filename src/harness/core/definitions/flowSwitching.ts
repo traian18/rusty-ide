@@ -17,7 +17,7 @@ import { jevFlowRecord } from "../../../observability/modelSelectionRecord";
 import { routeBoundary } from "../../../services/flowRouter";
 import type { CapabilityResult, WorkflowSwitch } from "../../contract";
 import type { WorkflowBoundaryContext, WorkflowBoundaryDecision } from "../CoreHarness";
-import { MAX_WORKFLOW_CONTEXT_CHARS, type FinishedStep } from "../workflowRun";
+import { type FinishedStep } from "../workflowRun";
 
 const percent = (confidence: number) => `${Math.round(confidence * 100)}%`;
 
@@ -27,19 +27,9 @@ const percent = (confidence: number) => `${Math.round(confidence * 100)}%`;
 export function handOverContext(from: { name: string; step: string }, reason: string, finished: FinishedStep[]): string {
   const header = `Handed over from "${from.name}" after the "${from.step}" step: ${reason}\n\nWork finished before the hand-over:`;
   const blocks = finished.map((step) => `### ${step.name}\n${step.output.trim() || "(no output)"}`);
-  const kept: string[] = [];
-  let used = header.length;
-  for (const block of [...blocks].reverse()) {
-    if (used + block.length + 2 > MAX_WORKFLOW_CONTEXT_CHARS && kept.length > 0) break;
-    kept.unshift(block);
-    used += block.length + 2;
-  }
-  const omitted = blocks.length - kept.length;
-  const body = kept.join("\n\n");
-  const clipped = body.length > MAX_WORKFLOW_CONTEXT_CHARS - header.length - 2
-    ? `${body.slice(0, Math.max(0, MAX_WORKFLOW_CONTEXT_CHARS - header.length - 40))}\n[… omitted]`
-    : body;
-  return `${header}${omitted > 0 ? ` (${omitted} earlier step${omitted === 1 ? "" : "s"} omitted)` : ""}\n\n${clipped}`;
+  // This handover becomes the authoritative stored context for the next run.
+  // A model-facing preview may be bounded; the underlying artifact must not be.
+  return `${header}\n\n${blocks.join("\n\n")}`;
 }
 
 export async function agentChatBoundary(context: WorkflowBoundaryContext<"agent_chat">): Promise<WorkflowBoundaryDecision> {

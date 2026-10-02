@@ -64,7 +64,7 @@ it("edits which calls a count looks at, and leaves the outcome out of the saved 
 });
 
 it("offers the outcome filter for call counts and turns since a call, but not for other conditions", () => {
-  for (const condition of [{ calls: { tool: ["run_check"], gte: 1 } }, { turns_since_call: { tool: ["run_check"], gte: 2 } }]) {
+  for (const condition of ([{ calls: { tool: ["run_check"], gte: 1 } }, { turns_since_call: { tool: ["run_check"], gte: 2 } }] as Json[])) {
     mount(condition, (value, change) => <ConditionEditor value={value} onChange={change} profileIds={[]} />);
     expect(host.querySelector('[aria-label="Condition outcome"]')).not.toBeNull();
     act(() => root.unmount());
@@ -84,7 +84,7 @@ it("adds a 'tool is available' condition that starts on run_check, and keeps an 
 });
 
 it("keeps a saved gate that combines the new condition and filter readable instead of treating it as unsupported", () => {
-  const gate = { any: [{ calls: { tool: "write_file", eq: 0 } }, { not: { tool_offered: "run_check" } },
+  const gate: JsonObject = { any: [{ calls: { tool: "write_file", eq: 0 } }, { not: { tool_offered: "run_check" } },
     { since_last_call: { of: "write_file", called: "run_check", outcome: "succeeded", gte: 1 } }] };
   mount(gate, (value, change) => <ConditionEditor value={value} onChange={change} profileIds={[]} />);
   expect(host.textContent).not.toContain("not supported by this version");
