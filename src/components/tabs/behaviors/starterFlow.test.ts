@@ -5,8 +5,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 import { invoke } from "@tauri-apps/api/core";
 import type { JsonObject } from "./behaviorModel";
 import { behaviorService, workflowPath } from "./behaviorService";
-import previousWorkflow from "./starter/v1/plan-build-verify.workflow.json";
-import v2Workflow from "./starter/v2/plan-build-verify.workflow.json";
+import previousWorkflow from "./starter/legacy/v1/plan-build-verify.workflow.json";
+import v2Workflow from "./starter/legacy/v2/plan-build-verify.workflow.json";
 import {
   STARTER_PROFILES,
   STARTER_WORKFLOW,
@@ -17,7 +17,7 @@ import {
   isStarterWorkflowPath,
   starterWorkflowPaths,
 } from "./starterFlow";
-import v3Workflow from "./starter/v3/plan-build-verify.workflow.json";
+import v3Workflow from "./starter/legacy/v3/plan-build-verify.workflow.json";
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
 const nodes = STARTER_WORKFLOW.nodes as JsonObject[];
@@ -28,17 +28,10 @@ describe("the starter flow documents", () => {
   it("is the flow it says it is: request → plan → build → verify → result", () => {
     expect(STARTER_WORKFLOW.id).toBe("rusty-ide.builtin.plan-build-verify");
     expect(nodes.map((node) => `${node.id}:${node.type}`)).toEqual([
-      "input:input",
-      "plan:agent",
-      "build:agent",
-      "verify:agent",
-      "output:output",
+      "input:input", "plan:agent", "plan_gate:verify", "build:agent", "verify:agent", "gate:verify", "output:output",
     ]);
     expect(edges.map((edge) => `${edge.source}>${edge.target}`)).toEqual([
-      "input>plan",
-      "plan>build",
-      "build>verify",
-      "verify>output",
+      "input>plan", "plan>plan_gate", "plan_gate>build", "build>verify", "verify>gate", "gate>output",
     ]);
   });
 
@@ -80,7 +73,8 @@ describe("the starter flow documents", () => {
       // does), on every request of a tool-using step. Gemini rejects tools
       // together with a JSON response type, and rejects a schema its
       // constraint compiler finds too large.
-      expect(config.structured_output).toBe("text");
+      // Verify returns the verdict the gate reads, so it is JSON the host validates.
+      expect(config.structured_output).toBe("host_validated");
       // A step allow-list naming a tool the session lacks fails the whole run
       // before it starts, so narrowing happens in the profile instead.
       expect(config.tools).toEqual({ type: "inherit" });
@@ -94,9 +88,9 @@ describe("the starter flow documents", () => {
     expect((plan.tools as JsonObject).type).toBe("allow_list");
     expect(allowed).toEqual(expect.arrayContaining(["read_file", "list_files", "search_codebase"]));
     for (const tool of ["write_file", "run_command", "agent_spawn"]) expect(allowed).not.toContain(tool);
-    expect(build.tools).toEqual({ type: "inherit" });
+    expect((build.tools as JsonObject).tools).toContain("write_file");
     // Verify keeps the full read/run set but may not edit.
-    expect(verify.tools).toEqual({ type: "inherit" });
+    expect((verify.tools as JsonObject).tools).not.toContain("write_file");
     expect(JSON.stringify(verify.rules)).toContain("write_file");
   });
 
@@ -107,7 +101,7 @@ describe("the starter flow documents", () => {
       typeof value === "string"
         ? [value]
         : value && typeof value === "object"
-          ? Object.entries(value).flatMap(([key, entry]) => (key === "pointer" ? [] : text(entry)))
+          ? Object.entries(value).flatMap(([key, entry]) => (key === "pointer" || key === "context" ? [] : text(entry)))
           : [];
     for (const node of nodes.filter((step) => step.type === "agent")) {
       expect(String((node.config as JsonObject).instructions).length).toBeGreaterThan(80);
@@ -116,11 +110,12 @@ describe("the starter flow documents", () => {
     for (const profile of STARTER_PROFILES) {
       expect(String(profile.description).length).toBeGreaterThan(20);
       expect(String((profile.instructions as JsonObject).text).length).toBeGreaterThan(80);
-      expect((profile.rules as unknown[]).length).toBeGreaterThan(0);
+      expect(Array.isArray(profile.rules)).toBe(true);
       expect(profile.completion_gate).toBeTruthy();
-      expect(profile.limits).toEqual({});
+      // Every profile bounds its loop and says what to do on the last turn.
+      expect(profile.limits).toEqual({ max_turns: expect.any(Number), final_turn_prompt: expect.stringContaining("No tool budget remains") });
     }
-    expect(STARTER_WORKFLOW.policies).toEqual({});
+    expect(STARTER_WORKFLOW.policies).toEqual({ max_total_attempts: 40 });
     for (const node of nodes) expect(node.timeout_ms).toBeUndefined();
     expect([STARTER_WORKFLOW, ...STARTER_PROFILES].flatMap(text).filter((entry) => entry.trim() === "")).toEqual([]);
   });

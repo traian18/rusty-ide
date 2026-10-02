@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "id": "bug-fix",
-  "revision": 1,
+  "revision": 3,
   "name": "Fix a bug",
-  "description": "Reproduce and diagnose a failure, plan the smallest fix, implement it and verify it: Debug, Plan, Build, Verify.",
+  "description": "Reproduce and diagnose a failure, plan the smallest fix, implement it and verify it: Debug, Plan, Build, Verify. If Verify finds a failing check or an unfinished step, Build is sent back with the findings, up to three attempts.",
   "status": "draft",
   "input_schema": null,
   "output_contract": {
@@ -17,7 +17,7 @@
     "source": {
       "type": "node_output",
       "node_id": "verify",
-      "pointer": ""
+      "pointer": "/summary"
     },
     "strict": false
   },
@@ -102,7 +102,7 @@
       "name": "Plan",
       "type": "agent",
       "config": {
-        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Base the plan on the diagnosed root cause in workflow_input.debug and include the regression test it names. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Base the plan on the diagnosed root cause in workflow_input.debug and include the regression test it names. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. Make every step small enough to implement and check on its own: a few files at most, one observable acceptance check, and the command that proves it (call project_info to find the project's check commands).",
         "tools": {
           "type": "inherit"
         },
@@ -154,7 +154,7 @@
       "name": "Build",
       "type": "agent",
       "config": {
-        "instructions": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required.",
+        "instructions": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required. Work through the plan one step at a time and stop at the first step you cannot complete: report that blocker instead of improvising or skipping ahead. After your last edit run every relevant check with run_check (typecheck, lint, test, build) and fix what fails. If this prompt lists rejections from an earlier attempt, they are the checker's findings: fix exactly those problems, keep the work already done, and do not start over.",
         "tools": {
           "type": "inherit"
         },
@@ -189,8 +189,12 @@
         }
       },
       "retry": {
-        "max_attempts": 1,
-        "retry_on": []
+        "max_attempts": 3,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "verification_failed"
+        ]
       },
       "metadata": {
         "editor": {
@@ -206,12 +210,12 @@
       "name": "Verify",
       "type": "agent",
       "config": {
-        "instructions": "Review the original request, the plan and the Build handoff against the actual workspace. Inspect relevant code and run appropriate tests or checks with the available tools. Do not merely accept the Build claims. Do not edit files or run destructive commands. Check each required plan step and identify omissions, regressions and unverified claims. Finish with a clear written verdict: what was verified with evidence, what failed or remains blocked, and precise next actions. A blocked or incomplete build must be reported as such, not approved. Use ordinary text or Markdown; no JSON or status field is required.",
+        "instructions": "Check the work against workflow_input.request, the plan in workflow_input.plan and the Build handoff in workflow_input.build, using the actual workspace rather than the handoff. Do not edit files or run destructive commands. First call run_check for every relevant check (typecheck, lint, test, build) and keep each result. Then, for each requested change or plan step, open the actual code and confirm it was done; look for regressions and for claims in the handoff that the code does not support. The verdict is exactly \"pass\" only when every check passed (or none exists, which you say) and every step is done. Otherwise it is \"fail: \" followed by the specific problems, most important first, each with a file and line or the failing command and its error, short enough for the builder to act on without seeing your report. A blocked or incomplete build is a fail. Return JSON with two string fields: \"verdict\" (as above) and \"summary\" (a complete, self-contained Markdown report: what was verified with evidence, what failed or is unverified, and the precise next actions).",
         "tools": {
           "type": "inherit"
         },
         "context_mode": "isolated_child",
-        "structured_output": "text",
+        "structured_output": "host_validated",
         "profile": {
           "id": "verify"
         }
@@ -243,11 +247,66 @@
       ],
       "output_schema": {
         "type": "inline",
-        "name": "written_handoff",
+        "name": "verification_verdict",
         "schema": {
-          "type": "string"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
         }
       },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "gate",
+      "name": "Checks pass",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "build"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
       "retry": {
         "max_attempts": 1,
         "retry_on": []
@@ -255,7 +314,7 @@
       "metadata": {
         "editor": {
           "position": {
-            "x": 1340,
+            "x": 1660,
             "y": 80
           }
         }
@@ -269,7 +328,7 @@
         "source": {
           "type": "node_output",
           "node_id": "verify",
-          "pointer": ""
+          "pointer": "/summary"
         },
         "strict": false
       },
@@ -282,7 +341,7 @@
       "metadata": {
         "editor": {
           "position": {
-            "x": 1660,
+            "x": 1980,
             "y": 80
           }
         }
@@ -315,13 +374,21 @@
       "condition": "on_success"
     },
     {
-      "id": "verify-output",
+      "id": "verify-gate",
       "source": "verify",
+      "target": "gate",
+      "condition": "on_success"
+    },
+    {
+      "id": "gate-output",
+      "source": "gate",
       "target": "output",
       "condition": "on_success"
     }
   ],
-  "policies": {},
+  "policies": {
+    "max_total_attempts": 30
+  },
   "metadata": {
     "kind": "end_to_end",
     "switch_to": [

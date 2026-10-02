@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "id": "refactor",
-  "revision": 1,
+  "revision": 3,
   "name": "Refactor safely",
-  "description": "Improve structure without changing behavior: Analyze, Plan the behavior to preserve and small edits, Refactor, Verify that behavior is unchanged, then Review.",
+  "description": "Improve structure without changing behavior: Analyze, Plan the behavior to preserve and small edits, Refactor, Verify that behavior is unchanged, then Review. If Verify finds a failing check or an unfinished step, Refactor is sent back with the findings, up to three attempts. A blocker or high finding in Review sends the work back for another attempt.",
   "status": "draft",
   "input_schema": null,
   "output_contract": {
@@ -17,7 +17,7 @@
     "source": {
       "type": "node_output",
       "node_id": "review",
-      "pointer": ""
+      "pointer": "/summary"
     },
     "strict": false
   },
@@ -102,7 +102,7 @@
       "name": "Plan",
       "type": "agent",
       "config": {
-        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Use workflow_input.analyze for how the current code works and where the change belongs. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Use workflow_input.analyze for how the current code works and where the change belongs. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. Make every step small enough to implement and check on its own: a few files at most, one observable acceptance check, and the command that proves it (call project_info to find the project's check commands).",
         "tools": {
           "type": "inherit"
         },
@@ -154,7 +154,7 @@
       "name": "Refactor",
       "type": "agent",
       "config": {
-        "instructions": "Refactor following workflow_input.plan to improve structure without changing observable behavior. State the behavior that must not change and establish a baseline (existing tests or checks) before editing. Work in small focused edits, re-run the relevant checks after significant edits and after the last edit, keep unrelated work and public APIs intact, and do not mix in feature changes. Finish with a written handoff: the behavior preserved and the baseline, structural changes by area, files changed, checks run with results, behavior-preservation evidence, deviations and deferred cleanup. Never imply unverified work passed. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "instructions": "Refactor following workflow_input.plan to improve structure without changing observable behavior. State the behavior that must not change and establish a baseline (existing tests or checks) before editing. Work in small focused edits, re-run the relevant checks after significant edits and after the last edit, keep unrelated work and public APIs intact, and do not mix in feature changes. Finish with a written handoff: the behavior preserved and the baseline, structural changes by area, files changed, checks run with results, behavior-preservation evidence, deviations and deferred cleanup. Never imply unverified work passed. The next step receives only your final message, not your tool history, so keep every fact it needs. Work through the plan one step at a time and stop at the first step you cannot complete: report that blocker instead of improvising or skipping ahead. After your last edit run every relevant check with run_check (typecheck, lint, test, build) and fix what fails. If this prompt lists rejections from an earlier attempt, they are the checker's findings: fix exactly those problems, keep the work already done, and do not start over.",
         "tools": {
           "type": "inherit"
         },
@@ -189,8 +189,12 @@
         }
       },
       "retry": {
-        "max_attempts": 1,
-        "retry_on": []
+        "max_attempts": 4,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "verification_failed"
+        ]
       },
       "metadata": {
         "editor": {
@@ -206,12 +210,12 @@
       "name": "Verify",
       "type": "agent",
       "config": {
-        "instructions": "Verify the refactor against workflow_input.request, workflow_input.plan and the Refactor handoff in workflow_input.refactor. The behavior the plan says must not change is the main requirement: independently run the relevant tests or checks, inspect the changed files, and look for any observable behavior or public API change. Do not edit files or run destructive commands. Finish with a clear written verdict: what was verified with evidence, what changed behavior or remains unverified, and precise next actions. A blocked or incomplete refactor must be reported as such. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "instructions": "Check the refactor against workflow_input.request, workflow_input.plan and the Refactor handoff in workflow_input.refactor. The behavior the plan says must not change is the main requirement: look for any observable behavior or public API change. Do not edit files or run destructive commands. First call run_check for every relevant check (typecheck, lint, test, build) and keep each result. Then, for each requested change or plan step, open the actual code and confirm it was done; look for regressions and for claims in the handoff that the code does not support. The verdict is exactly \"pass\" only when every check passed (or none exists, which you say) and every step is done. Otherwise it is \"fail: \" followed by the specific problems, most important first, each with a file and line or the failing command and its error, short enough for the builder to act on without seeing your report. A blocked or incomplete build is a fail. Return JSON with two string fields: \"verdict\" (as above) and \"summary\" (a complete, self-contained Markdown report: what was verified with evidence, what failed or is unverified, and the precise next actions).",
         "tools": {
           "type": "inherit"
         },
         "context_mode": "isolated_child",
-        "structured_output": "text",
+        "structured_output": "host_validated",
         "profile": {
           "id": "verify"
         }
@@ -243,14 +247,31 @@
       ],
       "output_schema": {
         "type": "inline",
-        "name": "written_handoff",
+        "name": "verification_verdict",
         "schema": {
-          "type": "string"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
         }
       },
       "retry": {
-        "max_attempts": 1,
-        "retry_on": []
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
       },
       "metadata": {
         "editor": {
@@ -262,16 +283,54 @@
       }
     },
     {
+      "id": "gate",
+      "name": "Checks pass",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "refactor"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1660,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
       "id": "review",
       "name": "Review",
       "type": "agent",
       "config": {
-        "instructions": "Review the changes made for workflow_input.request against the plan in workflow_input.plan, the Refactor handoff in workflow_input.refactor and the verification in workflow_input.verify. Inspect the actual changed files rather than the summaries, and judge correctness, edge cases, regressions, maintainability and test coverage. Return prioritized findings, each with a severity (blocker, high, medium or low), the exact file and symbol, why it is a problem, its impact and a concrete fix; separate confirmed defects from risks and suggestions, and say plainly when there are no material findings. Do not modify files or run commands. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "instructions": "Review the changes made for workflow_input.request against the plan in workflow_input.plan, the Refactor handoff in workflow_input.refactor and the verification in workflow_input.verify. Inspect the actual changed files rather than the summaries, and judge correctness, edge cases, regressions, maintainability and test coverage. Return prioritized findings, each with a severity (blocker, high, medium or low), the exact file and symbol, why it is a problem, its impact and a concrete fix; separate confirmed defects from risks and suggestions, and say plainly when there are no material findings. Do not modify files or run commands. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. Return JSON with two string fields. \"verdict\" is exactly \"pass\" when you have no blocker or high-severity finding; otherwise it is \"fail: \" followed by only the blocker and high findings, each with file and line and the concrete fix, short enough for the builder to act on without seeing the rest. \"summary\" is the complete prioritized review for the user, self-contained.",
         "tools": {
           "type": "inherit"
         },
         "context_mode": "isolated_child",
-        "structured_output": "text",
+        "structured_output": "host_validated",
         "profile": {
           "id": "review"
         }
@@ -305,17 +364,72 @@
           "source": {
             "type": "node_output",
             "node_id": "verify",
-            "pointer": ""
+            "pointer": "/summary"
           }
         }
       ],
       "output_schema": {
         "type": "inline",
-        "name": "written_handoff",
+        "name": "verification_verdict",
         "schema": {
-          "type": "string"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
         }
       },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1980,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "review_gate",
+      "name": "Review passes",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "refactor"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "review",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
       "retry": {
         "max_attempts": 1,
         "retry_on": []
@@ -323,7 +437,7 @@
       "metadata": {
         "editor": {
           "position": {
-            "x": 1660,
+            "x": 2300,
             "y": 80
           }
         }
@@ -337,7 +451,7 @@
         "source": {
           "type": "node_output",
           "node_id": "review",
-          "pointer": ""
+          "pointer": "/summary"
         },
         "strict": false
       },
@@ -350,7 +464,7 @@
       "metadata": {
         "editor": {
           "position": {
-            "x": 1980,
+            "x": 2620,
             "y": 80
           }
         }
@@ -383,19 +497,33 @@
       "condition": "on_success"
     },
     {
-      "id": "verify-review",
+      "id": "verify-gate",
       "source": "verify",
+      "target": "gate",
+      "condition": "on_success"
+    },
+    {
+      "id": "gate-review",
+      "source": "gate",
       "target": "review",
       "condition": "on_success"
     },
     {
-      "id": "review-output",
+      "id": "review-review_gate",
       "source": "review",
+      "target": "review_gate",
+      "condition": "on_success"
+    },
+    {
+      "id": "review_gate-output",
+      "source": "review_gate",
       "target": "output",
       "condition": "on_success"
     }
   ],
-  "policies": {},
+  "policies": {
+    "max_total_attempts": 30
+  },
   "metadata": {
     "kind": "end_to_end",
     "switch_to": [

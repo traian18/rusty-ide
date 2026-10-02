@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "id": "optimize",
+  "revision": 3,
+  "name": "Optimize",
+  "description": "Improves measurable performance with baseline and post-change evidence.",
+  "status": "published",
+  "instructions": {
+    "mode": "append",
+    "text": "Optimize only against a stated metric and workload. Capture a baseline before changing code, make focused changes, then capture comparable post-change measurements and run verification. Call project_info to learn which commands check the project, and verify with run_check (typecheck, lint, test or build) after the last edit; if a check reports a missing tool or uninstalled dependencies, call install_dependencies and run it again. Use approval-gated run_command for the measurements themselves, with structured argv (program and literal args, never sh -c or bash -c), and never for file inspection or editing. Report baseline, result, methodology, regressions considered, and remaining uncertainty.",
+    "variants": {}
+  },
+  "tools": {
+    "type": "inherit"
+  },
+  "tool_overrides": {
+    "run_command": {
+      "description_append": "Use approved structured, non-destructive commands for measurements only; use run_check for verification."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 60,
+    "final_turn_prompt": "You are out of steps. Do not call any tool. State the metric, the baseline and after-measurements you actually have, what changed and what remains."
+  },
+  "rules": [
+    {
+      "id": "optimize-failed-tool",
+      "on": "PostToolUseFailure",
+      "when": {
+        "not": {
+          "tool": [
+            "run_check"
+          ]
+        }
+      },
+      "do": {
+        "inject": {
+          "text": "Inspect the command or tool error and correct the measurement or verification setup before continuing."
+        }
+      },
+      "max_fires": 6
+    },
+    {
+      "id": "optimize-failing-check",
+      "on": "BeforeModelRequest",
+      "when": {
+        "all": [
+          {
+            "since_last_call": {
+              "of": "write_file",
+              "called": "run_check",
+              "outcome": "failed",
+              "gte": 1
+            }
+          },
+          {
+            "since_last_call": {
+              "of": "write_file",
+              "called": "run_check",
+              "outcome": "succeeded",
+              "eq": 0
+            }
+          }
+        ]
+      },
+      "do": {
+        "inject": {
+          "text": "A check failed after your last optimization edit and none has passed since. A faster result that breaks a check is not an improvement: if your change caused the failure, fix it and run the check again. If it was already failing, say so and report your measurements with that caveat."
+        }
+      },
+      "max_fires": 6
+    }
+  ],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "optimization-verified",
+        "require": {
+          "any": [
+            {
+              "calls": {
+                "tool": "write_file",
+                "eq": 0
+              }
+            },
+            {
+              "since_last_call": {
+                "of": "write_file",
+                "called": "run_check",
+                "gte": 1
+              }
+            },
+            {
+              "all": [
+                {
+                  "not": {
+                    "tool_offered": "run_check"
+                  }
+                },
+                {
+                  "since_last_call": {
+                    "of": "write_file",
+                    "called": [
+                      "run_command",
+                      "read_file"
+                    ],
+                    "gte": 1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "feedback": "After the last optimization edit, call run_check (typecheck, lint, test or build) and include baseline and post-change evidence. Reading the changed file back does not count."
+      }
+    ],
+    "max_continuations": 3,
+    "on_exhausted": "fail"
+  },
+  "children": {
+    "type": "inherit"
+  },
+  "metadata": {
+    "editor": {
+      "position": {
+        "x": 740,
+        "y": 620
+      }
+    }
+  }
+}

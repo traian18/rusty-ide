@@ -1,0 +1,662 @@
+{
+  "schema_version": 1,
+  "id": "researched-feature",
+  "revision": 3,
+  "name": "Research, design & build",
+  "description": "For features that depend on unfamiliar libraries, standards or architectural choices: Research, Architect, Plan, Build, Verify. If Verify finds a failing check or an unfinished step, Build is sent back with the findings, up to three attempts. The work is built in two slices, each verified before the next starts.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "verify_2",
+      "pointer": "/summary"
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "research",
+      "name": "Research",
+      "type": "agent",
+      "config": {
+        "instructions": "Research the question in workflow_input.request. workflow_input.context, when it is not empty, holds results from earlier in this conversation (for example findings or a plan the user has reviewed or edited): treat it as established input and build on it instead of repeating it, but check anything that looks stale against the workspace. Inspect the relevant workspace context first, then use external sources for what the workspace cannot answer; prefer primary sources and record links. Return a research brief in ordinary text or Markdown: the question and constraints, relevant workspace context, findings with sources, viable alternatives and their trade-offs, a recommendation, and unresolved unknowns. Separate sourced facts from your own judgement. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "research"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "architect",
+      "name": "Architect",
+      "type": "agent",
+      "config": {
+        "instructions": "Design the solution to workflow_input.request. Use workflow_input.research for the sourced options and recommendation. Start from the current architecture and its conventions, compare at least two alternatives, and recommend the simplest design that meets the constraints. Specify the components and their responsibilities, contracts or data shapes, data and control flow, failure behavior, and compatibility and migration. Return a written design: goals and constraints, the chosen design, alternatives rejected and why, risks, and acceptance criteria. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "architect"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "research",
+          "source": {
+            "type": "node_output",
+            "node_id": "research",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "plan",
+      "name": "Plan",
+      "type": "agent",
+      "config": {
+        "instructions": "Turn workflow_input.request and the supplied findings into an actionable implementation plan for a fresh Build session that receives only your final message, not your exploration history. Implement the chosen design in workflow_input.architect without reopening it unless the code contradicts it. Verify the key facts in the code first, and preserve the user's requirements, decisions and relevant findings. Return ordered, numbered steps, each naming the files and symbols to change, the exact change and an observable acceptance check, followed by risks and prerequisites, with optional work clearly labeled as optional. Do not implement anything or claim anything was tested. Ask the user only for decisions you cannot resolve from the request or the code. Do not modify files or run commands. The next step receives only your final message, not your tool history, so keep every fact it needs. Write each step on one line as: N. files - the exact change - check: the command and the result that proves it (call project_info to find the project's check commands). Keep every step small enough to implement and check on its own: a few files at most. Then group the steps into exactly two slices under the headings \"## Slice 1\" and \"## Slice 2\". Slice 1 is the foundation: the smallest set of steps that works and can be verified on its own. Slice 2 is the rest, and may say \"No further steps.\" when slice 1 is enough. Builders receive one slice each.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "plan"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "architect",
+          "source": {
+            "type": "node_output",
+            "node_id": "architect",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "type": "agent",
+      "config": {
+        "instructions": "Implement the request following the supplied plan. Read the entire plan and use its ordered steps as a checklist. Use its findings for targeted file reads, then make the required changes. Do not replace implementation with another proposal. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Adapt the plan only when the actual code requires it and explain why. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what happened for each plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt. Never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required. Work through the plan one step at a time and stop at the first step you cannot complete: report that blocker instead of improvising or skipping ahead. After your last edit run every relevant check with run_check (typecheck, lint, test, build) and fix what fails. If this prompt lists rejections from an earlier attempt, they are the checker's findings: fix exactly those problems, keep the work already done, and do not start over. Your scope is only the steps under the plan's \"## Slice 1\" heading. A later step builds Slice 2, so do not start it.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "build"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 3,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "verification_failed"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Check the work against workflow_input.request, the plan in workflow_input.plan and the Build handoff in workflow_input.build, using the actual workspace rather than the handoff. Do not edit files or run destructive commands. First call run_check for every relevant check (typecheck, lint, test, build) and keep each result. Then, for each requested change or plan step, open the actual code and confirm it was done; look for regressions and for claims in the handoff that the code does not support. The verdict is exactly \"pass\" only when every check passed (or none exists, which you say) and every step is done. Otherwise it is \"fail: \" followed by the specific problems, most important first, each with a file and line or the failing command and its error, short enough for the builder to act on without seeing your report. A blocked or incomplete build is a fail. Return JSON with two string fields: \"verdict\" (as above) and \"summary\" (a complete, self-contained Markdown report: what was verified with evidence, what failed or is unverified, and the precise next actions). Judge only the steps under the plan's \"## Slice 1\" heading; Slice 2 is not built yet. Still run the full checks.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "host_validated",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "build",
+          "source": {
+            "type": "node_output",
+            "node_id": "build",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "verification_verdict",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1660,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "gate",
+      "name": "Checks pass",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "build"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1980,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "build_2",
+      "name": "Build part 2",
+      "type": "agent",
+      "config": {
+        "instructions": "Implement only the steps under the \"## Slice 2\" heading of workflow_input.plan. Slice 1 is already built and verified: workflow_input.part_1 is its handoff, so build on that work and do not redo or undo it. If Slice 2 says there are no further steps, reply \"No tasks in this slice.\" and stop without editing anything. Read before editing, follow project conventions and respect tool permissions. Work one step at a time and stop at the first step you cannot complete: report that blocker instead of improvising. After your last edit run every relevant check with run_check (typecheck, lint, test, build) and fix what fails. If this prompt lists rejections from an earlier attempt, they are the checker's findings: fix exactly those problems, keep the work already done, and do not start over. Finish with a handoff: each Slice 2 step and what you did, files changed, the checks you ran with their results, and any blocker. Never imply unfinished or unverified work succeeded.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "build"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "part_1",
+          "source": {
+            "type": "node_output",
+            "node_id": "build",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 3,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "verification_failed"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 2300,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify_2",
+      "name": "Verify part 2",
+      "type": "agent",
+      "config": {
+        "instructions": "Check the work against workflow_input.request, the plan in workflow_input.plan and the Build handoff in workflow_input.build, using the actual workspace rather than the handoff. Do not edit files or run destructive commands. First call run_check for every relevant check (typecheck, lint, test, build) and keep each result. Then, for each requested change or plan step, open the actual code and confirm it was done; look for regressions and for claims in the handoff that the code does not support. The verdict is exactly \"pass\" only when every check passed (or none exists, which you say) and every step is done. Otherwise it is \"fail: \" followed by the specific problems, most important first, each with a file and line or the failing command and its error, short enough for the builder to act on without seeing your report. A blocked or incomplete build is a fail. Return JSON with two string fields: \"verdict\" (as above) and \"summary\" (a complete, self-contained Markdown report: what was verified with evidence, what failed or is unverified, and the precise next actions). Judge the steps under the plan's \"## Slice 2\" heading (workflow_input.build is the Slice 1 handoff, workflow_input.build_2 the Slice 2 handoff), and confirm Slice 1 still works by running the full checks. If Slice 2 had no steps, judge the whole change.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "host_validated",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "plan",
+          "source": {
+            "type": "node_output",
+            "node_id": "plan",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "build",
+          "source": {
+            "type": "node_output",
+            "node_id": "build",
+            "pointer": ""
+          }
+        },
+        {
+          "target": "build_2",
+          "source": {
+            "type": "node_output",
+            "node_id": "build_2",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "verification_verdict",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 2620,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "gate_2",
+      "name": "Checks pass (part 2)",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "build_2"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify_2",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 2940,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "verify_2",
+          "pointer": "/summary"
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 3260,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-research",
+      "source": "input",
+      "target": "research",
+      "condition": "on_success"
+    },
+    {
+      "id": "research-architect",
+      "source": "research",
+      "target": "architect",
+      "condition": "on_success"
+    },
+    {
+      "id": "architect-plan",
+      "source": "architect",
+      "target": "plan",
+      "condition": "on_success"
+    },
+    {
+      "id": "plan-build",
+      "source": "plan",
+      "target": "build",
+      "condition": "on_success"
+    },
+    {
+      "id": "build-verify",
+      "source": "build",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-gate",
+      "source": "verify",
+      "target": "gate",
+      "condition": "on_success"
+    },
+    {
+      "id": "gate-build_2",
+      "source": "gate",
+      "target": "build_2",
+      "condition": "on_success"
+    },
+    {
+      "id": "build_2-verify_2",
+      "source": "build_2",
+      "target": "verify_2",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify_2-gate_2",
+      "source": "verify_2",
+      "target": "gate_2",
+      "condition": "on_success"
+    },
+    {
+      "id": "gate_2-output",
+      "source": "gate_2",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {
+    "max_total_attempts": 30
+  },
+  "metadata": {
+    "kind": "end_to_end",
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

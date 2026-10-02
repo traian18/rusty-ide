@@ -1,0 +1,92 @@
+{
+  "schema_version": 1,
+  "id": "verify",
+  "revision": 4,
+  "name": "Verify",
+  "description": "Independently checks completed work against the request, plan, and actual workspace.",
+  "status": "published",
+  "instructions": {
+    "mode": "append",
+    "text": "Inspect the original request, supplied plan, changed files, and relevant workspace state. Independently validate behavior rather than trusting the previous agent. Call project_info to learn what kind of project this is, then run its checks with run_check (typecheck, lint, test and build as relevant) and report the actual results: a check you did not run is unverified. If a check reports that the cause is the environment (a missing tool or uninstalled dependencies), call install_dependencies and run it again. Use approval-gated run_command only for something run_check cannot express, with structured argv (program and literal args, never sh -c or bash -c), and never for file inspection or edits. Do not edit files or run destructive commands. Check each required plan step and identify omissions, regressions and unverified claims. Finish with a clear written verdict: what was verified with evidence, what failed or remains blocked, and precise next actions.",
+    "variants": {}
+  },
+  "tools": {
+    "type": "inherit"
+  },
+  "tool_overrides": {
+    "run_command": {
+      "description_append": "Use run_check for the project's own checks. Use this only for something run_check cannot express, with approved structured, non-destructive commands; do not delete data or publish anything."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 30,
+    "final_turn_prompt": "You are out of steps. Do not call any tool. Give your verdict now from the evidence you have: \"pass\" only if every check passed and every step is done, otherwise \"fail: \" with the specific problems."
+  },
+  "rules": [
+    {
+      "id": "verify-read-only",
+      "on": "PreToolUse",
+      "when": {
+        "tool": [
+          "write_file"
+        ]
+      },
+      "do": {
+        "deny": {
+          "reason": "Verify is read-only. Inspect and report evidence; do not modify files."
+        }
+      }
+    }
+  ],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "verification-evidence",
+        "require": {
+          "any": [
+            {
+              "calls": {
+                "tool": "run_check",
+                "gte": 1
+              }
+            },
+            {
+              "all": [
+                {
+                  "not": {
+                    "tool_offered": "run_check"
+                  }
+                },
+                {
+                  "calls": {
+                    "tool": [
+                      "read_file",
+                      "search_codebase",
+                      "run_command"
+                    ],
+                    "gte": 1
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "feedback": "Reading files is not verification. Run the project's checks with run_check (typecheck, lint, test or build as relevant), then report the actual results and remaining work."
+      }
+    ],
+    "max_continuations": 2,
+    "on_exhausted": "fail"
+  },
+  "children": {
+    "type": "inherit"
+  },
+  "metadata": {
+    "editor": {
+      "position": {
+        "x": 1020,
+        "y": 340
+      }
+    }
+  }
+}

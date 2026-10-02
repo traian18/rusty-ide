@@ -1,0 +1,285 @@
+{
+  "schema_version": 1,
+  "id": "implement",
+  "revision": 3,
+  "name": "Build & verify",
+  "description": "Carry out an approved plan, or a clearly scoped request, and have the result independently verified. Plans from an earlier Architect & plan or Debug & plan a fix run are picked up automatically. If Verify finds a failing check or an unfinished step, Build is sent back with the findings, up to three attempts.",
+  "status": "draft",
+  "input_schema": null,
+  "output_contract": {
+    "schema": {
+      "type": "inline",
+      "name": "written_handoff",
+      "schema": {
+        "type": "string"
+      }
+    },
+    "source": {
+      "type": "node_output",
+      "node_id": "verify",
+      "pointer": "/summary"
+    },
+    "strict": false
+  },
+  "nodes": [
+    {
+      "id": "input",
+      "name": "Request",
+      "type": "input",
+      "config": {
+        "defaults": {
+          "attachments": []
+        }
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 60,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "build",
+      "name": "Build",
+      "type": "agent",
+      "config": {
+        "instructions": "Implement workflow_input.request. workflow_input.context, when it is not empty, holds an approved plan or findings from earlier in this conversation: if it contains ordered steps, treat them as your checklist and start with targeted reads of the files they name; otherwise inspect the relevant code and make the focused changes the request asks for. Read before editing, preserve existing work, follow project conventions and respect tool permissions. Run relevant tests or other checks and fix recoverable failures. Finish with a written handoff describing what you did for each requested change or plan step, files changed, checks actually run and their results, deviations and remaining work. Clearly explain any blocker or unsuccessful attempt, and never imply unfinished or unverified work succeeded. The next agent receives this message, not your tool history. Use ordinary text or Markdown; no JSON format is required. Work through the plan one step at a time and stop at the first step you cannot complete: report that blocker instead of improvising or skipping ahead. After your last edit run every relevant check with run_check (typecheck, lint, test, build) and fix what fails. If this prompt lists rejections from an earlier attempt, they are the checker's findings: fix exactly those problems, keep the work already done, and do not start over.",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "text",
+        "profile": {
+          "id": "build"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "written_handoff",
+        "schema": {
+          "type": "string"
+        }
+      },
+      "retry": {
+        "max_attempts": 3,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "verification_failed"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 380,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "verify",
+      "name": "Verify",
+      "type": "agent",
+      "config": {
+        "instructions": "Check the work described in workflow_input.request against the Build handoff in workflow_input.build. workflow_input.context, when it is not empty, holds the plan, findings or summary from earlier in this conversation. Use the approved read-only git status and diff commands where available to see what really changed. Do not edit files or run destructive commands. First call run_check for every relevant check (typecheck, lint, test, build) and keep each result. Then, for each requested change or plan step, open the actual code and confirm it was done; look for regressions and for claims in the handoff that the code does not support. The verdict is exactly \"pass\" only when every check passed (or none exists, which you say) and every step is done. Otherwise it is \"fail: \" followed by the specific problems, most important first, each with a file and line or the failing command and its error, short enough for the builder to act on without seeing your report. A blocked or incomplete build is a fail. Return JSON with two string fields: \"verdict\" (as above) and \"summary\" (a complete, self-contained Markdown report: what was verified with evidence, what failed or is unverified, and the precise next actions).",
+        "tools": {
+          "type": "inherit"
+        },
+        "context_mode": "isolated_child",
+        "structured_output": "host_validated",
+        "profile": {
+          "id": "verify"
+        }
+      },
+      "input_bindings": [
+        {
+          "target": "request",
+          "source": {
+            "type": "run_input",
+            "pointer": "/request"
+          }
+        },
+        {
+          "target": "context",
+          "source": {
+            "type": "run_input",
+            "pointer": "/context"
+          }
+        },
+        {
+          "target": "build",
+          "source": {
+            "type": "node_output",
+            "node_id": "build",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": {
+        "type": "inline",
+        "name": "verification_verdict",
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 700,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "gate",
+      "name": "Checks pass",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "build"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "output",
+      "name": "Result",
+      "type": "output",
+      "config": {
+        "source": {
+          "type": "node_output",
+          "node_id": "verify",
+          "pointer": "/summary"
+        },
+        "strict": false
+      },
+      "input_bindings": [],
+      "output_schema": null,
+      "retry": {
+        "max_attempts": 1,
+        "retry_on": []
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1340,
+            "y": 80
+          }
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "input-build",
+      "source": "input",
+      "target": "build",
+      "condition": "on_success"
+    },
+    {
+      "id": "build-verify",
+      "source": "build",
+      "target": "verify",
+      "condition": "on_success"
+    },
+    {
+      "id": "verify-gate",
+      "source": "verify",
+      "target": "gate",
+      "condition": "on_success"
+    },
+    {
+      "id": "gate-output",
+      "source": "gate",
+      "target": "output",
+      "condition": "on_success"
+    }
+  ],
+  "policies": {
+    "max_total_attempts": 30
+  },
+  "metadata": {
+    "kind": "stage",
+    "route": {
+      "when": "The user clearly approves going ahead and wants the change made now: 'do it', 'go ahead and build that', or a specific, already-decided change. This edits files."
+    },
+    "switch_to": [
+      "diagnose",
+      "security-audit"
+    ]
+  }
+}

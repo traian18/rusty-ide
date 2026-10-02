@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "id": "optimize-performance",
-  "revision": 1,
+  "revision": 3,
   "name": "Optimize performance",
-  "description": "Measured performance work: Analyze finds the candidate bottlenecks, Optimize measures a baseline, changes one thing and measures again, Verify reproduces the result.",
+  "description": "Measured performance work: Analyze finds the candidate bottlenecks, Optimize measures a baseline, changes one thing and measures again, Verify reproduces the result. If Verify finds a failing check or an unfinished step, Optimize is sent back with the findings, up to three attempts.",
   "status": "draft",
   "input_schema": null,
   "output_contract": {
@@ -17,7 +17,7 @@
     "source": {
       "type": "node_output",
       "node_id": "verify",
-      "pointer": ""
+      "pointer": "/summary"
     },
     "strict": false
   },
@@ -102,7 +102,7 @@
       "name": "Optimize",
       "type": "agent",
       "config": {
-        "instructions": "Optimize for the goal in workflow_input.request using workflow_input.analyze. Define the metric and workload, capture a baseline before changing anything (approved structured commands only), identify the actual bottleneck from evidence, make one focused change, and measure again under the same conditions. Preserve behavior and public APIs, and run the relevant tests. Finish with a written handoff: the metric and goal, methodology, baseline, bottleneck evidence, the change, the after-measurement and comparison, correctness checks, and remaining opportunities. Do not claim an improvement you did not measure. The next step receives only your final message, not your tool history, so keep every fact it needs. ",
+        "instructions": "Optimize for the goal in workflow_input.request using workflow_input.analyze. Define the metric and workload, capture a baseline before changing anything (approved structured commands only), identify the actual bottleneck from evidence, make one focused change, and measure again under the same conditions. Preserve behavior and public APIs, and run the relevant tests. Finish with a written handoff: the metric and goal, methodology, baseline, bottleneck evidence, the change, the after-measurement and comparison, correctness checks, and remaining opportunities. Do not claim an improvement you did not measure. The next step receives only your final message, not your tool history, so keep every fact it needs. Work through the plan one step at a time and stop at the first step you cannot complete: report that blocker instead of improvising or skipping ahead. After your last edit run every relevant check with run_check (typecheck, lint, test, build) and fix what fails. If this prompt lists rejections from an earlier attempt, they are the checker's findings: fix exactly those problems, keep the work already done, and do not start over.",
         "tools": {
           "type": "inherit"
         },
@@ -137,8 +137,12 @@
         }
       },
       "retry": {
-        "max_attempts": 1,
-        "retry_on": []
+        "max_attempts": 3,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "verification_failed"
+        ]
       },
       "metadata": {
         "editor": {
@@ -154,12 +158,12 @@
       "name": "Verify",
       "type": "agent",
       "config": {
-        "instructions": "Verify the optimization against workflow_input.request, the Analyze findings in workflow_input.analyze and the Optimize handoff in workflow_input.optimize. Re-run the stated measurement yourself when an approved structured command allows it, run the relevant correctness checks, and inspect the changed files. Do not edit files or run destructive commands. Finish with a clear written verdict: whether the claimed improvement is reproduced, whether behavior is preserved, what remains unverified, and precise next actions. Your final message is the workflow result the user will read and may act on, so make it complete and self-contained. ",
+        "instructions": "Check the optimization against workflow_input.request, the Analyze findings in workflow_input.analyze and the Optimize handoff in workflow_input.optimize. Re-run the stated measurement yourself when an approved structured command allows it, and confirm behavior is preserved. Do not edit files or run destructive commands. First call run_check for every relevant check (typecheck, lint, test, build) and keep each result. Then, for each requested change or plan step, open the actual code and confirm it was done; look for regressions and for claims in the handoff that the code does not support. The verdict is exactly \"pass\" only when every check passed (or none exists, which you say) and every step is done. Otherwise it is \"fail: \" followed by the specific problems, most important first, each with a file and line or the failing command and its error, short enough for the builder to act on without seeing your report. A blocked or incomplete build is a fail. Return JSON with two string fields: \"verdict\" (as above) and \"summary\" (a complete, self-contained Markdown report: what was verified with evidence, what failed or is unverified, and the precise next actions).",
         "tools": {
           "type": "inherit"
         },
         "context_mode": "isolated_child",
-        "structured_output": "text",
+        "structured_output": "host_validated",
         "profile": {
           "id": "verify"
         }
@@ -191,11 +195,66 @@
       ],
       "output_schema": {
         "type": "inline",
-        "name": "written_handoff",
+        "name": "verification_verdict",
         "schema": {
-          "type": "string"
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "verdict",
+            "summary"
+          ],
+          "properties": {
+            "verdict": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          }
         }
       },
+      "retry": {
+        "max_attempts": 2,
+        "retry_on": [
+          "backend_rate_limited",
+          "backend_timeout",
+          "invalid_structured_output"
+        ]
+      },
+      "metadata": {
+        "editor": {
+          "position": {
+            "x": 1020,
+            "y": 80
+          }
+        }
+      }
+    },
+    {
+      "id": "gate",
+      "name": "Checks pass",
+      "type": "verify",
+      "config": {
+        "checks": [
+          {
+            "type": "required_status",
+            "pointer": "/check/verdict",
+            "equals": "pass"
+          }
+        ],
+        "retry_target": "optimize"
+      },
+      "input_bindings": [
+        {
+          "target": "check",
+          "source": {
+            "type": "node_output",
+            "node_id": "verify",
+            "pointer": ""
+          }
+        }
+      ],
+      "output_schema": null,
       "retry": {
         "max_attempts": 1,
         "retry_on": []
@@ -203,7 +262,7 @@
       "metadata": {
         "editor": {
           "position": {
-            "x": 1020,
+            "x": 1340,
             "y": 80
           }
         }
@@ -217,7 +276,7 @@
         "source": {
           "type": "node_output",
           "node_id": "verify",
-          "pointer": ""
+          "pointer": "/summary"
         },
         "strict": false
       },
@@ -230,7 +289,7 @@
       "metadata": {
         "editor": {
           "position": {
-            "x": 1340,
+            "x": 1660,
             "y": 80
           }
         }
@@ -257,13 +316,21 @@
       "condition": "on_success"
     },
     {
-      "id": "verify-output",
+      "id": "verify-gate",
       "source": "verify",
+      "target": "gate",
+      "condition": "on_success"
+    },
+    {
+      "id": "gate-output",
+      "source": "gate",
       "target": "output",
       "condition": "on_success"
     }
   ],
-  "policies": {},
+  "policies": {
+    "max_total_attempts": 30
+  },
   "metadata": {
     "kind": "end_to_end",
     "switch_to": [

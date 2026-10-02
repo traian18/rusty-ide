@@ -1,35 +1,12 @@
 import { stableStringify, type JsonObject } from "./behaviorModel";
-import workflow from "./starter/plan-build-verify.workflow.json";
-import investigate from "./starter/workflows/investigate.workflow.json";
-import design from "./starter/workflows/design.workflow.json";
-import diagnose from "./starter/workflows/diagnose.workflow.json";
-import implement from "./starter/workflows/implement.workflow.json";
-import securityAudit from "./starter/workflows/security-audit.workflow.json";
-import checkChanges from "./starter/workflows/check-changes.workflow.json";
-import analyzedFeature from "./starter/workflows/analyzed-feature.workflow.json";
-import researchedFeature from "./starter/workflows/researched-feature.workflow.json";
-import bugFix from "./starter/workflows/bug-fix.workflow.json";
-import carefulChange from "./starter/workflows/careful-change.workflow.json";
-import securityRemediation from "./starter/workflows/security-remediation.workflow.json";
-import refactorWorkflow from "./starter/workflows/refactor.workflow.json";
-import optimizePerformance from "./starter/workflows/optimize-performance.workflow.json";
-import documentation from "./starter/workflows/documentation.workflow.json";
-import research from "./starter/research.profile.json";
-import analyze from "./starter/analyze.profile.json";
-import plan from "./starter/plan.profile.json";
-import build from "./starter/build.profile.json";
-import verify from "./starter/verify.profile.json";
-import review from "./starter/review.profile.json";
-import debug from "./starter/debug.profile.json";
-import architect from "./starter/architect.profile.json";
-import security from "./starter/security.profile.json";
-import document from "./starter/document.profile.json";
-import refactor from "./starter/refactor.profile.json";
-import optimize from "./starter/optimize.profile.json";
-import v1 from "./starter/v1/plan-build-verify.workflow.json";
-import v2 from "./starter/v2/plan-build-verify.workflow.json";
-import v3 from "./starter/v3/plan-build-verify.workflow.json";
-import v4 from "./starter/v4/plan-build-verify.workflow.json";
+import catalog from "./starter/catalog.json";
+import previousQueueWorkflow from "./starter/legacy/before-task-queue/plan-build-verify.workflow.json";
+const workflow = catalog.workflows[0];
+import v1 from "./starter/legacy/v1/plan-build-verify.workflow.json";
+import v2 from "./starter/legacy/v2/plan-build-verify.workflow.json";
+import v3 from "./starter/legacy/v3/plan-build-verify.workflow.json";
+import v4 from "./starter/legacy/v4/plan-build-verify.workflow.json";
+import v5 from "./starter/legacy/v5/plan-build-verify.workflow.json";
 
 export const STARTER_WORKFLOW_ID = "plan-build-verify";
 export const BUILTIN_WORKFLOW_PATH = "builtin:plan-build-verify";
@@ -41,20 +18,7 @@ const BUILTIN_ID_PREFIX = "rusty-ide.builtin.";
 // Built-ins are displayed as app-owned, read-only documents. The native
 // workflow host registers the same prefixed IDs for executable sessions.
 // Keep this list in step with `BUILTIN_PROFILES` in src-tauri/src/harness/workflow.rs.
-export const STARTER_PROFILES = [
-  research,
-  analyze,
-  plan,
-  build,
-  verify,
-  review,
-  debug,
-  architect,
-  security,
-  document,
-  refactor,
-  optimize,
-].map((profile) => ({
+export const STARTER_PROFILES = catalog.profiles.map((profile) => ({
   ...profile,
   id: `${BUILTIN_ID_PREFIX}${profile.id}`,
 })) as unknown as JsonObject[];
@@ -72,7 +36,8 @@ function builtinWorkflow<T extends BundledWorkflow>(source: T): JsonObject {
     id: `${BUILTIN_ID_PREFIX}${source.id}`,
     nodes: source.nodes.map((node) => {
       const profile = node.config.profile as { id: string } | undefined;
-      return { ...node, config: { ...node.config, ...(profile ? { profile: { id: `${BUILTIN_ID_PREFIX}${profile.id}` } } : {}) } };
+      const queue = node.config.task_queue as { review_profile: { id: string } } | undefined;
+      return { ...node, config: { ...node.config, ...(queue ? { task_queue: { ...queue, review_profile: { id: `${BUILTIN_ID_PREFIX}${queue.review_profile.id}` } } } : {}), ...(profile ? { profile: { id: `${BUILTIN_ID_PREFIX}${profile.id}` } } : {}) } };
     }),
   } as unknown as JsonObject;
 }
@@ -89,23 +54,7 @@ export const STARTER_WORKFLOW = builtinWorkflow(workflow);
  * long job can be steered between stages. End-to-end workflows run a whole
  * pipeline unattended.
  */
-export const STARTER_WORKFLOWS: JsonObject[] = [
-  workflow,
-  investigate,
-  design,
-  diagnose,
-  implement,
-  securityAudit,
-  checkChanges,
-  analyzedFeature,
-  researchedFeature,
-  bugFix,
-  carefulChange,
-  securityRemediation,
-  refactorWorkflow,
-  optimizePerformance,
-  documentation,
-].map(builtinWorkflow);
+export const STARTER_WORKFLOWS: JsonObject[] = catalog.workflows.map(builtinWorkflow);
 
 export type BuiltinWorkflowKind = "stage" | "end_to_end";
 
@@ -131,7 +80,7 @@ export function workflowKind(document: JsonObject | undefined): BuiltinWorkflowK
 }
 
 export function isUnmodifiedStarter(document: JsonObject): boolean {
-  return [v1, v2, v3, v4, workflow].some((version) => stableStringify(version as unknown as JsonObject) === stableStringify(document));
+  return [v1, v2, v3, v4, v5, previousQueueWorkflow, workflow].some((version) => stableStringify(version as unknown as JsonObject) === stableStringify(document));
 }
 
 /** An independent copy of a built-in workflow; the default is Plan, build, verify. */

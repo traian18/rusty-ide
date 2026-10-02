@@ -1,13 +1,74 @@
 {
   "schema_version": 1,
   "id": "refactor",
-  "revision": 2,
+  "revision": 4,
   "name": "Refactor",
   "description": "Makes behavior-preserving source improvements and requires a project check after the last edit.",
   "status": "published",
-  "instructions": {"mode":"append","text":"Improve code structure without changing observable behavior unless the user explicitly requests otherwise. Establish the current behavior and scope before editing, make focused source changes, and verify after the last edit. Call project_info to learn which commands check the project, and verify with run_check (typecheck, lint, test or build) after the final edit; if a check reports a missing tool or uninstalled dependencies, call install_dependencies and run it again. Use approval-gated run_command only for something run_check cannot express, with structured argv (never sh -c or bash -c) and never for file inspection or edits. If checks were already failing before your change, say so. Report behavior-preservation evidence and all checks run.","variants":{}},
-  "tools":{"type":"inherit"},"tool_overrides":{"run_command":{"description_append":"Use run_check for verification. Use this only for something run_check cannot express, with approved structured commands; do not delete data or publish anything."}},"execution":{},"limits":{},
-  "rules":[{"id":"refactor-failed-tool","on":"PostToolUseFailure","when":{"not":{"tool":["run_check"]}},"do":{"inject":{"text":"Read the failed tool result and correct the cause before trying an alternative."}},"max_fires":6},{"id":"refactor-failing-check","on":"BeforeModelRequest","when":{"all":[{"since_last_call":{"of":"write_file","called":"run_check","outcome":"failed","gte":1}},{"since_last_call":{"of":"write_file","called":"run_check","outcome":"succeeded","eq":0}}]},"do":{"inject":{"text":"A check failed after your last edit and none has passed since. A refactor must not change behavior: if your change caused the failure, fix it and run the check again. If it was already failing before your change, say so and report which checks you could rely on. Never describe this refactor as verified."}},"max_fires":6}],
-  "completion_gate":{"checks":[{"id":"refactor-verified","require":{"any":[{"calls":{"tool":"write_file","eq":0}},{"since_last_call":{"of":"write_file","called":"run_check","gte":1}},{"all":[{"not":{"tool_offered":"run_check"}},{"since_last_call":{"of":"write_file","called":["read_file","run_command"],"gte":1}}]}]},"feedback":"Verify the refactor after the final edit: call run_check (typecheck, lint, test or build). Reading the changed file back does not count."}],"max_continuations":3,"on_exhausted":"fail"},
-  "children":{"type":"inherit"},"metadata":{"editor":{"position":{"x":400,"y":620}}}
+  "instructions": {
+    "mode": "append",
+    "text": "Make the refactoring the task asks for, keeping behavior and public APIs the same. Read the code first and follow the project's conventions. Run the project's checks when you can and read what they return. Summarize what you changed.",
+    "variants": {}
+  },
+  "tools": {
+    "type": "allow_list",
+    "tools": [
+      "read_file",
+      "list_files",
+      "search_codebase",
+      "project_info",
+      "read_workflow_context",
+      "report_progress",
+      "ask_user_question",
+      "open_document",
+      "write_file",
+      "edit_file",
+      "run_check",
+      "run_command",
+      "install_dependencies",
+      "web_search",
+      "web_extract"
+    ]
+  },
+  "tool_overrides": {
+    "run_command": {
+      "description_append": "Use run_check for verification; use this for anything else a refactor needs. How to call it: program and args are separate; the program is a bare name on PATH (`mvn`, `npm`, `git`) or a script relative to cwd (`./mvnw` with cwd `wbc-core-service-api`), and args are literal strings. Example: {\"program\": \"./mvnw\", \"args\": [\"-B\", \"test\"], \"cwd\": \"wbc-core-service-api\"}. Do not wrap it in sh or bash and do not put the whole line in program. What comes back: the output, then a final line `(command exited with code N)`. Code 0 is success; anything else is the answer, so read the output, find the first real error, and act on it: if a tool is missing check for an installed alternative (program `which`), if a download fails read the URL and error, search the web for the fix, and retry. Never repeat the same failing command unchanged. Do not run commands that delete data or publish anything."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 60,
+    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
+  },
+  "rules": [],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "implementation-evidence",
+        "require": {
+          "calls": {
+            "tool": [
+              "read_file",
+              "search_codebase"
+            ],
+            "gte": 1
+          }
+        },
+        "feedback": "Inspect the actual workspace before implementing or reporting."
+      }
+    ],
+    "max_continuations": 1,
+    "on_exhausted": "fail"
+  },
+  "children": {
+    "type": "inherit"
+  },
+  "metadata": {
+    "editor": {
+      "position": {
+        "x": 400,
+        "y": 620
+      }
+    }
+  }
 }

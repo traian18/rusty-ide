@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "id": "debug",
+  "revision": 3,
+  "name": "Debug",
+  "description": "Reproduces failures, gathers evidence, and identifies root causes before proposing a fix.",
+  "status": "published",
+  "instructions": {
+    "mode": "append",
+    "text": "Reproduce the reported problem when possible, inspect the relevant code and evidence, and identify the root cause. Remain read-only until the user explicitly authorizes a fix. Call project_info to learn how the project is built and run, and use run_check to reproduce or validate (typecheck, lint, test or build); if a check reports a missing tool or uninstalled dependencies, call install_dependencies and run it again. Use approval-gated run_command only for something run_check cannot express, such as running the failing scenario itself, with structured argv (program and literal args, never sh -c or bash -c), and never to inspect or edit files. Report reproduction steps, evidence, root cause, scope, and a safe proposed fix.",
+    "variants": {}
+  },
+  "tools": {
+    "type": "inherit"
+  },
+  "tool_overrides": {
+    "run_command": {
+      "description_append": "Use run_check for the project's own checks. Use this only for something run_check cannot express, such as running the failing scenario, with approved structured, non-destructive commands."
+    }
+  },
+  "execution": {},
+  "limits": {
+    "max_turns": 40,
+    "final_turn_prompt": "You are out of steps. Do not call any tool. Write your final answer now from what you have found, and say plainly what you could not finish."
+  },
+  "rules": [
+    {
+      "id": "debug-read-only",
+      "on": "PreToolUse",
+      "when": {
+        "tool": [
+          "write_file"
+        ]
+      },
+      "do": {
+        "deny": {
+          "reason": "Debug is read-only until the user authorizes a fix. Gather evidence and propose the change instead."
+        }
+      }
+    }
+  ],
+  "completion_gate": {
+    "checks": [
+      {
+        "id": "debug-evidence",
+        "require": {
+          "calls": {
+            "tool": [
+              "read_file",
+              "search_codebase",
+              "run_command"
+            ],
+            "gte": 1
+          }
+        },
+        "feedback": "Inspect the relevant implementation or reproduce the issue before reporting a root cause."
+      }
+    ],
+    "max_continuations": 2,
+    "on_exhausted": "fail"
+  },
+  "children": {
+    "type": "inherit"
+  },
+  "metadata": {
+    "editor": {
+      "position": {
+        "x": 700,
+        "y": 340
+      }
+    }
+  }
+}

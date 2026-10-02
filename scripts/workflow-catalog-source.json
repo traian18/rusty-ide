@@ -1,0 +1,350 @@
+{
+  "analyzed-feature": {
+    "schema_version": 1,
+    "id": "analyzed-feature",
+    "revision": 4,
+    "name": "Analyze, plan & build",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "diagnose",
+        "design"
+      ]
+    },
+    "stages": {
+      "analyze": {
+        "name": "Analyze",
+        "profile": "analyze",
+        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it."
+      }
+    }
+  },
+  "implement": {
+    "schema_version": 1,
+    "id": "implement",
+    "revision": 4,
+    "name": "Build & verify",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "stage",
+      "route": {
+        "when": "The user clearly approves going ahead and wants the change made now: 'do it', 'go ahead and build that', or a specific, already-decided change. This edits files."
+      },
+      "switch_to": [
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {}
+  },
+  "documentation": {
+    "schema_version": 1,
+    "id": "documentation",
+    "revision": 2,
+    "name": "Write documentation",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "investigate"
+      ]
+    },
+    "stages": {
+      "analyze": {
+        "name": "Analyze",
+        "profile": "analyze",
+        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it. Identify documentation gaps, intended readers, source-of-truth symbols and examples that need validation."
+      }
+    }
+  },
+  "refactor": {
+    "schema_version": 1,
+    "id": "refactor",
+    "revision": 4,
+    "name": "Refactor safely",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "analyze": {
+        "name": "Analyze",
+        "profile": "analyze",
+        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it. Identify observable behavior and public interfaces that must remain unchanged, with regression coverage."
+      }
+    }
+  },
+  "investigate": {
+    "schema_version": 1,
+    "id": "investigate",
+    "revision": 2,
+    "name": "Research & analyze",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "stage",
+      "route": {
+        "when": "The user wants to understand or investigate how some existing functionality works, or how a technology or approach compares, before deciding anything: questions like 'how does X work', 'what are my options for Y', 'where is Z handled'. Nothing needs to change yet."
+      },
+      "switch_to": [
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "research": {
+        "name": "Research",
+        "profile": "research",
+        "instructions": "Investigate the requested scope using workspace evidence and relevant external sources. Provide sourced options, trade-offs, uncertainties and a recommendation; do not implement changes."
+      },
+      "analyze": {
+        "name": "Analyze",
+        "profile": "analyze",
+        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it."
+      }
+    }
+  },
+  "researched-feature": {
+    "schema_version": 1,
+    "id": "researched-feature",
+    "revision": 4,
+    "name": "Research, design & build",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "research": {
+        "name": "Research",
+        "profile": "research",
+        "instructions": "Investigate the requested scope using workspace evidence and relevant external sources. Provide sourced options, trade-offs, uncertainties and a recommendation; do not implement changes."
+      },
+      "architect": {
+        "name": "Architect",
+        "profile": "architect",
+        "instructions": "Design components, interfaces, data flow and failure handling. Compare viable alternatives and explain the chosen design, compatibility constraints and implementation boundaries."
+      }
+    }
+  },
+  "optimize-performance": {
+    "schema_version": 1,
+    "id": "optimize-performance",
+    "revision": 4,
+    "name": "Optimize performance",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "investigate",
+        "diagnose"
+      ]
+    },
+    "stages": {
+      "analyze": {
+        "name": "Analyze",
+        "profile": "analyze",
+        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it. Identify measurable bottlenecks, baseline conditions and a repeatable comparison. Do not invent measurements."
+      }
+    }
+  },
+  "security-remediation": {
+    "schema_version": 1,
+    "id": "security-remediation",
+    "revision": 4,
+    "name": "Security remediation",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "diagnose"
+      ]
+    },
+    "stages": {
+      "audit": {
+        "name": "Security audit",
+        "profile": "security",
+        "instructions": "Audit the requested scope for concrete security risks. For each finding identify severity, file/symbol, exploit conditions, affected trust boundary and a precise remediation with an acceptance check. Clearly distinguish confirmed findings from unverified risks."
+      }
+    }
+  },
+  "security-audit": {
+    "schema_version": 1,
+    "id": "security-audit",
+    "revision": 2,
+    "name": "Security audit & fix plan",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "stage",
+      "route": {
+        "when": "The user asks whether code is secure, or wants vulnerabilities, risky dependencies, exposed secrets or unsafe configuration reviewed."
+      },
+      "switch_to": [
+        "diagnose"
+      ]
+    },
+    "stages": {
+      "audit": {
+        "name": "Security",
+        "profile": "security",
+        "instructions": "Audit the requested scope for concrete security risks. For each finding identify severity, file/symbol, exploit conditions, affected trust boundary and a precise remediation with an acceptance check. Clearly distinguish confirmed findings from unverified risks."
+      }
+    }
+  },
+  "careful-change": {
+    "schema_version": 1,
+    "id": "careful-change",
+    "revision": 4,
+    "name": "High-risk change",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "analyze": {
+        "name": "Analyze",
+        "profile": "analyze",
+        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it."
+      }
+    }
+  },
+  "plan-build-verify": {
+    "schema_version": 1,
+    "id": "plan-build-verify",
+    "revision": 8,
+    "name": "Plan, build, verify",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "switch_to": [
+        "investigate",
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {}
+  },
+  "check-changes": {
+    "schema_version": 1,
+    "id": "check-changes",
+    "revision": 2,
+    "name": "Verify & review changes",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "stage",
+      "route": {
+        "when": "The user wants work that was already done, their own changes or the previous result, checked or reviewed for correctness, regressions and quality, without anything being edited."
+      },
+      "switch_to": [
+        "diagnose",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "verify": {
+        "name": "Verify",
+        "profile": "verify",
+        "instructions": "Inspect the requested scope and report actual evidence."
+      },
+      "review": {
+        "name": "Review",
+        "profile": "review",
+        "instructions": "Inspect the actual requested changes for correctness, regressions, missing tests and maintainability. Return prioritized actionable findings with file/symbol evidence. A completed assessment can contain defects: explicitly state whether the changes are acceptable and what remains unresolved."
+      }
+    }
+  },
+  "diagnose": {
+    "schema_version": 1,
+    "id": "diagnose",
+    "revision": 2,
+    "name": "Debug & plan a fix",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "stage",
+      "route": {
+        "when": "Something is broken or failing and the user wants the cause found: an error message, a failing test, wrong behavior or a regression. A fix plan is wanted, not yet the fix itself."
+      },
+      "switch_to": [
+        "investigate",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "debug": {
+        "name": "Debug",
+        "profile": "debug",
+        "instructions": "Reproduce the reported failure with the smallest relevant check, distinguish observed evidence from hypotheses, identify the root cause and specify a regression test. Report missing prerequisites explicitly; do not edit files or install dependencies."
+      }
+    }
+  },
+  "design": {
+    "schema_version": 1,
+    "id": "design",
+    "revision": 2,
+    "name": "Architect & plan",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "stage",
+      "route": {
+        "when": "The user has a requirement or earlier findings and wants a design or an ordered implementation plan before any code is written: 'how should we build X', 'plan this', 'design the approach'. Often the follow-up after an investigation."
+      },
+      "switch_to": [
+        "investigate",
+        "diagnose"
+      ]
+    },
+    "stages": {
+      "architect": {
+        "name": "Architect",
+        "profile": "architect",
+        "instructions": "Design components, interfaces, data flow and failure handling. Compare viable alternatives and explain the chosen design, compatibility constraints and implementation boundaries."
+      }
+    }
+  },
+  "bug-fix": {
+    "schema_version": 1,
+    "id": "bug-fix",
+    "revision": 4,
+    "name": "Fix a bug",
+    "status": "draft",
+    "input_schema": null,
+    "metadata": {
+      "kind": "end_to_end",
+      "switch_to": [
+        "investigate",
+        "security-audit"
+      ]
+    },
+    "stages": {
+      "debug": {
+        "name": "Debug",
+        "profile": "debug",
+        "instructions": "Reproduce the reported failure with the smallest relevant check, distinguish observed evidence from hypotheses, identify the root cause and specify a regression test. Report missing prerequisites explicitly; do not edit files or install dependencies."
+      }
+    }
+  }
+}

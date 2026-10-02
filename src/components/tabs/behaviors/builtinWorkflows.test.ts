@@ -17,17 +17,17 @@ const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }>
   investigate: { kind: "stage", steps: ["research", "analyze"] },
   design: { kind: "stage", steps: ["architect", "plan"] },
   diagnose: { kind: "stage", steps: ["debug", "plan"] },
-  implement: { kind: "stage", steps: ["build", "verify"] },
+  implement: { kind: "stage", steps: ["plan", "build", "verify"] },
   "security-audit": { kind: "stage", steps: ["security", "plan"] },
-  "check-changes": { kind: "stage", steps: ["verify", "review"] },
+  "check-changes": { kind: "stage", steps: ["review", "verify"] },
   "analyzed-feature": { kind: "end_to_end", steps: ["analyze", "plan", "build", "verify"] },
   "researched-feature": { kind: "end_to_end", steps: ["research", "architect", "plan", "build", "verify"] },
   "bug-fix": { kind: "end_to_end", steps: ["debug", "plan", "build", "verify"] },
   "careful-change": { kind: "end_to_end", steps: ["analyze", "plan", "build", "verify", "review"] },
   "security-remediation": { kind: "end_to_end", steps: ["security", "plan", "build", "verify", "security"] },
   refactor: { kind: "end_to_end", steps: ["analyze", "plan", "refactor", "verify", "review"] },
-  "optimize-performance": { kind: "end_to_end", steps: ["analyze", "optimize", "verify"] },
-  documentation: { kind: "end_to_end", steps: ["analyze", "document", "review"] },
+  "optimize-performance": { kind: "end_to_end", steps: ["analyze", "plan", "optimize", "verify"] },
+  documentation: { kind: "end_to_end", steps: ["analyze", "plan", "document", "verify", "review"] },
 };
 
 const PREFIX = "rusty-ide.builtin.";
@@ -57,7 +57,7 @@ describe("the built-in workflow catalog", () => {
     for (const document of STARTER_WORKFLOWS) {
       const { kind } = CATALOG[shortId(document)];
       const steps = agentsOf(document).length;
-      if (kind === "stage") expect(steps, shortId(document)).toBeLessThanOrEqual(2);
+      if (kind === "stage") expect(steps, shortId(document)).toBeLessThanOrEqual(3);
       else expect(steps, shortId(document)).toBeGreaterThanOrEqual(3);
       // The built-in Plan, build, verify predates the marker; the rest declare theirs.
       if (shortId(document) !== "plan-build-verify") expect(workflowKind(document)).toBe(kind);
@@ -96,40 +96,59 @@ describe("the built-in workflow catalog", () => {
         const mentioned = [...String(configOf(node).instructions).matchAll(/workflow_input\.(\w+)/g)].map((match) => match[1]);
         for (const name of mentioned) expect(targets, `${shortId(document)}/${node.id} mentions ${name}`).toContain(name);
         expect(String(configOf(node).instructions).length).toBeGreaterThan(80);
-        expect(configOf(node).structured_output).toBe("text");
+        const markdownOnly = shortId(document) === "design";
+        expect(configOf(node).structured_output).toBe(markdownOnly ? "text" : "host_validated");
         expect(configOf(node).tools).toEqual({ type: "inherit" });
         expect(node.output_schema).toBeTruthy();
+        if (markdownOnly) {
+          expect(String(configOf(node).instructions)).toContain("Finish with exactly `## status`");
+        }
         seen.add(String(node.id));
       }
     }
   });
 
-  it("lets every workflow but the original start from the previous run's result", () => {
+  it("builds in one step and accepts only a passing verdict", () => {
     for (const document of STARTER_WORKFLOWS) {
-      const first = agentsOf(document)[0];
-      const reads = (first.input_bindings as JsonObject[]).some((binding) => (binding.source as JsonObject).pointer === "/context");
-      if (shortId(document) === "plan-build-verify") {
-        expect(workflowUsesContext(document)).toBe(false);
-        continue;
-      }
-      expect(reads, shortId(document)).toBe(true);
-      expect(workflowUsesContext(document)).toBe(true);
-      // Only the opening step reads it, so a long chain does not repeat the result on every step.
-      const readers = agentsOf(document).filter((node) => (node.input_bindings as JsonObject[]).some((binding) => (binding.source as JsonObject).pointer === "/context"));
-      expect(readers.length, shortId(document)).toBeLessThanOrEqual(2);
+      const nodes = nodesOf(document);
+      // One build step implements the whole plan; no per-task queue to stall on.
+      expect(nodes.some(n => configOf(n).task_queue), shortId(document)).toBe(false);
+      const gate = nodes.find(n => n.id === "gate");
+      if (!gate) continue;
+      expect(configOf(gate).checks).toEqual([{ type: "required_status", pointer: "/check/verdict", equals: "pass" }]);
     }
   });
 
-  it("keeps the stages that promise investigation read-only", () => {
-    const profile = (id: string) => STARTER_PROFILES.find((entry) => entry.id === id)!;
-    const deniesWrites = (id: string) => JSON.stringify(profile(id).rules).includes("write_file") && JSON.stringify(profile(id).rules).includes("deny");
-    for (const name of ["investigate", "design", "diagnose", "security-audit", "check-changes"]) {
-      const document = STARTER_WORKFLOWS.find((entry) => shortId(entry) === name)!;
-      for (const node of agentsOf(document)) expect(deniesWrites(profileOf(node)), `${name}/${node.id}`).toBe(true);
+  it("never lets a final review or security recheck bypass acceptance", () => {
+    for (const document of STARTER_WORKFLOWS) {
+      const nodes = nodesOf(document);
+      const last = agentsOf(document).at(-1)!;
+      const edge = (document.edges as JsonObject[]).find(e => e.source === last.id)!;
+      const gate = nodes.find(n => n.id === edge.target)!;
+      expect(gate.type, shortId(document)).toBe("verify");
+      expect(JSON.stringify(configOf(gate).checks)).toMatch(/required_status/);
     }
-    // And the one stage that carries out work uses the profile that can.
-    const implement = STARTER_WORKFLOWS.find((entry) => shortId(entry) === "implement")!;
-    expect(deniesWrites(profileOf(agentsOf(implement)[0]))).toBe(false);
+  });
+
+  it("preserves context access and has finite attempt budgets in every workflow", () => {
+    for (const document of STARTER_WORKFLOWS) {
+      expect(workflowUsesContext(document), shortId(document)).toBe(true);
+      expect((document.policies as JsonObject).max_total_attempts).toBe(40);
+      for (const node of agentsOf(document)) {
+        expect((node.input_bindings as JsonObject[]).map(b => b.target)).toContain("context");
+        expect(node.timeout_ms).toBeUndefined();
+      }
+    }
+  });
+
+  it("does not offer editing, installation or delegation to read-only profiles", () => {
+    for (const id of ["research", "analyze", "architect", "plan", "debug", "verify", "review", "security"]) {
+      const profile = STARTER_PROFILES.find(p => p.id === `${PREFIX}${id}`)!;
+      expect((profile.tools as JsonObject).type).toBe("allow_list");
+      const tools = (profile.tools as JsonObject).tools as string[];
+      expect(tools).toContain("read_workflow_context");
+      for (const tool of ["write_file", "edit_file", "install_dependencies", "agent_spawn"]) expect(tools, id).not.toContain(tool);
+    }
   });
 
   it("makes the second security pass a re-audit of the first", () => {
