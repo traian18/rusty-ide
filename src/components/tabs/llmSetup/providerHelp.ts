@@ -28,8 +28,8 @@ const PROVIDER_HELP_TEXT: Record<string, string[]> = {
     "Use Fetch Models to load the official catalog.",
   ],
   "github-copilot": [
-    "Uses your GitHub Copilot subscription through GitHub's official Copilot SDK.",
-    "The bundled CLI and system credential store manage authentication.",
+    "Uses your GitHub Copilot subscription through the direct model API. GitHub device sign-in authorizes the Rusty application.",
+    "Sign in here even if Copilot CLI is already signed in. Rusty stores its own credential and controls workspace tools and permissions.",
     "Available models and premium-request usage depend on your plan and organization policy.",
   ],
 };

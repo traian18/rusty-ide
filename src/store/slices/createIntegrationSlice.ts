@@ -117,12 +117,7 @@ const defaultProviders: CustomProvider[] = [
     apiType: "copilot-sdk",
     transport: "github-copilot-sdk",
     authType: "environment",
-    models: [
-      { id: "github-copilot/auto", remoteId: "auto", name: "Auto (plan and policy aware)", apiType: "copilot-sdk", supported: true },
-      { id: "github-copilot/gpt-4o", remoteId: "gpt-4o", name: "GPT-4o", apiType: "copilot-sdk", supported: true },
-      { id: "github-copilot/claude-3.5-sonnet", remoteId: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet", apiType: "copilot-sdk", supported: true },
-      { id: "github-copilot/o3-mini", remoteId: "o3-mini", name: "o3-mini", apiType: "copilot-sdk", supported: true },
-    ],
+    models: [],
   },
   {
     id: "github-models",

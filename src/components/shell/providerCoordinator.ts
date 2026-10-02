@@ -132,6 +132,10 @@ export function mapManagedStatus(status: ManagedStatus): ProviderStatus {
 function applySettled(id: ManagedProviderId, status: ManagedStatus, mySeq: number): void {
   if (latestRequestSeq.get(id) !== mySeq) return;
   const mapped = mapManagedStatus(status);
+  const previous = useWorkspaceStore.getState().providerStatus[id];
+  if (mapped.kind === "ready" && previous?.account !== mapped.account) {
+    invalidateManagedCatalog(id);
+  }
   useWorkspaceStore.getState().patchProviderStatus(id, mapped);
 
   if (pendingLoginNotification.has(id)) {
@@ -254,6 +258,7 @@ export async function startManagedLogin(provider: CustomProvider): Promise<void>
     throw new Error(`'${provider.id}' is not one of the managed-auth providers (${MANAGED_PROVIDER_IDS.join(", ")}), so it has no sign-in flow.`);
   }
   pendingLoginNotification.add(id);
+  invalidateManagedCatalog(id);
   useWorkspaceStore.getState().patchProviderStatus(id, {
     kind: "loading",
     verificationUri: undefined,
@@ -283,6 +288,7 @@ export async function logoutManaged(provider: CustomProvider): Promise<void> {
   }
   pendingLoginNotification.delete(id);
   await LOGOUT_LOADERS[id]();
+  invalidateManagedCatalog(id);
   forcePollNow(id);
 }
 
@@ -336,6 +342,15 @@ const discoverySemaphore = createSemaphore(DISCOVERY_CONCURRENCY);
  * e.g. a managed provider settling to "ready" right as the hourly sweep is
  * already checking it. */
 const discoveryInFlight = new Set<string>();
+// A saved managed catalog may have come from an older runtime or discovery
+// path. Refresh it once per app session after sign-in, even within the 24h TTL.
+const managedCatalogsRefreshedThisSession = new Set<string>();
+const managedCatalogGeneration = new Map<string, number>();
+
+function invalidateManagedCatalog(id: string): void {
+  managedCatalogsRefreshedThisSession.delete(id);
+  managedCatalogGeneration.set(id, (managedCatalogGeneration.get(id) ?? 0) + 1);
+}
 
 function isDueForDiscovery(provider: CustomProvider, nowMs: number): boolean {
   const status = providerStatusOrUnknown(useWorkspaceStore.getState().providerStatus, provider.id);
@@ -346,7 +361,10 @@ function isDueForDiscovery(provider: CustomProvider, nowMs: number): boolean {
     authType: provider.authType,
     hasApiKey: Boolean(provider.apiKey?.trim()),
   });
-  return eligible && isCatalogStale({ modelsFetchedAt: provider.modelsFetchedAt }, nowMs);
+  return eligible && (
+    (isManaged && !managedCatalogsRefreshedThisSession.has(provider.id))
+    || isCatalogStale({ modelsFetchedAt: provider.modelsFetchedAt }, nowMs)
+  );
 }
 
 /**
@@ -362,18 +380,33 @@ function isDueForDiscovery(provider: CustomProvider, nowMs: number): boolean {
 async function discoverModelsForProvider(provider: CustomProvider): Promise<void> {
   if (discoveryInFlight.has(provider.id)) return;
   discoveryInFlight.add(provider.id);
+  const isManaged = isManagedProviderId(provider.id);
+  const generation = managedCatalogGeneration.get(provider.id) ?? 0;
+  const isCurrent = () => !isManaged || (
+    started && generation === (managedCatalogGeneration.get(provider.id) ?? 0)
+    && useWorkspaceStore.getState().providerStatus[provider.id]?.kind === "ready"
+  );
   try {
     await discoverySemaphore.run(async () => {
+      if (!isCurrent()) return;
       const models = await controlPlane.discoverModels(provider);
+      // Login may have changed while this request was queued or in flight.
+      if (!isCurrent()) return;
       useWorkspaceStore.getState().updateProviderSettings(provider.id, {
         models,
         modelsFetchedAt: new Date().toISOString(),
       });
+      if (isManaged) {
+        managedCatalogsRefreshedThisSession.add(provider.id);
+      }
     });
   } catch (error) {
     console.error(`Background model discovery failed for "${provider.id}":`, error);
   } finally {
     discoveryInFlight.delete(provider.id);
+    if (isManaged && generation !== (managedCatalogGeneration.get(provider.id) ?? 0)) {
+      maybeDiscoverForProvider(provider.id);
+    }
   }
 }
 
@@ -497,6 +530,8 @@ export function stopProviderCoordinator(): void {
   if (discoverySweepTimer !== undefined) clearTimeout(discoverySweepTimer);
   discoverySweepTimer = undefined;
   discoveryInFlight.clear();
+  managedCatalogsRefreshedThisSession.clear();
+  managedCatalogGeneration.clear();
   if (quotaWatchTimer !== undefined) clearTimeout(quotaWatchTimer);
   quotaWatchTimer = undefined;
   quotaWatchProviderId = null;

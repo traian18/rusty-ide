@@ -16,7 +16,7 @@ const retry={max_attempts:2,retry_on:['backend_rate_limited','backend_timeout','
 const contextRule='Start from workflow_input.request.';
 const reportRule='Finish with a clear summary.';
 const planInstructions='Plan the request. Write the requirements with acceptance criteria, and ordered tasks that change the code. Every task must change the workspace; things only someone outside it can do (credential rotation, deployments, history rewrites) go in the summary as follow-ups for the user.';
-const builderInstructions='Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project\'s checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.';
+const builderInstructions='Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project\'s checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.';
 const verifyInstructions='Check that the changes in the workspace implement workflow_input.request and the plan, and that they were done properly. Run the project\'s checks when you can. Verdict: pass if it is done properly, otherwise fail followed by what is wrong.';
 const catalog=[
  ['plan-build-verify',[], 'build'],['investigate',['research','analyze']],['design',['architect','plan']],['diagnose',['debug','plan']],['implement',[],'build'],['security-audit',['audit','plan']],['check-changes',['review','verify']],['analyzed-feature',['analyze'],'build'],['researched-feature',['research','architect'],'build'],['bug-fix',['debug'],'build'],['careful-change',['analyze'],'build','review'],['security-remediation',['audit'],'build','recheck'],['refactor',['analyze'],'refactor','review'],['optimize-performance',['analyze'],'optimize'],['documentation',['analyze'],'document','review'],
@@ -25,7 +25,7 @@ const definitions=JSON.parse(fs.readFileSync(new URL('./workflow-catalog-source.
 const outputs=[];
 for(const [id,preps,writer,post] of catalog){
  const {stages,...old}=definitions[id];
- const workflow={...old,revision:old.revision+1,nodes:[],edges:[],policies:{max_total_attempts:40}};
+ const workflow={...old,revision:old.revision+(writer?2:1),nodes:[],edges:[],policies:{max_total_attempts:40}};
  const nodes=workflow.nodes;
  const add=n=>{n.metadata={editor:{position:{x:60+nodes.length*300,y:80}}};nodes.push(n);return n;};
  const node=(id,name,type,config,bindings=[],output=null,r={max_attempts:1,retry_on:[]})=>add({id,name,type,config,input_bindings:bindings,output_schema:output,retry:r});

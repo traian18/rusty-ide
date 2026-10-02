@@ -5,6 +5,7 @@ mod fs_watch;
 mod git;
 #[cfg(feature = "core-harness")]
 mod harness;
+mod notifications;
 mod observability_store;
 mod secure_key;
 mod shell_exec;
@@ -1434,6 +1435,11 @@ pub fn run() {
             observability_store::observability_load,
             observability_store::observability_load_trajectory,
             observability_store::observability_delete,
+            notifications::notification_capabilities,
+            notifications::notification_request_authorization,
+            notifications::notification_present,
+            notifications::notification_present_passive,
+            notifications::notification_cancel,
             git::git_status,
             git::git_init,
             git::git_stage_file,

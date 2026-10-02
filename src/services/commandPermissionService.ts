@@ -10,6 +10,8 @@ export type {
   CommandPermissionRequest,
 } from "../../shared/agent-protocol";
 import type { CommandPermissionDecision, CommandPermissionRequest } from "../../shared/agent-protocol";
+import { notificationCoordinator } from "./notificationRuntime";
+import { interactionResponseToPermission, permissionRequestToInteraction } from "./permissionNotificationAdapter";
 import { commandGrantKey } from "../harness/commandPolicy";
 
 type PendingPermission = CommandPermissionRequest & {
@@ -64,12 +66,19 @@ class CommandPermissionService {
       const entry: PendingPermission = { ...message, resolve };
       this.queue.push(entry);
       this.emit();
+      const interaction = permissionRequestToInteraction(message);
+      interaction.signal = signal;
+      void notificationCoordinator.register(interaction).then((response) => {
+        const decision = interactionResponseToPermission(response);
+        if (decision) this.resolve(message.requestId, decision);
+      }).catch(() => undefined);
       signal.addEventListener(
         "abort",
         () => {
           const next = this.queue.filter((candidate) => candidate !== entry);
           if (next.length === this.queue.length) return;
           this.queue = next;
+          notificationCoordinator.cancel(message.requestId);
           this.emit();
         },
         { once: true },
@@ -82,6 +91,7 @@ class CommandPermissionService {
     if (!request) return;
     this.queue = this.queue.filter((candidate) => candidate.requestId !== requestId);
     this.emit();
+    notificationCoordinator.cancel(requestId);
     if (decision === "allow_session") this.grantForSession(request);
     request.resolve(decision);
   }

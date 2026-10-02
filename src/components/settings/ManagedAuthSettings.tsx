@@ -198,8 +198,8 @@ export function ManagedAuthSettings() {
           <h3 className={styles.title} id="managed-auth-title">Managed-auth providers (embedded engine)</h3>
           <p className={styles.description}>
             Sign in to Codex or GitHub Copilot for capabilities routed to the embedded engine. These
-            share the same on-disk/keychain credentials as the sidecar-based sign-in above -- signing in here or
-            there authenticates both.
+            use the same Rusty sign-in as the model provider settings. GitHub Copilot requires a
+            separate sign-in from Copilot CLI to authenticate direct model requests.
           </p>
         </div>
       </div>

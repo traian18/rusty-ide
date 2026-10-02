@@ -21,9 +21,7 @@ import { invoke } from "@tauri-apps/api/core";
 export type ManagedAuthProvider = "codex" | "github-copilot";
 
 export interface LoginState {
-  /** `null` when this provider has no reliable plain-CLI way to check
-   * (GitHub Copilot -- see managed_auth.rs's own doc comment) or a check
-   * hasn't completed yet. */
+  /** `null` while the authentication check has not completed. */
   authenticated: boolean | null;
   message: string;
   verification_uri: string | null;
@@ -51,8 +49,7 @@ export function managedAuthLoginStatus(provider: ManagedAuthProvider): Promise<L
   return invoke("managed_auth_login_status", { provider });
 }
 
-/** Rejects for GitHub Copilot (no plain CLI logout subcommand exists --
- * see managed_auth.rs's own doc comment) with an explanatory message. */
+/** Removes the native provider credential (or signs out its managed CLI). */
 export function managedAuthLogout(provider: ManagedAuthProvider): Promise<void> {
   return invoke("managed_auth_logout", { provider });
 }
@@ -62,7 +59,7 @@ export function managedAuthSubmitCode(provider: ManagedAuthProvider, code: strin
   return invoke("managed_auth_submit_code", { provider, code });
 }
 
-/** Cancels an in-flight login attempt, aborting its child process. */
+/** Cancels an in-flight device authorization or managed CLI login. */
 export function managedAuthCancelLogin(provider: ManagedAuthProvider): Promise<void> {
   return invoke("managed_auth_cancel_login", { provider });
 }
@@ -82,10 +79,8 @@ export interface ManagedQuota {
   data?: unknown;
 }
 
-/** Reads the provider's subscription quota from its own vendored CLI (a
- * one-shot subprocess per call -- see managed_quota.rs). Rejects when the
- * CLI can't be started or doesn't answer; a signed-out provider resolves
- * with `authenticated: false` instead. */
+/** Reads subscription quota using the same native credential as inference.
+ * Codex uses its managed CLI; Copilot uses GitHub's subscription API. */
 export function managedAuthQuota(provider: ManagedAuthProvider): Promise<ManagedQuota> {
   return invoke("managed_auth_quota", { provider });
 }
@@ -102,7 +97,7 @@ export interface ManagedModel {
   isDefault: boolean;
 }
 
-/** Reads the account-aware model catalog from the managed runtime. */
+/** Reads the account-aware model catalog using the inference credential. */
 export function managedAuthModels(provider: ManagedAuthProvider): Promise<ManagedModel[]> {
   return invoke("managed_auth_models", { provider });
 }

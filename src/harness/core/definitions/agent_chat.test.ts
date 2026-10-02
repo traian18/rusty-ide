@@ -479,6 +479,24 @@ describe("agentChatDefinition", () => {
     expect(recipe.system_prompt).toContain("'read_file'");
   });
 
+  it("recipe() sends a selected Copilot model's remote id and rejects a stale foreign selection", () => {
+    const copilot = {
+      id: "github-copilot",
+      name: "GitHub Copilot",
+      baseUrl: "",
+      apiKey: "",
+      apiType: "copilot-sdk" as const,
+      transport: "github-copilot-sdk" as const,
+      models: [{ id: "github-copilot/gpt-4o", remoteId: "gpt-4o", name: "GPT-4o", supported: true }],
+    };
+    const selected = input({ customProvider: copilot, model: "github-copilot/gpt-4o" });
+    expect(agentChatDefinition.supports?.(selected)).toBe(true);
+    const recipe = agentChatDefinition.recipe!(selected);
+    expect(recipe.integration).toBe("github-copilot");
+    expect(recipe.execution_params?.model).toBe("gpt-4o");
+    expect(agentChatDefinition.supports?.(input({ customProvider: copilot, model: "openai/gpt-5.6-terra" }))).toBe(false);
+  });
+
   it("web_search reports the search provider's model and tokens as the call's executor", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async () => new Response(JSON.stringify({

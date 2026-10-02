@@ -33,7 +33,7 @@
 // these three; no capability-specific wiring is needed beyond this mapping.
 // ============================================================
 
-import { parseModelReference, resolveProviderModel } from "../../store/providerHelpers";
+import { baseModelReference, parseModelReference, providerHasModelReference, resolveProviderModel } from "../../store/providerHelpers";
 import type { CustomProvider, ReasoningEffort as UiReasoningEffort } from "../../store/types";
 import { resolveProviderRoute } from "./modelRouting";
 import type { ReasoningEffort as CoreReasoningEffort } from "./SessionRecipe";
@@ -115,6 +115,24 @@ export function mapProviderToIntegration(provider: CustomProvider, modelReferenc
       supported: false,
       reason: `managed transport "${provider.transport}" is not supported on core yet`,
     };
+  }
+
+  if (managedIntegration) {
+    const base = baseModelReference(modelReference);
+    if (base.includes("/") && !base.startsWith(`${provider.id}/`)
+      && !provider.models.some((model) => model.remoteId === base)) {
+      return { supported: false, reason: `Model "${modelReference}" belongs to a different provider. Choose a model from ${provider.name}.` };
+    }
+  }
+
+  if (managedIntegration && provider.models.length > 0) {
+    const base = baseModelReference(modelReference);
+    const listed = providerHasModelReference(provider, modelReference)
+      || provider.models.some((model) => model.remoteId === base)
+      || (managedIntegration === "github-copilot" && (base === "auto" || base === `${provider.id}/auto`));
+    if (!listed) {
+      return { supported: false, reason: `Model "${modelReference}" is not listed for ${provider.name}. Refresh its models and select one from the current list.` };
+    }
   }
 
   return {

@@ -1,4 +1,4 @@
-import { isManagedAuthProvider, providerHasModelReference } from "./providerHelpers";
+import { baseModelReference, isCopilotProvider, isManagedAuthProvider, providerHasModelReference } from "./providerHelpers";
 import { providerStatusOrUnknown } from "../integrations/registryTypes";
 import type { CustomProvider, ProviderStatus } from "./types";
 
@@ -28,13 +28,10 @@ export type ExecutionResolution =
 
 /**
  * Finds the provider that owns `modelReference` (via the existing
- * providerHasModelReference), falling back to `activeCustomProviderId`
- * when `modelReference` is empty or owned by nothing configured -- the
- * convention 7 of the 8 sites already used before this resolver existed;
- * the 8th (SkillsTab.tsx's "Generate with AI") had no fallback at all,
- * because its own model picker's local state defaults to `""` and was
- * never seeded from `activeModel` (fixed alongside its migration onto
- * this resolver).
+ * providerHasModelReference). An unowned, provider-qualified model must
+ * fail here: sending it to the active provider can ask Copilot to run an
+ * unrelated OpenAI or Codex model. Bare legacy model ids and empty choices
+ * may still use the active provider.
  *
  * A REGULAR provider (no status-check cycle of its own --
  * providerCoordinator.ts only ever polls the three managed provider ids)
@@ -54,10 +51,28 @@ export function resolveExecutionProvider(
 ): ExecutionResolution {
   let provider: CustomProvider | undefined;
   if (modelReference) {
-    provider = customProviders.find((candidate) => providerHasModelReference(candidate, modelReference));
+    provider = customProviders.find((candidate) => providerHasModelReference(candidate, modelReference)
+      || (isCopilotProvider(candidate) && baseModelReference(modelReference) === `${candidate.id}/auto`));
+    if (!provider && modelReference.includes("/")) {
+      return {
+        ok: false,
+        reason: "unknown-provider",
+        message: `The selected model "${modelReference}" is no longer available from a configured provider. Choose a model from the current list.`,
+      };
+    }
   }
   if (!provider) {
-    provider = customProviders.find((candidate) => candidate.id === activeCustomProviderId);
+    const active = customProviders.find((candidate) => candidate.id === activeCustomProviderId);
+    if (active && modelReference && isManagedAuthProvider(active)
+      && !active.models.some((model) => model.remoteId === baseModelReference(modelReference))
+      && !(isCopilotProvider(active) && baseModelReference(modelReference) === "auto")) {
+      return {
+        ok: false,
+        reason: "unknown-provider",
+        message: `The selected model "${modelReference}" is not available from ${active.name}. Choose one of its current models.`,
+      };
+    }
+    provider = active;
   }
 
   if (!provider) {

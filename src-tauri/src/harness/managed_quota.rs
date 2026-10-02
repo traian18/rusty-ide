@@ -390,7 +390,7 @@ async fn codex_quota_over(rpc: &mut RpcChild) -> Result<ManagedQuota, String> {
 
 pub async fn fetch_quota(app: &AppHandle, provider: &str) -> Result<ManagedQuota, String> {
     match provider {
-        "github-copilot" => copilot_quota(app).await,
+        "github-copilot" => super::copilot_oauth::quota(app).await,
         "codex" => codex_quota(app).await,
         _ => Err(format!("unknown managed-auth provider: {provider}")),
     }

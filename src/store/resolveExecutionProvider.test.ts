@@ -84,14 +84,45 @@ describe("resolveExecutionProvider", () => {
     expect(result).toMatchObject({ ok: false, reason: "unknown-provider" });
   });
 
-  it("falls back to activeCustomProviderId when modelReference matches nothing configured", () => {
+  it("does not send a removed OpenAI model to the active GitHub Copilot provider", () => {
     const result = resolveExecutionProvider(
       [managed, regular],
       { "github-copilot": { kind: "ready" } },
       "github-copilot",
-      "nonexistent/model-z",
+      "openai/gpt-5.6-terra",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "unknown-provider" });
+  });
+
+  it("allows the active-provider fallback for a bare legacy model id", () => {
+    const result = resolveExecutionProvider(
+      [managed, regular],
+      { "github-copilot": { kind: "ready" } },
+      "github-copilot",
+      "model-a",
     );
     expect(result).toEqual({ ok: true, provider: managed });
+  });
+
+  it("rejects a bare unlisted model for the active GitHub Copilot provider", () => {
+    const result = resolveExecutionProvider(
+      [managed],
+      { "github-copilot": { kind: "ready" } },
+      "github-copilot",
+      "gpt-5.6-terra",
+    );
+    expect(result).toMatchObject({ ok: false, reason: "unknown-provider" });
+  });
+
+  it("keeps Copilot Auto available when its live catalogue omits the synthetic Auto choice", () => {
+    const copilot = provider({
+      id: "github-copilot",
+      name: "GitHub Copilot",
+      authType: "environment",
+      models: [{ id: "github-copilot/gpt-4o", remoteId: "gpt-4o", name: "GPT-4o", supported: true }],
+    });
+    expect(resolveExecutionProvider([copilot], { "github-copilot": { kind: "ready" } }, null, "github-copilot/auto"))
+      .toEqual({ ok: true, provider: copilot });
   });
 
   it("never gates a regular provider on status even when a providerStatus entry happens to exist for it", () => {

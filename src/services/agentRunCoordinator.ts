@@ -9,6 +9,7 @@ import { harness } from "../harness";
 import { createRunHost } from "../harness/hostDefaults";
 import type { RunHandle } from "../harness/contract";
 import { appendBoundedText } from "./boundedTextBuffer";
+import { notifyRunStatus } from "./runNotificationService";
 import { resolveExecutionProvider } from "../store/resolveExecutionProvider";
 import { buildAttachmentContext } from "./contextAttachmentService";
 
@@ -131,9 +132,11 @@ export async function executeNode(nodeId: string, customPrompt?: string, attachm
       scheduleTreeRefresh();
       await useWorkspaceStore.getState().loadGitStatus();
       if (tabId) void (await import("../components/tabs/canvas/services/canvasFileService")).canvasFileService.autoSaveCanvas(tabId);
+      notifyRunStatus("completed", String(node.data.name || `Node ${nodeId}`), { runId: nodeId, tabId });
     } else if (outcome.status === "failed") {
       useWorkspaceStore.getState().setNodeStatus(nodeId, "error");
       notify("Execution Error", outcome.error.message, "error");
+      notifyRunStatus("failed", String(node.data.name || `Node ${nodeId}`), { runId: nodeId, tabId });
     }
   });
 }
@@ -144,6 +147,7 @@ export function stopExecution(nodeId: string): void {
   const state = useWorkspaceStore.getState();
   state.setNodeStatus(nodeId, "idle");
   state.addLog(nodeId, "Execution stopped by user.");
+  notifyRunStatus("stopped", `Node ${nodeId}`, { runId: nodeId });
 }
 
 export function hasRunningNodesInTab(tabId: string): boolean {

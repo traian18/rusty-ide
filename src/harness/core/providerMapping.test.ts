@@ -58,6 +58,21 @@ describe("mapProviderToIntegration", () => {
     expect(result).toEqual({ supported: true, integration: "github-copilot", integration_config: {}, reasoningEffort: undefined, model: "auto" });
   });
 
+  it("refuses to pass an unrelated model into GitHub Copilot", () => {
+    const copilot = provider({
+      id: "github-copilot",
+      name: "GitHub Copilot",
+      transport: "github-copilot-sdk",
+      models: [{ id: "github-copilot/gpt-4o", remoteId: "gpt-4o", name: "GPT-4o", supported: true }],
+    });
+    expect(mapProviderToIntegration(copilot, "openai/gpt-5.6-terra")).toMatchObject({ supported: false });
+    expect(mapProviderToIntegration(copilot, "gpt-5.6-terra")).toMatchObject({ supported: false });
+    expect(mapProviderToIntegration(copilot, "github-copilot/gpt-4o")).toMatchObject({ supported: true, model: "gpt-4o" });
+    expect(mapProviderToIntegration(copilot, "github-copilot/auto")).toMatchObject({ supported: true, model: "auto" });
+    expect(mapProviderToIntegration({ ...copilot, models: [] }, "openai/gpt-5.6-terra"))
+      .toMatchObject({ supported: false });
+  });
+
   it("reports unsupported for a genuinely unrecognized transport", () => {
     const result = mapProviderToIntegration(
       provider({ apiType: "anthropic-messages", transport: "some-future-sdk" as CustomProvider["transport"] }),

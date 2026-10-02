@@ -1,6 +1,6 @@
 [package]
 name = "rusty-ide"
-version = "0.1.46"
+version = "0.1.47"
 description = "AI-assisted coding IDE"
 edition = "2021"
 
@@ -131,6 +131,7 @@ keyring-core = "1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", features = ["keychain"] }
+mac-usernotifications = "0.3.1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] }

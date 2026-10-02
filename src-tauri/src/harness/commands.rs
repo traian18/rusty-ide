@@ -36,9 +36,16 @@ pub fn harness_hello() -> HarnessHello {
 
 #[tauri::command]
 pub async fn harness_create_session(
+    app: tauri::AppHandle,
     state: State<'_, HarnessState>,
-    recipe: SessionRecipe,
+    mut recipe: SessionRecipe,
 ) -> Result<String, String> {
+    if recipe.integration == "github-copilot" {
+        super::copilot_oauth::configure_recipe(
+            super::copilot_oauth::credential_path(&app)?,
+            &mut recipe,
+        )?;
+    }
     // Provider inference and tool authorization belong to the harness.
     let session_id = state.create_session(recipe).await?;
     Ok(session_id.to_string())

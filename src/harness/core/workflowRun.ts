@@ -158,7 +158,8 @@ export function describeWorkflowEvent(
     case "step_succeeded":
       return { log: `Step ${name} succeeded.`, step: { nodeId, status: "succeeded", attempt } };
     case "step_failed": {
-      const message = errorText(event.error);
+      const error = event.error as { code?: unknown } | undefined;
+      const message = error?.code === "verification_failed" ? "Verification found unmet criteria." : errorText(event.error);
       return { log: `Step ${name} failed: ${message}`, step: { nodeId, status: "failed", attempt, message } };
     }
     case "step_retry_scheduled": {
@@ -211,6 +212,45 @@ export function formatWorkflowOutput(output: unknown): string {
     return typeof summary === "string" && summary ? (details ? `${summary}\n\n${details}` : summary) : details;
   }
   return output === null || output === undefined ? "The workflow completed without output." : String(output);
+}
+
+/** A failed acceptance gate still has the reviewer's completed result. Show
+ * that result as the final verdict when automatic repair retries run out. */
+export function failedVerificationReport(definition: unknown, state: unknown): string | undefined {
+  const run = state as { failed_step?: unknown; error?: { code?: unknown; message?: unknown }; steps?: Record<string, { output?: unknown }> } | null;
+  if (run?.error?.code !== "verification_failed" || typeof run.failed_step !== "string") return undefined;
+  const gate = nodesOf(definition).find((node) => node.id === run.failed_step) as (GraphNode & {
+    type?: unknown;
+    config?: { retry_target?: unknown };
+    input_bindings?: Array<{ target?: unknown; source?: { type?: unknown; node_id?: unknown } }>;
+  }) | undefined;
+  if (gate?.type !== "verify" || typeof gate.config?.retry_target !== "string") return undefined;
+  const sources = gate.input_bindings?.filter((binding) => binding.source?.type === "node_output") ?? [];
+  const reviewed = sources.find((binding) => {
+    const output = typeof binding.source?.node_id === "string" ? run.steps?.[binding.source.node_id]?.output : undefined;
+    return output && typeof output === "object" && !Array.isArray(output)
+      && ["verdict", "status", "criteria"].some((field) => field in output);
+  });
+  const reviewer = (sources.find((binding) => binding.target === "check") ?? reviewed ?? sources.at(-1))?.source;
+  const output = reviewer?.type === "node_output" && typeof reviewer.node_id === "string"
+    ? run.steps?.[reviewer.node_id]?.output : undefined;
+  const result = output as {
+    verdict?: unknown;
+    status?: unknown;
+    summary?: unknown;
+    criteria?: unknown;
+  } | undefined;
+  const criteria = Array.isArray(result?.criteria) ? result.criteria.filter((item) => item && typeof item === "object") : [];
+  const lines = [
+    "## Verification did not pass",
+    "Automatic repair attempts are complete. The last review found work still needed.",
+    `**Verdict:** ${typeof result?.verdict === "string" ? result.verdict : typeof result?.status === "string" ? result.status : "failed"}`,
+  ];
+  if (typeof result?.summary === "string" && result.summary.trim()) lines.push(result.summary.trim());
+  else if (output !== undefined) lines.push(formatWorkflowOutput(output));
+  else if (typeof run.error?.message === "string") lines.push(run.error.message);
+  if (criteria.length) lines.push(markdownText({ criteria }));
+  return lines.join("\n\n");
 }
 
 /** Whether any step of `definition` reads `/context` from the run input. */

@@ -3,7 +3,7 @@
 //! Each catalog is read from the same authenticated runtime used for model
 //! execution, so account policy and rollout state are reflected without a
 //! hard-coded list:
-//! - GitHub Copilot: `models.list` over the CLI's SDK JSON-RPC server.
+//! - GitHub Copilot: direct `/models` with the same OAuth credential as inference.
 //! - Codex: `model/list` over `codex app-server`.
 
 use serde::Serialize;
@@ -99,39 +99,56 @@ fn parse_codex_models(payload: &Value) -> Result<Vec<ManagedModel>, String> {
 
 fn parse_copilot_models(payload: &Value) -> Result<Vec<ManagedModel>, String> {
     let data = payload
-        .get("models")
+        .get("data")
         .and_then(Value::as_array)
-        .or_else(|| payload.as_array())
-        .ok_or("Copilot models.list response did not contain models")?;
+        .ok_or("Copilot /models response did not contain data")?;
     let models = data
         .iter()
+        .filter(|entry| entry.pointer("/policy/state").and_then(Value::as_str) != Some("disabled"))
+        .filter(|entry| entry.get("model_picker_enabled").and_then(Value::as_bool) != Some(false))
+        .filter(|entry| {
+            entry
+                .pointer("/capabilities/type")
+                .and_then(Value::as_str)
+                .is_none_or(|kind| kind == "chat")
+        })
         .filter_map(|entry| {
             let id = non_empty_string(entry.get("id"))?;
-            let efforts = effort_names(entry.get("supportedReasoningEfforts"))
-                .into_iter()
-                .chain(effort_names(
-                    entry.pointer("/capabilities/reasoningEfforts"),
-                ))
-                .collect::<Vec<_>>();
-            let reasoning_flag = entry
-                .pointer("/capabilities/reasoning/supported")
-                .or_else(|| entry.pointer("/capabilities/supportsReasoning"))
+            let efforts = effort_names(entry.pointer("/capabilities/supports/reasoning_effort"));
+            let reasoning = !efforts.is_empty()
+                || entry
+                    .pointer("/capabilities/supports/adaptive_thinking")
+                    .and_then(Value::as_bool)
+                    == Some(true)
+                || entry
+                    .pointer("/capabilities/supports/max_thinking_budget")
+                    .and_then(Value::as_u64)
+                    .is_some();
+            let vision = entry
+                .pointer("/capabilities/supports/vision")
                 .and_then(Value::as_bool)
-                .unwrap_or(false);
+                == Some(true);
             Some(ManagedModel {
                 name: non_empty_string(entry.get("name")).unwrap_or_else(|| id.clone()),
-                is_default: id == "auto"
-                    || entry
-                        .get("isDefault")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
                 id,
-                reasoning: reasoning_flag || !efforts.is_empty(),
+                reasoning,
                 supported_reasoning_efforts: efforts,
-                default_reasoning_effort: non_empty_string(entry.get("defaultReasoningEffort")),
-                input: input_modalities(entry.get("inputModalities")),
-                context_window: entry.get("contextWindow").and_then(Value::as_u64),
-                max_tokens: entry.get("maxTokens").and_then(Value::as_u64),
+                default_reasoning_effort: non_empty_string(entry.get("default_reasoning_effort")),
+                input: if vision {
+                    vec!["text".into(), "image".into()]
+                } else {
+                    vec!["text".into()]
+                },
+                context_window: entry
+                    .pointer("/capabilities/limits/max_context_window_tokens")
+                    .and_then(Value::as_u64),
+                max_tokens: entry
+                    .pointer("/capabilities/limits/max_output_tokens")
+                    .and_then(Value::as_u64),
+                is_default: entry
+                    .get("is_chat_default")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             })
         })
         .collect::<Vec<_>>();
@@ -141,25 +158,7 @@ fn parse_copilot_models(payload: &Value) -> Result<Vec<ManagedModel>, String> {
 }
 
 async fn copilot_models(app: &AppHandle) -> Result<Vec<ManagedModel>, String> {
-    let binary = binary_or_error(app, "github-copilot")?;
-    let mut rpc = RpcChild::spawn(
-        &binary,
-        &["--headless", "--no-auto-update", "--stdio"],
-        Framing::ContentLength,
-    )
-    .await?;
-    let result = async {
-        if let Err(connect_error) = rpc.request("connect", json!({})).await {
-            rpc.request("ping", json!({}))
-                .await
-                .map_err(|_| connect_error)?;
-        }
-        let payload = rpc.request("models.list", json!({})).await?;
-        parse_copilot_models(&payload)
-    }
-    .await;
-    rpc.shutdown().await;
-    result
+    parse_copilot_models(&super::copilot_oauth::models(app).await?)
 }
 
 async fn codex_models(app: &AppHandle) -> Result<Vec<ManagedModel>, String> {
@@ -210,13 +209,19 @@ mod tests {
 
     #[test]
     fn parses_copilot_account_filtered_catalog() {
-        let models = parse_copilot_models(&json!({ "models": [
-            { "id": "auto", "name": "Auto", "capabilities": {} },
-            { "id": "gpt-5.4", "name": "GPT-5.4", "supportedReasoningEfforts": ["low", "high"] }
-        ] }))
-        .unwrap();
+        let models = parse_copilot_models(&json!({ "data": [
+            { "id": "claude-haiku-4.5", "name": "Claude Haiku 4.5", "model_picker_enabled": true,
+              "capabilities": {"type":"chat", "supports":{"vision":true}, "limits":{"max_output_tokens":64000,"max_context_window_tokens":200000}} },
+            { "id": "gpt-5.6-terra", "name": "GPT-5.6 Terra", "capabilities":{"supports":{"reasoning_effort":["low", "high"]}} },
+            { "id": "disabled", "policy":{"state":"disabled"} },
+            { "id": "hidden", "model_picker_enabled":false },
+            { "id": "embedding", "capabilities":{"type":"embeddings"} }
+        ] })).unwrap();
         assert_eq!(models.len(), 2);
-        assert!(models[0].is_default);
+        assert_eq!(models[0].id, "claude-haiku-4.5");
+        assert_eq!(models[0].input, ["text", "image"]);
+        assert_eq!(models[0].max_tokens, Some(64000));
         assert!(models[1].reasoning);
+        assert_eq!(models[1].supported_reasoning_efforts, ["low", "high"]);
     }
 }

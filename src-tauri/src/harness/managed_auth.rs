@@ -1,37 +1,8 @@
-//! Login/status/logout for the two managed-auth providers (Codex, GitHub
-//! Copilot), driven by shelling out to each CLI's own plain
-//! subcommands -- the Tauri command surface `commands.rs` never had before
-//! this (`harness_list_providers`/`harness_list_models` were the only
-//! provider-facing commands; see HARNESS_CONTRACT_PLAN.md's Milestone B2).
-//!
-//! `harness_engine::Harness::begin_auth`/`provider_health` (the scaffolding
-//! rusty-core's own reference embedders use -- `apps/harness/src/
-//! controller.rs`'s `auth_instruction()`) exist but don't fit `rusty` as-is:
-//! `provider_health`'s readiness check calls `find_executable`, which
-//! searches `$PATH`, not the app-local runtime path these binaries actually
-//! live at (`managed_binaries.rs`); and `list_credential_profiles` hardcodes
-//! `CredentialState::ManagedExternally` for all three CLI-managed providers
-//! regardless of whether the user is actually logged in, so `ready` from
-//! those functions would be misleading here. This module does its own,
-//! provider-specific check by shelling out to each CLI directly instead.
-//!
-//! Exact commands per provider, confirmed against the vendored CLI's own
-//! `--help` output (not guessed) and, where noted, already proven by the
-//! sidecar's own working code (`agent-sidecar/src/services/
-//! {codexService,copilotService}.ts`):
-//! - Codex: `login` (browser flow -- `--device-auth` exists but its exact
-//!   output is unverified without a live login, so left unused), `login
-//!   status` (plain text, no `--json` flag), `logout`.
-//! - GitHub Copilot: `login --host <host>` (device-code flow, output
-//!   scraped the same way `copilotService.ts`'s own `parseCopilotLoginOutput`
-//!   already does, ported verbatim below). Copilot's CLI has **no plain
-//!   status or logout subcommand at all** (confirmed: its top-level `--help`
-//!   lists only `login` among auth-related commands) -- the sidecar's own
-//!   status/logout go through the `@github/copilot-sdk`'s RPC client
-//!   instead, which this pass deliberately doesn't reimplement (see the
-//!   plan doc's own scope notes). `status`/`logout` for Copilot are a
-//!   documented v1 gap: `status` reports `authenticated: None` ("unknown"),
-//!   `logout` returns an explanatory error rather than silently no-op'ing.
+//! Native managed-provider login/status/logout.
+//! Codex uses its managed CLI. Copilot uses the direct model API's OAuth
+//! device flow with Rusty's own app registration and a native credential.
+//! Discovery and inference share this credential and the developer integration
+//! header. OAuth application identity stays independent of CLI sign-in.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -48,8 +19,7 @@ use super::managed_binaries::{ensure_managed_binary, is_managed_provider, resolv
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct LoginState {
-    /// `None` when this provider has no reliable plain-CLI way to check
-    /// or a check hasn't completed yet.
+    /// `None` while the authentication check has not completed.
     pub authenticated: Option<bool>,
     pub message: String,
     pub verification_uri: Option<String>,
@@ -265,77 +235,15 @@ pub fn parse_copilot_config(content: &str) -> (Option<String>, bool) {
 }
 
 async fn check_copilot_status(app: &AppHandle) -> LoginState {
-    if let Some(path) = copilot_config_path(app) {
-        if path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                let (login, authenticated) = parse_copilot_config(&content);
-                if authenticated {
-                    let user = login.unwrap_or_default();
-                    return LoginState {
-                        authenticated: Some(true),
-                        message: format!("Signed in as {user}"),
-                        account: Some(user),
-                        ..LoginState::default()
-                    };
-                }
-            }
-        }
-    }
-
-    // Config file didn't report authentication (credentials may be in the Keychain
-    // or GitHub CLI). Probe using copilot_quota which queries the CLI's stdio RPC.
-    match super::managed_quota::copilot_quota(app).await {
-        Ok(quota) if quota.authenticated => {
-            let user = quota.account.unwrap_or_default();
-            LoginState {
-                authenticated: Some(true),
-                message: if user.is_empty() {
-                    "Signed in to GitHub Copilot".to_string()
-                } else {
-                    format!("Signed in as {user}")
-                },
-                account: if user.is_empty() { None } else { Some(user) },
-                ..LoginState::default()
-            }
-        }
-        Ok(quota) => LoginState {
-            authenticated: Some(false),
-            message: quota
-                .message
-                .unwrap_or_else(|| "GitHub Copilot sign-in required".to_string()),
-            ..LoginState::default()
-        },
-        Err(e) => LoginState {
-            authenticated: Some(false),
-            message: format!("GitHub Copilot sign-in required ({e})"),
-            ..LoginState::default()
-        },
-    }
+    super::copilot_oauth::status(app).await
 }
 
 fn clear_copilot_auth(app: &AppHandle) -> Result<(), String> {
-    let path = copilot_config_path(app).ok_or("Could not locate Copilot config directory")?;
-    if !path.is_file() {
-        return Ok(());
-    }
-    let content = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let clean_json: String = content
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("//"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut val: serde_json::Value =
-        serde_json::from_str(&clean_json).unwrap_or(serde_json::json!({}));
-    if let Some(obj) = val.as_object_mut() {
-        obj.remove("lastLoggedInUser");
-        obj.insert("loggedInUsers".to_string(), serde_json::json!([]));
-    }
-    let new_content = serde_json::to_string_pretty(&val).map_err(|e| e.to_string())?;
-    std::fs::write(&path, new_content).map_err(|e| e.to_string())?;
-    Ok(())
+    harness_integration_github_copilot::credentials::remove_credential(
+        &super::copilot_oauth::credential_path(app)?,
+    )
 }
 
-/// On-demand "is this provider currently authenticated" check.
 pub async fn check_status(
     app: &AppHandle,
     state: &ManagedAuthState,
@@ -346,7 +254,7 @@ pub async fn check_status(
         return Ok(in_flight);
     }
 
-    if is_managed_provider(provider) && resolve_managed_binary(app, provider).is_none() {
+    if provider == "codex" && resolve_managed_binary(app, provider).is_none() {
         // Preserve download errors/cancellation so polling does not hide
         // the reason sign-in failed before the user can read it.
         if !in_flight.message.is_empty() {
@@ -373,11 +281,17 @@ pub async fn check_status(
             })
         }
         "github-copilot" => {
-            let mut copilot_state = check_copilot_status(app).await;
-            if in_flight.authenticated == Some(true) && copilot_state.authenticated != Some(true) {
-                copilot_state = in_flight;
+            let status = check_copilot_status(app).await;
+            // Keep the completed attempt's failure/cancellation visible until
+            // another sign-in starts, instead of replacing it on the next poll.
+            if status.authenticated == Some(false)
+                && in_flight.authenticated == Some(false)
+                && !in_flight.message.is_empty()
+            {
+                Ok(in_flight)
+            } else {
+                Ok(status)
             }
-            Ok(copilot_state)
         }
         _ => Err(format!("unknown managed-auth provider: {provider}")),
     }
@@ -503,6 +417,9 @@ pub fn start_login(
     state: Arc<ManagedAuthState>,
     provider: String,
 ) -> Result<(), String> {
+    if provider == "github-copilot" {
+        return start_copilot_oauth_login(app, state);
+    }
     let args = login_args(&provider)?;
 
     state.set(
@@ -758,6 +675,62 @@ pub fn start_login(
     Ok(())
 }
 
+fn start_copilot_oauth_login(app: AppHandle, state: Arc<ManagedAuthState>) -> Result<(), String> {
+    let client_id = super::copilot_oauth::configured_client_id()?;
+    let path = super::copilot_oauth::credential_path(&app)?;
+    let host = super::copilot_oauth::configured_host()?;
+    let provider = "github-copilot";
+    state.set(
+        provider,
+        LoginState {
+            in_progress: true,
+            message: "Starting GitHub Copilot sign-in...".into(),
+            ..Default::default()
+        },
+    );
+    let attempt = state.next_attempt_id();
+    let task_state = state.clone();
+    let task = tauri::async_runtime::spawn(async move {
+        let result = tokio::time::timeout(
+            LOGIN_TIMEOUT,
+            super::copilot_oauth::authorize(client_id, host, path, |uri, code| {
+                task_state.set(
+                    provider,
+                    LoginState {
+                        in_progress: true,
+                        message: "Complete GitHub Copilot sign-in in your browser.".into(),
+                        verification_uri: Some(uri.into()),
+                        user_code: Some(code.into()),
+                        ..Default::default()
+                    },
+                );
+            }),
+        )
+        .await;
+        let result = result
+            .unwrap_or_else(|_| Err("GitHub Copilot sign-in timed out. Start it again.".into()));
+        task_state.set(
+            provider,
+            match result {
+                Ok(login) => LoginState {
+                    authenticated: Some(true),
+                    message: format!("Signed in as {login}"),
+                    account: Some(login),
+                    ..Default::default()
+                },
+                Err(message) => LoginState {
+                    authenticated: Some(false),
+                    message,
+                    ..Default::default()
+                },
+            },
+        );
+        task_state.clear_task(provider, attempt);
+    });
+    state.replace_task(provider, attempt, task);
+    Ok(())
+}
+
 fn logout_args(provider: &str) -> Result<Vec<&'static str>, String> {
     match provider {
         "codex" => Ok(vec!["logout"]),
@@ -774,6 +747,7 @@ pub async fn logout(
     provider: &str,
 ) -> Result<(), String> {
     if provider == "github-copilot" {
+        state.cancel_login(provider);
         clear_copilot_auth(app)?;
         state.set(provider, LoginState::default());
         return Ok(());

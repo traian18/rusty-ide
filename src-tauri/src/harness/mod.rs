@@ -17,6 +17,7 @@
 
 mod bridge_event;
 pub mod commands;
+mod copilot_oauth;
 mod host_bridge;
 mod host_execution_backend;
 mod host_tools;

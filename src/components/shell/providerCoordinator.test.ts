@@ -367,6 +367,50 @@ describe("providerCoordinator", () => {
       );
     });
 
+    it("refreshes a saved managed catalog once after startup even within the TTL", async () => {
+      useWorkspaceStore.setState((state) => ({
+        customProviders: state.customProviders.map((provider) =>
+          provider.id === "github-copilot"
+            ? { ...provider, modelsFetchedAt: new Date().toISOString(), models: [{ id: "github-copilot/gpt-4o", remoteId: "gpt-4o", name: "GPT-4o" }] }
+            : provider,
+        ),
+      }));
+      vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
+      vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
+      vi.mocked(hybridControlPlane.discoverModels).mockResolvedValue([{ id: "github-copilot/gpt-5.6-terra", remoteId: "gpt-5.6-terra", name: "GPT-5.6 Terra" }] as any);
+
+      startProviderCoordinator();
+      await vi.advanceTimersByTimeAsync(0);
+
+      const copilot = useWorkspaceStore.getState().customProviders.find((provider) => provider.id === "github-copilot");
+      expect(copilot?.models).toEqual([expect.objectContaining({ id: "github-copilot/gpt-5.6-terra" })]);
+      expect(vi.mocked(hybridControlPlane.discoverModels).mock.calls.filter(([provider]) => provider.id === "github-copilot")).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(FAST_POLL_INTERVAL_MS);
+      expect(vi.mocked(hybridControlPlane.discoverModels).mock.calls.filter(([provider]) => provider.id === "github-copilot")).toHaveLength(1);
+    });
+
+    it("discards a catalog fetched before re-sign-in and discovers with the new credential", async () => {
+      useWorkspaceStore.setState({ customProviders: [MANAGED_PROVIDER_FIXTURE] } as any);
+      vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue({
+        state: "connected", authenticated: true, login: "octocat",
+      } as any);
+      vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus());
+      let finishOld!: (models: any[]) => void;
+      vi.mocked(hybridControlPlane.discoverModels)
+        .mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve; }))
+        .mockResolvedValueOnce([{ id: "github-copilot/claude-haiku-4.5", name: "Haiku" }] as any);
+      startProviderCoordinator();
+      await vi.advanceTimersByTimeAsync(0);
+      await startManagedLogin(MANAGED_PROVIDER_FIXTURE as any);
+      await vi.advanceTimersByTimeAsync(0);
+      finishOld([{ id: "github-copilot/gpt-4o", name: "Old catalog" }]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(hybridControlPlane.discoverModels).toHaveBeenCalledTimes(2);
+      expect(useWorkspaceStore.getState().customProviders[0].models).toEqual([
+        expect.objectContaining({ id: "github-copilot/claude-haiku-4.5" }),
+      ]);
+    });
+
     it("does not re-discover a catalog that was fetched within the TTL", async () => {
       useWorkspaceStore.setState((state) => ({
         customProviders: state.customProviders.map((p) =>

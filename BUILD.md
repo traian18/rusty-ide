@@ -67,6 +67,40 @@ npm install --prefix ../rusty-core/sdk/typescript
 > dependency graph. If you hit it, run the install with a newer npm instead
 > of downgrading anything in this repo: `npx --yes npm@11 install <pkg>`.
 
+## GitHub Copilot OAuth registration (maintainers)
+
+GitHub's authorization page takes the application name from the OAuth app
+registration, not from a request header. Rusty uses its own registration and
+sends inference requests directly to GitHub; OpenCode is not installed or run.
+
+Register an **OAuth app** under the Rusty-IDE organization (organization
+Settings → Developer settings → OAuth apps → New OAuth App):
+
+- Application name: **Rusty**
+- Homepage URL: **https://rusty-edit.dev**
+- Authorization callback URL: **https://rusty-edit.dev** (unused by device flow)
+- Enable **Device Flow**
+- Disable **Expire user access tokens**, if offered, until token refresh is supported
+
+See [GitHub's registration guide](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/creating-an-oauth-app).
+Copy the registration's public **Client ID** into `src-tauri/copilot-oauth.json`:
+
+```json
+{ "client_id": "YOUR_RUSTY_OAUTH_CLIENT_ID" }
+```
+
+The ID is embedded at build time so installed apps do not need environment
+configuration. It is public and may be committed; no client secret is needed
+for device flow or included in Rusty. Maintainer builds can override the ID with
+`RUSTY_COPILOT_OAUTH_CLIENT_ID` at build time or runtime. CI builds use the same
+committed public ID unless that environment variable is explicitly supplied.
+
+A missing ID produces a configuration error before contacting GitHub; there
+is no fallback to another application's registration. Sign in again after the
+client ID changes. The device flow, scopes, model discovery, inference routing,
+and native credential storage otherwise stay the same. This is one registration
+for Rusty, not a registration required from each end user.
+
 ## Build the application
 
 The same command works on every platform:

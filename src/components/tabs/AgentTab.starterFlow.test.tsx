@@ -201,7 +201,7 @@ describe("Agent chat and the starter flow", () => {
       [...container.querySelectorAll("div")].filter((div) => div.textContent?.includes("earlier request")).at(-1)!.click();
     });
     await flush();
-    expect(container.textContent).toContain("Your next message resumes Build");
+    expect(container.textContent).toContain("Your next message resumes the workflow with the findings above.");
     await act(async () => [...container.querySelectorAll("button")].find(b => b.textContent === "Start over instead")!.click());
     await flush();
     expect(container.textContent).not.toContain("Your next message resumes");

@@ -2,6 +2,7 @@ import React from "react";
 import type { TabViewContext } from "../tabs/views";
 import { TabStrip } from "./workspace/TabStrip";
 import { TabOutlet } from "./workspace/TabOutlet";
+import { NotificationInteractionPresenter } from "./NotificationInteractionPresenter";
 import { CommandPermissionPresenter } from "./permissions/CommandPermissionPresenter";
 import { TabCloseInterceptPresenter } from "./workspace/TabCloseInterceptPresenter";
 import * as agentRunCoordinator from "../services/agentRunCoordinator";
@@ -28,6 +29,7 @@ export const Workspace: React.FC = () => {
   // superseding it (REFACTOR_PLAN.md PR 2 commit 15).
   return (
     <div className="flex-1 flex h-full min-w-0 overflow-hidden relative bg-[var(--bg-editor)]">
+      <NotificationInteractionPresenter />
       <CommandPermissionPresenter />
       <TabCloseInterceptPresenter />
       <div className="flex flex-col h-full w-full min-w-0 overflow-hidden">

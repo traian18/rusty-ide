@@ -9,6 +9,7 @@ import { CoreHarness, type CoreCapabilityDefinition, type ExecutionAnswerer, typ
 import type { SessionRecipe } from "./SessionRecipe";
 import {
   describeWorkflowEvent,
+  failedVerificationReport,
   formatWorkflowOutput,
   stepNames,
   workflowInputFor,
@@ -246,6 +247,8 @@ describe("workflowRun helpers", () => {
     expect(
       describeWorkflowEvent({ event: { type: "step_failed", node_id: "build", attempt: 1, error: { code: "x", message: "boom" } } }, names),
     ).toMatchObject({ step: { status: "failed", message: "boom" } });
+    expect(describeWorkflowEvent({ event: { type: "step_failed", node_id: "gate", error: { code: "verification_failed", message: "required_status:/check/verdict: verbose evidence" } } }, names))
+      .toMatchObject({ step: { message: "Verification found unmet criteria." } });
     expect(describeWorkflowEvent({ event: { type: "budget_updated" } }, names)).toEqual({});
   });
 
@@ -257,6 +260,47 @@ describe("workflowRun helpers", () => {
     expect(formatWorkflowOutput({ summary: "Done.", status: "ready", tasks: [{ id: "T1", instructions: "Edit it", depends_on: [] }], requirements: [{ id: "R1", text: "Show it", criteria: [{ id: "C1", text: "visible" }] }] }))
       .toBe("Done.\n\n## status\nready\n\n## tasks\n### T1\ninstructions: Edit it\ndepends_on: \n\n## requirements\n### R1\ntext: Show it\n\n#### criteria\n- C1: visible");
     expect(formatWorkflowOutput({ summary: "Done." })).not.toContain("{");
+  });
+
+  it("reports the last review when a Build acceptance gate exhausts its retries", () => {
+    const definition = {
+      nodes: [
+        { id: "build", type: "agent" },
+        { id: "verify", type: "agent" },
+        { id: "gate", type: "verify", config: { retry_target: "build" }, input_bindings: [
+          { target: "check", source: { type: "node_output", node_id: "verify" } },
+        ] },
+      ],
+    };
+    const state = {
+      failed_step: "gate",
+      error: { code: "verification_failed" },
+      steps: { verify: { output: {
+        verdict: "fail: missing native notifications",
+        summary: "The native presenter is still a stub.",
+        criteria: [
+          { id: "C1", status: "pass", evidence: "Types exist." },
+          { id: "C2", status: "fail", evidence: "No native delivery." },
+        ],
+      } } },
+    };
+    const report = failedVerificationReport(definition, state)!;
+    expect(report).toContain("Verification did not pass");
+    expect(report).toContain("**Verdict:** fail: missing native notifications");
+    expect(report).toContain("The native presenter is still a stub.");
+    expect(report).toContain("### C1\nstatus: pass");
+    expect(report).toContain("### C2\nstatus: fail");
+    expect(report).toContain("No native delivery.");
+    expect(failedVerificationReport(definition, { ...state, error: { code: "backend_timeout" } })).toBeUndefined();
+
+    const custom = { nodes: [{ id: "review_gate", type: "verify", config: { retry_target: "edit" }, input_bindings: [
+      { target: "plan", source: { type: "node_output", node_id: "plan" } },
+      { target: "report", source: { type: "node_output", node_id: "review" } },
+    ] }] };
+    expect(failedVerificationReport(custom, {
+      failed_step: "review_gate", error: { code: "verification_failed" },
+      steps: { plan: { output: "Plan text" }, review: { output: { status: "needs_work", summary: "The export path is missing." } } },
+    })).toContain("**Verdict:** needs_work");
   });
 
   it("turns chat messages into workflow input", () => {

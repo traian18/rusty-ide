@@ -1003,6 +1003,10 @@ mod tests {
                         );
                         assert!(prompt.contains("verification_failed"), "{prompt}");
                         assert!(
+                            prompt.contains("Repair the work before handing it off again"),
+                            "Build receives trusted repair guidance: {prompt}"
+                        );
+                        assert!(
                             prompt.contains(finding),
                             "Build receives the checker's findings: {prompt}"
                         );

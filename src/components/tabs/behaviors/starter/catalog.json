@@ -990,7 +990,7 @@
     {
       "schema_version": 1,
       "id": "plan-build-verify",
-      "revision": 9,
+      "revision": 10,
       "name": "Plan, build, verify",
       "status": "draft",
       "input_schema": null,
@@ -1088,7 +1088,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -2082,7 +2082,7 @@
     {
       "schema_version": 1,
       "id": "implement",
-      "revision": 5,
+      "revision": 6,
       "name": "Build & verify",
       "status": "draft",
       "input_schema": null,
@@ -2183,7 +2183,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -2946,7 +2946,7 @@
     {
       "schema_version": 1,
       "id": "analyzed-feature",
-      "revision": 5,
+      "revision": 6,
       "name": "Analyze, plan & build",
       "status": "draft",
       "input_schema": null,
@@ -3107,7 +3107,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -3433,7 +3433,7 @@
     {
       "schema_version": 1,
       "id": "researched-feature",
-      "revision": 5,
+      "revision": 6,
       "name": "Research, design & build",
       "status": "draft",
       "input_schema": null,
@@ -3665,7 +3665,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -4013,7 +4013,7 @@
     {
       "schema_version": 1,
       "id": "bug-fix",
-      "revision": 5,
+      "revision": 6,
       "name": "Fix a bug",
       "status": "draft",
       "input_schema": null,
@@ -4174,7 +4174,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -4500,7 +4500,7 @@
     {
       "schema_version": 1,
       "id": "careful-change",
-      "revision": 5,
+      "revision": 6,
       "name": "High-risk change",
       "status": "draft",
       "input_schema": null,
@@ -4661,7 +4661,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -5178,7 +5178,7 @@
     {
       "schema_version": 1,
       "id": "security-remediation",
-      "revision": 5,
+      "revision": 6,
       "name": "Security remediation",
       "status": "draft",
       "input_schema": null,
@@ -5338,7 +5338,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -5855,7 +5855,7 @@
     {
       "schema_version": 1,
       "id": "refactor",
-      "revision": 5,
+      "revision": 6,
       "name": "Refactor safely",
       "status": "draft",
       "input_schema": null,
@@ -6016,7 +6016,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -6533,7 +6533,7 @@
     {
       "schema_version": 1,
       "id": "optimize-performance",
-      "revision": 5,
+      "revision": 6,
       "name": "Optimize performance",
       "status": "draft",
       "input_schema": null,
@@ -6694,7 +6694,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },
@@ -7020,7 +7020,7 @@
     {
       "schema_version": 1,
       "id": "documentation",
-      "revision": 3,
+      "revision": 4,
       "name": "Write documentation",
       "status": "draft",
       "input_schema": null,
@@ -7180,7 +7180,7 @@
           "name": "Build",
           "type": "agent",
           "config": {
-            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. Finish with a short summary of what you changed.",
+            "instructions": "Implement the plan in workflow_input.plan in the workspace. Read the code, make the changes, and run the project's checks when you can. If a command fails, read its output and try another way; do not stop before the changes are made. When Verify or a final review sends the work back, use every failed or unverified criterion and its evidence as a repair checklist. Inspect the named files, implement the missing behavior, then rerun focused checks and verify each criterion against the actual workspace. Finish with a short summary of what you changed.",
             "tools": {
               "type": "inherit"
             },

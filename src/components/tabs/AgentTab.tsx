@@ -37,7 +37,7 @@ import {
 } from "../../services/intelligentModelSelector";
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
 import { workflowReportFor } from "../../services/workflowReport";
-import { workflowInputFor, readWorkflowCheckpoint, stepNames, workflowUsesContext, priorWorkflowContext, conversationResults, withConversation, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
+import { workflowInputFor, readWorkflowCheckpoint, workflowUsesContext, priorWorkflowContext, conversationResults, withConversation, failedVerificationReport, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
 import { behaviorService } from "./behaviors/behaviorService";
 import { BUILTIN_WORKFLOW_PATH, STARTER_PROFILES, STARTER_WORKFLOW, workflowKind } from "./behaviors/starterFlow";
 import { AUTO_FLOW, shortWorkflowId, workflowMayEdit, workflowRoute, workflowSwitchTargets } from "./behaviors/flowCatalog";
@@ -932,7 +932,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             name: String(workflowDefinition?.name ?? workflowId),
             status: outcome.status === "completed" ? "completed" : outcome.status === "failed" ? "failed" : "was cancelled",
           };
-          useWorkflowRunStore.getState().finish(workflowId, outcome.status, outcome.status === "failed" ? outcome.error.message : undefined);
+          const review = outcome.status === "failed" && workflowDefinition && failedVerificationReport(workflowDefinition, workflowCheckpointRef.current);
+          useWorkflowRunStore.getState().finish(workflowId, outcome.status, outcome.status === "failed" ? (review ? "Verification incomplete; see the review in chat." : outcome.error.message) : undefined);
         });
       }
       if (!workflowId) lastWorkflowRunRef.current = undefined;
@@ -1040,7 +1041,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
 
         if (outcome.status === "failed") {
           const message = outcome.error.message;
-          consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, `Error: ${message}\n`);
+          const review = workflowDefinition && failedVerificationReport(workflowDefinition, workflowCheckpointRef.current);
+          consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, review ? "Verification incomplete; see the review in chat.\n" : `Error: ${message}\n`);
           if (consoleFlushTimeoutRef.current) clearTimeout(consoleFlushTimeoutRef.current);
           consoleFlushTimeoutRef.current = null;
           flushConsoleBuffer();
@@ -1052,7 +1054,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           addAgentMessage(tab.id, {
             id: `msg_${Date.now()}`,
             role: "assistant" as const,
-            content: `Error: ${message}`,
+            content: review ?? `Error: ${message}`,
             timestamp: new Date().toISOString(),
           });
           isStreamingRef.current = false;
@@ -1064,7 +1066,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           setAgentQuestions([]);
           questionResolversRef.current.clear();
           agentRunRef.current = null;
-          notify("Agent Error", `The agent encountered an error: ${message}`, "error");
+          if (review) notify("Verification incomplete", "The workflow finished with unresolved findings. See the review in chat.", "error");
+          else notify("Agent Error", `The agent encountered an error: ${message}`, "error");
           saveChatHistory();
         }
       });
@@ -1335,7 +1338,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             />
             {workflowCheckpoint && !isAgentBusy && chatWorkflow !== AUTO_FLOW && (
               <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)] py-2">
-                <span>Your next message resumes {stepNames(workflowDocument)[workflowCheckpoint.failed_step] ?? workflowCheckpoint.failed_step}. Completed steps are retained.</span>
+                <span>Your next message resumes the workflow with the findings above. Completed steps are retained.</span>
                 <button type="button" className="underline" onClick={() => { setWorkflowCheckpoint(undefined); void saveChatHistory(); }}>Start over instead</button>
               </div>
             )}
@@ -1349,7 +1352,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               agentQuestion={agentQuestion}
               onAgentQuestionAnswer={handleAgentQuestionAnswer}
               promptHistory={promptHistory}
-              placeholder="Message agent... (type @ to reference files)"
+              placeholder="Message agent... (type @ to reference files) or press ↑ to display last prompts"
             />
           </div>
         </div>
