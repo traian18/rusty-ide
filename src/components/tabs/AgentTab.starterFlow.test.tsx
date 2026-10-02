@@ -26,6 +26,10 @@ import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 const STARTER_PATH = BUILTIN_WORKFLOW_PATH;
 const STARTER_LABEL = "Workflow: Plan, build, verify";
 const CHAT_PATH = "/ws/.rusty/chats/old.json";
+const WORKSPACE_WORKFLOW_PATH = "/ws/.rusty/workflows/workspace-only.json";
+const WORKSPACE_WORKFLOW_NAME = "Workspace-only workflow";
+const PROFILE_PATH = "/ws/.rusty/profiles/profile-only.json";
+const PROFILE_NAME = "Profile-only behavior";
 const files: Record<string, string> = {};
 const writes: string[] = [];
 
@@ -64,6 +68,20 @@ describe("Agent chat and the starter flow", () => {
       tabId: "agent",
       messages: [{ id: "m1", role: "user", content: "earlier request", timestamp: "2026-09-29" }],
       savedAt: "2026-09-29T10:00:00Z",
+    });
+    files[WORKSPACE_WORKFLOW_PATH] = JSON.stringify({
+      id: "workspace-only",
+      name: WORKSPACE_WORKFLOW_NAME,
+      nodes: [
+        { id: "input", name: "Input", type: "input" },
+        { id: "output", name: "Output", type: "output" },
+      ],
+      edges: [{ id: "edge", source: "input", target: "output", condition: "on_success" }],
+    });
+    files[PROFILE_PATH] = JSON.stringify({
+      id: "profile-only",
+      name: PROFILE_NAME,
+      rules: [],
     });
     invoke.mockReset();
     invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
@@ -106,13 +124,13 @@ describe("Agent chat and the starter flow", () => {
     vi.unstubAllGlobals();
   });
 
-  it("starts new chats as Single agent while keeping the built-in workflow available", async () => {
-    expect(writes).toEqual([]);
-    expect(select().textContent).toBe("Single agent");
-    await choose(STARTER_PATH);
-    expect(select().textContent).toBe(STARTER_LABEL);
-    const steps = container.querySelector('ol[aria-label="Workflow steps"]')?.textContent ?? "";
-    for (const step of ["Plan", "Build", "Verify"]) expect(steps).toContain(step);
+  it("exposes workspace workflows but not profiles in the workflow selector", async () => {
+    await act(async () => select().click());
+    const labels = options().map((option) => option.textContent ?? "");
+
+    expect(labels).toContain(`Workflow: ${WORKSPACE_WORKFLOW_NAME}`);
+    expect(labels).not.toContain(PROFILE_NAME);
+    expect(labels.every((label) => !label.includes(PROFILE_PATH))).toBe(true);
   });
 
   it("keeps workflow selection in its chat and starts the next chat as Single agent", async () => {
