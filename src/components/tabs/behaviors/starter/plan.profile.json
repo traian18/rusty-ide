@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "plan",
-  "revision": 6,
+  "revision": 7,
   "name": "Plan",
   "description": "Read-only investigation. Explores the workspace and produces a concrete plan; it cannot edit files or run commands.",
   "status": "published",
@@ -31,10 +31,6 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 30,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "plan-read-only",

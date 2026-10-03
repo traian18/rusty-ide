@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "refactor",
-  "revision": 4,
+  "revision": 5,
   "name": "Refactor",
   "description": "Makes behavior-preserving source improvements and requires a project check after the last edit.",
   "status": "published",
@@ -36,10 +36,6 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 60,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [],
   "completion_gate": {
     "checks": [

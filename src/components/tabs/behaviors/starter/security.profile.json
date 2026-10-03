@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security",
-  "revision": 3,
+  "revision": 4,
   "name": "Security",
   "description": "Audits code, dependencies, and configuration for security risks without modifying the workspace.",
   "status": "published",
@@ -27,10 +27,6 @@
   },
   "tool_overrides": {},
   "execution": {},
-  "limits": {
-    "max_turns": 40,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "security-read-only",

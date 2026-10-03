@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "document",
-  "revision": 3,
+  "revision": 4,
   "name": "Document",
   "description": "Updates documentation from current code and behavior while limiting writes to documentation files.",
   "status": "published",
@@ -32,10 +32,6 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 40,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "document-only-writes",

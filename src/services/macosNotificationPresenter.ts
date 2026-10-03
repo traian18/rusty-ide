@@ -31,6 +31,29 @@ export class MacosNotificationPresenter implements NotificationPresenter {
     } catch { return "failed"; }
   }
 
+  async sendTestNotification(): Promise<{ status: "sent" | "denied" | "unavailable"; error?: string }> {
+    try {
+      const capabilities = await this.getCapabilities();
+      if (!capabilities.available) return { status: "unavailable" };
+      const authorized = await invoke<boolean>("notification_request_authorization");
+      if (!authorized) return { status: "denied" };
+      await invoke("notification_present_passive", {
+        notification: {
+          requestId: `rusty-test-${Date.now()}`,
+          title: "Rusty notifications are working",
+          body: "This test notification confirms that macOS can receive messages from Rusty.",
+          actions: [],
+        },
+      });
+      return { status: "sent" };
+    } catch (error) {
+      return {
+        status: "unavailable",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   async presentPassive(notification: PassiveNotification): Promise<NotificationPresentationResult> {
     if (!permitsNativeNotification(loadNotificationPolicy(), "run_status")) return "unavailable";
     try {

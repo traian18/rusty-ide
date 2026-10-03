@@ -6,10 +6,16 @@ import styles from "./Chat.module.css";
 import { useWorkspaceStore } from "../../store";
 import { ChatScrollFollow } from "./chatScrollFollow";
 
+export interface ActivityEntry {
+  content: string;
+  kind: "tool" | "update";
+}
+
 export interface Message {
   id: string;
   role: "user" | "assistant" | "system" | "tool-result" | "console";
   content: string;
+  activityEntries?: ActivityEntry[];
   timestamp: string;
   attachments?: { path: string; name: string; isDir?: boolean }[];
 }
@@ -59,22 +65,30 @@ interface ChatProps {
 }
 
 export type ChatGroup =
-  | { type: "console"; message: Message }
-  | { type: "messages"; id: string; isUser: boolean; messages: Message[] };
+  | { type: "console"; message: Message; phase?: string }
+  | { type: "messages"; id: string; isUser: boolean; messages: Message[]; phase?: string };
 
 export function groupChatMessages(messages: Message[]): ChatGroup[] {
   const groups: ChatGroup[] = [];
 
   for (const message of messages) {
+    const phase = (message as any).phase || "activity";  // Default for backward compat
+
     if (message.role === "console") {
-      groups.push({ type: "console", message });
+      groups.push({ type: "console", message, phase });
       continue;
     }
 
     const isUser = message.role === "user";
     const lastGroup = groups[groups.length - 1];
 
-    if (lastGroup && lastGroup.type === "messages" && lastGroup.isUser === isUser) {
+    // NEW: Respect phase in grouping logic
+    if (
+      lastGroup &&
+      lastGroup.type === "messages" &&
+      lastGroup.isUser === isUser &&
+      lastGroup.phase === phase  // MUST match phase
+    ) {
       lastGroup.messages.push(message);
     } else {
       groups.push({
@@ -82,6 +96,7 @@ export function groupChatMessages(messages: Message[]): ChatGroup[] {
         id: message.id,
         isUser,
         messages: [message],
+        phase,
       });
     }
   }
@@ -172,22 +187,39 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
       const msg = group.message;
       const isThisStreaming = isStreaming && streamingMessageId === msg.id;
       const messageSubagents = streamingMessageId === msg.id ? subagents : [];
+      const isFinalized = group.phase !== "activity" || !isThisStreaming;  // NEW: collapse if not actively streaming
       return (
         <AgentActivityCard
           key={msg.id}
           content={msg.content}
+          activityEntries={msg.activityEntries}
           isStreaming={isThisStreaming}
           subagents={messageSubagents}
+          isFinalized={isFinalized}  // NEW: pass to component
         />
       );
     }
 
-    const { isUser, messages: groupMessages } = group;
+    const { isUser, messages: groupMessages, phase } = group;
     const title = isUser ? "USER" : "AGENT";
     const firstFormattedTime = formatTimestamp(groupMessages[0]?.timestamp || "");
 
+    // NEW: Phase-based message type label and styling
+    let messageTypeLabel = "Input Query";
+    let messageClassName = isUser ? styles.userMessage : styles.agentMessage;
+
+    if (!isUser) {
+      if (phase === "response") {
+        messageTypeLabel = "Response";
+        messageClassName = `${styles.agentMessage} ${styles.responseMessage}`;  // NEW CSS class
+      } else if (phase === "activity") {
+        messageTypeLabel = "Activity Update";
+        messageClassName = `${styles.agentMessage} ${styles.activityMessage}`;  // NEW CSS class
+      }
+    }
+
     return (
-      <div key={group.id} className={`${styles.message} ${isUser ? styles.userMessage : styles.agentMessage}`}>
+      <div key={group.id} className={`${styles.message} ${messageClassName}`}>
         {/* Programmatic Header */}
         <div className={styles.messageHeader}>
           <div className={styles.messageIdentity}>
@@ -197,7 +229,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
             )}
           </div>
           <span className={styles.messageType}>
-            {isUser ? "Input Query" : "Execution Result"}
+            {messageTypeLabel}  {/* Changed from hardcoded "Execution Result" */}
           </span>
         </div>
 

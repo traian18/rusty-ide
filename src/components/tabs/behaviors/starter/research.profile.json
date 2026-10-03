@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "research",
-  "revision": 4,
+  "revision": 5,
   "name": "Research",
   "description": "Investigates external sources and workspace context to produce sourced options and recommendations without editing files.",
   "status": "published",
@@ -27,10 +27,6 @@
   },
   "tool_overrides": {},
   "execution": {},
-  "limits": {
-    "max_turns": 40,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "research-read-only",

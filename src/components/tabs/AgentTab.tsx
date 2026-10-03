@@ -3,7 +3,7 @@ import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot
 import { snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
 import { chooseFlow, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
-import { useWorkspaceStore, AgentMessage } from "../../store";
+import { useWorkspaceStore, AgentMessage, type AgentActivityEntry } from "../../store";
 import { resolveSkill, toSkillData, DEFAULT_SKILL_ID, BUILT_IN_SKILL_IDS } from "../../config/skillDefinitions";
 import { CustomSelect } from "../CustomSelect";
 import { invoke } from "@tauri-apps/api/core";
@@ -75,6 +75,15 @@ interface LaunchPlan {
 
 const MAX_FLOW_SWITCHES_PER_MESSAGE = 2;
 
+function appendActivityEntry(
+  entries: AgentActivityEntry[],
+  content: unknown,
+  kind: AgentActivityEntry["kind"],
+): AgentActivityEntry[] {
+  const normalized = String(content ?? "").trim();
+  if (!normalized) return entries;
+  return [...entries, { content: appendBoundedText("", normalized), kind }];
+}
 export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
@@ -158,6 +167,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const questionResolversRef = useRef<Map<string, (answer: string) => void>>(new Map());
   const consoleMessageIdRef = useRef<string | null>(null);
   const consoleBufferRef = useRef<string>("");
+  const consoleEntriesRef = useRef<AgentActivityEntry[]>([]);
   const responseStreamRef = useRef<AgentChatResponseStream | null>(null);
   const chatSaveQueueRef = useRef(new AgentChatSaveQueue());
   const consoleFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,6 +175,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const isStreamingRef = useRef(false);
   const lastUserMessageIdRef = useRef<string | null>(null);
   const lastConsoleMessageIdRef = useRef<string | null>(null);
+  const delegatedSubagentIdsRef = useRef(new Set<string>());
+  const activeWorkflowAgentStepRef = useRef<string | null>(null);
 
   const { options: baseModelOptions, unauthenticatedProviders } = useSelectableModels(
     customProviders,
@@ -297,6 +309,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     };
   }, [tab.id]);
 
+  // Sync the first subagent ID for detecting new delegations
   // Mirrors isAgentBusy into the store (REFACTOR_PLAN.md PR 7 commit 2) so
   // the `agent` tab policy -- a pure function with no component access --
   // can implement isBusy/beforeClose the same way `canvas`'s already does.
@@ -404,8 +417,31 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
 
   const flushConsoleBuffer = () => {
     if (consoleMessageIdRef.current) {
-      updateAgentMessage(tab.id, consoleMessageIdRef.current, consoleBufferRef.current);
+      updateAgentMessage(tab.id, consoleMessageIdRef.current, consoleBufferRef.current, consoleEntriesRef.current);
     }
+  };
+
+  const appendConsoleActivity = (content: unknown, kind: AgentActivityEntry["kind"]) => {
+    const text = String(content ?? "");
+    if (!text.trim()) return;
+    const update = text.endsWith("\n") ? text : `${text}\n`;
+    consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, update);
+    consoleEntriesRef.current = appendActivityEntry(consoleEntriesRef.current, text, kind);
+  };
+
+  const startActivityMessage = () => {
+    flushConsoleBuffer();
+    const id = `console_${crypto.randomUUID()}`;
+    addAgentMessage(tab.id, {
+      id,
+      role: "console",
+      content: "",
+      timestamp: new Date().toISOString(),
+      phase: "activity",
+    });
+    consoleMessageIdRef.current = id;
+    consoleBufferRef.current = "";
+    consoleEntriesRef.current = [];
   };
 
   const scheduleConsoleFlush = () => {
@@ -483,10 +519,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const currentQuestion = agentQuestions[0];
     questionResolversRef.current.get(currentQuestion.requestId)?.(answer);
     questionResolversRef.current.delete(currentQuestion.requestId);
-    consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, `User answer: ${answer}\n`);
-    if (consoleMessageIdRef.current) {
-      updateAgentMessage(tab.id, consoleMessageIdRef.current, consoleBufferRef.current);
-    }
+    appendConsoleActivity(`User answer: ${answer}`, "update");
+    flushConsoleBuffer();
     setAgentQuestions((prev) => prev.slice(1));
   };
 
@@ -527,6 +561,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       role: "user" as const,
       content: userText,
       timestamp: new Date().toISOString(),
+      phase: "query",
       attachments,
       attachmentContext: attachmentContext || undefined,
     };
@@ -537,6 +572,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       role: "console" as const,
       content: "",
       timestamp: new Date().toISOString(),
+      phase: "activity",
     };
 
     lastUserMessageIdRef.current = userMessage.id;
@@ -546,9 +582,16 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     addAgentMessage(tab.id, consoleMessage);
     consoleMessageIdRef.current = consoleMessageId;
     consoleBufferRef.current = "";
+    consoleEntriesRef.current = [];
+    delegatedSubagentIdsRef.current = new Set();
+    activeWorkflowAgentStepRef.current = null;
     responseStreamRef.current = new AgentChatResponseStream(
       (message) => addAgentMessage(tab.id, message),
       (id, content) => updateAgentMessage(tab.id, id, content),
+      (content) => {
+        appendConsoleActivity(content, "update");
+        flushConsoleBuffer();
+      },
     );
     setSubagents([]);
     setAgentQuestions([]);
@@ -821,7 +864,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         (event) => {
           switch (event.kind) {
             case "command_output":
-              consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, event.content);
+              appendConsoleActivity(event.content, "tool");
               scheduleConsoleFlush();
               break;
             case "command_complete":
@@ -833,8 +876,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               scheduleTreeRefresh();
               break;
             case "log": {
-              const line = event.message.endsWith("\n") ? event.message : `${event.message}\n`;
-              consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, line);
+              appendConsoleActivity(event.message, "tool");
               scheduleConsoleFlush();
               if (event.message.startsWith("Calling ")) {
                 setRunLabel(event.message.replace(/\.\.\.$/, "…"));
@@ -852,9 +894,11 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               scheduleStreamingResponseFlush();
               break;
             }
-            case "progress":
-              responseStreamRef.current?.progress(event.content);
+            case "progress": {
+              appendConsoleActivity(event.content, "update");
+              flushConsoleBuffer();
               break;
+            }
             case "workflow_checkpoint":
               setWorkflowCheckpoint(event.state);
               break;
@@ -868,16 +912,26 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               if (event.status === "running") {
                 workflowStep = `${name}${attempt}`;
                 setRunLabel("Working…");
-                // Mark where each agent step's output begins in the chat.
+                // Each agent workflow step owns its own activity and response pair.
                 if (workflowStepTypes[event.nodeId] === "agent") {
-                  responseStreamRef.current?.progress(`**▶ ${name}**${attempt}`);
-                  scheduleStreamingResponseFlush();
+                  const stepKey = `${event.workflowId}:${event.nodeId}:${event.attempt}`;
+                  if (activeWorkflowAgentStepRef.current && activeWorkflowAgentStepRef.current !== stepKey) {
+                    responseStreamRef.current?.startSegment();
+                    startActivityMessage();
+                    delegatedSubagentIdsRef.current = new Set();
+                    setSubagents([]);
+                  }
+                  activeWorkflowAgentStepRef.current = stepKey;
+                  const update = `▶ ${name}${attempt}`;
+                  appendConsoleActivity(update, "update");
+                  flushConsoleBuffer();
                 }
               } else if (event.status === "waiting") {
                 setRunLabel("Waiting for your permission…");
               } else if (event.status === "failed") {
-                responseStreamRef.current?.progress(`**✗ ${name} failed**${event.message ? `: ${event.message}` : ""}`);
-                scheduleStreamingResponseFlush();
+                const update = `✗ ${name} failed${event.message ? `: ${event.message}` : ""}`;
+                appendConsoleActivity(update, "update");
+                flushConsoleBuffer();
               }
               break;
             }
@@ -888,6 +942,14 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
                 ...(subagent as any),
                 updatedAt: (subagent as any).updatedAt || new Date().toISOString(),
               } as SubagentActivity & { previousId?: string; appendLog?: string; logs?: string[] };
+              // Start a new activity card once per newly delegated subagent.
+              // Subsequent events for that subagent stay in its current card.
+              if (!delegatedSubagentIdsRef.current.has(incoming.id)) {
+                if (delegatedSubagentIdsRef.current.size > 0) {
+                  startActivityMessage();
+                }
+                delegatedSubagentIdsRef.current.add(incoming.id);
+              }
               setSubagents((prev) => {
                 const index = prev.findIndex((item) =>
                   item.id === incoming.id || (!!incoming.previousId && item.id === incoming.previousId)
@@ -1003,6 +1065,11 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             responseStreamRef.current = new AgentChatResponseStream(
               (added) => addAgentMessage(tab.id, added),
               (id, content) => updateAgentMessage(tab.id, id, content),
+              (content) => {
+                const update = content.endsWith("\n") ? content : `${content}\n`;
+                consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, update);
+                flushConsoleBuffer();
+              },
             );
             agentRunRef.current = null;
             setStreamingLabel(`Starting ${switchTo.name}…`);
@@ -1042,7 +1109,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         if (outcome.status === "failed") {
           const message = outcome.error.message;
           const review = workflowDefinition && failedVerificationReport(workflowDefinition, workflowCheckpointRef.current);
-          consoleBufferRef.current = appendBoundedText(consoleBufferRef.current, review ? "Verification incomplete; see the review in chat.\n" : `Error: ${message}\n`);
+          appendConsoleActivity(review ? "Verification incomplete; see the review in chat." : `Error: ${message}`, "update");
           if (consoleFlushTimeoutRef.current) clearTimeout(consoleFlushTimeoutRef.current);
           consoleFlushTimeoutRef.current = null;
           flushConsoleBuffer();

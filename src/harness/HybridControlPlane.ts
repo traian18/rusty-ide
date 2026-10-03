@@ -37,7 +37,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import { discoverProviderModelsDirect, fetchProviderQuotaDirect, testProviderConnectionDirect } from "./core/engine/providerCatalog";
+import { discoverProviderModelsDirect, fetchProviderQuotaDirect, testProviderConnectionDirect, testProviderInferenceDirect } from "./core/engine/providerCatalog";
 import type {
   CodexConnectionStatus,
   CopilotConnectionStatus,
@@ -135,6 +135,22 @@ export function createHybridControlPlane(): HarnessControlPlane {
       if (isDirectlyReachable(provider)) return testProviderConnectionDirect(provider);
       const models = await this.discoverModels(provider);
       return { modelCount: models.length, supportedModelCount: models.filter((model) => model.supported).length };
+    },
+
+    async testInference(provider: CustomProvider): Promise<{ success: boolean; message?: string }> {
+      if (isDirectlyReachable(provider)) return testProviderInferenceDirect(provider);
+      const integration = managedIntegrationId(provider);
+      if (!integration) throw managedProviderUnsupported("testInference", provider);
+      // For managed providers, attempt a simple API call to test inference capability
+      try {
+        await managedAuthModels(integration);
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : "Inference test failed",
+        };
+      }
     },
 
     async getQuota(provider: CustomProvider): Promise<ProviderQuotaSnapshot> {

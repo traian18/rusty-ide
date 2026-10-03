@@ -71,6 +71,10 @@ export interface UsageRecordSample {
 export interface HarnessControlPlane {
   discoverModels(provider: CustomProvider): Promise<ProviderModel[]>;
   testConnection(provider: CustomProvider): Promise<{ modelCount: number; supportedModelCount: number }>;
+  /** Separate inference capability test: checks if the provider can process
+   * requests without requiring catalog discovery. Returns success status and
+   * optional error message for UI display. */
+  testInference(provider: CustomProvider): Promise<{ success: boolean; message?: string }>;
   getQuota(provider: CustomProvider): Promise<ProviderQuotaSnapshot>;
   getCopilotStatus(): Promise<CopilotConnectionStatus>;
   startCopilotLogin(): Promise<CopilotConnectionStatus>;

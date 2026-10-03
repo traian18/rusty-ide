@@ -210,15 +210,66 @@ describe("Agent chat workflows", () => {
       onEvent({ kind: "workflow_step", workflowId: "flow", nodeId: "input", name: "Input", status: "running", attempt: 1 });
       onEvent({ kind: "workflow_step", workflowId: "flow", nodeId: "input", name: "Input", status: "succeeded", attempt: 1 });
       onEvent({ kind: "workflow_step", workflowId: "flow", nodeId: "build", name: "Build", status: "running", attempt: 1 });
+      onEvent({ kind: "command_output", content: "checked package.json\n" });
       onEvent({ kind: "token", content: "Reading the auth module", messageId: "m1" });
     });
-    await flush();
+    await flush(200);
     expect(container.textContent).toContain("Running step 2 of 2: Build");
     expect(container.textContent).toContain("▶ Build");
     expect(container.textContent).not.toContain("▶ Input");
     expect(container.textContent).toContain("Build · Generating response…");
+    const activityMessage = useWorkspaceStore.getState().agentChats.agent.find((message) => message.role === "console");
+    expect(activityMessage?.activityEntries).toEqual([
+      { content: "▶ Build", kind: "update" },
+      { content: "checked package.json", kind: "tool" },
+    ]);
     // The new conversation is saved with its workflow.
     expect(savedWorkflow()).toBe(FLOW_PATH);
+  });
+
+  it("starts a new activity and response pair for every agent workflow step", async () => {
+    files[FLOW_PATH] = JSON.stringify({
+      ...FLOW,
+      nodes: [
+        { id: "input", name: "Input", type: "input" },
+        { id: "build", name: "Build", type: "agent" },
+        { id: "verify", name: "Verify", type: "agent" },
+      ],
+      edges: [
+        { id: "build-edge", source: "input", target: "build", condition: "on_success" },
+        { id: "verify-edge", source: "build", target: "verify", condition: "on_success" },
+      ],
+    });
+    await choose(FLOW_PATH);
+    await send("build and verify it");
+
+    const onEvent = run.mock.calls[0][3] as (event: unknown) => void;
+    await act(async () => {
+      onEvent({ kind: "workflow_step", workflowId: "flow", nodeId: "build", name: "Build", status: "running", attempt: 1 });
+      onEvent({ kind: "command_output", content: "building" });
+      onEvent({ kind: "token", content: "Build finished.", messageId: "shared" });
+      onEvent({ kind: "workflow_step", workflowId: "flow", nodeId: "build", name: "Build", status: "succeeded", attempt: 1 });
+      onEvent({ kind: "workflow_step", workflowId: "flow", nodeId: "verify", name: "Verify", status: "running", attempt: 1 });
+      onEvent({ kind: "command_output", content: "testing" });
+      onEvent({ kind: "token", content: "Verification passed.", messageId: "shared" });
+    });
+    await flush(200);
+
+    const messages = useWorkspaceStore.getState().agentChats.agent
+      .filter((message) => message.role === "console" || message.role === "assistant");
+    expect(messages.map((message) => message.role)).toEqual([
+      "console", "assistant", "console", "assistant",
+    ]);
+    expect(messages[0].activityEntries).toEqual([
+      { content: "▶ Build", kind: "update" },
+      { content: "building", kind: "tool" },
+    ]);
+    expect(messages[1].content).toBe("Build finished.");
+    expect(messages[2].activityEntries).toEqual([
+      { content: "▶ Verify", kind: "update" },
+      { content: "testing", kind: "tool" },
+    ]);
+    expect(messages[3].content).toBe("Verification passed.");
   });
 
   async function send(text: string) {
@@ -415,7 +466,7 @@ describe("Agent chat workflows", () => {
       expect(workflowId()).toBe("rusty-ide.builtin.investigate");
       expect(run.mock.calls[0][1].workflow.input).toMatchObject({ request: "how does sync work", attachments: [], context: "Earlier answer about sync." });
       expect(run.mock.calls[0][1].skill.name).toBe("build");
-      expect(container.textContent).toContain("↳ AUTO · Stage: Research & analyze (90% confidence)");
+      expect(useWorkspaceStore.getState().agentChats.agent.some((message) => message.content === "↳ AUTO · Stage: Research & analyze (90% confidence)\n")).toBe(true);
       expect(questionButton("Run ")).toBeUndefined();
       // The bar follows the workflow it chose.
       expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Auto · Research & analyze");
@@ -470,7 +521,7 @@ describe("Agent chat workflows", () => {
       expect(build.workflow.input.context).toContain("Retries live in queue.rs; add jitter there.");
       // No question, no menu: it just started, and said what it chose.
       expect(container.textContent).not.toContain("Agent needs your decision");
-      expect(container.textContent).toContain("↳ AUTO · Stage: Build & verify (93% confidence) · can change files");
+      expect(useWorkspaceStore.getState().agentChats.agent.some((message) => message.content === "↳ AUTO · Stage: Build & verify (93% confidence) · can change files\n")).toBe(true);
     });
 
     it("still has the analysis when a quick answer came between it and \"implement it\"", async () => {
@@ -503,7 +554,7 @@ describe("Agent chat workflows", () => {
       expect(run).toHaveBeenCalledTimes(1);
       expect(run.mock.calls[0][1].workflow).toBeUndefined();
       expect(run.mock.calls[0][1].skill.name).toBe("plan");
-      expect(container.textContent).toContain("↳ AUTO · Single agent (92% confidence)");
+      expect(useWorkspaceStore.getState().agentChats.agent.some((message) => message.content === "↳ AUTO · Single agent (92% confidence)\n")).toBe(true);
     });
 
     it("runs a confident pick that can change files without asking, and says it can", async () => {
@@ -513,7 +564,7 @@ describe("Agent chat workflows", () => {
       expect(workflowId()).toBe("rusty-ide.builtin.implement");
       expect(questionButton("Run ")).toBeUndefined();
       expect(container.textContent).not.toContain("Agent needs your decision");
-      expect(container.textContent).toContain("↳ AUTO · Stage: Build & verify (90% confidence) · can change files");
+      expect(useWorkspaceStore.getState().agentChats.agent.some((message) => message.content === "↳ AUTO · Stage: Build & verify (90% confidence) · can change files\n")).toBe(true);
     });
 
     it("answers with the single agent, without asking, when it is unsure", async () => {
@@ -523,7 +574,7 @@ describe("Agent chat workflows", () => {
       expect(run).toHaveBeenCalledTimes(1);
       expect(run.mock.calls[0][1].workflow).toBeUndefined();
       expect(container.textContent).not.toContain("Which workflow should handle this?");
-      expect(container.textContent).toContain("↳ AUTO · Single agent (no workflow was a clear fit)");
+      expect(useWorkspaceStore.getState().agentChats.agent.some((message) => message.content === "↳ AUTO · Single agent (no workflow was a clear fit)\n")).toBe(true);
     });
 
     it("answers directly, saying why, when the router cannot be reached", async () => {
@@ -535,7 +586,7 @@ describe("Agent chat workflows", () => {
       await send("how does sync work");
       expect(run).toHaveBeenCalledTimes(1);
       expect(run.mock.calls[0][1].workflow).toBeUndefined();
-      expect(container.textContent).toContain("Could not choose a workflow");
+      expect(useWorkspaceStore.getState().agentChats.agent.some((message) => message.content.includes("Could not choose a workflow"))).toBe(true);
     });
 
     describe("flow switching", () => {

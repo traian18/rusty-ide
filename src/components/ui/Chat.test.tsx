@@ -80,17 +80,44 @@ describe("groupChatMessages helper", () => {
   it("handles empty messages array", () => {
     expect(groupChatMessages([])).toEqual([]);
   });
+
+  it("groups messages correctly respecting phase field", () => {
+    const messages: Message[] = [
+      { id: "u1", role: "user", content: "Hello", timestamp: "", phase: "query" },
+      { id: "a1", role: "assistant", content: "Hi", timestamp: "", phase: "activity" },
+      { id: "a2", role: "assistant", content: "Processing", timestamp: "", phase: "activity" },
+      { id: "a3", role: "assistant", content: "Done", timestamp: "", phase: "response" },
+    ];
+
+    const groups = groupChatMessages(messages);
+    expect(groups).toHaveLength(3);
+    expect(groups[0].phase).toBe("query");
+    if (groups[1].type === "messages") {
+      expect(groups[1].messages).toHaveLength(2);  // a1, a2 grouped (same phase)
+      expect(groups[1].phase).toBe("activity");
+    }
+    expect(groups[2].phase).toBe("response");  // Separate (different phase)
+  });
+
+  it("defaults phase to 'activity' for old messages without phase field", () => {
+    const messages: Message[] = [
+      { id: "1", role: "assistant", content: "Old message", timestamp: "" },  // No phase
+    ];
+
+    const groups = groupChatMessages(messages);
+    expect(groups[0].phase).toBe("activity");  // Should default
+  });
 });
 
 describe("Chat component rendering", () => {
   it("renders 5 consecutive agent messages under a single cloud with a single header", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const messages: Message[] = [
-      { id: "m1", role: "assistant", content: "Analyzing workspace...", timestamp: "2026-09-20T10:00:00Z" },
-      { id: "m2", role: "assistant", content: "Inspecting dependencies...", timestamp: "2026-09-20T10:00:05Z" },
-      { id: "m3", role: "assistant", content: "Running lint check...", timestamp: "2026-09-20T10:00:10Z" },
-      { id: "m4", role: "assistant", content: "Found 0 errors.", timestamp: "2026-09-20T10:00:15Z" },
-      { id: "m5", role: "assistant", content: "Execution completed successfully.", timestamp: "2026-09-20T10:00:20Z" },
+      { id: "m1", role: "assistant", content: "Analyzing workspace...", timestamp: "2026-09-20T10:00:00Z", phase: "response" },
+      { id: "m2", role: "assistant", content: "Inspecting dependencies...", timestamp: "2026-09-20T10:00:05Z", phase: "response" },
+      { id: "m3", role: "assistant", content: "Running lint check...", timestamp: "2026-09-20T10:00:10Z", phase: "response" },
+      { id: "m4", role: "assistant", content: "Found 0 errors.", timestamp: "2026-09-20T10:00:15Z", phase: "response" },
+      { id: "m5", role: "assistant", content: "Execution completed successfully.", timestamp: "2026-09-20T10:00:20Z", phase: "response" },
     ];
 
     const mount = document.createElement("div");
@@ -105,7 +132,7 @@ describe("Chat component rendering", () => {
       const headers = mount.querySelectorAll("[class*='messageHeader']");
       expect(headers).toHaveLength(1);
       expect(headers[0].textContent).toContain("[AGENT]");
-      expect(headers[0].textContent).toContain("Execution Result");
+      expect(headers[0].textContent).toContain("Response");
 
       // Exactly 1 message container (cloud)
       const messageContainers = mount.querySelectorAll("[class*='agentMessage']");
@@ -161,6 +188,98 @@ describe("Chat component rendering", () => {
       const secondAgentCloud = agentContainers[1];
       expect(secondAgentCloud.textContent).toContain("Applied.");
       expect(secondAgentCloud.querySelectorAll("[data-testid='grouped-divider']")).toHaveLength(0);
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders every typed activity entry in an accessible scroll region", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const entries = Array.from({ length: 30 }, (_, index) => ({
+      content: `activity ${index + 1}`,
+      kind: index % 2 === 0 ? "tool" as const : "update" as const,
+    }));
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+
+    try {
+      await act(async () => {
+        root.render(<Chat messages={[{
+          id: "console", role: "console", content: entries.map((entry) => entry.content).join("\n"),
+          activityEntries: entries, timestamp: "", phase: "activity",
+        }]} />);
+      });
+
+      const list = mount.querySelector('[data-testid="agent-activity-list"]');
+      expect(list?.getAttribute("aria-label")).toBe("Agent activity messages");
+      expect(list?.getAttribute("tabindex")).toBe("0");
+      expect(mount.textContent).not.toContain("last 25 of 30");
+      const renderedEntries = [...(list?.querySelectorAll("[data-activity-kind]") || [])].map((entry) => entry.textContent);
+      expect(renderedEntries).toContain("activity 1");
+      expect(renderedEntries).toContain("activity 6");
+      expect(renderedEntries).toContain("activity 30");
+      expect(list?.querySelectorAll('[data-activity-kind="tool"]')).toHaveLength(15);
+      expect(list?.querySelectorAll('[data-activity-kind="update"]')).toHaveLength(15);
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("keeps activity pinned to the bottom until the user scrolls away", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+    const createMessage = (count: number): Message => ({
+      id: "console",
+      role: "console",
+      content: Array.from({ length: count }, (_, index) => `activity ${index + 1}`).join("\n"),
+      activityEntries: Array.from({ length: count }, (_, index) => ({ content: `activity ${index + 1}`, kind: "tool" as const })),
+      timestamp: "",
+      phase: "activity",
+    });
+
+    try {
+      await act(async () => {
+        root.render(<Chat messages={[createMessage(25)]} />);
+      });
+
+      const list = mount.querySelector<HTMLElement>('[data-testid="agent-activity-list"]');
+      expect(list).not.toBeNull();
+      Object.defineProperties(list!, {
+        clientHeight: { configurable: true, value: 100 },
+        scrollHeight: { configurable: true, value: 300 },
+        scrollTop: { configurable: true, writable: true, value: 0 },
+      });
+
+      await act(async () => {
+        root.render(<Chat messages={[createMessage(26)]} />);
+      });
+      expect(list!.scrollTop).toBe(300);
+
+      list!.scrollTop = 50;
+      list!.dispatchEvent(new Event("scroll", { bubbles: true }));
+      await act(async () => {
+        root.render(<Chat messages={[createMessage(27)]} />);
+      });
+      expect(list!.scrollTop).toBe(50);
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("renders legacy activity content as default tool activity", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+
+    try {
+      await act(async () => {
+        root.render(<Chat messages={[{ id: "console", role: "console", content: "legacy log", timestamp: "" }]} />);
+      });
+      expect(mount.querySelector('[data-activity-kind="tool"]')?.textContent).toBe("legacy log");
     } finally {
       await act(async () => root.unmount());
       vi.unstubAllGlobals();

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "verify",
-  "revision": 5,
+  "revision": 6,
   "name": "Verify",
   "description": "Independently checks completed work against the request, plan, and actual workspace.",
   "status": "published",
@@ -33,10 +33,6 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 30,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "verify-read-only",

@@ -41,6 +41,29 @@ export interface ProviderModel {
   headers?: Record<string, string>;
 }
 
+export interface ProviderHeader {
+  name: string;
+  value: string;
+  secret?: boolean;
+}
+
+export interface ProviderCapabilities {
+  tools?: boolean | 'enabled' | 'disabled';
+}
+
+export interface ProviderExecutionStatus {
+  catalog?: {
+    status: 'untested' | 'success' | 'failed' | 'unsupported';
+    message?: string;
+    testedAt?: string;
+  };
+  inference?: {
+    status: 'untested' | 'success' | 'failed' | 'unsupported';
+    message?: string;
+    testedAt?: string;
+  };
+}
+
 export interface CustomProvider {
   id: string;
   name: string;
@@ -59,6 +82,14 @@ export interface CustomProvider {
       array used to always fall back to the hardcoded defaults). Optional,
       so no PROVIDER_CONFIG_VERSION bump was needed to add it. */
   modelsFetchedAt?: string;
+  /** Connection profile/preset ID for compatible service connections (openai-compatible, openai-responses, anthropic-messages). */
+  profile?: string;
+  /** Provider-level extra headers for requests. Stored encrypted as part of the provider snapshot. */
+  headers?: ProviderHeader[];
+  /** Provider-level capability configuration (e.g. tool calling enabled/disabled). */
+  capabilities?: ProviderCapabilities;
+  /** Catalog and inference readiness/test status for UI display. */
+  executionStatus?: ProviderExecutionStatus;
 }
 
 export type ProviderQuotaState = "available" | "unavailable" | "unauthenticated";
@@ -200,11 +231,20 @@ export interface GitError {
 }
 
 
+export interface AgentActivityEntry {
+  /** Display-ready activity text captured with its semantic source. */
+  content: string;
+  kind: "tool" | "update";
+}
+
 export interface AgentMessage {
   id: string;
   role: "user" | "assistant" | "system" | "tool-result" | "console";
   content: string;
+  /** Typed activity data for console messages; content remains the persisted compatibility fallback. */
+  activityEntries?: AgentActivityEntry[];
   timestamp: string;
+  phase?: "query" | "activity" | "response";
   toolCalls?: AgentToolCall[];
   attachments?: { path: string; name: string; isDir?: boolean }[];
   attachmentContext?: string;
@@ -434,7 +474,7 @@ export interface WorkspaceState {
   agentStreams: Record<string, string>;
   agentPermissionRequests: Record<string, AgentPermissionRequest[]>;
   addAgentMessage: (tabId: string, message: AgentMessage) => void;
-  updateAgentMessage: (tabId: string, messageId: string, content: string) => void;
+  updateAgentMessage: (tabId: string, messageId: string, content: string, activityEntries?: AgentActivityEntry[]) => void;
   setAgentMessages: (tabId: string, messages: AgentMessage[]) => void;
   clearAgentMessages: (tabId: string) => void;
   updateAgentStream: (tabId: string, content: string) => void;
@@ -551,6 +591,8 @@ export interface WorkspaceState {
 
   addCustomProvider: (provider: CustomProvider) => void;
   updateProviderSettings: (providerId: string, settings: Partial<Omit<CustomProvider, "id">>) => void;
+  addManualModel: (providerId: string, model: ProviderModel) => void;
+  removeManualModel: (providerId: string, modelId: string) => void;
   setActiveCustomProviderId: (id: string | null) => void;
   setActiveModel: (model: string) => void;
 

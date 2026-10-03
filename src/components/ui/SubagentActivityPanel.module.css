@@ -3,7 +3,16 @@
   line-height: var(--line-height-chat);
 }
 
-.scope button:focus-visible {
+.scope button:focus-visible,
+.scope [tabindex="0"]:focus-visible {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 2px;
+}
+
+.toolActivity {
+  color: var(--color-log-muted);
+}
+
+.updateActivity {
+  color: var(--color-fg-strong);
 }

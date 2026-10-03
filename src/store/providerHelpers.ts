@@ -190,6 +190,26 @@ export function normalizeStoredProvider(
     : builtInBearerProviders.has(providerId) || provider.apiKey
       ? "bearer"
       : "none";
+
+  // Normalize headers to ProviderHeader[] format if needed (for backward compatibility).
+  let normalizedHeaders = provider.headers;
+  if (normalizedHeaders && !Array.isArray(normalizedHeaders)) {
+    // Old format: Record<string, string>; convert to ProviderHeader[]
+    normalizedHeaders = Object.entries(normalizedHeaders).map(([name, value]) => ({
+      name,
+      value: typeof value === 'string' ? value : '',
+    }));
+  }
+
+  // For existing providers without explicit capability metadata, preserve their tool behavior.
+  // This means: if they already had tools behavior, keep it; don't forcibly disable.
+  // Only *new* compatible providers (with profile set) default tools off.
+  let normalizedCapabilities = provider.capabilities;
+  if (!normalizedCapabilities && !provider.profile) {
+    // Existing provider without profile; preserve current behavior by not setting explicit tools=false.
+    normalizedCapabilities = undefined;
+  }
+
   return {
     ...provider,
     id: providerId,
@@ -199,6 +219,8 @@ export function normalizeStoredProvider(
     apiType,
     authType: provider.authType || inferredAuthType,
     models: (provider.models || []).map((model) => normalizeProviderModel(model, provider.id, providerId)),
+    headers: normalizedHeaders,
+    capabilities: normalizedCapabilities,
   };
 }
 

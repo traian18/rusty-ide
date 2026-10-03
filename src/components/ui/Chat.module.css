@@ -29,6 +29,26 @@
   background: color-mix(in srgb, var(--color-surface-sidebar) 25%, transparent);
 }
 
+/* Response phase: distinct visual highlight with accent color */
+.responseMessage {
+  background-color: color-mix(in srgb, var(--hsl-accent) 8%, transparent);
+  border-color: hsl(var(--hsl-accent) / 0.3);
+  border-width: 1px 1px 1px 3px;  /* Thick left accent bar */
+  box-shadow: 0 0 0 1px hsl(var(--hsl-accent) / 0.15);
+  border-left-color: var(--accent-color);
+}
+
+.responseMessage .messageHeader {
+  background-color: color-mix(in srgb, var(--hsl-accent) 5%, transparent);
+  border-bottom-color: hsl(var(--hsl-accent) / 0.2);
+}
+
+/* Activity phase: muted appearance */
+.activityMessage {
+  opacity: 0.9;
+  border-color: var(--color-border-subtle);
+}
+
 .messageHeader {
   display: flex;
   align-items: center;

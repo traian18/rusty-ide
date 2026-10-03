@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "analyze",
-  "revision": 4,
+  "revision": 5,
   "name": "Analyze",
   "description": "Explains how the current code works, where a change belongs, and what it may affect.",
   "status": "published",
@@ -25,10 +25,6 @@
   },
   "tool_overrides": {},
   "execution": {},
-  "limits": {
-    "max_turns": 40,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "analyze-read-only",

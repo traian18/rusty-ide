@@ -268,6 +268,28 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
     scheduleSaveSecureConfig(get);
   },
 
+  addManualModel: (providerId, model) => set((state) => {
+    scheduleSaveSecureConfig(get);
+    return {
+      customProviders: state.customProviders.map((provider) =>
+        provider.id === providerId
+          ? { ...provider, models: [...provider.models, model] }
+          : provider,
+      ),
+    };
+  }),
+
+  removeManualModel: (providerId, modelId) => set((state) => {
+    scheduleSaveSecureConfig(get);
+    return {
+      customProviders: state.customProviders.map((provider) =>
+        provider.id === providerId
+          ? { ...provider, models: provider.models.filter((m) => m.id !== modelId) }
+          : provider,
+      ),
+    };
+  }),
+
   setActiveThemeId: (themeId) => {
     // This synchronous preference is the source of truth so closing the app
     // cannot interrupt an asynchronous secure-config write.

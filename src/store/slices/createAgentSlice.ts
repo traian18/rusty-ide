@@ -29,11 +29,13 @@ export const createAgentSlice: WorkspaceSliceCreator = (set) => ({
     return { agentChats: { ...state.agentChats, [tabId]: [...existing, message] } };
   }),
 
-  updateAgentMessage: (tabId, messageId, content) => set((state) => ({
+  updateAgentMessage: (tabId, messageId, content, activityEntries) => set((state) => ({
     agentChats: {
       ...state.agentChats,
       [tabId]: (state.agentChats[tabId] || []).map((message) =>
-        message.id === messageId ? { ...message, content } : message,
+        message.id === messageId
+          ? { ...message, content, ...(activityEntries === undefined ? {} : { activityEntries }) }
+          : message,
       ),
     },
   })),

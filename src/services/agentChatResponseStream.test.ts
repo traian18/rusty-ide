@@ -26,12 +26,30 @@ describe("Agent conversation streaming", () => {
     stream.finish("The frontend is React; the runtime is Rust.");
     expect(messages.map((m) => m.content)).toEqual([
       "I'll inspect both projects.", "Now checking the runtime.",
-      "Found the bridge.\n\nNext: Check the lifecycle.",
       "I'll now provide the overview.", "The frontend is React; the runtime is Rust.",
     ]);
+    expect(messages.every((message) => message.phase === "response")).toBe(true);
     expect(new Set(messages.map((m) => m.id)).size).toBe(messages.length);
     // The store snapshot persisted to disk contains the same conversation.
     expect(JSON.parse(JSON.stringify(messages))).toEqual(messages);
+  });
+
+  it("routes progress updates through the activity callback", () => {
+    const { messages } = setup();
+    const activity: string[] = [];
+    const streamWithActivity = new AgentChatResponseStream(
+      (message) => messages.push(message),
+      (id, content) => { messages.find((message) => message.id === id)!.content = content; },
+      (content) => activity.push(content),
+    );
+
+    streamWithActivity.append("Final answer.");
+    streamWithActivity.progress("Called a tool.");
+
+    expect(activity).toEqual(["Called a tool."]);
+    expect(messages.map((message) => ({ content: message.content, phase: message.phase }))).toEqual([
+      { content: "Final answer.", phase: "response" },
+    ]);
   });
 
   it("flushes partial output on failure or cancellation without replacing previous updates", () => {

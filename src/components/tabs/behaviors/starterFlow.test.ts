@@ -112,8 +112,7 @@ describe("the starter flow documents", () => {
       expect(String((profile.instructions as JsonObject).text).length).toBeGreaterThan(80);
       expect(Array.isArray(profile.rules)).toBe(true);
       expect(profile.completion_gate).toBeTruthy();
-      // Every profile bounds its loop and says what to do on the last turn.
-      expect(profile.limits).toEqual({ max_turns: expect.any(Number), final_turn_prompt: expect.stringContaining("No tool budget remains") });
+      expect(profile.limits).toBeUndefined();
     }
     expect(STARTER_WORKFLOW.policies).toEqual({ max_total_attempts: 40 });
     for (const node of nodes) expect(node.timeout_ms).toBeUndefined();

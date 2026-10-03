@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "build",
-  "revision": 7,
+  "revision": 8,
   "name": "Build",
   "description": "Implements a plan in the workspace: reads before editing, makes targeted edits, and runs the project's checks after its last edit before reporting.",
   "status": "published",
@@ -39,10 +39,6 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 60,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [],
   "completion_gate": {
     "checks": [

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "debug",
-  "revision": 4,
+  "revision": 5,
   "name": "Debug",
   "description": "Reproduces failures, gathers evidence, and identifies root causes before proposing a fix.",
   "status": "published",
@@ -33,10 +33,6 @@
     }
   },
   "execution": {},
-  "limits": {
-    "max_turns": 40,
-    "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-  },
   "rules": [
     {
       "id": "debug-read-only",

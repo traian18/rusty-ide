@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Bot, CheckCircle2, ChevronRight, Circle, Loader2, Terminal } from "lucide-react";
-import type { SubagentActivity } from "./Chat";
+import type { ActivityEntry, SubagentActivity } from "./Chat";
 import styles from "./SubagentActivityPanel.module.css";
 
 interface SubagentActivityPanelProps {
@@ -9,8 +9,10 @@ interface SubagentActivityPanelProps {
 
 interface AgentActivityCardProps {
   content: string;
+  activityEntries?: ActivityEntry[];
   isStreaming?: boolean;
   subagents?: SubagentActivity[];
+  isFinalized?: boolean;  // NEW: when activity phase is complete
 }
 
 const isSubagentActive = (status: SubagentActivity["status"]) =>
@@ -54,18 +56,18 @@ export const SubagentActivityPanel: React.FC<SubagentActivityPanelProps> = ({ su
   const renderSubagentLogs = (subagent: SubagentActivity) => {
     const logs = subagent.logs || [];
     if (logs.length === 0 && !subagent.outputFile) return null;
-    const visibleLogs = logs.slice(-12);
 
     return (
       <div className="mt-2 rounded bg-[var(--color-log-background)] border border-[var(--color-border-subtle)] overflow-hidden">
         <div className="px-2 py-1 border-b border-[var(--border-color)]/20 text-[length:var(--font-size-chat-xs)] uppercase tracking-wider text-[var(--text-muted)] flex items-center justify-between">
           <span>{subagent.isAggregation ? "Aggregation activity" : "Live tool activity"}</span>
-          {logs.length > visibleLogs.length && (
-            <span className="normal-case tracking-normal">last {visibleLogs.length} of {logs.length}</span>
-          )}
         </div>
-        <div className="px-2 py-1.5 max-h-56 overflow-y-auto font-mono text-[length:var(--font-size-chat-xs)] leading-relaxed text-[var(--color-log-foreground)]">
-          {visibleLogs.map((log, idx) => (
+        <div
+          className="px-2 py-1.5 max-h-64 overflow-y-auto font-mono text-[length:var(--font-size-chat-xs)] leading-relaxed text-[var(--color-log-foreground)]"
+          aria-label={`${subagent.displayName || subagent.description} activity log`}
+          tabIndex={0}
+        >
+          {logs.map((log, idx) => (
             <div key={`${subagent.id}_log_${idx}`} className="whitespace-pre-wrap break-words">
               {log}
             </div>
@@ -186,12 +188,37 @@ export const SubagentActivityPanel: React.FC<SubagentActivityPanelProps> = ({ su
 
 export const AgentActivityCard: React.FC<AgentActivityCardProps> = ({
   content,
+  activityEntries,
   isStreaming = false,
   subagents = [],
+  isFinalized = false,  // NEW parameter
 }) => {
-  const [isCollapsed, setIsCollapsed] = useState(!isStreaming);
-  const consoleLines = useMemo(() => content.split("\n").filter((line) => line.trim()), [content]);
-  const visibleConsoleLines = consoleLines.slice(-12);
+  const [isCollapsed, setIsCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (isStreaming) setIsCollapsed(false);
+  }, [isStreaming]);
+
+  const legacyEntries = useMemo<ActivityEntry[]>(
+    () => content.split("\n").filter((line) => line.trim()).map((line) => ({ content: line, kind: "tool" })),
+    [content],
+  );
+  const activityEntriesToRender = activityEntries?.length ? activityEntries : legacyEntries;
+  const activityListRef = useRef<HTMLDivElement>(null);
+  const followsLatestRef = useRef(true);
+
+  const handleActivityScroll = () => {
+    const list = activityListRef.current;
+    if (!list) return;
+    followsLatestRef.current = list.scrollHeight - list.scrollTop - list.clientHeight <= 4;
+  };
+
+  useEffect(() => {
+    const list = activityListRef.current;
+    if (list && followsLatestRef.current) list.scrollTop = list.scrollHeight;
+  }, [activityEntriesToRender]);
+
+  const hasActivity = activityEntriesToRender.length > 0 || subagents.length > 0;
 
   return (
     <div className={`chat-typography-scope ${styles.scope} mb-4 bg-[var(--color-log-surface)] border border-[var(--color-border-default)] rounded-lg overflow-hidden shadow-sm`}>
@@ -206,23 +233,31 @@ export const AgentActivityCard: React.FC<AgentActivityCardProps> = ({
           />
           <Terminal size={12} className="text-[var(--accent-color)]" />
           <span className="uppercase tracking-wider font-semibold">
-            {isStreaming ? "Agent activity..." : "Agent activity"}
+            {isStreaming ? "Agent activity..." : isFinalized ? "Agent Activity (Completed)" : "Agent activity"}
           </span>
-          {consoleLines.length > visibleConsoleLines.length && (
-            <span className="text-[length:var(--font-size-chat-xs)] normal-case tracking-normal text-[var(--text-muted)]">
-              last {visibleConsoleLines.length} of {consoleLines.length}
-            </span>
-          )}
         </div>
         {isStreaming && <Loader2 size={11} className="animate-spin text-[var(--accent-color)]" />}
       </button>
 
-      {!isCollapsed && (
+      {!isCollapsed && hasActivity && (
         <div className="bg-[var(--color-log-background)] border-t border-[var(--color-border-subtle)]">
-          <div className="px-4 py-3 max-h-64 overflow-y-auto font-mono text-[length:var(--font-size-chat-sm)] leading-relaxed text-[var(--color-log-foreground)]">
-            <pre className="whitespace-pre-wrap font-mono">
-              {visibleConsoleLines.join("\n") || "// Initializing agent workflow..."}
-            </pre>
+          <div
+            ref={activityListRef}
+            className="px-4 py-3 max-h-64 overflow-y-auto font-mono text-[length:var(--font-size-chat-sm)] leading-relaxed"
+            aria-label="Agent activity messages"
+            tabIndex={0}
+            data-testid="agent-activity-list"
+            onScroll={handleActivityScroll}
+          >
+            {activityEntriesToRender.map((entry, index) => (
+              <div
+                key={`${entry.kind}-${index}-${entry.content}`}
+                className={`whitespace-pre-wrap break-words ${entry.kind === "tool" ? styles.toolActivity : styles.updateActivity}`}
+                data-activity-kind={entry.kind}
+              >
+                {entry.content}
+              </div>
+            ))}
           </div>
           {subagents.length > 0 && <SubagentActivityPanel subagents={subagents} />}
         </div>

@@ -9,13 +9,18 @@ export class AgentChatResponseStream {
   constructor(
     private readonly add: (message: AgentMessage) => void,
     private readonly update: (id: string, content: string) => void,
+    private readonly addActivity?: (content: string) => void,
   ) {}
 
   append(content: string, sourceId?: string) {
     if (!this.current || this.current.sourceId !== sourceId) {
       this.flush();
       const message: AgentMessage = {
-        id: `assistant_${crypto.randomUUID()}`, role: "assistant", content: "", timestamp: new Date().toISOString(),
+        id: `assistant_${crypto.randomUUID()}`,
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        phase: "response",
       };
       this.current = { sourceId, message };
       message.content = appendBoundedText("", content, 500_000);
@@ -29,17 +34,25 @@ export class AgentChatResponseStream {
   progress(content: string) {
     this.flush();
     this.current = undefined;
-    this.add({ id: `progress_${crypto.randomUUID()}`, role: "assistant", content, timestamp: new Date().toISOString() });
+    this.addActivity?.(content);
   }
 
   flush() {
     if (this.current) this.update(this.current.message.id, this.current.message.content);
   }
 
+  startSegment() {
+    this.flush();
+    this.current = undefined;
+  }
+
   finish(response?: string) {
     this.flush();
     // The result normally repeats the last model message. Never replace earlier
     // progress, nor duplicate the final answer. A distinct result gets its own row.
-    if (response && response !== this.lastAssistantText) this.progress(response);
+    if (response && response !== this.lastAssistantText) {
+      this.add({ id: `response_${crypto.randomUUID()}`, role: "assistant", content: response, timestamp: new Date().toISOString(), phase: "response" });
+      this.lastAssistantText = response;
+    }
   }
 }

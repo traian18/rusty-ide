@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
-import { useWorkspaceStore, CustomProvider } from "../../store";
-import { Cpu, Key, Globe, Plus, ShieldCheck, Save, Layers, Lock, Unlock, HelpCircle as HelpIcon, RefreshCw, GitBranch, Copy, ExternalLink } from "lucide-react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useWorkspaceStore, CustomProvider, ProviderModel } from "../../store";
+import { Cpu, Key, Globe, Plus, ShieldCheck, Save, Layers, Lock, Unlock, HelpCircle as HelpIcon, RefreshCw, Copy, ExternalLink, Tag, Hash, Settings, Package, XCircle, PlusCircle, AlertTriangle } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { CustomSelect } from "../CustomSelect";
 import { notify } from "../../notificationStore";
@@ -15,18 +15,22 @@ import { providerStatusOrUnknown } from "../../integrations/registryTypes";
 import { cancelManagedLogin, logoutManaged, startManagedLogin } from "../shell/providerCoordinator";
 import { ProviderList, selectFirstSupportedModel } from "./llmSetup/ProviderList";
 import { providerHelpText } from "./llmSetup/providerHelp";
+import { validateProviderConfig, ProviderConfigValidationResult } from "../../integrations/providerConnectionValidation";
+import { ProviderHeader } from "../../store/types";
 
-const API_PROTOCOL_OPTIONS = [
-  { id: "openai-completions", name: "OpenAI Chat Completions" },
-  { id: "openai-responses", name: "OpenAI Responses" },
-  { id: "anthropic-messages", name: "Anthropic Messages" },
-  { id: "google-generative-ai", name: "Google Generative AI" },
-];
+
 
 const AUTH_TYPE_OPTIONS = [
   { id: "none", name: "None / Local" },
   { id: "bearer", name: "Bearer token" },
   { id: "anthropic", name: "Anthropic x-api-key" },
+];
+
+const API_PROTOCOL_OPTIONS = [
+  { id: "openai-completions", name: "OpenAI Chat Completions" },
+  { id: "openai-responses", name: "OpenAI Responses" },
+  { id: "anthropic-messages", name: "Anthropic Messages" },
+  // "google-generative-ai" is explicitly not supported for direct execution currently
 ];
 
 export const LlmSetupTab: React.FC = () => {
@@ -39,39 +43,12 @@ export const LlmSetupTab: React.FC = () => {
   const addCustomProvider = useWorkspaceStore((state) => state.addCustomProvider);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
 
-  const llmSetupTabUi = useWorkspaceStore((state) => state.llmSetupTabUi);
-  const setLlmSetupTabApiKey = useWorkspaceStore((state) => state.setLlmSetupTabApiKey);
-  const setLlmSetupTabBaseUrl = useWorkspaceStore((state) => state.setLlmSetupTabBaseUrl);
-  const setLlmSetupTabCatalogUrl = useWorkspaceStore((state) => state.setLlmSetupTabCatalogUrl);
-  const setLlmSetupTabApiType = useWorkspaceStore((state) => state.setLlmSetupTabApiType);
-  const setLlmSetupTabAuthType = useWorkspaceStore((state) => state.setLlmSetupTabAuthType);
-  const setLlmSetupTabShowKey = useWorkspaceStore((state) => state.setLlmSetupTabShowKey);
-  const setLlmSetupTabFetchingModels = useWorkspaceStore((state) => state.setLlmSetupTabFetchingModels);
-  const setLlmSetupTabTestingConnection = useWorkspaceStore((state) => state.setLlmSetupTabTestingConnection);
-  const setLlmSetupTabConnectionStatus = useWorkspaceStore((state) => state.setLlmSetupTabConnectionStatus);
-  const setLlmSetupTabSigningOut = useWorkspaceStore((state) => state.setLlmSetupTabSigningOut);
 
-  const apiKey = llmSetupTabUi.apiKey;
-  const baseUrl = llmSetupTabUi.baseUrl;
-  const catalogUrl = llmSetupTabUi.catalogUrl;
-  const apiType = llmSetupTabUi.apiType;
-  const authType = llmSetupTabUi.authType;
-  const showKey = llmSetupTabUi.showKey;
-  const fetchingModels = llmSetupTabUi.fetchingModels;
-  const testingConnection = llmSetupTabUi.testingConnection;
-  const connectionStatus = llmSetupTabUi.connectionStatus;
-  const signingOut = llmSetupTabUi.signingOut;
-
-  const setApiKey = setLlmSetupTabApiKey;
-  const setBaseUrl = setLlmSetupTabBaseUrl;
-  const setCatalogUrl = setLlmSetupTabCatalogUrl;
-  const setApiType = setLlmSetupTabApiType;
-  const setAuthType = setLlmSetupTabAuthType;
-  const setShowKey = setLlmSetupTabShowKey;
-  const setFetchingModels = setLlmSetupTabFetchingModels;
-  const setTestingConnection = setLlmSetupTabTestingConnection;
-  const setConnectionStatus = setLlmSetupTabConnectionStatus;
-  const setSigningOut = setLlmSetupTabSigningOut;
+  const [editedProvider, setEditedProvider] = useState<CustomProvider | null>(null);
+  const [showKey, setShowKey] = useState(false);
+  const [validationResult, setValidationResult] = useState<ProviderConfigValidationResult>({ valid: true, warnings: [] });
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
 
   const selectedProvider = customProviders.find((p) => p.id === activeCustomProviderId);
   const isCopilot = Boolean(selectedProvider && isCopilotProvider(selectedProvider));
@@ -81,18 +58,27 @@ export const LlmSetupTab: React.FC = () => {
   const managedVendor = isCodex ? "OpenAI" : "GitHub";
   const managedProduct = isCodex ? "Codex" : "Copilot";
 
-  const syncedProviderIdRef = useRef(activeCustomProviderId);
+
+
   useEffect(() => {
-    if (syncedProviderIdRef.current === activeCustomProviderId) return;
-    syncedProviderIdRef.current = activeCustomProviderId;
     if (selectedProvider) {
-      setApiKey(selectedProvider.apiKey || "");
-      setBaseUrl(selectedProvider.baseUrl || "");
-      setCatalogUrl(selectedProvider.catalogUrl || "");
-      setApiType(selectedProvider.apiType || "openai-completions");
-      setAuthType(selectedProvider.authType || "bearer");
+      setEditedProvider(selectedProvider);
+      setShowKey(false);
     }
-  }, [activeCustomProviderId, selectedProvider]);
+  }, [selectedProvider]);
+
+  useEffect(() => {
+    if (editedProvider) {
+      setValidationResult(validateProviderConfig({
+        baseUrl: editedProvider.baseUrl || "",
+        catalogUrl: editedProvider.catalogUrl || undefined,
+        authType: editedProvider.authType || "none",
+        apiKey: editedProvider.apiKey || undefined,
+        headers: editedProvider.headers,
+        // requiresApiKey is determined by the profile but handled within validateProviderConfig
+      }));
+    }
+  }, [editedProvider]);
 
   useEffect(() => {
     if (!activeModel && selectedProvider && selectedProvider.models.length > 0) {
@@ -101,60 +87,86 @@ export const LlmSetupTab: React.FC = () => {
     }
   }, [activeModel, selectedProvider, setActiveModel]);
 
-  const providerWithDraftSettings = (): CustomProvider | null => selectedProvider
-    ? isManagedAuthProvider
-      ? selectedProvider
-      : {
-          ...selectedProvider,
-          apiKey: authType === "none" ? "" : apiKey.trim(),
-          baseUrl: baseUrl.trim(),
-          catalogUrl: catalogUrl.trim() || undefined,
-          apiType,
-          authType,
-        }
-    : null;
+  const addHeader = useCallback(() => {
+    setEditedProvider(prev => {
+      if (!prev) return null;
+      const newHeaders = [...(prev.headers || []), { name: "", value: "", secret: false }];
+      return { ...prev, headers: newHeaders };
+    });
+  }, []);
+
+  const updateHeader = useCallback((index: number, field: keyof ProviderHeader, value: any) => {
+    setEditedProvider(prev => {
+      if (!prev || !prev.headers) return prev;
+      const newHeaders = [...prev.headers];
+      newHeaders[index] = { ...newHeaders[index], [field]: value };
+      return { ...prev, headers: newHeaders };
+    });
+  }, []);
+
+  const removeHeader = useCallback((index: number) => {
+    setEditedProvider(prev => {
+      if (!prev || !prev.headers) return prev;
+      const newHeaders = prev.headers.filter((_, i) => i !== index);
+      return { ...prev, headers: newHeaders };
+    });
+  }, []);
+
+  const getAuthPlaceholder = (authType?: string) => {
+    switch (authType) {
+      case "none": return "This provider does not require a key";
+      case "bearer": return "Enter your Bearer Token";
+      case "anthropic": return "Enter your x-api-key";
+      case "github": return "GitHub PAT with models:read scope (or use GITHUB_TOKEN)";
+      default: return "Enter your API Key / Auth Token";
+    }
+  };
+
+  const getPresetApiTypeOptions = useCallback(() => {
+    return API_PROTOCOL_OPTIONS;
+  }, []);
+
+
+  useEffect(() => {
+    if (!activeModel && selectedProvider && selectedProvider.models.length > 0) {
+      const firstSupportedModel = selectedProvider.models.find((model) => model.supported !== false);
+      if (firstSupportedModel) setActiveModel(providerModelVariants(firstSupportedModel)[0].id);
+    }
+  }, [activeModel, selectedProvider, setActiveModel]);
+
+
 
   const handleSaveSettings = () => {
-    if (!activeCustomProviderId || !selectedProvider) return;
-    updateProviderSettings(activeCustomProviderId, {
-      apiKey: authType === "none" ? "" : apiKey.trim(),
-      baseUrl: baseUrl.trim(),
-      catalogUrl: catalogUrl.trim() || undefined,
-      apiType,
-      authType,
-    });
-    notify("Saved", `Connection settings updated for ${selectedProvider.name}.`, "success");
+    if (!editedProvider || !validationResult.valid) return;
+    updateProviderSettings(editedProvider.id, editedProvider);
+    notify("Saved", `Connection settings updated for ${editedProvider.name}.`, "success");
   };
 
   const handleFetchModels = async () => {
-    const provider = providerWithDraftSettings();
-    if (!provider) return;
+    if (!editedProvider) return;
 
     setFetchingModels(true);
     try {
-      const discoveredModels = await controlPlane.discoverModels(provider);
+      const discoveredModels = await controlPlane.discoverModels(editedProvider);
       const models = discoveredModels.map((model) => {
-        const previous = selectedProvider?.models.find((candidate) => candidate.id === model.id)
-          || selectedProvider?.models.find((candidate) =>
+        const previous = editedProvider.models?.find((candidate) => candidate.id === model.id)
+          || editedProvider.models?.find((candidate) =>
             (candidate.remoteId || candidate.id) === (model.remoteId || model.id)
           );
         return { ...previous, ...model };
       });
       const supportedModels = models.filter((model) => model.supported !== false);
       const selectableModels = supportedModels.flatMap(providerModelVariants);
-      updateProviderSettings(provider.id, {
-        apiKey: provider.apiKey,
-        baseUrl: provider.baseUrl,
-        catalogUrl: provider.catalogUrl,
-        apiType: provider.apiType,
-        authType: provider.authType,
+      updateProviderSettings(editedProvider.id, {
+        ...editedProvider,
         models,
         modelsFetchedAt: new Date().toISOString(),
+        executionStatus: { ...editedProvider.executionStatus, catalog: { status: 'success', testedAt: new Date().toISOString() } },
       });
       if (selectableModels.length > 0 && !selectableModels.some((model) => model.id === activeModel)) {
         setActiveModel(selectableModels[0].id);
       }
-      setConnectionStatus({ ...connectionStatus, [provider.id]: "connected" });
+      // setConnectionStatus({ ...connectionStatus, [editedProvider.id]: "connected" }); // Removed
       const unsupportedCount = models.length - supportedModels.length;
       notify(
         "Models refreshed",
@@ -162,7 +174,11 @@ export const LlmSetupTab: React.FC = () => {
         supportedModels.length ? "success" : "info"
       );
     } catch (err: any) {
-      setConnectionStatus({ ...connectionStatus, [provider.id]: "failed" });
+      // setConnectionStatus({ ...connectionStatus, [editedProvider.id]: "failed" }); // Removed
+      updateProviderSettings(editedProvider.id, {
+        ...editedProvider,
+        executionStatus: { ...editedProvider.executionStatus, catalog: { status: 'failed', testedAt: new Date().toISOString(), message: err.message } },
+      });
       notify("Fetch failed", `Failed to fetch models: ${err.message}`, "error");
     } finally {
       setFetchingModels(false);
@@ -170,15 +186,22 @@ export const LlmSetupTab: React.FC = () => {
   };
 
   const handleTestConnection = async () => {
-    const provider = providerWithDraftSettings();
-    if (!provider) return;
+    if (!editedProvider) return;
     setTestingConnection(true);
     try {
-      const result = await controlPlane.testConnection(provider);
-      setConnectionStatus({ ...connectionStatus, [provider.id]: "connected" });
-      notify("Connection successful", `${provider.name} returned ${result.modelCount} models; ${result.supportedModelCount} are supported by Rusty.`, "success");
+      const result = await controlPlane.testConnection(editedProvider);
+      // setConnectionStatus({ ...connectionStatus, [editedProvider.id]: "connected" }); // Removed
+      updateProviderSettings(editedProvider.id, {
+        ...editedProvider,
+        executionStatus: { ...editedProvider.executionStatus, inference: { status: 'success', testedAt: new Date().toISOString() } },
+      });
+      notify("Connection successful", `${editedProvider.name} returned ${result.modelCount} models; ${result.supportedModelCount} are supported by Rusty.`, "success");
     } catch (err: any) {
-      setConnectionStatus({ ...connectionStatus, [provider.id]: "failed" });
+      // setConnectionStatus({ ...connectionStatus, [editedProvider.id]: "failed" }); // Removed
+      updateProviderSettings(editedProvider.id, {
+        ...editedProvider,
+        executionStatus: { ...editedProvider.executionStatus, inference: { status: 'failed', testedAt: new Date().toISOString(), message: err.message } },
+      });
       notify("Connection failed", err.message || "Could not connect to the provider.", "error");
     } finally {
       setTestingConnection(false);
@@ -196,14 +219,11 @@ export const LlmSetupTab: React.FC = () => {
 
   const handleManagedLogout = async () => {
     if (!selectedProvider) return;
-    setSigningOut(true);
     try {
       await logoutManaged(selectedProvider);
       notify("Signed out", `Disconnected the ${managedVendor} account from ${managedProduct}.`, "success");
     } catch (error: any) {
       notify("Sign-out failed", error?.message || `Could not sign out of ${managedProduct}.`, "error");
-    } finally {
-      setSigningOut(false);
     }
   };
 
@@ -259,67 +279,113 @@ export const LlmSetupTab: React.FC = () => {
   };
 
   const [showAddCustom, setShowAddCustom] = useState(false);
-  const [provId, setProvId] = useState("");
+  const [provPreset, setProvPreset] = useState<'openai' | 'openai-compatible' | 'ollama' | 'vllm' | 'openrouter' | 'opencode-zen'>('openai-compatible');
   const [provName, setProvName] = useState("");
-  const [provUrl, setProvUrl] = useState("http://localhost:11434/v1");
-  const [provCatalogUrl, setProvCatalogUrl] = useState("");
-  const [provModels, setProvModels] = useState("qwen2.5-coder:7b");
-  const [provApiType, setProvApiType] = useState("openai-completions");
-  const [provAuthType, setProvAuthType] = useState<"bearer" | "anthropic" | "none">("none");
+  const [provUrl, setProvUrl] = useState("");
+  const [provApiKey, setProvApiKey] = useState("");
+  const [provModel, setProvModel] = useState("");
+  const [provDiscoverAfterSave, setProvDiscoverAfterSave] = useState(false);
 
-  const handleAddNewProvider = (e: React.FormEvent) => {
+  const handleAddNewProvider = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!provId || !provName) return;
 
-    const providerId = provId.trim().toLowerCase();
-    if (!/^[a-z0-9][a-z0-9._-]*$/.test(providerId)) {
-      notify("Invalid provider ID", "Use lowercase letters, numbers, dots, underscores, or hyphens. Slashes are reserved for model references.", "error");
+    if (!provName.trim()) {
+      notify("Display name required", "Enter a display name for this service", "error");
       return;
     }
-    if (customProviders.some((provider) => provider.id === providerId)) {
-      notify("Provider already exists", `A provider with ID ${providerId} is already registered.`, "error");
-      return;
-    }
+
     if (!provUrl.trim()) {
-      notify("Base URL required", "Enter the provider's API base URL.", "error");
+      notify("Base URL required", "Enter the provider's API base URL", "error");
       return;
     }
-    const modelsList = provModels.split(",").map((m) => {
-      const modelName = m.trim();
-      return {
-        id: `${providerId}/${modelName}`,
-        remoteId: modelName,
-        name: modelName.split("/").pop() || modelName,
-        apiType: provApiType,
+
+    const { getPreset } = await import("../../integrations/providerConnectionProfiles");
+    const { validateProviderConfig } = await import("../../integrations/providerConnectionValidation");
+
+    const preset = getPreset(provPreset);
+
+    // Validate the configuration
+    const validation = validateProviderConfig({
+      baseUrl: provUrl.trim(),
+      authType: preset.authType,
+      apiKey: provApiKey,
+      requiresApiKey: preset.authType === 'bearer',
+    });
+
+    if (!validation.valid) {
+      const errors = [
+        validation.baseUrlError,
+        validation.catalogUrlError,
+        validation.authenticationError,
+      ].filter(Boolean).join("; ");
+      notify("Configuration invalid", errors, "error");
+      return;
+    }
+
+    // Show warning if applicable
+    validation.warnings.forEach(w => {
+      notify("Warning", w);
+    });
+
+    // Generate provider ID from name
+    let providerId = provName.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+    if (!providerId) providerId = `provider-${Date.now()}`;
+
+    // Ensure unique
+    let uniqueId = providerId;
+    let counter = 1;
+    while (customProviders.some((p) => p.id === uniqueId)) {
+      uniqueId = `${providerId}-${counter}`;
+      counter++;
+    }
+
+    // Build models array
+    const modelsList: ProviderModel[] = [];
+    if (provModel.trim()) {
+      modelsList.push({
+        id: `${uniqueId}/${provModel.trim()}`,
+        remoteId: provModel.trim(),
+        name: provModel.trim().split("/").pop() || provModel.trim(),
+        apiType: preset.apiType,
         baseUrl: provUrl.trim(),
         supported: true,
-      };
-    }).filter((model) => model.remoteId);
+      });
+    }
 
+    // Create the provider with profile metadata
     const newProvider: CustomProvider = {
-      id: providerId,
+      id: uniqueId,
       name: provName.trim(),
       baseUrl: provUrl.trim(),
-      apiKey: "",
-      apiType: provApiType,
-      authType: provAuthType,
-      catalogUrl: provCatalogUrl.trim() || undefined,
+      apiKey: provApiKey,
+      apiType: preset.apiType,
+      authType: preset.authType,
       models: modelsList,
+      profile: preset.profile,
+      // Enable tools by default for known presets; custom providers default to disabled
+      capabilities: { tools: ['openai', 'openai-compatible', 'ollama', 'vllm', 'openrouter', 'opencode-zen'].includes(provPreset) ? 'enabled' : 'disabled' },
     };
 
     addCustomProvider(newProvider);
     setActiveCustomProviderId(newProvider.id);
     if (modelsList.length > 0) setActiveModel(modelsList[0].id);
 
-    notify("Provider added", `LLM Provider ${provName} registered successfully!`, "success");
-    setProvId("");
+    notify("Saved", `Provider ${provName} saved successfully!`, "success");
+
+    // Reset form
+    setProvPreset("openai-compatible");
     setProvName("");
-    setProvUrl("http://localhost:11434/v1");
-    setProvCatalogUrl("");
-    setProvModels("qwen2.5-coder:7b");
-    setProvApiType("openai-completions");
-    setProvAuthType("none");
+    setProvUrl("");
+    setProvApiKey("");
+    setProvModel("");
+    setProvDiscoverAfterSave(false);
     setShowAddCustom(false);
+
+    // Optionally trigger discovery
+    if (provDiscoverAfterSave) {
+      // This will be implemented in later task for discovery
+      console.log("Discovery after save would be triggered here");
+    }
   };
 
   return (
@@ -339,7 +405,7 @@ export const LlmSetupTab: React.FC = () => {
           <ProviderList
             providers={customProviders}
             activeProviderId={activeCustomProviderId}
-            connectionStatuses={connectionStatus}
+            connectionStatuses={{}}
             providerStatus={providerStatus}
             onSelectProvider={(provider) => {
               setActiveCustomProviderId(provider.id);
@@ -356,7 +422,7 @@ export const LlmSetupTab: React.FC = () => {
               className="w-full border border-dashed border-[var(--border-color)] hover:border-[var(--accent-color)] hover:bg-[var(--accent-bg)]/5 text-xs text-[var(--text-muted)] hover:text-[var(--text-light)] font-mono font-semibold py-3 rounded-xl transition-all flex items-center justify-center space-x-1.5 cursor-pointer"
             >
               <Plus size={14} className="text-[var(--accent-color)]" />
-              <span>Register Custom LLM / Local Host</span>
+              <span>Connect an Inference Service</span>
             </button>
           ) : (
             <form
@@ -364,43 +430,115 @@ export const LlmSetupTab: React.FC = () => {
               className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] rounded-xl p-4 space-y-3 font-sans"
             >
               <div className="flex items-center justify-between border-b border-[var(--border-color)]/30 pb-2">
-                <span className="text-xs font-bold text-[var(--text-light)] font-mono">New Custom Provider</span>
+                <span className="text-xs font-bold text-[var(--text-light)] font-mono">Connect Service</span>
                 <button id="llm-cancel-custom-provider-button" type="button" onClick={() => setShowAddCustom(false)} className="text-[var(--color-status-danger)] hover:text-[var(--color-status-danger)] text-[10px] font-mono cursor-pointer">Cancel</button>
               </div>
 
               <div className="space-y-2 text-xs">
                 <div className="space-y-1">
-                  <label htmlFor="llm-custom-provider-id" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">Provider ID</label>
-                  <input id="llm-custom-provider-id" type="text" placeholder="e.g. ollama, custom-api" value={provId} onChange={(e) => setProvId(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]" required />
+                  <label htmlFor="llm-service-preset" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">
+                    Service Type
+                  </label>
+                  <CustomSelect
+                    id="llm-service-preset"
+                    options={[
+                      { id: "openai-compatible", name: "OpenAI-Compatible API" },
+                      { id: "ollama", name: "Ollama" },
+                      { id: "vllm", name: "vLLM" },
+                      { id: "openrouter", name: "OpenRouter" },
+                      { id: "opencode-zen", name: "OpenCode Zen" },
+                      { id: "openai", name: "OpenAI" },
+                    ]}
+                    value={provPreset}
+                    onChange={(value) => {
+                      setProvPreset(value as any);
+                      // Update defaults based on preset
+                      const { getPreset } = require("../../integrations/providerConnectionProfiles");
+                      const preset = getPreset(value);
+                      setProvUrl(preset.defaultBaseUrl);
+                      setProvName(preset.defaultDisplayName);
+                    }}
+                  />
                 </div>
+
                 <div className="space-y-1">
-                  <label htmlFor="llm-custom-provider-name" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">Display Name</label>
-                  <input id="llm-custom-provider-name" type="text" placeholder="e.g. Local Ollama Runner" value={provName} onChange={(e) => setProvName(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]" required />
+                  <label htmlFor="llm-custom-provider-name" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">
+                    Display Name
+                  </label>
+                  <input
+                    id="llm-custom-provider-name"
+                    type="text"
+                    placeholder="e.g. My Ollama Server"
+                    value={provName}
+                    onChange={(e) => setProvName(e.target.value)}
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]"
+                    required
+                  />
                 </div>
+
                 <div className="space-y-1">
-                  <label htmlFor="llm-custom-provider-url" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">Base API URL</label>
-                  <input id="llm-custom-provider-url" type="text" placeholder="e.g. http://localhost:11434/v1" value={provUrl} onChange={(e) => setProvUrl(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]" required />
+                  <label htmlFor="llm-custom-provider-url" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">
+                    Base API URL
+                  </label>
+                  <input
+                    id="llm-custom-provider-url"
+                    type="text"
+                    placeholder="e.g. http://localhost:11434/v1"
+                    value={provUrl}
+                    onChange={(e) => setProvUrl(e.target.value)}
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]"
+                    required
+                  />
                 </div>
+
                 <div className="space-y-1">
-                  <label htmlFor="llm-custom-catalog-url" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">Catalog URL (Optional)</label>
-                  <input id="llm-custom-catalog-url" type="text" placeholder="Defaults to {base URL}/models" value={provCatalogUrl} onChange={(e) => setProvCatalogUrl(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]" />
+                  <label htmlFor="llm-api-key" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">
+                    API Key (Optional)
+                  </label>
+                  <input
+                    id="llm-api-key"
+                    type="password"
+                    placeholder="Leave blank if not required"
+                    value={provApiKey}
+                    onChange={(e) => setProvApiKey(e.target.value)}
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]"
+                  />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="space-y-1">
-                    <label className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">API Protocol</label>
-                    <CustomSelect value={provApiType} onChange={setProvApiType} options={API_PROTOCOL_OPTIONS} />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">Authentication</label>
-                    <CustomSelect value={provAuthType} onChange={(value) => setProvAuthType(value as "bearer" | "anthropic" | "none")} options={AUTH_TYPE_OPTIONS} />
-                  </div>
-                </div>
+
                 <div className="space-y-1">
-                  <label htmlFor="llm-custom-models" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">Models (Comma-separated)</label>
-                  <input id="llm-custom-models" type="text" placeholder="qwen2.5-coder:7b, llama3.3:70b" value={provModels} onChange={(e) => setProvModels(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]" />
+                  <label htmlFor="llm-model-id" className="block text-[9px] uppercase font-bold text-[var(--text-muted)] font-mono">
+                    Model ID (Optional)
+                  </label>
+                  <input
+                    id="llm-model-id"
+                    type="text"
+                    placeholder="e.g. gpt-4, llama2, or leave empty to discover later"
+                    value={provModel}
+                    onChange={(e) => setProvModel(e.target.value)}
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-lg p-2 text-xs font-mono text-[var(--text-light)] focus:outline-none focus:border-[var(--border-active)]"
+                  />
                 </div>
-                <button id="llm-submit-custom-provider-button" type="submit" className="w-full bg-[var(--accent-color)] hover:bg-[var(--accent-color)]/85 text-[var(--color-primary-foreground)] font-mono font-bold py-2 rounded-lg text-xs transition-all shadow-md cursor-pointer flex items-center justify-center space-x-1.5">
-                  <Plus size={13} /><span>Register Provider</span>
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="llm-discover-after-save"
+                    type="checkbox"
+                    checked={provDiscoverAfterSave}
+                    onChange={(e) => setProvDiscoverAfterSave(e.target.checked)}
+                    className="w-4 h-4 rounded border-[var(--border-color)] cursor-pointer"
+                  />
+                  <label htmlFor="llm-discover-after-save" className="text-[9px] text-[var(--text-muted)] cursor-pointer">
+                    Discover available models after save
+                  </label>
+                </div>
+
+                <button
+                  id="llm-submit-custom-provider-button"
+                  type="submit"
+                  className="w-full bg-[var(--accent-color)] hover:bg-[var(--accent-color)]/85 text-[var(--color-primary-foreground)] font-mono font-bold py-2 rounded-lg text-xs transition-all shadow-md cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  <Plus size={13} />
+                  <span>Save Configuration</span>
                 </button>
               </div>
             </form>
@@ -438,7 +576,7 @@ export const LlmSetupTab: React.FC = () => {
                       </div>
                       <div className="flex flex-shrink-0 items-center gap-2">
                         {managedStatus?.kind === "ready" && (
-                          <button id="llm-managed-sign-out-button" type="button" onClick={() => void handleManagedLogout()} disabled={signingOut} className="whitespace-nowrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 font-mono text-[10px] font-bold text-[var(--text-normal)] transition-colors hover:border-[var(--color-status-danger)] hover:text-[var(--color-status-danger)] disabled:cursor-not-allowed disabled:opacity-50">{signingOut ? "Signing out…" : "Sign Out"}</button>
+                          <button id="llm-managed-sign-out-button" type="button" onClick={() => void handleManagedLogout()} className="whitespace-nowrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 font-mono text-[10px] font-bold text-[var(--text-normal)] transition-colors hover:border-[var(--color-status-danger)] hover:text-[var(--color-status-danger)] disabled:cursor-not-allowed disabled:opacity-50">Sign Out</button>
                         )}
                         {managedStatus?.kind === "loading" && (
                           <button id="llm-cancel-managed-login-button" type="button" onClick={() => void handleCancelManagedLogin()} disabled={cancellingLogin} className="whitespace-nowrap rounded-lg border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 font-mono text-[10px] font-bold text-[var(--text-muted)] transition-colors hover:border-[var(--color-status-danger)] hover:text-[var(--color-status-danger)] disabled:cursor-not-allowed disabled:opacity-50">{cancellingLogin ? "Cancelling…" : "Cancel"}</button>
@@ -475,34 +613,212 @@ export const LlmSetupTab: React.FC = () => {
                     </div>
                   </div>
                 ) : (
+
                   <>
+                    {/* Basic Settings - Always Visible */}
+                    <div className="space-y-2">
+                      <label htmlFor="llm-provider-name" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                        <Tag size={13} className="text-[var(--color-secondary)]" />
+                        <span>Display Name</span>
+                      </label>
+                      <input
+                        id="llm-provider-name"
+                        type="text"
+                        placeholder="My Custom LLM"
+                        value={editedProvider?.name || ""}
+                        onChange={(e) => setEditedProvider(prev => prev ? { ...prev, name: e.target.value } : prev)}
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label htmlFor="llm-provider-base-url" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                        <Globe size={13} className="text-[var(--color-secondary)]" />
+                        <span>Connection Base URL</span>
+                      </label>
+                      <input
+                        id="llm-provider-base-url"
+                        type="text"
+                        placeholder="e.g. https://api.openai.com/v1"
+                        value={editedProvider?.baseUrl || ""}
+                        onChange={(e) => setEditedProvider(prev => prev ? { ...prev, baseUrl: e.target.value } : prev)}
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner"
+                      />
+                      {validationResult.warnings.map((warning, idx) => (
+                        <span key={idx} className="text-[10px] text-[var(--color-status-warning)] leading-relaxed italic block mt-1 font-mono flex items-center space-x-1">
+                          <AlertTriangle size={10} className="flex-shrink-0" /><span>{warning}</span>
+                        </span>
+                      ))}
+                    </div>
+
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <label htmlFor="llm-provider-api-key" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5"><Key size={13} className="text-[var(--color-secondary)]" /><span>API Authorization Key</span></label>
-                        {authType !== "none" && (
-                          <button id="llm-toggle-api-key-visibility-button" type="button" onClick={() => setShowKey(!showKey)} className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-light)] transition-colors cursor-pointer flex items-center space-x-1 font-mono">
+                        <label htmlFor="llm-provider-api-key" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                          <Key size={13} className="text-[var(--color-secondary)]" />
+                          <span>API Authorization Key</span>
+                        </label>
+                        {editedProvider?.authType !== "none" && (
+                          <button
+                            id="llm-toggle-api-key-visibility-button"
+                            type="button"
+                            onClick={() => setShowKey(!showKey)}
+                            className="text-[10px] text-[var(--text-muted)] hover:text-[var(--text-light)] transition-colors cursor-pointer flex items-center space-x-1 font-mono"
+                          >
                             {showKey ? <><Lock size={10} /><span>Hide</span></> : <><Unlock size={10} /><span>Show</span></>}
                           </button>
                         )}
                       </div>
-                      <input id="llm-provider-api-key" type={showKey ? "text" : "password"} placeholder={selectedProvider.id === "openai" || selectedProvider.id === "anthropic" ? "Enter key (falls back to process.env if left empty)" : selectedProvider.id === "github-models" ? "GitHub PAT with models:read scope (or use GITHUB_TOKEN)" : authType === "none" ? "This provider does not require a key" : "Enter your API Key / Auth Token"} value={apiKey} onChange={(e) => setApiKey(e.target.value)} disabled={authType === "none"} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner disabled:opacity-50 disabled:cursor-not-allowed" />
-                      {(selectedProvider.id === "openai" || selectedProvider.id === "anthropic") && !apiKey && <span className="text-[10px] text-[var(--text-muted)] leading-relaxed italic block mt-1 font-mono">ℹ Environment Variable configuration will be active for this provider since no custom key is provided.</span>}
-                      {selectedProvider.id === "github-models" && !apiKey && <span className="text-[10px] text-[var(--color-status-warning)] leading-relaxed italic block mt-1 font-mono flex items-center space-x-1"><GitBranch size={10} className="flex-shrink-0" /><span>Enter a PAT with <strong>models:read</strong>, or provide GITHUB_TOKEN to the sidecar environment.</span></span>}
+                      <input
+                        id="llm-provider-api-key"
+                        type={showKey ? "text" : "password"}
+                        placeholder={getAuthPlaceholder(editedProvider?.authType)}
+                        value={editedProvider?.apiKey || ""}
+                        onChange={(e) => setEditedProvider(prev => prev ? { ...prev, apiKey: e.target.value } : prev)}
+                        disabled={editedProvider?.authType === "none"}
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner disabled:opacity-50 disabled:cursor-not-allowed"
+                      />
+                      {editedProvider?.id === "openai" && !editedProvider?.apiKey && (
+                        <span className="text-[10px] text-[var(--text-muted)] leading-relaxed italic block mt-1 font-mono">ℹ Environment Variable configuration will be active for this provider since no custom key is provided.</span>
+                      )}
                     </div>
-                    <div className="space-y-2">
-                      <label htmlFor="llm-provider-base-url" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5"><Globe size={13} className="text-[var(--color-secondary)]" /><span>Connection Base URL</span></label>
-                      <input id="llm-provider-base-url" type="text" placeholder="e.g. https://api.openai.com/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner" />
-                      {selectedProvider.id === "github-models" && <span className="text-[10px] text-[var(--text-muted)] leading-relaxed italic block mt-1 font-mono">GitHub Models inference endpoint. You can change this if using a custom proxy or organizational endpoint.</span>}
-                    </div>
-                    <div className="space-y-2">
-                      <label htmlFor="llm-provider-catalog-url" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5"><Layers size={13} className="text-[var(--color-secondary)]" /><span>Model Catalog URL</span></label>
-                      <input id="llm-provider-catalog-url" type="text" placeholder="Defaults to the base URL plus /models" value={catalogUrl} onChange={(e) => setCatalogUrl(e.target.value)} className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner" />
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      <div className="space-y-2"><label className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide">Default API Protocol</label><CustomSelect value={apiType} onChange={setApiType} options={API_PROTOCOL_OPTIONS} /></div>
-                      <div className="space-y-2"><label className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide">Authentication</label><CustomSelect value={authType} onChange={(value) => setAuthType(value as NonNullable<CustomProvider["authType"]>)} options={AUTH_TYPE_OPTIONS} /></div>
-                    </div>
+
+                    {/* Advanced Settings */}
+                    <details className="rounded-xl border border-[var(--border-color)]/60 bg-[var(--bg-app)]/60 p-3 mt-4">
+                      <summary className="cursor-pointer font-mono text-[10px] font-bold text-[var(--text-normal)] uppercase tracking-wide flex items-center space-x-1.5">
+                        <Settings size={13} className="text-[var(--color-secondary)]" />
+                        <span>Advanced Settings</span>
+                      </summary>
+                      <div className="space-y-4 pt-4">
+                        <div className="space-y-2">
+                          <label htmlFor="llm-provider-id" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                            <Hash size={13} className="text-[var(--color-secondary)]" />
+                            <span>Provider ID</span>
+                          </label>
+                          <input
+                            id="llm-provider-id"
+                            type="text"
+                            placeholder="unique-provider-id"
+                            value={editedProvider?.id || ""}
+                            onChange={(e) => setEditedProvider(prev => prev ? { ...prev, id: e.target.value } : prev)}
+                            className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide">
+                                    Default API Protocol
+                                </label>
+                                <CustomSelect
+                                    value={editedProvider?.apiType || ""}
+                                    onChange={(value) => setEditedProvider(prev => prev ? { ...prev, apiType: value } : prev)}
+                                    options={getPresetApiTypeOptions()}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide">
+                                    Authentication
+                                </label>
+                                <CustomSelect
+                                    value={editedProvider?.authType || ""}
+                                    onChange={(value) => setEditedProvider(prev => prev ? { ...prev, authType: value as any } : prev)}
+                                    options={AUTH_TYPE_OPTIONS}
+                                />
+                            </div>
+                        </div>
+                        <div className="space-y-2">
+                          <label htmlFor="llm-provider-catalog-url" className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                            <Layers size={13} className="text-[var(--color-secondary)]" />
+                            <span>Model Catalog URL</span>
+                          </label>
+                          <input
+                            id="llm-provider-catalog-url"
+                            type="text"
+                            placeholder="Defaults to the base URL plus /models"
+                            value={editedProvider?.catalogUrl || ""}
+                            onChange={(e) => setEditedProvider(prev => prev ? { ...prev, catalogUrl: e.target.value } : prev)}
+                            className="w-full bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner"
+                          />
+                        </div>
+                        {/* Provider Headers */}
+                        <div className="space-y-2">
+                          <label className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                            <Package size={13} className="text-[var(--color-secondary)]" />
+                            <span>Custom Headers</span>
+                          </label>
+                          {editedProvider?.headers?.map((header, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                placeholder="Header-Name"
+                                value={header.name}
+                                onChange={(e) => updateHeader(idx, "name", e.target.value)}
+                                className="w-1/2 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner"
+                              />
+                              <input
+                                type={header.secret ? "password" : "text"}
+                                placeholder="Header-Value"
+                                value={header.value}
+                                onChange={(e) => updateHeader(idx, "value", e.target.value)}
+                                className="w-1/2 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-xl px-3.5 py-2.5 text-xs text-[var(--text-light)] font-mono focus:outline-none focus:border-[var(--border-active)] placeholder-[var(--text-muted)]/70 shadow-inner"
+                              />
+                              <input
+                                type="checkbox"
+                                checked={header.secret}
+                                onChange={(e) => updateHeader(idx, "secret", e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-[var(--accent-color)] focus:ring-[var(--accent-color)]"
+                                title="Mark as secret"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeHeader(idx)}
+                                className="text-[var(--color-status-danger)] hover:text-[var(--color-status-danger)]/80 transition-colors"
+                                title="Remove header"
+                              >
+                                <XCircle size={16} />
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addHeader}
+                            className="flex items-center gap-1.5 rounded-lg border border-[var(--border-color)] bg-[var(--bg-app)] px-3 py-2 font-mono text-[10px] font-bold text-[var(--text-normal)] hover:border-[var(--accent-color)] hover:text-[var(--text-light)]"
+                          >
+                            <PlusCircle size={13} />
+                            <span>Add Custom Header</span>
+                          </button>
+                        </div>
+
+                        {/* Capabilities */}
+                        <div className="space-y-2">
+                          <label className="block text-xs font-bold text-[var(--text-normal)] uppercase font-mono tracking-wide flex items-center space-x-1.5">
+                            <Cpu size={13} className="text-[var(--color-secondary)]" />
+                            <span>Capabilities</span>
+                          </label>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id="llm-capability-tools"
+                              checked={editedProvider?.capabilities?.tools === "enabled"}
+                              onChange={(e) => setEditedProvider(prev => prev ? {
+                                ...prev,
+                                capabilities: { ...prev.capabilities, tools: e.target.checked ? "enabled" : "disabled" }
+                              } : prev)}
+                              className="h-4 w-4 rounded border-gray-300 text-[var(--accent-color)] focus:ring-[var(--accent-color)]"
+                            />
+                            <label htmlFor="llm-capability-tools" className="text-sm text-[var(--text-normal)]">
+                              Enable Tool Calling (requires OpenAI-compatible tools support)
+                            </label>
+                          </div>
+                          {editedProvider?.capabilities?.tools === "disabled" && (
+                            <span className="text-[10px] text-[var(--text-muted)] leading-relaxed italic block mt-1 font-mono">
+                              Tool calling is disabled by default for custom providers. Enable after confirming model supports OpenAI-compatible tools.
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </details>
                   </>
+
                 )}
 
                 <div className="space-y-2 pt-2">
@@ -525,9 +841,14 @@ export const LlmSetupTab: React.FC = () => {
                     <button id="llm-test-connection-button" type="button" onClick={handleTestConnection} disabled={fetchingModels || testingConnection || (isManagedAuthProvider && managedStatus?.kind !== "ready")} className="whitespace-nowrap border border-[var(--border-color)] hover:border-[var(--color-status-success-border)] bg-[var(--bg-app)] hover:bg-[var(--color-status-success-bg)] text-[var(--text-normal)] hover:text-[var(--text-light)] font-mono font-bold px-4 py-2.5 rounded-xl transition-all cursor-pointer flex items-center space-x-1.5 disabled:opacity-50">
                       <ShieldCheck size={13} className={testingConnection ? "animate-pulse text-[var(--color-status-success)]" : ""} /><span>{testingConnection ? "Testing..." : "Test"}</span>
                     </button>
-                    {!isManagedAuthProvider && <button id="llm-save-configuration-button" type="button" onClick={handleSaveSettings} className="whitespace-nowrap bg-[var(--accent-color)] hover:bg-[var(--accent-color)]/85 text-[var(--color-primary-foreground)] font-mono font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg hover:shadow-[var(--accent-color)]/20 cursor-pointer flex items-center space-x-1.5"><Save size={13} /><span>Save Configuration</span></button>}
+                    {!isManagedAuthProvider && <button id="llm-save-configuration-button" type="button" onClick={handleSaveSettings} disabled={!editedProvider || !validationResult.valid || fetchingModels || testingConnection} className="whitespace-nowrap bg-[var(--accent-color)] hover:bg-[var(--accent-color)]/85 text-[var(--color-primary-foreground)] font-mono font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg hover:shadow-[var(--accent-color)]/20 cursor-pointer flex items-center space-x-1.5"><Save size={13} /><span>Save Configuration</span></button>}
                   </div>
-                  <div className="flex items-center space-x-1.5 text-[10px] font-mono text-[var(--text-muted)] bg-[var(--bg-app)]/50 border border-[var(--border-color)]/40 rounded-lg px-2.5 py-1.5 w-fit"><ShieldCheck size={14} className="text-[var(--color-status-success)]" /><span>Active Model: {activeModel || "None selected"}</span></div>
+                  {editedProvider && (
+                    <div className="flex items-center space-x-1.5 text-[10px] font-mono text-[var(--text-muted)] bg-[var(--bg-app)]/50 border border-[var(--border-color)]/40 rounded-lg px-2.5 py-1.5 w-fit">
+                      <ShieldCheck size={14} className="text-[var(--color-status-success)]" />
+                      <span>Active Model: {activeModel || "None selected"}</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

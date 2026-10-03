@@ -27,6 +27,7 @@
 
 import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot } from "../../../store/types";
 import { normalizeApiType } from "./directExecution";
+import { PRESETS } from "../../../integrations/providerConnectionProfiles";
 
 interface CatalogProviderDefaults {
   baseUrl: string;
@@ -235,6 +236,12 @@ function extractOutputModalities(raw: any): string[] | undefined {
  * comment for what's intentionally not ported (pi-ai metadata
  * enrichment). */
 export async function discoverProviderModelsDirect(provider: CustomProvider): Promise<ProviderModel[]> {
+  // Check if this provider's preset supports model discovery
+  const preset = provider.profile ? PRESETS[provider.profile as keyof typeof PRESETS] : undefined;
+  if (preset && !preset.supportsModelDiscovery) {
+    throw new Error(`Catalog discovery is not supported for ${preset.label}. Manual model entry is available.`);
+  }
+
   const { url, headers } = catalogRequest(provider);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
@@ -313,6 +320,71 @@ export async function testProviderConnectionDirect(provider: CustomProvider): Pr
     modelCount: models.length,
     supportedModelCount: models.filter((model) => model.supported).length,
   };
+}
+
+/** Lightweight inference capability test: attempts to reach the provider's
+ * chat completions endpoint without requiring model discovery.
+ * For OpenAI-compatible services, this tests `/v1/chat/completions` reachability
+ * and authentication. Returns success status with optional error message. */
+export async function testProviderInferenceDirect(provider: CustomProvider): Promise<{ success: boolean; message?: string }> {
+  const defaults = PROVIDER_DEFAULTS[provider.id];
+  const baseUrl = provider.baseUrl?.trim() || defaults?.baseUrl || "";
+  const inferenceUrl = `${trimTrailingSlash(baseUrl)}/chat/completions`;
+  
+  const validatedUrl = validateHttpUrl(inferenceUrl);
+  const apiKey = resolveDirectApiKey(provider);
+  const authType = provider.authType || defaults?.authType || (apiKey ? "bearer" : "none");
+  
+  const headers: Record<string, string> = { "Accept": "application/json" };
+  
+  if (authType === "bearer" || authType === "environment") {
+    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+  } else if (authType === "anthropic") {
+    if (apiKey) headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = "2023-06-01";
+  }
+  
+  // Apply provider-specific headers
+  if (provider.headers && Array.isArray(provider.headers)) {
+    for (const header of provider.headers) {
+      if (header.name && !header.secret) {
+        headers[header.name] = header.value || "";
+      }
+    }
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  
+  try {
+    // Use OPTIONS or HEAD to test connectivity without sending a full request
+    const response = await fetch(validatedUrl, {
+      method: "HEAD",
+      headers,
+      signal: controller.signal,
+    });
+    
+    // Accept 2xx, 4xx (auth/config issues we can report), 405 (HEAD not allowed)
+    if (response.ok || response.status === 405 || response.status === 401 || response.status === 403) {
+      return { success: true };
+    }
+    
+    if (response.status === 404) {
+      return { success: false, message: "Inference endpoint not found at this URL" };
+    }
+    
+    return { success: false, message: `Provider returned status ${response.status}` };
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return { success: false, message: "Provider did not respond within 10 seconds" };
+    }
+    return {
+      success: false,
+      message: `Could not reach the provider: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 interface UnavailableProviderDetails {

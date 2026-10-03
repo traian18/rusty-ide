@@ -3,7 +3,7 @@
     {
       "schema_version": 1,
       "id": "research",
-      "revision": 4,
+      "revision": 5,
       "name": "Research",
       "description": "Investigates external sources and workspace context to produce sourced options and recommendations without editing files.",
       "status": "published",
@@ -29,10 +29,6 @@
       },
       "tool_overrides": {},
       "execution": {},
-      "limits": {
-        "max_turns": 40,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "research-read-only",
@@ -86,7 +82,7 @@
     {
       "schema_version": 1,
       "id": "analyze",
-      "revision": 4,
+      "revision": 5,
       "name": "Analyze",
       "description": "Explains how the current code works, where a change belongs, and what it may affect.",
       "status": "published",
@@ -110,10 +106,6 @@
       },
       "tool_overrides": {},
       "execution": {},
-      "limits": {
-        "max_turns": 40,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "analyze-read-only",
@@ -165,7 +157,7 @@
     {
       "schema_version": 1,
       "id": "plan",
-      "revision": 6,
+      "revision": 7,
       "name": "Plan",
       "description": "Read-only investigation. Explores the workspace and produces a concrete plan; it cannot edit files or run commands.",
       "status": "published",
@@ -195,10 +187,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 30,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "plan-read-only",
@@ -261,7 +249,7 @@
     {
       "schema_version": 1,
       "id": "build",
-      "revision": 7,
+      "revision": 8,
       "name": "Build",
       "description": "Implements a plan in the workspace: reads before editing, makes targeted edits, and runs the project's checks after its last edit before reporting.",
       "status": "published",
@@ -299,10 +287,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 60,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [],
       "completion_gate": {
         "checks": [
@@ -338,7 +322,7 @@
     {
       "schema_version": 1,
       "id": "verify",
-      "revision": 5,
+      "revision": 6,
       "name": "Verify",
       "description": "Independently checks completed work against the request, plan, and actual workspace.",
       "status": "published",
@@ -370,10 +354,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 30,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "verify-read-only",
@@ -426,7 +406,7 @@
     {
       "schema_version": 1,
       "id": "review",
-      "revision": 4,
+      "revision": 5,
       "name": "Review",
       "description": "Finds correctness and maintainability issues and returns prioritized, actionable feedback.",
       "status": "published",
@@ -450,10 +430,6 @@
       },
       "tool_overrides": {},
       "execution": {},
-      "limits": {
-        "max_turns": 25,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "review-read-only",
@@ -505,7 +481,7 @@
     {
       "schema_version": 1,
       "id": "debug",
-      "revision": 4,
+      "revision": 5,
       "name": "Debug",
       "description": "Reproduces failures, gathers evidence, and identifies root causes before proposing a fix.",
       "status": "published",
@@ -537,10 +513,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 40,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "debug-read-only",
@@ -593,7 +565,7 @@
     {
       "schema_version": 1,
       "id": "architect",
-      "revision": 3,
+      "revision": 4,
       "name": "Architect",
       "description": "Designs system boundaries, contracts, and implementation trade-offs without editing the workspace.",
       "status": "published",
@@ -619,10 +591,6 @@
       },
       "tool_overrides": {},
       "execution": {},
-      "limits": {
-        "max_turns": 30,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "architect-read-only",
@@ -674,7 +642,7 @@
     {
       "schema_version": 1,
       "id": "security",
-      "revision": 3,
+      "revision": 4,
       "name": "Security",
       "description": "Audits code, dependencies, and configuration for security risks without modifying the workspace.",
       "status": "published",
@@ -700,10 +668,6 @@
       },
       "tool_overrides": {},
       "execution": {},
-      "limits": {
-        "max_turns": 40,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "security-read-only",
@@ -755,7 +719,7 @@
     {
       "schema_version": 1,
       "id": "document",
-      "revision": 3,
+      "revision": 4,
       "name": "Document",
       "description": "Updates documentation from current code and behavior while limiting writes to documentation files.",
       "status": "published",
@@ -786,10 +750,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 40,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [
         {
           "id": "document-only-writes",
@@ -840,7 +800,7 @@
     {
       "schema_version": 1,
       "id": "refactor",
-      "revision": 4,
+      "revision": 5,
       "name": "Refactor",
       "description": "Makes behavior-preserving source improvements and requires a project check after the last edit.",
       "status": "published",
@@ -875,10 +835,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 60,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [],
       "completion_gate": {
         "checks": [
@@ -914,7 +870,7 @@
     {
       "schema_version": 1,
       "id": "optimize",
-      "revision": 4,
+      "revision": 5,
       "name": "Optimize",
       "description": "Improves measurable performance with baseline and post-change evidence.",
       "status": "published",
@@ -949,10 +905,6 @@
         }
       },
       "execution": {},
-      "limits": {
-        "max_turns": 60,
-        "final_turn_prompt": "No tool budget remains. Reply in the required response format, explicitly marking unfinished work incomplete or checkpoint (or a fail verdict). Include completed work, evidence and precise remaining work. Never manufacture a passing result."
-      },
       "rules": [],
       "completion_gate": {
         "checks": [
