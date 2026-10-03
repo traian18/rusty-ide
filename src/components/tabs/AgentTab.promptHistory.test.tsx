@@ -105,6 +105,33 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
     expect(rows()).toEqual(["fix the build", "add tests"]);
   });
 
+  it("loads new-workspace history without reopening the prior active chat", async () => {
+    files["/old/.rusty/chats/old.json"] = savedChat("2026-09-28T10:00:00Z", "old workspace prompt");
+    files["/new/.rusty/chats/new.json"] = savedChat("2026-09-30T10:00:00Z", "new workspace prompt");
+    await open([{ role: "user", content: "old active message" }]);
+
+    await act(async () => {
+      useWorkspaceStore.setState({ rootPath: "/old" });
+    });
+    await flush();
+    const oldChat = [...container.querySelectorAll(".cursor-pointer")].find((element) => element.textContent?.includes("old workspace prompt")) as HTMLElement;
+    await act(async () => oldChat.click());
+
+    const loadWorkspaceData = vi.fn().mockResolvedValue(undefined);
+    const saveSecureConfig = vi.fn().mockResolvedValue(undefined);
+    useWorkspaceStore.setState({ loadWorkspaceData, saveSecureConfig } as never);
+    await act(async () => {
+      useWorkspaceStore.getState().setRootPath("/new");
+    });
+    await flush();
+    await flush();
+
+    expect(container.textContent).toContain("new workspace prompt");
+    expect(container.textContent).not.toContain("old active message");
+    expect(container.textContent).not.toContain("old workspace prompt");
+    expect(useWorkspaceStore.getState().agentChats.agent).toEqual([]);
+  });
+
   it("opens nothing when there is no earlier prompt anywhere", async () => {
     await open();
     await pressUp();

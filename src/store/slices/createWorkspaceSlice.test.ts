@@ -46,6 +46,26 @@ describe("createWorkspaceSlice: setRootPath calls loadWorkspaceData", () => {
     expect(loadWorkspaceData).toHaveBeenCalledTimes(1);
   });
 
+  it("resets the replacement Agent tab's in-memory conversation", () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
+    const loadWorkspaceData = vi.fn().mockResolvedValue(undefined);
+    const saveSecureConfig = vi.fn().mockResolvedValue(undefined);
+    const store = createWorkspaceTestStore({
+      loadWorkspaceData,
+      saveSecureConfig,
+      agentChats: {
+        agent: [{ id: "old-message", role: "user", content: "old workspace message", timestamp: "2026-01-01" }],
+      },
+    } as any);
+
+    store.getState().setRootPath("/new/workspace");
+
+    const state = store.getState();
+    expect(state.agentChats).toEqual({ agent: [] });
+    expect(state.tabs).toContainEqual(expect.objectContaining({ id: "agent", type: "agent" }));
+    expect(state.activeTabId).toBe("agent");
+  });
+
   it("still resets tabs/canvases/nodes exactly as before", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
     const loadWorkspaceData = vi.fn().mockResolvedValue(undefined);

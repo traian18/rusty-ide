@@ -135,6 +135,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const promptHistory = useMemo(() => recentPrompts(userPrompts(agentChats), chatHistory), [agentChats, chatHistory]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [activeChatPath, setActiveChatPath] = useState<string | null>(null);
+  const chatHistoryLoadIdRef = useRef(0);
+  const previousRootPathRef = useRef(rootPath);
 
   const agentRunRef = useRef<RunHandle<"agent_chat"> | null>(null);
   // The saved workflow (.rusty/workflows) this chat follows instead of a
@@ -321,8 +323,45 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   }, [tab.id, isAgentBusy, setAgentTabBusy]);
 
   // ── Chat History ──────────────────────────────────────────────
+  useEffect(() => {
+    if (previousRootPathRef.current === rootPath) return;
+    previousRootPathRef.current = rootPath;
+    chatHistoryLoadIdRef.current += 1;
+
+    agentRunRef.current?.cancel();
+    agentRunRef.current = null;
+    void harness.releaseSession(tab.id);
+    commandPermissionService.clearSession(tab.id);
+    chatSaveQueueRef.current = new AgentChatSaveQueue();
+    setActiveChatPath(null);
+    setModifiedFiles([]);
+    setChatWorkflow(undefined, { persist: false });
+    setFlowSwitching(false, { persist: false });
+    setWorkflowCheckpoint(undefined);
+    setWorkflowDocument(undefined);
+    setWorkflowRunning(false);
+    setAutoWorkflow(undefined);
+    lastWorkflowRunRef.current = undefined;
+    setSubagents([]);
+    setRunUsage(null);
+    setStreamingLabel("Model is thinking…");
+    setAgentQuestions([]);
+    isStreamingRef.current = false;
+    setIsStreaming(false);
+    lastUserMessageIdRef.current = null;
+    lastConsoleMessageIdRef.current = null;
+    responseStreamRef.current = null;
+    for (const resolve of questionResolversRef.current.values()) resolve("");
+    questionResolversRef.current.clear();
+  }, [rootPath, tab.id]);
+
   const loadChatHistory = useCallback(async () => {
-    if (!rootPath) return;
+    const loadId = ++chatHistoryLoadIdRef.current;
+    if (!rootPath) {
+      setChatHistory([]);
+      setLoadingHistory(false);
+      return;
+    }
     setLoadingHistory(true);
     try {
       const chatsDir = `${rootPath}/.rusty/chats`;
@@ -353,11 +392,11 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       }
       // Sort newest first
       loaded.sort((a, b) => (b.savedAt || "").localeCompare(a.savedAt || ""));
-      setChatHistory(loaded);
+      if (chatHistoryLoadIdRef.current === loadId) setChatHistory(loaded);
     } catch (e) {
-      setChatHistory([]);
+      if (chatHistoryLoadIdRef.current === loadId) setChatHistory([]);
     } finally {
-      setLoadingHistory(false);
+      if (chatHistoryLoadIdRef.current === loadId) setLoadingHistory(false);
     }
   }, [rootPath]);
 

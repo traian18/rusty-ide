@@ -1,6 +1,6 @@
 import { createEmptyCanvasContext } from "../canvasHelpers";
 import { tabsAfterBranchChange, tabsAfterWorkspaceChange } from "../../tabs/transitions";
-import { pruneForClosedTab } from "../../tabs/policy";
+import { pruneForClosedTab, seedForNewTab } from "../../tabs/policy";
 import { disposeTab } from "../../tabs/effects";
 import { canonicalizeFilePath } from "../../tabs/identity";
 import type { WorkspaceSliceCreator } from "../sliceTypes";
@@ -27,6 +27,8 @@ export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
     }
 
     const opened = tabsAfterWorkspaceChange();
+    const agentTab = opened.tabs.find((tab) => tab.type === "agent");
+    const seeded = agentTab ? seedForNewTab(agentTab, get()) : {};
     set({
       rootPath: path,
       repositories: [],
@@ -45,6 +47,7 @@ export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
       selectedNodeId: null,
       nodeLogs: {},
       nodeStatus: {},
+      ...seeded,
     });
     void get().loadWorkspaceData();
     setTimeout(() => void get().saveSecureConfig(), 0);

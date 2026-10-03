@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FileText, MonitorCog, Palette, Sparkles, Bell, type LucideIcon } from "lucide-react";
+import { FileText, MonitorCog, Palette, Sparkles, type LucideIcon } from "lucide-react";
 import { AppearanceSettings } from "../settings/AppearanceSettings";
 import { TypographySettings } from "../settings/TypographySettings";
 import { EditorFileSafetySettings } from "../settings/EditorFileSafetySettings";
@@ -12,10 +12,9 @@ import { JevRiskReviewSettings } from "../settings/JevRiskReviewSettings";
 import { KeyboardShortcutsSettings } from "../settings/KeyboardShortcutsSettings";
 import { UpdateSettings } from "../settings/UpdateSettings";
 import { StorageSettings } from "../settings/StorageSettings";
-import { NotificationSettings } from "../settings/NotificationSettings";
 import styles from "./SettingsTab.module.css";
 
-type SettingsCategoryId = "appearance" | "editor" | "intelligence" | "notifications" | "system";
+type SettingsCategoryId = "appearance" | "editor" | "intelligence" | "system";
 
 interface SettingsCategory {
   id: SettingsCategoryId;
@@ -28,7 +27,6 @@ const settingsCategories: SettingsCategory[] = [
   { id: "appearance", label: "Appearance", description: "Personalize the application theme and typography.", icon: Palette },
   { id: "editor", label: "Editor", description: "Configure editor file safety behavior.", icon: FileText },
   { id: "intelligence", label: "Intelligence", description: "Configure model selection, web search, and smart content tools.", icon: Sparkles },
-  { id: "notifications", label: "Notifications", description: "Choose when Rusty can use native notifications.", icon: Bell },
   { id: "system", label: "System", description: "Check the installed version, install updates, and manage local cache.", icon: MonitorCog },
 ];
 
@@ -52,8 +50,6 @@ const CategorySettings: React.FC<{ categoryId: SettingsCategoryId }> = ({ catego
         <div className={styles.panel}><SmartSearchSettings /></div>
         <div className={styles.panel}><SmartWebExtractSettings /></div>
       </>;
-    case "notifications":
-      return <div className={styles.panel}><NotificationSettings /></div>;
     case "system":
       return <>
         <div className={styles.panel}><UpdateSettings /></div>
