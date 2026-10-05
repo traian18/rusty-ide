@@ -68,12 +68,24 @@ const VALIDATION_DELAY_MS = 250;
 
 const isDirty = (doc: Doc) => doc.saved !== stableStringify(doc.document);
 
+function mergeExternalDocuments(current: Doc[], incoming: Array<{ path: string; document: JsonObject; saved: string | null }>): Doc[] {
+  const byPath = new Map(incoming.map((doc) => [doc.path, doc]));
+  const merged = current.map((doc) => {
+    if (isDirty(doc)) return doc;
+    const fresh = byPath.get(doc.path);
+    return fresh ? { path: fresh.path, document: fresh.document, saved: fresh.saved } : doc;
+  });
+  const known = new Set(current.map((doc) => doc.path));
+  return [...merged, ...incoming.filter((doc) => !known.has(doc.path))];
+}
+
 export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true }) => {
   const inspector = useInspectorWidth();
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const runs = useWorkflowRunStore((state) => state.runs);
   const behaviorsRequest = useWorkflowRunStore((state) => state.behaviorsRequest);
+  const catalogVersion = useWorkflowRunStore((state) => state.catalogVersion);
   const [mode, setMode] = useState<Mode>("workflows");
   const [profiles, setProfiles] = useState<Doc[]>([]);
   const [workflows, setWorkflows] = useState<Doc[]>([]);
@@ -124,6 +136,22 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
   useEffect(() => {
     void load();
   }, [load]);
+
+  // External validated authoring saves bump the catalog without replacing
+  // unsaved canvas documents. New files are added and clean documents are
+  // refreshed; dirty documents remain authoritative in this editor.
+  const previousCatalogVersion = useRef(catalogVersion);
+  useEffect(() => {
+    if (previousCatalogVersion.current === catalogVersion) return;
+    previousCatalogVersion.current = catalogVersion;
+    if (!rootPath) return;
+    void Promise.all([behaviorService.loadProfiles(rootPath), behaviorService.loadWorkflows(rootPath)])
+      .then(([loadedProfiles, loadedWorkflows]) => {
+        setProfiles((current) => mergeExternalDocuments(current, loadedProfiles.documents));
+        setWorkflows((current) => mergeExternalDocuments(current, loadedWorkflows.documents));
+      })
+      .catch(() => undefined);
+  }, [catalogVersion, rootPath]);
 
   // "Edit workflow" from an Agent chat: show that workflow once loaded.
   useEffect(() => {

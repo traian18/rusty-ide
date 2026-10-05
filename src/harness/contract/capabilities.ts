@@ -67,6 +67,8 @@ export interface AgentChatInput {
   mcpServers: unknown[];
   customProvider: unknown;
   skill: unknown;
+  /** Trusted built-in identity resolved by the UI, never inferred from name or grants. */
+  skillId?: string;
   planOnly: boolean;
   vfsOnly: boolean;
   lspSettings: unknown;

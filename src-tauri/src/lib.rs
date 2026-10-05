@@ -1485,6 +1485,8 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             harness::commands::behavior_validate_workflow,
             #[cfg(feature = "core-harness")]
+            harness::workflow_author::save_workflow,
+            #[cfg(feature = "core-harness")]
             harness::commands::behavior_templates,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_start_workflow,

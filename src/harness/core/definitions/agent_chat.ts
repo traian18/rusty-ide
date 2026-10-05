@@ -85,10 +85,12 @@ import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { NOOP_TOOL_EXECUTION_OBSERVER } from "../../contract/observability";
 import { CHAT_RENDER_CHARS } from "../../../config/chatLimits";
 import { hasTokens } from "../usageAccumulator";
-import { mapMcpServerConfigs } from "../mcpServerMapping";
+import { BUILT_IN_SKILL_IDS } from "../../../config/skillDefinitions";
+import { useWorkflowRunStore } from "../../../components/tabs/behaviors/workflowRunStore";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import { mcpIntegrationsSection } from "../mcpPrompt";
+import { mapMcpServerConfigs } from "../mcpServerMapping";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { analyzeProject, formatProjectBrief } from "../projectInfo";
@@ -108,6 +110,7 @@ function asMcpServerConfigs(value: unknown): McpServerConfig[] {
 
 interface SkillLike {
   name?: unknown;
+  skillId?: unknown;
   enabledTools?: unknown;
   systemPrompt?: unknown;
 }
@@ -156,6 +159,23 @@ const WRITE_PLAN_TOOL: HostToolSpec = {
   },
 };
 
+const SAVE_WORKFLOW_TOOL: HostToolSpec = {
+  name: "save_workflow",
+  description: "Validate and transactionally save a complete workflow graph, optionally with new profiles. This never runs the workflow.",
+  input_schema: {
+    type: "object",
+    properties: {
+      workflow_id: { type: "string" }, intent: { type: "string", enum: ["create", "update"] }, workflow: { type: "object" }, expected_content_token: { type: "string" }, profiles: { type: "array", items: { type: "object" } },
+    }, required: ["intent", "workflow_id", "workflow"],
+  },
+};
+
+function workflowAuthorAuthorized(skillValue: unknown, mode: ChatMode, workflow?: unknown): boolean {
+  const skill = asSkill(skillValue);
+  return !mode.planOnly && !mode.vfsOnly && !workflow
+    && skill?.skillId === BUILT_IN_SKILL_IDS.WORKFLOW_AUTHOR;
+}
+
 const TOOL_SPECS: Record<string, HostToolSpec> = {
   read_file: READ_FILE_TOOL,
   edit_file: EDIT_FILE_TOOL,
@@ -168,6 +188,7 @@ const TOOL_SPECS: Record<string, HostToolSpec> = {
   run_check: RUN_CHECK_TOOL,
   install_dependencies: INSTALL_DEPENDENCIES_TOOL,
   run_command: GATED_RUN_COMMAND_TOOL,
+  save_workflow: SAVE_WORKFLOW_TOOL,
 };
 const SUPPORTED_TOOL_NAMES = Object.keys(TOOL_SPECS);
 
@@ -257,10 +278,13 @@ interface ChatMode {
 function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpec[] {
   const requested = skill?.enabledTools;
   const names = Array.isArray(requested) ? requested : SUPPORTED_TOOL_NAMES;
-  let structuralNames = SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name)));
+  let structuralNames = SUPPORTED_TOOL_NAMES
+    .filter((name) => name !== "save_workflow")
+    .filter((name) => names.includes(grantedToolName(name)));
   const runsCommands = (name: string) => name === "run_command" || name === "run_check" || name === "install_dependencies";
   if (mode.planOnly) structuralNames = structuralNames.filter((name) => name !== "write_file" && name !== "edit_file" && !runsCommands(name));
   if (mode.vfsOnly) structuralNames = structuralNames.filter((name) => !runsCommands(name));
+  if (workflowAuthorAuthorized(skill, mode)) structuralNames.push("save_workflow");
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
   return [...structural, ...planTool, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
@@ -525,6 +549,13 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (names.has("run_check")) handlers.run_check = runCheckTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, evidence });
     if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, evidence });
     if (names.has("run_command")) handlers.run_command = gatedRunCommandTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
+    if (names.has("save_workflow") && workflowAuthorAuthorized(input.skill, mode, input.workflow)) handlers.save_workflow = async (args) => {
+      try {
+        const result = await invoke("save_workflow", { request: { ...args as Record<string, unknown>, workspace_root: input.workspaceRoot } }) as { ready?: boolean; outcome?: string };
+        if (result.ready === true && result.outcome === "saved") useWorkflowRunStore.getState().catalogChanged();
+        return { ok: true, output: JSON.stringify(result) };
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+    };
     if (input.workflow) {
       const data = input.workflow.input as { conversation?: unknown; context?: unknown };
       handlers.read_workflow_context = workflowContextTool(data.conversation ?? input.chatHistory, data.context);

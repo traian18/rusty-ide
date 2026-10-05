@@ -37,7 +37,7 @@ fn catalog_profiles() -> Vec<serde_json::Value> {
 }
 
 /// The built-in profile documents under their `rusty-ide.builtin.` ids.
-fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
+fn prefixed_builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
     catalog_profiles()
         .into_iter()
         .map(|mut profile| {
@@ -49,6 +49,16 @@ fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
             Ok(profile)
         })
         .collect()
+}
+
+pub(crate) fn authoring_builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
+    let mut profiles = catalog_profiles();
+    profiles.extend(prefixed_builtin_profiles()?);
+    Ok(profiles)
+}
+
+fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
+    prefixed_builtin_profiles()
 }
 
 /// Registers `document` on a fresh per-session orchestration config and

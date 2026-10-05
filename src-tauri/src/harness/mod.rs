@@ -30,6 +30,7 @@ mod recipe;
 mod session;
 pub(crate) mod user_path;
 mod workflow;
+pub mod workflow_author;
 
 pub use bridge_event::BridgeEvent;
 pub use host_bridge::HostBridge;

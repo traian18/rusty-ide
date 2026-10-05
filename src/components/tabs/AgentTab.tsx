@@ -899,6 +899,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             })),
           customProvider: prov,
           skill: skillData,
+          skillId: skillData?.skillId,
           mcpServers,
           webSearchApiKeys: useWorkspaceStore.getState().webSearchApiKeys,
           planOnly: false,

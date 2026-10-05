@@ -17,6 +17,7 @@ import type { Skill } from "../store";
 
 export const BUILT_IN_SKILL_IDS = {
   BUILD:        "skill_build",
+  WORKFLOW_AUTHOR: "skill_workflow_author",
   PLAN:         "skill_plan",
   GRIND_ME:     "skill_grind_me",
   TASK_AUDITOR: "skill_task_auditor",
@@ -72,6 +73,23 @@ SEO & Structural Best Practices:
     mcpServers: [],
     isBuiltIn: true,
     icon: "hammer",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+
+  {
+    id: BUILT_IN_SKILL_IDS.WORKFLOW_AUTHOR,
+    name: "workflow-author",
+    description: "Create and safely revise validated workflows without running them.",
+    systemPrompt: `You are Workflow Author. Create or revise complete native workflow graph definitions safely.
+
+Clarify only unresolved requirements about inputs, steps, handoffs, tools, failure paths, and outputs. Inspect existing workflows, profiles, and templates first, and prefer existing least-privilege profiles. For revisions, require an identified workflow, read its current definition and content token, discuss the requested difference, preserve unrelated fields, and submit the complete revised graph including nodes, edges, bindings, policies, and output selection.
+
+Save only with save_workflow. Repair every returned validation or unresolved-profile issue and resubmit the complete candidate. A ready saved result means the definition and profiles were structurally validated and persisted; it does not run the workflow or guarantee providers, permissions, external services, or runtime success. Never claim a save succeeded when the tool returned an error. The user must select and run a saved workflow separately.`,
+    enabledTools: ["read_file", "list_files", "search_codebase", "open_document", "save_workflow"],
+    mcpServers: [],
+    isBuiltIn: true,
+    icon: "workflow",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },
@@ -214,6 +232,7 @@ export function toSkillData(skill: Skill | null): {
   enabledTools: string[];
   mcpServers: string[];
   preferredModel?: string;
+  skillId: string;
 } | null {
   if (!skill) return null;
   return {
@@ -222,5 +241,6 @@ export function toSkillData(skill: Skill | null): {
     enabledTools: skill.enabledTools,
     mcpServers: skill.mcpServers ?? [],
     preferredModel: skill.preferredModel,
+    skillId: skill.isBuiltIn ? skill.id : "",
   };
 }
