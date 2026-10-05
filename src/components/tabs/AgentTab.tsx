@@ -929,6 +929,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
         },
         host,
         (event) => {
+          // Any host event is a sign of life for the workflow's "no activity" notice.
+          useWorkflowRunStore.getState().touchRunning();
           switch (event.kind) {
             case "command_output":
               appendConsoleActivity(event.content, "tool");
@@ -1511,6 +1513,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               autoAvailable={Boolean(findOpenRouterJevProvider(customProviders, intelligentModelSelectionSettings.jevModelId))}
               flowSwitching={flowSwitching}
               onFlowSwitchingChange={(allowed) => setFlowSwitching(allowed)}
+              onStop={handleStopExecution}
               onSelect={(path) => {
                 setChatWorkflow(path);
               }}
