@@ -180,3 +180,22 @@
   font-size: var(--font-size-chat-sm);
 }
 .responseNote { margin: 0 0 var(--space-2); color: var(--color-fg-muted); font-size: var(--font-size-chat-xs, .75rem); font-style: italic; }
+
+.activeMessage {
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-color) 14%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color) 45%, transparent);
+  transition: background-color 180ms ease, box-shadow 180ms ease;
+}
+
+:global(mark[data-testid="chat-search-highlight"]) {
+  border-radius: 0.2em;
+  background: color-mix(in srgb, var(--accent-color) 28%, transparent);
+  color: inherit;
+}
+
+:global(mark[data-testid="chat-search-highlight"][data-active="true"]) {
+  background: var(--accent-color);
+  color: var(--color-bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 45%, transparent);
+}

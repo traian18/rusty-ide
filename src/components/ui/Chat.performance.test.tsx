@@ -49,11 +49,15 @@ it("bounds rendering of a large saved response without removing the full text", 
   const root = createRoot(mount);
   const content = "| garbled table |".repeat(4000);
   try {
-    await act(async () => root.render(<Chat messages={[{ id: "large", role: "assistant", content, timestamp: "" }]} />));
+    const needleStart = content.indexOf("garbled");
+    const searchMatches = [{ messageId: "large", messageIndex: 0, occurrence: 0, start: needleStart, end: needleStart + "garbled".length }];
+    await act(async () => root.render(<Chat messages={[{ id: "large", role: "assistant", content, timestamp: "" }]} searchMatches={searchMatches} />));
     expect(markdownRender).not.toHaveBeenCalled();
     expect(mount.querySelector("pre")?.textContent).toHaveLength(CHAT_PREVIEW_CHARS);
+    expect(mount.querySelectorAll('[data-testid="chat-search-highlight"]')).toHaveLength(1);
     await act(async () => mount.querySelector<HTMLButtonElement>("button")!.click());
     expect(mount.querySelector("pre")?.textContent).toBe(content);
+    expect(mount.querySelectorAll('[data-testid="chat-search-highlight"]')).toHaveLength(1);
     expect(markdownRender).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
 });
@@ -68,16 +72,27 @@ it("keeps showing the live end of a streamed response longer than the render lim
   while (content.length < CHAT_PREVIEW_CHARS * 1.6) content += line(n++);
   const lastLine = `line ${n - 1} `;
   try {
+    const needleStart = content.indexOf("line 0");
+    const searchMatches = [{ messageId: "live", messageIndex: 1, occurrence: 0, start: needleStart, end: needleStart + "line 0".length }];
     await act(async () => root.render(<Chat messages={[
       { id: "q", role: "user", content: "write a lot", timestamp: "" },
       { id: "live", role: "assistant", content, timestamp: "" },
-    ]} isStreaming />));
+    ]} isStreaming searchMatches={searchMatches} />));
     const shown = mount.querySelector("pre")!.textContent!;
     expect(content.length).toBeGreaterThan(50_000);
     expect(shown).toContain(lastLine);
     expect(shown.length).toBeLessThanOrEqual(CHAT_PREVIEW_CHARS);
     expect(shown.startsWith("line ")).toBe(true);
     expect(mount.textContent).toContain(`Long response: ${content.length.toLocaleString()} characters so far`);
+    expect(mount.querySelectorAll('[data-testid="chat-search-highlight"]')).toHaveLength(0);
+
+    const visibleStart = content.indexOf(lastLine);
+    const liveMatch = [{ messageId: "live", messageIndex: 1, occurrence: 0, start: visibleStart, end: visibleStart + lastLine.length }];
+    await act(async () => root.render(<Chat messages={[
+      { id: "q", role: "user", content: "write a lot", timestamp: "" },
+      { id: "live", role: "assistant", content, timestamp: "" },
+    ]} isStreaming searchMatches={liveMatch} />));
+    expect(mount.querySelectorAll('[data-testid="chat-search-highlight"]')).toHaveLength(1);
   } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
 });
 

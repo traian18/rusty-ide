@@ -285,4 +285,61 @@ describe("Chat component rendering", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("scrolls to explicit targets and suppresses follow-latest after navigation", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const scrollIntoView = vi.fn();
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+    const messages: Message[] = [
+      { id: "u1", role: "user", content: "first", timestamp: "" },
+      { id: "a1", role: "assistant", content: "answer", timestamp: "" },
+    ];
+
+    try {
+      await act(async () => root.render(
+        <Chat
+          messages={messages}
+          followLatest
+          explicitScrollTarget={{ messageId: "u1", token: 1 }}
+        />,
+      ));
+      const target = mount.querySelector<HTMLElement>("[data-message-id='u1']");
+      expect(target).not.toBeNull();
+      await act(async () => root.render(
+        <Chat
+          messages={[...messages, { id: "a2", role: "assistant", content: "streaming update", timestamp: "" }]}
+          followLatest
+          explicitScrollTarget={{ messageId: "u1", token: 1 }}
+        />,
+      ));
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "nearest" });
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("handles missing explicit targets without throwing", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+    const handled = vi.fn();
+
+    try {
+      await act(async () => root.render(
+        <Chat
+          messages={[]}
+          explicitScrollTarget={{ messageId: "missing", token: 1 }}
+          onScrollTargetHandled={handled}
+        />,
+      ));
+      expect(handled).toHaveBeenCalledWith("missing");
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
 });

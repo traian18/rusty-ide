@@ -19,4 +19,6 @@ export type { CalloutProps, CalloutVariant } from "./Callout/Callout";
 export { TokenBadge } from "./TokenBadge/TokenBadge";
 export type { TokenBadgeProps, TokenUsageLike } from "./TokenBadge/TokenBadge";
 export { Tooltip } from "./Tooltip/Tooltip";
+export { ChatQueryRail } from "./ChatQueryRail";
+export type { ChatQueryRailProps } from "./ChatQueryRail";
 export type { TooltipProps, TooltipPlacement } from "./Tooltip/Tooltip";

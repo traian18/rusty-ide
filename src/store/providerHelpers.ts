@@ -38,13 +38,15 @@ export function isRemovedProviderModel(model: string): boolean {
   const separator = model.indexOf("/");
   return separator > 0 && REMOVED_PROVIDER_IDS.has(model.slice(0, separator));
 }
-const REASONING_EFFORT_ORDER = ["minimal", "low", "medium", "high", "xhigh"] as const;
+const REASONING_EFFORT_ORDER = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 const REASONING_EFFORT_LABELS: Record<(typeof REASONING_EFFORT_ORDER)[number], string> = {
   minimal: "Minimal",
   low: "Low",
   medium: "Medium",
   high: "High",
   xhigh: "Extra High",
+  max: "Max",
+  ultra: "Ultra",
 };
 
 /**
@@ -80,10 +82,12 @@ function normalizeProviderModel(
   };
 }
 
+function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return (REASONING_EFFORT_ORDER as readonly unknown[]).includes(value);
+}
+
 function parsedReasoningEffort(value: string): ReasoningEffort | undefined {
-  return value === "minimal" || value === "low" || value === "medium" || value === "high" || value === "xhigh"
-    ? value
-    : undefined;
+  return isReasoningEffort(value) ? value : undefined;
 }
 
 /**
@@ -158,9 +162,7 @@ export function providerModelVariants(model: ProviderModel): ProviderModel[] {
     : [];
   const supportedEfforts = model.supportedReasoningEfforts?.length
     ? model.supportedReasoningEfforts
-    : compatibleEfforts.filter((effort): effort is ReasoningEffort =>
-      effort === "minimal" || effort === "low" || effort === "medium" || effort === "high" || effort === "xhigh"
-    );
+    : compatibleEfforts.filter(isReasoningEffort);
   const supported = supportedEfforts
     .filter((effort, index, efforts) => REASONING_EFFORT_ORDER.includes(effort) && efforts.indexOf(effort) === index)
     .sort((a, b) => REASONING_EFFORT_ORDER.indexOf(a) - REASONING_EFFORT_ORDER.indexOf(b));

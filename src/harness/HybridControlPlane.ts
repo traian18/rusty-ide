@@ -88,7 +88,7 @@ function managedProviderUnsupported(method: string, provider: CustomProvider): E
   );
 }
 
-const UI_REASONING_EFFORTS = new Set<ReasoningEffort>(["minimal", "low", "medium", "high", "xhigh"]);
+const UI_REASONING_EFFORTS = new Set<ReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
 
 function isUiReasoningEffort(value: string): value is ReasoningEffort {
   return UI_REASONING_EFFORTS.has(value as ReasoningEffort);

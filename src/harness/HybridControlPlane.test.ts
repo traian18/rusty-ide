@@ -43,7 +43,7 @@ describe("createHybridControlPlane", () => {
       id: "gpt-5.6-sol",
       name: "GPT-5.6-Sol",
       reasoning: true,
-      supportedReasoningEfforts: ["low", "high", "max"],
+      supportedReasoningEfforts: ["low", "high", "max", "turbo"],
       defaultReasoningEffort: "low",
       input: ["text", "image"],
       isDefault: true,
@@ -59,7 +59,7 @@ describe("createHybridControlPlane", () => {
       remoteId: "gpt-5.6-sol",
       name: "GPT-5.6-Sol",
       supported: true,
-      supportedReasoningEfforts: ["low", "high"],
+      supportedReasoningEfforts: ["low", "high", "max"],
       defaultReasoningEffort: "low",
       input: ["text", "image"],
     })]);

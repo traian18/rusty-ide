@@ -102,11 +102,13 @@ const defaultProviders: CustomProvider[] = [
     transport: "openai-codex-app-server",
     authType: "environment",
     models: [
-      { id: "openai-codex/gpt-5.6-luna", remoteId: "gpt-5.6-luna", name: "GPT-5.6 Luna", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], defaultReasoningEffort: "medium" },
-      { id: "openai-codex/gpt-5.6-sol", remoteId: "gpt-5.6-sol", name: "GPT-5.6 Sol", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], defaultReasoningEffort: "medium" },
-      { id: "openai-codex/gpt-5.6-terra", remoteId: "gpt-5.6-terra", name: "GPT-5.6 Terra", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["minimal", "low", "medium", "high", "xhigh"], defaultReasoningEffort: "medium" },
-      { id: "openai-codex/o3-mini", remoteId: "o3-mini", name: "o3-mini", apiType: "codex-app-server", supported: true, reasoning: true },
-      { id: "openai-codex/o3", remoteId: "o3", name: "o3", apiType: "codex-app-server", supported: true, reasoning: true },
+      { id: "openai-codex/gpt-6.1-sol", remoteId: "gpt-6.1-sol", name: "GPT-6.1 Sol", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultReasoningEffort: "medium" },
+      { id: "openai-codex/gpt-6-astra", remoteId: "gpt-6-astra", name: "GPT-6 Astra", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultReasoningEffort: "medium" },
+      { id: "openai-codex/gpt-6-sol", remoteId: "gpt-6-sol", name: "GPT-6 Sol", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultReasoningEffort: "medium" },
+      { id: "openai-codex/gpt-6-luna", remoteId: "gpt-6-luna", name: "GPT-6 Luna", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium" },
+      { id: "openai-codex/gpt-5.6-sol", remoteId: "gpt-5.6-sol", name: "GPT-5.6 Sol", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultReasoningEffort: "medium" },
+      { id: "openai-codex/gpt-5.6-terra", remoteId: "gpt-5.6-terra", name: "GPT-5.6 Terra", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultra"], defaultReasoningEffort: "medium" },
+      { id: "openai-codex/gpt-5.6-luna", remoteId: "gpt-5.6-luna", name: "GPT-5.6 Luna", apiType: "codex-app-server", supported: true, reasoning: true, supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max"], defaultReasoningEffort: "medium" },
     ],
   },
   {

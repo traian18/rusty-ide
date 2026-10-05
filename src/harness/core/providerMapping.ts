@@ -34,7 +34,7 @@
 // ============================================================
 
 import { baseModelReference, parseModelReference, providerHasModelReference, resolveProviderModel } from "../../store/providerHelpers";
-import type { CustomProvider, ReasoningEffort as UiReasoningEffort } from "../../store/types";
+import type { CustomProvider } from "../../store/types";
 import { resolveProviderRoute } from "./modelRouting";
 import type { ReasoningEffort as CoreReasoningEffort } from "./SessionRecipe";
 
@@ -53,21 +53,6 @@ export interface ProviderIntegration {
 
 export type ProviderMappingResult = ({ supported: true } & ProviderIntegration) | { supported: false; reason: string };
 
-/**
- * rusty-core's `ExecutionParams.reasoning_effort` (harness-protocol/src/
- * backend.rs) has three levels; the UI's own `ReasoningEffort` (store/
- * types.ts) has five, for finer per-model pickers. "minimal" and "xhigh"
- * have no exact match -- clamped to the nearest level that exists rather
- * than dropped. This still has to happen on the IDE side, host-routing or
- * not: `execution_params.reasoning_effort` is a Rust-typed field
- * (`recipe.rs` deserializes it as rusty-core's own 3-level enum) regardless
- * of which backend eventually answers the call.
- */
-function toCoreReasoningEffort(effort: UiReasoningEffort): CoreReasoningEffort {
-  if (effort === "minimal") return "low";
-  if (effort === "xhigh") return "high";
-  return effort;
-}
 
 /**
  * `modelReference` is the run's own `Input.model` -- the UI's own
@@ -91,7 +76,9 @@ const MANAGED_TRANSPORT_INTEGRATIONS: Record<string, string> = {
 
 export function mapProviderToIntegration(provider: CustomProvider, modelReference: string): ProviderMappingResult {
   const { reasoningEffort } = parseModelReference(modelReference);
-  const coreReasoningEffort = reasoningEffort ? toCoreReasoningEffort(reasoningEffort) : undefined;
+  // The UI and rusty-core's `ExecutionParams.reasoning_effort` share one
+  // level set; each backend maps or clamps it to what its provider accepts.
+  const coreReasoningEffort: CoreReasoningEffort | undefined = reasoningEffort;
 
   // Per-model-family routing (modelRouting.ts) -- e.g. OpenCode Zen, whose
   // real endpoint splits by model family and supports no CORS at all.

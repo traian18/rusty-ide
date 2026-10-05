@@ -92,7 +92,7 @@ describe("inlineChatDefinition", () => {
     expect(recipe.execution_params?.model).toBe("some-http-gateway/big-pickle");
   });
 
-  it("recipe() carries a reasoning-effort suffix into execution_params.reasoning_effort, clamped to core's three levels", () => {
+  it("recipe() carries a reasoning-effort suffix into execution_params.reasoning_effort unchanged", () => {
     const withReasoningSuffix = input({
       customProvider: {
         id: "some-http-gateway",
@@ -108,7 +108,7 @@ describe("inlineChatDefinition", () => {
     expect(recipe.execution_params).toEqual({
       model: "some-http-gateway/big-pickle::reasoning=minimal",
       max_tokens: 128_000,
-      reasoning_effort: "low",
+      reasoning_effort: "minimal",
     });
   });
 

@@ -89,17 +89,10 @@ describe("mapProviderToIntegration", () => {
     expect(result.supported).toBe(true);
   });
 
-  it("extracts a reasoning-effort suffix from the model reference, clamped to rusty-core's three levels", () => {
-    const cases: Array<[string, string]> = [
-      ["minimal", "low"],
-      ["low", "low"],
-      ["medium", "medium"],
-      ["high", "high"],
-      ["xhigh", "high"],
-    ];
-    for (const [uiEffort, coreEffort] of cases) {
-      const result = mapProviderToIntegration(provider({ apiType: "openai-completions" }), `m::reasoning=${uiEffort}`);
-      expect(result).toMatchObject({ reasoningEffort: coreEffort });
+  it("passes a reasoning-effort suffix from the model reference through unchanged", () => {
+    for (const effort of ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]) {
+      const result = mapProviderToIntegration(provider({ apiType: "openai-completions" }), `m::reasoning=${effort}`);
+      expect(result).toMatchObject({ reasoningEffort: effort });
     }
   });
 
@@ -117,7 +110,7 @@ describe("mapProviderToIntegration", () => {
       supported: true,
       integration: "anthropic",
       model: "claude-haiku-4-5",
-      reasoningEffort: "low",
+      reasoningEffort: "minimal",
     });
   });
 

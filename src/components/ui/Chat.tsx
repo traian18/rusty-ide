@@ -1,10 +1,11 @@
 import React, { useRef, useEffect, useLayoutEffect, useCallback, memo } from "react";
-import { ChatMessageContent } from "./ChatMessageContent";
+import type { ChatSearchMatch } from "./chatSearch";
 import { FileText, Folder, Loader2, Terminal } from "lucide-react";
 import { AgentActivityCard } from "./SubagentActivityPanel";
 import styles from "./Chat.module.css";
 import { useWorkspaceStore } from "../../store";
 import { ChatScrollFollow } from "./chatScrollFollow";
+import { ChatMessageContent } from "./ChatMessageContent";
 
 export interface ActivityEntry {
   content: string;
@@ -62,8 +63,12 @@ interface ChatProps {
   subagents?: SubagentActivity[];
   /** Keep the view on new activity, but only while the reader is already at the bottom. */
   followLatest?: boolean;
+  explicitScrollTarget?: { messageId: string; token: number };
+  onScrollTargetHandled?: (messageId: string) => void;
+  activeMessageId?: string;
+  searchMatches?: ChatSearchMatch[];
+  activeSearchMatch?: ChatSearchMatch;
 }
-
 export type ChatGroup =
   | { type: "console"; message: Message; phase?: string }
   | { type: "messages"; id: string; isUser: boolean; messages: Message[]; phase?: string };
@@ -117,7 +122,7 @@ export function formatTimestamp(timestamp: string): string {
 
 const EMPTY_SUBAGENTS: SubagentActivity[] = [];
 
-export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false }: ChatProps) {
+export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, activeMessageId, searchMatches = [], activeSearchMatch }: ChatProps) {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const handleLinkClick = useCallback((href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -133,6 +138,30 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollFollowRef = useRef(new ChatScrollFollow());
+  const messageRefs = useRef(new Map<string, HTMLDivElement>());
+  const explicitNavigationRef = useRef(false);
+  const lastHandledTargetRef = useRef<number | undefined>(undefined);
+
+  const registerMessage = useCallback((messageId: string, element: HTMLDivElement | null) => {
+    if (element) messageRefs.current.set(messageId, element);
+    else messageRefs.current.delete(messageId);
+  }, []);
+
+  useEffect(() => {
+    if (!explicitScrollTarget || lastHandledTargetRef.current === explicitScrollTarget.token) return;
+    lastHandledTargetRef.current = explicitScrollTarget.token;
+    const target = messageRefs.current.get(explicitScrollTarget.messageId);
+    if (!target) {
+      explicitNavigationRef.current = false;
+      onScrollTargetHandled?.(explicitScrollTarget.messageId);
+      return;
+    }
+    const reducedMotion = typeof window !== "undefined"
+      && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    explicitNavigationRef.current = true;
+    target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest" });
+    onScrollTargetHandled?.(explicitScrollTarget.messageId);
+  }, [explicitScrollTarget, onScrollTargetHandled]);
 
   const handleScroll = () => {
     const container = containerRef.current;
@@ -141,6 +170,9 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
     // A small tolerance avoids stopping follow mode because of fractional pixel
     // rounding or the scrollbar itself.
     scrollFollowRef.current.update(container.scrollHeight - container.scrollTop - container.clientHeight);
+    if (container.scrollHeight - container.scrollTop - container.clientHeight <= 24) {
+      explicitNavigationRef.current = false;
+    }
     if (scrollKey) {
       localStorage.setItem(`chat_scroll_${scrollKey}`, String(container.scrollTop));
     }
@@ -163,7 +195,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
   // earlier message they are reading.
   useLayoutEffect(() => {
     const container = containerRef.current;
-    if (!container || !scrollFollowRef.current.shouldFollow(followLatest)) return;
+    if (!container || explicitNavigationRef.current || !scrollFollowRef.current.shouldFollow(followLatest)) return;
     container.scrollTop = container.scrollHeight;
   }, [followLatest, messages, subagents, isStreaming]);
 
@@ -176,7 +208,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
     const content = contentRef.current;
     if (!followLatest || !container || !content || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      if (scrollFollowRef.current.shouldFollow(followLatest)) container.scrollTop = container.scrollHeight;
+      if (!explicitNavigationRef.current && scrollFollowRef.current.shouldFollow(followLatest)) container.scrollTop = container.scrollHeight;
     });
     observer.observe(content);
     return () => observer.disconnect();
@@ -251,11 +283,20 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
                   </div>
                 )}
 
-                <div>
+                <div
+                  ref={(element) => registerMessage(msg.id, element)}
+                  data-message-id={msg.id}
+                  id={`chat-message-${msg.id}`}
+                  className={`${activeMessageId === msg.id ? styles.activeMessage : ""}`}
+                >
                   <ChatMessageContent
                     content={msg.content}
                     onLinkClick={handleLinkClick}
                     streaming={isStreaming && msg.role === "assistant" && isLatestMessageInChat}
+                    {...(searchMatches.length > 0 ? {
+                      searchMatches: searchMatches.filter((match) => match.messageId === msg.id),
+                      activeSearchMatch: activeSearchMatch?.messageId === msg.id ? activeSearchMatch : undefined,
+                    } : {})}
                   />
                 </div>
 

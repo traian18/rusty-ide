@@ -15,7 +15,7 @@ import type { StartupState } from "../startup/types";
 import type { ProviderId, ProviderStatusEntry } from "../integrations/registryTypes";
 import type { UpdateState } from "./slices/createUpdateSlice";
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export interface ProviderModel {
   id: string;

@@ -40,7 +40,7 @@ export interface HostToolSpec {
   input_schema?: unknown;
 }
 
-export type ReasoningEffort = "low" | "medium" | "high";
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
 export type ResponseFormat =
   | { type: "text" }

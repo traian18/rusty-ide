@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -8,17 +8,19 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   onLinkClick?: (href: string, event: React.MouseEvent<HTMLAnchorElement>) => void;
+  renderText?: (text: string) => ReactNode;
 }
 
 const isExternalLink = (href?: string) => Boolean(href && /^(https?:|mailto:|tel:|\/\/)/i.test(href));
 
 /** Renders untrusted Markdown without allowing raw HTML. */
-export const MarkdownRenderer = memo(({ content, className = "", onLinkClick }: MarkdownRendererProps) => (
+export const MarkdownRenderer = memo(({ content, className = "", onLinkClick, renderText }: MarkdownRendererProps) => (
   <div className={`${styles.root} ${className}`}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
       components={{
+        text: ({ children }) => <>{renderText ? renderText(String(children)) : children}</>,
         h1: ({ children }) => <h1 className={styles.heading1}>{children}</h1>,
         h2: ({ children }) => <h2 className={styles.heading2}>{children}</h2>,
         h3: ({ children }) => <h3 className={styles.heading3}>{children}</h3>,

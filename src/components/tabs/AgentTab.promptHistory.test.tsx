@@ -55,6 +55,8 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+    vi.stubGlobal("scrollIntoView", vi.fn());
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: vi.fn() });
     for (const key of Object.keys(files)) delete files[key];
     invoke.mockReset();
     invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
@@ -130,6 +132,59 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
     expect(container.textContent).not.toContain("old active message");
     expect(container.textContent).not.toContain("old workspace prompt");
     expect(useWorkspaceStore.getState().agentChats.agent).toEqual([]);
+  });
+
+  it("renders query points for user messages and searches user and assistant content", async () => {
+    await open([
+      { role: "user", content: "Build the app" },
+      { role: "assistant", content: "Build complete" },
+      { role: "console", content: "build internal log" },
+      { role: "user", content: "" },
+    ]);
+
+    const points = [...container.querySelectorAll<HTMLButtonElement>("[data-testid='chat-query-point']")];
+    expect(points).toHaveLength(2);
+    expect(points.map((point) => point.id)).toEqual(["chat-query-c0", "chat-query-c3"]);
+    expect(points[1].getAttribute("aria-label")).toContain("Query 2");
+
+    const search = container.querySelector<HTMLInputElement>("#agent-chat-search");
+    expect(search).not.toBeNull();
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setValue.call(search, "build");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    expect(container.querySelector("#agent-chat-search-status")?.textContent).toContain("2 matches");
+    expect(container.querySelector("#agent-chat-search-status")?.getAttribute("aria-live")).toBe("polite");
+    expect(container.querySelector("[data-message-id='c1']")).not.toBeNull();
+
+    const next = container.querySelector<HTMLButtonElement>("#agent-chat-search-next");
+    expect(next?.disabled).toBe(false);
+    await act(async () => next!.click());
+    expect(container.querySelector("[data-message-id='c1']")?.className).toContain("activeMessage");
+  });
+
+  it("navigates query points repeatedly and reports zero for an empty search", async () => {
+    await open([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "answer" },
+      { role: "user", content: "second" },
+    ]);
+    const points = [...container.querySelectorAll<HTMLButtonElement>("[data-testid='chat-query-point']")];
+    await act(async () => points[0].click());
+    await act(async () => points[0].click());
+    expect(points[0].getAttribute("aria-current")).toBe("true");
+
+    const search = container.querySelector<HTMLInputElement>("#agent-chat-search")!;
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setValue.call(search, "missing");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    expect(container.querySelector("#agent-chat-search-status")?.textContent).toContain("0 matches");
+    expect(container.querySelector<HTMLButtonElement>("#agent-chat-search-next")?.disabled).toBe(true);
   });
 
   it("opens nothing when there is no earlier prompt anywhere", async () => {

@@ -8,6 +8,8 @@ import { resolveSkill, toSkillData, DEFAULT_SKILL_ID, BUILT_IN_SKILL_IDS } from 
 import { CustomSelect } from "../CustomSelect";
 import { invoke } from "@tauri-apps/api/core";
 import { Chat, SubagentActivity } from "../ui/Chat";
+import { ChatQueryRail } from "../ui/ChatQueryRail";
+import { findChatSearchMatches, createChatSearchIndex, type ChatSearchIndex } from "../ui/chatSearch";
 import { AgentQuestion, ChatInput } from "../ui/ChatInput";
 import { notify } from "../../notificationStore";
 import { refreshTree, scheduleTreeRefresh } from "../filetree/FileTreePresenter";
@@ -120,12 +122,38 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const [runUsage, setRunUsage] = useState<TokenUsageLike | null>(null);
   const [streamingLabel, setStreamingLabel] = useState("Model is thinking…");
   const [agentQuestions, setAgentQuestions] = useState<AgentQuestion[]>([]);
+  const [chatSearch, setChatSearch] = useState("");
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
+  const [activeQueryId, setActiveQueryId] = useState<string>();
+  const [scrollTarget, setScrollTarget] = useState<{ messageId: string; token: number }>();
+  const navigationTokenRef = useRef(0);
   const agentQuestion = agentQuestions[0] || null;
   const hasActiveSubagents = subagents.some((subagent) =>
     subagent.status === "queued" || subagent.status === "running" || subagent.status === "background"
   );
   const isAgentBusy = isStreaming || hasActiveSubagents;
   const hasSelectedSkill = selectedSkillId !== null && skills.some((skill) => skill.id === selectedSkillId);
+  const queryMetadata = useMemo(() => agentChats
+    .filter((chat) => chat.role === "user")
+    .map((chat, index) => ({ id: chat.id, index: index + 1, label: chat.content.trim() || `Query ${index + 1}` })), [agentChats]);
+  const searchIndexRef = useRef<ChatSearchIndex | undefined>(undefined);
+  const searchIndex = useMemo(() => {
+    searchIndexRef.current = createChatSearchIndex(agentChats, searchIndexRef.current);
+    return searchIndexRef.current;
+  }, [agentChats]);
+  const searchMatches = useMemo(() => findChatSearchMatches(agentChats, chatSearch, searchIndex), [agentChats, chatSearch, searchIndex]);
+  const activeSearchMatch = searchMatches[activeSearchIndex];
+  const navigateToMessage = useCallback((messageId: string) => {
+    navigationTokenRef.current += 1;
+    setScrollTarget({ messageId, token: navigationTokenRef.current });
+  }, []);
+  const selectQuery = useCallback((messageId: string) => {
+    setActiveQueryId(messageId);
+    navigateToMessage(messageId);
+  }, [navigateToMessage]);
+  useEffect(() => {
+    setActiveSearchIndex(0);
+  }, [chatSearch]);
 
   // Chat history panel state
   const [showHistory, setShowHistory] = useState(true);
@@ -1389,6 +1417,41 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             )}
           </div>
           <div className="flex items-center space-x-2 text-[var(--text-muted)] font-mono text-[10px]">
+            <label htmlFor="agent-chat-search" className="sr-only">Search chat messages</label>
+            <input
+              id="agent-chat-search"
+              value={chatSearch}
+              onChange={(event) => setChatSearch(event.target.value)}
+              placeholder="Search chat"
+              className="w-40 rounded border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] px-2 py-1 text-xs text-[var(--color-fg-default)]"
+            />
+            <button
+              type="button"
+              id="agent-chat-search-previous"
+              aria-label="Previous chat match"
+              title="Previous chat match"
+              disabled={!chatSearch.trim() || searchMatches.length === 0}
+              onClick={() => {
+                const next = searchMatches.length ? (activeSearchIndex - 1 + searchMatches.length) % searchMatches.length : 0;
+                setActiveSearchIndex(next);
+                if (searchMatches[next]) navigateToMessage(searchMatches[next].messageId);
+              }}
+            >Prev</button>
+            <button
+              type="button"
+              id="agent-chat-search-next"
+              aria-label="Next chat match"
+              title="Next chat match"
+              disabled={!chatSearch.trim() || searchMatches.length === 0}
+              onClick={() => {
+                const next = searchMatches.length ? (activeSearchIndex + 1) % searchMatches.length : 0;
+                setActiveSearchIndex(next);
+                if (searchMatches[next]) navigateToMessage(searchMatches[next].messageId);
+              }}
+            >Next</button>
+            <span id="agent-chat-search-status" aria-live="polite">
+              {searchMatches.length} {searchMatches.length === 1 ? "match" : "matches"}
+            </span>
             {runUsage && <TokenBadge usage={runUsage} live={isStreaming} />}
             {isAgentBusy && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-color)] animate-ping" />}
             <span>{isStreaming ? "Thinking" : hasActiveSubagents ? "Subagents working" : "Ready"}</span>
@@ -1418,14 +1481,24 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
 
         {/* Chat List and input block */}
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden max-w-6xl mx-auto w-full">
-          <Chat
-            messages={agentChats}
-            isStreaming={isAgentBusy}
-            streamingMessageId={consoleMessageIdRef.current}
-            streamingLabel={streamingLabel}
-            subagents={subagents}
-            followLatest
-          />
+          <div className="flex flex-1 min-h-0 min-w-0">
+            <ChatQueryRail queries={queryMetadata} activeQueryId={activeQueryId} onSelect={selectQuery} disabled={agentChats.length === 0} />
+            <Chat
+              messages={agentChats}
+              isStreaming={isAgentBusy}
+              streamingMessageId={consoleMessageIdRef.current}
+              streamingLabel={streamingLabel}
+              subagents={subagents}
+              followLatest
+              explicitScrollTarget={scrollTarget}
+              onScrollTargetHandled={(messageId) => {
+                setScrollTarget((current) => current?.messageId === messageId ? undefined : current);
+              }}
+              activeMessageId={activeSearchMatch?.messageId || activeQueryId}
+              searchMatches={searchMatches}
+              activeSearchMatch={activeSearchMatch}
+            />
+          </div>
           
           <div className="px-3 py-2 border-t border-[var(--color-border-subtle)] bg-[var(--color-surface-header)] flex-shrink-0 w-full">
             <AgentWorkflowBar
