@@ -45,7 +45,7 @@ export const ChatMessageContent = memo(function ChatMessageContent({ content, st
     if (cursor < text.length) parts.push(text.slice(cursor));
     return parts;
   };
-  if (!streaming && !large) return <MarkdownRenderer content={content} onLinkClick={onLinkClick} renderText={renderText} />;
+  if (!streaming && !large) return <MarkdownRenderer content={content} onLinkClick={onLinkClick} searchMatches={visibleMatches} activeSearchMatch={activeSearchMatch} renderText={renderText} />;
   if (streaming) {
     // Follow the live end of a long response instead of freezing on its start.
     const visible = large ? latestPart(content, CHAT_PREVIEW_CHARS) : { text: content, offset: 0 };

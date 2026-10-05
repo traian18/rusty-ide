@@ -3,15 +3,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { Chat, groupChatMessages, type Message } from "./Chat";
+import { ChatMessageContent } from "./ChatMessageContent";
 
-vi.mock("./MarkdownRenderer", async () => {
-  const { memo } = await import("react");
-  return {
-    MarkdownRenderer: memo(({ content }: { content: string }) => (
-      <div data-testid="markdown">{content}</div>
-    )),
-  };
-});
 
 vi.mock("../../store", () => {
   const state = { rootPath: "/ws", openTab: vi.fn() };
@@ -337,6 +330,39 @@ describe("Chat component rendering", () => {
         />,
       ));
       expect(handled).toHaveBeenCalledWith("missing");
+    } finally {
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("highlights findings in formatted Markdown, links, inline code, and fenced code", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const content = [
+      "**bold finding** and [linked finding](https://example.com) with `inline finding`.",
+      "",
+      "```text",
+      "fenced finding",
+      "```",
+    ].join("\\n");
+    const terms = ["bold finding", "linked finding", "inline finding", "fenced finding"];
+    const searchMatches = terms.map((term, occurrence) => {
+      const start = content.indexOf(term);
+      return { messageId: "markdown", messageIndex: 0, occurrence, start, end: start + term.length };
+    });
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+
+    try {
+      await act(async () => root.render(<ChatMessageContent content={content} searchMatches={searchMatches} activeSearchMatch={searchMatches[2]} />));
+      const highlights = [...mount.querySelectorAll<HTMLElement>('[data-testid="chat-search-highlight"]')];
+      expect(highlights).toHaveLength(terms.length);
+      for (const term of terms) expect(highlights.map((highlight) => highlight.textContent?.trim())).toContain(term);
+      expect(highlights.filter((highlight) => highlight.dataset.active === "true")).toHaveLength(1);
+      expect(mount.querySelector("[data-testid='chat-search-highlight']")?.dataset.active).toBe("false");
+      expect(mount.querySelector("a")?.textContent).toContain("linked finding");
+      expect(mount.querySelector("code")?.textContent).toContain("inline finding");
+      expect(mount.textContent).toContain("fenced finding");
     } finally {
       await act(async () => root.unmount());
       vi.unstubAllGlobals();
