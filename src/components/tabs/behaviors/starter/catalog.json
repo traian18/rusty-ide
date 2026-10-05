@@ -942,7 +942,7 @@
     {
       "schema_version": 1,
       "id": "plan-build-verify",
-      "revision": 10,
+      "revision": 11,
       "name": "Plan, build, verify",
       "status": "draft",
       "input_schema": null,
@@ -1023,6 +1023,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1086,6 +1087,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -1203,6 +1205,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1322,7 +1325,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -1344,7 +1348,7 @@
     {
       "schema_version": 1,
       "id": "investigate",
-      "revision": 3,
+      "revision": 4,
       "name": "Research & analyze",
       "status": "draft",
       "input_schema": null,
@@ -1428,6 +1432,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1491,6 +1496,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1552,7 +1558,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -1574,7 +1581,7 @@
     {
       "schema_version": 1,
       "id": "design",
-      "revision": 3,
+      "revision": 4,
       "name": "Architect & plan",
       "status": "draft",
       "input_schema": null,
@@ -1658,6 +1665,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1721,6 +1729,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1782,7 +1791,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -1804,7 +1814,7 @@
     {
       "schema_version": 1,
       "id": "diagnose",
-      "revision": 3,
+      "revision": 4,
       "name": "Debug & plan a fix",
       "status": "draft",
       "input_schema": null,
@@ -1888,6 +1898,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -1951,6 +1962,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2012,7 +2024,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -2034,7 +2047,7 @@
     {
       "schema_version": 1,
       "id": "implement",
-      "revision": 6,
+      "revision": 7,
       "name": "Build & verify",
       "status": "draft",
       "input_schema": null,
@@ -2118,6 +2131,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2181,6 +2195,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -2298,6 +2313,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2417,7 +2433,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -2439,7 +2456,7 @@
     {
       "schema_version": 1,
       "id": "security-audit",
-      "revision": 3,
+      "revision": 4,
       "name": "Security audit & fix plan",
       "status": "draft",
       "input_schema": null,
@@ -2522,6 +2539,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2585,6 +2603,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2646,7 +2665,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -2668,7 +2688,7 @@
     {
       "schema_version": 1,
       "id": "check-changes",
-      "revision": 3,
+      "revision": 4,
       "name": "Verify & review changes",
       "status": "draft",
       "input_schema": null,
@@ -2752,6 +2772,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2815,6 +2836,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -2876,7 +2898,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -2898,7 +2921,7 @@
     {
       "schema_version": 1,
       "id": "analyzed-feature",
-      "revision": 6,
+      "revision": 7,
       "name": "Analyze, plan & build",
       "status": "draft",
       "input_schema": null,
@@ -2979,6 +3002,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3042,6 +3066,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3113,6 +3138,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -3238,6 +3264,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3363,7 +3390,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -3385,7 +3413,7 @@
     {
       "schema_version": 1,
       "id": "researched-feature",
-      "revision": 6,
+      "revision": 7,
       "name": "Research, design & build",
       "status": "draft",
       "input_schema": null,
@@ -3466,6 +3494,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3529,6 +3558,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3600,6 +3630,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3679,6 +3710,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -3812,6 +3844,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -3943,7 +3976,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -3965,7 +3999,7 @@
     {
       "schema_version": 1,
       "id": "bug-fix",
-      "revision": 6,
+      "revision": 7,
       "name": "Fix a bug",
       "status": "draft",
       "input_schema": null,
@@ -4046,6 +4080,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -4109,6 +4144,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -4180,6 +4216,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -4305,6 +4342,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -4430,7 +4468,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -4452,7 +4491,7 @@
     {
       "schema_version": 1,
       "id": "careful-change",
-      "revision": 6,
+      "revision": 7,
       "name": "High-risk change",
       "status": "draft",
       "input_schema": null,
@@ -4533,6 +4572,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -4596,6 +4636,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -4667,6 +4708,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -4792,6 +4834,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -4971,6 +5014,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -5108,7 +5152,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -5130,7 +5175,7 @@
     {
       "schema_version": 1,
       "id": "security-remediation",
-      "revision": 6,
+      "revision": 7,
       "name": "Security remediation",
       "status": "draft",
       "input_schema": null,
@@ -5210,6 +5255,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -5273,6 +5319,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -5344,6 +5391,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -5469,6 +5517,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -5648,6 +5697,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -5785,7 +5835,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -5807,7 +5858,7 @@
     {
       "schema_version": 1,
       "id": "refactor",
-      "revision": 6,
+      "revision": 7,
       "name": "Refactor safely",
       "status": "draft",
       "input_schema": null,
@@ -5888,6 +5939,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -5951,6 +6003,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -6022,6 +6075,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -6147,6 +6201,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -6326,6 +6381,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -6463,7 +6519,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -6485,7 +6542,7 @@
     {
       "schema_version": 1,
       "id": "optimize-performance",
-      "revision": 6,
+      "revision": 7,
       "name": "Optimize performance",
       "status": "draft",
       "input_schema": null,
@@ -6566,6 +6623,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -6629,6 +6687,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -6700,6 +6759,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -6825,6 +6885,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -6950,7 +7011,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {
@@ -6972,7 +7034,7 @@
     {
       "schema_version": 1,
       "id": "documentation",
-      "revision": 4,
+      "revision": 5,
       "name": "Write documentation",
       "status": "draft",
       "input_schema": null,
@@ -7052,6 +7114,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -7115,6 +7178,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -7186,6 +7250,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "verification_failed"
             ]
           },
@@ -7311,6 +7376,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -7490,6 +7556,7 @@
             "retry_on": [
               "backend_rate_limited",
               "backend_timeout",
+              "tool_timeout",
               "invalid_structured_output"
             ]
           },
@@ -7627,7 +7694,8 @@
         }
       ],
       "policies": {
-        "max_total_attempts": 40
+        "max_total_attempts": 40,
+        "stall_timeout_ms": 600000
       },
       "output_contract": {
         "schema": {

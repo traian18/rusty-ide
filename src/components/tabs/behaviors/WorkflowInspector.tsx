@@ -112,16 +112,16 @@ const WorkflowSettings: React.FC<WorkflowInspectorProps> = ({ workflow, issues, 
         <div className={styles.row}>
           {([
             ["max_steps", "Steps"], ["max_total_attempts", "Total attempts"],
-            ["max_elapsed_ms", "Duration (seconds)"], ["max_model_requests", "Model requests"],
+            ["max_elapsed_ms", "Duration (seconds)"], ["stall_timeout_ms", "Stall timeout (seconds)"], ["max_model_requests", "Model requests"],
             ["max_tool_calls", "Tool calls"], ["max_tokens", "Tokens"], ["max_cost_usd", "Cost (USD)"],
           ] as const).map(([key, label]) => (
             <Field key={key} id={field(key)} label={label}>
               <Input id={field(key)} type="number" min={key === "max_cost_usd" ? 0.01 : 1}
                 step={key === "max_cost_usd" ? 0.01 : 1} placeholder="No limit"
-                value={typeof policies[key] === "number" ? String(Number(policies[key]) / (key === "max_elapsed_ms" ? 1000 : 1)) : ""}
+                value={typeof policies[key] === "number" ? String(Number(policies[key]) / (key === "max_elapsed_ms" || key === "stall_timeout_ms" ? 1000 : 1)) : ""}
                 onChange={(e) => {
                   const value = optionalNumber(e.target.value);
-                  set("policies", assign(policies, key, value === undefined ? undefined : value * (key === "max_elapsed_ms" ? 1000 : 1)));
+                  set("policies", assign(policies, key, value === undefined ? undefined : value * (key === "max_elapsed_ms" || key === "stall_timeout_ms" ? 1000 : 1)));
                 }} />
             </Field>
           ))}

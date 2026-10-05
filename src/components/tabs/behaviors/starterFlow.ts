@@ -7,6 +7,7 @@ import v2 from "./starter/legacy/v2/plan-build-verify.workflow.json";
 import v3 from "./starter/legacy/v3/plan-build-verify.workflow.json";
 import v4 from "./starter/legacy/v4/plan-build-verify.workflow.json";
 import v5 from "./starter/legacy/v5/plan-build-verify.workflow.json";
+import v6 from "./starter/legacy/v6/plan-build-verify.workflow.json";
 
 export const STARTER_WORKFLOW_ID = "plan-build-verify";
 export const BUILTIN_WORKFLOW_PATH = "builtin:plan-build-verify";
@@ -80,7 +81,7 @@ export function workflowKind(document: JsonObject | undefined): BuiltinWorkflowK
 }
 
 export function isUnmodifiedStarter(document: JsonObject): boolean {
-  return [v1, v2, v3, v4, v5, previousQueueWorkflow, workflow].some((version) => stableStringify(version as unknown as JsonObject) === stableStringify(document));
+  return [v1, v2, v3, v4, v5, v6, previousQueueWorkflow, workflow].some((version) => stableStringify(version as unknown as JsonObject) === stableStringify(document));
 }
 
 /** An independent copy of a built-in workflow; the default is Plan, build, verify. */

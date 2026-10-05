@@ -12,7 +12,7 @@ const verdictSchema=object({verdict:string,criteria:array(object({id:string,stat
 const schema=(name,value)=>({type:'inline',name,schema:value});
 const binding=(target,node,pointer='')=>({target,source:node?{type:'node_output',node_id:node,pointer}:{type:'run_input',pointer:`/${target}`}});
 const source=(node_id,pointer='')=>({type:'node_output',node_id,pointer});
-const retry={max_attempts:2,retry_on:['backend_rate_limited','backend_timeout','invalid_structured_output']};
+const retry={max_attempts:2,retry_on:['backend_rate_limited','backend_timeout','tool_timeout','invalid_structured_output']};
 const contextRule='Start from workflow_input.request.';
 const reportRule='Finish with a clear summary.';
 const planInstructions='Plan the request. Write the requirements with acceptance criteria, and ordered tasks that change the code. Every task must change the workspace; things only someone outside it can do (credential rotation, deployments, history rewrites) go in the summary as follow-ups for the user.';
@@ -25,7 +25,9 @@ const definitions=JSON.parse(fs.readFileSync(new URL('./workflow-catalog-source.
 const outputs=[];
 for(const [id,preps,writer,post] of catalog){
  const {stages,...old}=definitions[id];
- const workflow={...old,revision:old.revision+(writer?2:1),nodes:[],edges:[],policies:{max_total_attempts:40}};
+ const workflow={...old,revision:old.revision+(writer?3:2),nodes:[],edges:[],
+  // stall_timeout_ms: no sign of life from a step for 10 min cancels the attempt and retries it (waiting on a permission prompt does not count).
+  policies:{max_total_attempts:40,stall_timeout_ms:600000}};
  const nodes=workflow.nodes;
  const add=n=>{n.metadata={editor:{position:{x:60+nodes.length*300,y:80}}};nodes.push(n);return n;};
  const node=(id,name,type,config,bindings=[],output=null,r={max_attempts:1,retry_on:[]})=>add({id,name,type,config,input_bindings:bindings,output_schema:output,retry:r});
@@ -65,7 +67,7 @@ for(const [id,preps,writer,post] of catalog){
  }
  if(writer){
   const build=nodes.find(n=>n.id==='build');
-  build.retry={max_attempts:3,retry_on:['backend_rate_limited','backend_timeout','verification_failed']};
+  build.retry={max_attempts:3,retry_on:['backend_rate_limited','backend_timeout','tool_timeout','verification_failed']};
   for(const id of ['gate',...(post?[`${post}_gate`]:[])])nodes.find(n=>n.id===id).config.retry_target='build';
  }
  const last=history.at(-1);const lastAgent=nodes.find(n=>n.id===last);const pointer=lastAgent.config.structured_output==='text'?'':'/summary';

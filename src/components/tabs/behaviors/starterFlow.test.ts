@@ -114,7 +114,7 @@ describe("the starter flow documents", () => {
       expect(profile.completion_gate).toBeTruthy();
       expect(profile.limits).toBeUndefined();
     }
-    expect(STARTER_WORKFLOW.policies).toEqual({ max_total_attempts: 40 });
+    expect(STARTER_WORKFLOW.policies).toEqual({ max_total_attempts: 40, stall_timeout_ms: 600000 });
     for (const node of nodes) expect(node.timeout_ms).toBeUndefined();
     expect([STARTER_WORKFLOW, ...STARTER_PROFILES].flatMap(text).filter((entry) => entry.trim() === "")).toEqual([]);
   });

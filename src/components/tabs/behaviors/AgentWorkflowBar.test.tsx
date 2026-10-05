@@ -103,6 +103,7 @@ describe("AgentWorkflowBar", () => {
       run: {
         status: "running",
         startedAt: 0,
+        lastActivityAt: Date.now(),
         current: "build",
         steps: {
           in: { nodeId: "in", status: "succeeded", attempt: 1 },
@@ -137,7 +138,7 @@ describe("AgentWorkflowBar", () => {
     expect(container.textContent).not.toContain("Your next message runs this stage");
     expect(container.querySelector(".summary, [class*=summary]")?.getAttribute("title")).toBeNull();
 
-    await render({ ...props, selected: "builtin:stage", definition: stage, run: { status: "completed", startedAt: 0, steps: {} } });
+    await render({ ...props, selected: "builtin:stage", definition: stage, run: { status: "completed", startedAt: 0, lastActivityAt: 0, steps: {} } });
     expect(container.textContent).not.toContain("Stage complete.");
   });
 
@@ -210,10 +211,53 @@ describe("AgentWorkflowBar", () => {
     await render({
       selected: "/w/gone.json",
       definition: WORKFLOW,
-      run: { status: "failed", startedAt: 0, error: "Verify failed", steps: { build: { nodeId: "build", status: "failed", attempt: 1 } } },
+      run: { status: "failed", startedAt: 0, lastActivityAt: 0, error: "Verify failed", steps: { build: { nodeId: "build", status: "failed", attempt: 1 } } },
     });
     expect(container.textContent).not.toContain("Last run failed. Your next message runs it again.");
     expect(container.textContent).toContain("Verify failed");
     expect(await optionLabels()).toContain("Workflow: gone.json (missing)");
+  });
+
+  describe("no-activity notice", () => {
+    const running = (lastActivityAt: number, status: "running" | "waiting" = "running") => ({
+      workflows: [{ path: "/w/flow.json", name: "Plan and build" }],
+      selected: "/w/flow.json",
+      definition: { ...WORKFLOW, policies: { stall_timeout_ms: 600_000 } },
+      running: true,
+      disabled: true,
+      run: {
+        status: "running" as const,
+        startedAt: 0,
+        lastActivityAt,
+        current: "build",
+        steps: { build: { nodeId: "build", status, attempt: 1 } },
+      },
+    });
+    const idle = () => container.querySelector('[data-testid="workflow-idle"]');
+    afterEach(() => vi.useRealTimers());
+
+    it("stays quiet while the run is active", async () => {
+      vi.useFakeTimers();
+      await render(running(Date.now()));
+      expect(idle()).toBeNull();
+    });
+
+    it("appears after a minute of silence, says when it retries, and offers Stop", async () => {
+      vi.useFakeTimers();
+      const onStop = vi.fn();
+      await render({ ...running(Date.now()), onStop });
+      await act(async () => { vi.advanceTimersByTime(75_000); });
+      expect(idle()?.textContent).toContain("No activity for 1m 15s");
+      expect(idle()?.textContent).toContain("cancelled and retried automatically");
+      await act(async () => (idle()!.querySelector("button") as HTMLButtonElement).click());
+      expect(onStop).toHaveBeenCalledOnce();
+    });
+
+    it("does not count time spent waiting for a permission", async () => {
+      vi.useFakeTimers();
+      await render(running(Date.now(), "waiting"));
+      await act(async () => { vi.advanceTimersByTime(120_000); });
+      expect(idle()).toBeNull();
+    });
   });
 });

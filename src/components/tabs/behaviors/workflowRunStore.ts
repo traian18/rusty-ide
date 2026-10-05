@@ -20,6 +20,8 @@ export interface WorkflowRunView {
   /** The step the run is on: the one that last started, retried or waits. */
   current?: string;
   startedAt: number;
+  /** When the run last showed a sign of life (a step change, output, a tool). Drives the "no activity" notice. */
+  lastActivityAt: number;
   error?: string;
 }
 
@@ -38,6 +40,8 @@ interface WorkflowRunStore {
   takeBehaviorsRequest(): string | undefined;
   catalogChanged(): void;
   begin(workflowId: string): void;
+  /** Record activity on every run that is still going. */
+  touchRunning(): void;
   step(workflowId: string, progress: WorkflowStepProgress): void;
   finish(workflowId: string, status: Exclude<WorkflowRunStatus, "running">, error?: string): void;
 }
@@ -61,15 +65,21 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
   },
   catalogChanged: () => set((state) => ({ catalogVersion: state.catalogVersion + 1 })),
   begin: (workflowId) =>
-    set((state) => ({ runs: { ...state.runs, [workflowId]: { status: "running", steps: {}, startedAt: Date.now() } } })),
+    set((state) => ({ runs: { ...state.runs, [workflowId]: { status: "running", steps: {}, startedAt: Date.now(), lastActivityAt: Date.now() } } })),
+  touchRunning: () =>
+    set((state) => {
+      const now = Date.now();
+      const runs = Object.fromEntries(Object.entries(state.runs).map(([id, run]) => [id, run.status === "running" ? { ...run, lastActivityAt: now } : run]));
+      return { runs };
+    }),
   step: (workflowId, progress) =>
     set((state) => {
-      const run = state.runs[workflowId] ?? { status: "running" as const, steps: {}, startedAt: Date.now() };
+      const run = state.runs[workflowId] ?? { status: "running" as const, steps: {}, startedAt: Date.now(), lastActivityAt: Date.now() };
       const active = progress.status === "running" || progress.status === "waiting" || progress.status === "retry";
       return {
         runs: {
           ...state.runs,
-          [workflowId]: { ...run, current: active ? progress.nodeId : run.current, steps: { ...run.steps, [progress.nodeId]: progress } },
+          [workflowId]: { ...run, lastActivityAt: Date.now(), current: active ? progress.nodeId : run.current, steps: { ...run.steps, [progress.nodeId]: progress } },
         },
       };
     }),

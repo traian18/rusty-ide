@@ -6,7 +6,7 @@
  * shows each step's progress in order.
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Check, Loader2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { IconButton } from "../../ui";
 import { Select } from "./ChoiceSelect";
@@ -50,10 +50,32 @@ export interface AgentWorkflowBarProps {
   /** A running workflow may hand over to another at a step boundary. */
   flowSwitching?: boolean;
   onFlowSwitchingChange?: (allowed: boolean) => void;
+  /** Stops the running workflow; offered from the "no activity" notice. */
+  onStop?: () => void;
   onSelect: (path: string | undefined) => void;
 }
 
 const SINGLE = "";
+
+/** Quiet time before the bar says a step has gone silent. */
+export const IDLE_NOTICE_MS = 60_000;
+
+/** Current time, ticking once a second while `active`. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return undefined;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return now;
+}
+
+export function formatQuiet(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+}
 
 const STATUS_CLASS: Record<WorkflowStepStatus, string> = {
   running: styles.running,
@@ -81,8 +103,10 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   autoAvailable = false,
   flowSwitching = false,
   onFlowSwitchingChange,
+  onStop,
   onSelect,
 }) => {
+  const now = useNow(running);
   const [collapsed, setCollapsed] = useState(() => {
     try { return localStorage.getItem("rusty_workflow_bar_collapsed") === "true"; } catch { return false; }
   });
@@ -126,6 +150,20 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
         }`
       : "Starting the workflow…"
     : "";
+
+  // A step that is only waiting on the user is not stuck, and a paused-for-permission step has nothing to report.
+  const quietMs = running && run && currentProgress?.status !== "waiting" ? now - run.lastActivityAt : 0;
+  const stallLimit = (definition?.policies as { stall_timeout_ms?: unknown } | undefined)?.stall_timeout_ms;
+  const stallMs = typeof stallLimit === "number" && stallLimit > 0 ? stallLimit : undefined;
+  const idleNotice = quietMs >= IDLE_NOTICE_MS ? (
+    <div className={`${styles.idle} ${stallMs && quietMs >= stallMs * 0.6 ? styles.idleWarn : ""}`} role="status" data-testid="workflow-idle">
+      <span>
+        No activity for {formatQuiet(quietMs)}. It may be a long tool call or a slow model.
+        {stallMs ? ` If nothing happens for ${formatQuiet(stallMs)}, the step is cancelled and retried automatically.` : ""}
+      </span>
+      {onStop ? <button type="button" className={styles.idleStop} onClick={onStop}>Stop workflow</button> : null}
+    </div>
+  ) : null;
 
   if (collapsed) return (
     <div className={styles.collapsed}>
@@ -186,6 +224,7 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
           {summary}
         </span>
       </div>
+      {idleNotice}
       {selected && onFlowSwitchingChange ? (
         <label
           className={styles.toggle}
