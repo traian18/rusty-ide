@@ -15,6 +15,160 @@ vi.mock("../../store", () => {
   return { useWorkspaceStore: (selector: (value: typeof state) => unknown) => selector(state) };
 });
 
+const makeFixture = (count: number): Message[] => Array.from({ length: count }, (_, index): Message => ({
+  id: `fixture-${index}`,
+  role: index % 2 === 0 ? "user" : "assistant",
+  content: `fixture message ${index} searchable ${index % 3 === 0 ? "needle" : ""}`,
+  timestamp: "",
+}));
+
+it("coalesces native scroll events and follows the fallback window", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const metrics = vi.fn();
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  try {
+    await act(async () => root.render(<Chat messages={makeFixture(2048)} onPerformanceMetrics={metrics} onVisibleMessageChange={vi.fn()} />));
+    const container = mount.querySelector<HTMLElement>(".overflow-y-auto")!;
+    Object.defineProperties(container, {
+      clientHeight: { configurable: true, value: 600 },
+      scrollHeight: { configurable: true, value: 2048 * 40 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    const elements = [...mount.querySelectorAll<HTMLElement>("[data-message-id]")];
+    const reads = elements.map((element) => vi.spyOn(element, "getBoundingClientRect"));
+    container.dispatchEvent(new Event("scroll"));
+    container.dispatchEvent(new Event("scroll"));
+    expect(frames).toHaveLength(1);
+    await act(async () => frames.shift()!(0));
+    const firstScan = metrics.mock.calls.at(-1)?.[0];
+    expect(firstScan.geometryReads).toBeLessThanOrEqual(64);
+    const firstReads = reads.reduce((sum, spy) => sum + spy.mock.calls.length, 0);
+    Object.defineProperty(container, "scrollTop", { configurable: true, writable: true, value: 2048 * 40 - 600 });
+    container.dispatchEvent(new Event("scroll"));
+    await act(async () => frames.shift()!(0));
+    const secondReads = reads.reduce((sum, spy) => sum + spy.mock.calls.length, 0) - firstReads;
+    expect(secondReads).toBeLessThanOrEqual(64);
+    expect(metrics.mock.calls.at(-1)?.[0].visibilityScans).toBe(2);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
+it("uses IntersectionObserver candidates and cleans them up", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const observed: Element[] = [];
+  const entries: Array<{ target: Element; isIntersecting: boolean }> = [];
+  let callback: IntersectionObserverCallback | undefined;
+  const disconnect = vi.fn();
+  vi.stubGlobal("IntersectionObserver", class {
+    constructor(next: IntersectionObserverCallback) { callback = next; }
+    observe(element: Element) { observed.push(element); }
+    disconnect() { disconnect(); }
+  });
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (next: FrameRequestCallback) => { frames.push(next); return frames.length; });
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  const visible = vi.fn();
+  try {
+    await act(async () => root.render(<Chat messages={makeFixture(128)} onVisibleMessageChange={visible} />));
+    expect(observed.length).toBe(128);
+    const first = observed[0];
+    callback?.([{ target: first, isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver);
+    const container = mount.querySelector<HTMLElement>(".overflow-y-auto")!;
+    Object.defineProperties(container, { clientHeight: { configurable: true, value: 600 }, scrollHeight: { configurable: true, value: 5120 }, scrollTop: { configurable: true, writable: true, value: 0 } });
+    container.dispatchEvent(new Event("scroll"));
+    await act(async () => frames.shift()?.(0));
+    expect(visible).toHaveBeenCalledWith("fixture-0");
+  } finally {
+    await act(async () => root.unmount());
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+  }
+});
+
+it("measures bounded visibility work for deterministic chat fixtures", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
+  const metrics = vi.fn();
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  try {
+    for (const count of [32, 256, 2048]) {
+      await act(async () => root.render(<Chat messages={makeFixture(count)} onPerformanceMetrics={metrics} onVisibleMessageChange={vi.fn()} />));
+      const container = mount.querySelector<HTMLElement>(".overflow-y-auto")!;
+      Object.defineProperty(container, "clientHeight", { configurable: true, value: 600 });
+      Object.defineProperty(container, "scrollHeight", { configurable: true, value: count * 40 });
+      container.dispatchEvent(new Event("scroll"));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    }
+    const latest = metrics.mock.calls.at(-1)?.[0];
+    expect(latest.visibilityScans).toBeGreaterThan(0);
+    expect(latest.geometryReads).toBeLessThanOrEqual(latest.visibilityScans * 64);
+    expect(latest.scrollEvents).toBeGreaterThan(0);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+it("coalesces follow-latest writes from message and resize updates", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const resizeCallbacks: ResizeObserverCallback[] = [];
+  vi.stubGlobal("ResizeObserver", class { constructor(callback: ResizeObserverCallback) { resizeCallbacks.push(callback); } observe() {} disconnect() {} });
+  const metrics = vi.fn();
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  try {
+    await act(async () => root.render(<Chat followLatest onPerformanceMetrics={metrics} messages={makeFixture(32)} />));
+    const container = mount.querySelector<HTMLElement>(".overflow-y-auto")!;
+    Object.defineProperties(container, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1000 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    resizeCallbacks[0]?.([], {} as ResizeObserver);
+    resizeCallbacks[0]?.([], {} as ResizeObserver);
+    expect(frames.length).toBe(1);
+    await act(async () => frames.shift()!(0));
+    expect(container.scrollTop).toBe(1000);
+    expect(metrics.mock.calls.at(-1)?.[0].followLatestWrites).toBe(1);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
+it("reports jump latency after the scheduled alignment completes", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+  const scrollIntoView = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+  const metrics = vi.fn();
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  try {
+    await act(async () => root.render(<Chat messages={makeFixture(32)} explicitScrollTarget={{ messageId: "fixture-10", token: 2 }} onPerformanceMetrics={metrics} />));
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(metrics.mock.calls.at(-1)?.[0].jumpLatencyMs).toBeUndefined();
+    await act(async () => { frames.shift()!(0); });
+    await act(async () => { frames.shift()!(16); });
+    const completedMetric = metrics.mock.calls.map(([value]) => value).find((value) => value.jumpLatencyMs !== undefined);
+    expect(completedMetric?.jumpLatencyMs).toBeGreaterThanOrEqual(0);
+  } finally {
+    await act(async () => root.unmount());
+    vi.unstubAllGlobals();
+  }
+});
+
 it("typing does not reparse completed messages, and stream updates do not parse Markdown", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   markdownRender.mockClear();

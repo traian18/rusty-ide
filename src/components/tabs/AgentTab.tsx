@@ -142,6 +142,23 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     return searchIndexRef.current;
   }, [agentChats]);
   const searchMatches = useMemo(() => findChatSearchMatches(agentChats, chatSearch, searchIndex), [agentChats, chatSearch, searchIndex]);
+  const messageIndexById = useMemo(() => new Map(agentChats.map((chat, index) => [chat.id, index])), [agentChats]);
+  const queryIdByMessageId = useMemo(() => {
+    const result = new Map<string, string>();
+    let queryId: string | undefined;
+    for (const chat of agentChats) {
+      if (chat.role === "user") queryId = chat.id;
+      if (queryId) result.set(chat.id, queryId);
+    }
+    return result;
+  }, [agentChats]);
+  const firstSearchIndexByMessageId = useMemo(() => {
+    const result = new Map<string, number>();
+    searchMatches.forEach((match, index) => {
+      if (!result.has(match.messageId)) result.set(match.messageId, index);
+    });
+    return result;
+  }, [searchMatches]);
   const activeSearchMatch = searchMatches[activeSearchIndex];
   const navigateToMessage = useCallback((messageId: string) => {
     navigationTokenRef.current += 1;
@@ -151,6 +168,21 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setActiveQueryId(messageId);
     navigateToMessage(messageId);
   }, [navigateToMessage]);
+  const handleVisibleMessageChange = useCallback((messageId: string) => {
+    if (!messageIndexById.has(messageId)) return;
+    const queryId = queryIdByMessageId.get(messageId);
+    setActiveQueryId((current) => current === queryId ? current : queryId);
+
+    if (chatSearch.trim()) {
+      const matchIndex = firstSearchIndexByMessageId.get(messageId);
+      if (matchIndex !== undefined) {
+        setActiveSearchIndex((current) => current === matchIndex ? current : matchIndex);
+      }
+    }
+  }, [messageIndexById, queryIdByMessageId, chatSearch, firstSearchIndexByMessageId]);
+  useEffect(() => {
+    setActiveSearchIndex((current) => searchMatches.length === 0 ? 0 : Math.min(current, searchMatches.length - 1));
+  }, [searchMatches]);
   useEffect(() => {
     setActiveSearchIndex(0);
   }, [chatSearch]);
@@ -1497,6 +1529,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               onScrollTargetHandled={(messageId) => {
                 setScrollTarget((current) => current?.messageId === messageId ? undefined : current);
               }}
+              onVisibleMessageChange={handleVisibleMessageChange}
               activeMessageId={activeSearchMatch?.messageId || activeQueryId}
               searchMatches={searchMatches}
               activeSearchMatch={activeSearchMatch}

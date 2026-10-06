@@ -284,6 +284,47 @@ describe("Agent chat workflows", () => {
     await flush();
   }
 
+  it("synchronizes visible query groups and search occurrences without redundant updates", async () => {
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
+    useWorkspaceStore.setState({ agentChats: { agent: [
+      { id: "u1", role: "user", content: "first request", timestamp: "t" },
+      { id: "a1", role: "assistant", content: "shared result shared", timestamp: "t" },
+      { id: "u2", role: "user", content: "second request", timestamp: "t" },
+      { id: "a2", role: "assistant", content: "second result", timestamp: "t" },
+    ] } });
+    await flush();
+
+    const search = container.querySelector<HTMLInputElement>("#agent-chat-search")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "shared");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await flush();
+    expect(container.querySelector("#agent-chat-search-status")?.textContent).toContain("2 matches");
+
+    const chat = container.querySelector<HTMLElement>(".overflow-y-auto")!;
+    Object.defineProperties(chat, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    const u1 = container.querySelector<HTMLElement>("[data-message-id='u1']")!;
+    const a1 = container.querySelector<HTMLElement>("[data-message-id='a1']")!;
+    vi.spyOn(chat, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 100, height: 100, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+    vi.spyOn(u1, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 40, height: 40, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+    vi.spyOn(a1, "getBoundingClientRect").mockReturnValue({ top: 40, bottom: 80, height: 40, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+    await act(async () => chat.dispatchEvent(new Event("scroll", { bubbles: true })));
+    await flush();
+    expect(u1).toBeTruthy();
+    expect(a1).toBeTruthy();
+
+    await act(async () => (container.querySelector<HTMLButtonElement>("#agent-chat-search-next")!).click());
+    await flush();
+    expect(container.querySelector("#agent-chat-search-status")?.textContent).toContain("2 matches");
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+
   it("keeps the skill on Build while a workflow is followed, whatever skill was picked", async () => {
     useWorkspaceStore.getState().setActiveSkill(BUILT_IN_SKILL_IDS.PLAN);
     await flush();

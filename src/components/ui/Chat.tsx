@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useLayoutEffect, useCallback, memo } from "react";
+import React, { useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo, useState } from "react";
 import type { ChatSearchMatch } from "./chatSearch";
 import { FileText, Folder, Loader2, Terminal } from "lucide-react";
 import { AgentActivityCard } from "./SubagentActivityPanel";
@@ -53,6 +53,15 @@ export interface SubagentActivity {
   incorporated?: boolean;
 }
 
+export interface ChatPerformanceMetrics {
+  scrollEvents: number;
+  visibilityScans: number;
+  geometryReads: number;
+  visibilityDurationMs: number;
+  followLatestWrites: number;
+  jumpLatencyMs?: number;
+}
+
 interface ChatProps {
   messages: Message[];
   isStreaming?: boolean;
@@ -65,6 +74,9 @@ interface ChatProps {
   followLatest?: boolean;
   explicitScrollTarget?: { messageId: string; token: number };
   onScrollTargetHandled?: (messageId: string) => void;
+  onVisibleMessageChange?: (messageId: string) => void;
+  /** Opt-in diagnostics for repeatable scroll and jump measurements. */
+  onPerformanceMetrics?: (metrics: ChatPerformanceMetrics) => void;
   activeMessageId?: string;
   searchMatches?: ChatSearchMatch[];
   activeSearchMatch?: ChatSearchMatch;
@@ -122,7 +134,7 @@ export function formatTimestamp(timestamp: string): string {
 
 const EMPTY_SUBAGENTS: SubagentActivity[] = [];
 
-export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, activeMessageId, searchMatches = [], activeSearchMatch }: ChatProps) {
+export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, onVisibleMessageChange, onPerformanceMetrics, activeMessageId, searchMatches = [], activeSearchMatch }: ChatProps) {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const handleLinkClick = useCallback((href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -139,43 +151,176 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollFollowRef = useRef(new ChatScrollFollow());
   const messageRefs = useRef(new Map<string, HTMLDivElement>());
+  const visibleMessageIdsRef = useRef(new Set<string>());
   const explicitNavigationRef = useRef(false);
   const lastHandledTargetRef = useRef<number | undefined>(undefined);
+  const lastVisibleMessageRef = useRef<string | undefined>(undefined);
+  const visibilityFrameRef = useRef<number | null>(null);
+  const persistenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jumpRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const jumpAttemptsRef = useRef(0);
+  const jumpStartedAtRef = useRef<number | null>(null);
+  const followLatestFrameRef = useRef<number | null>(null);
+  const metricsRef = useRef<ChatPerformanceMetrics>({ scrollEvents: 0, visibilityScans: 0, geometryReads: 0, visibilityDurationMs: 0, followLatestWrites: 0 });
+  const [jumpRetryVersion, setJumpRetryVersion] = useState(0);
+  const messageIds = useMemo(() => messages.map((message) => message.id), [messages]);
 
   const registerMessage = useCallback((messageId: string, element: HTMLDivElement | null) => {
     if (element) messageRefs.current.set(messageId, element);
-    else messageRefs.current.delete(messageId);
+    else {
+      messageRefs.current.delete(messageId);
+      visibleMessageIdsRef.current.delete(messageId);
+    }
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !onVisibleMessageChange || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const messageId = (entry.target as HTMLElement).dataset.messageId;
+        if (!messageId) continue;
+        if (entry.isIntersecting) visibleMessageIdsRef.current.add(messageId);
+        else visibleMessageIdsRef.current.delete(messageId);
+      }
+    }, { root: container, threshold: 0 });
+    for (const element of messageRefs.current.values()) observer.observe(element);
+    return () => observer.disconnect();
+  }, [messages, onVisibleMessageChange]);
+
+  const scheduleVisibilityUpdate = useCallback(() => {
+    if (!onVisibleMessageChange || visibilityFrameRef.current !== null) return;
+    const runVisibilityUpdate = () => {
+      visibilityFrameRef.current = null;
+      const container = containerRef.current;
+      if (!container) return;
+      const startedAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+      metricsRef.current.visibilityScans += 1;
+      const maxScrollTop = Math.max(1, container.scrollHeight - container.clientHeight);
+      const scrollProgress = Math.max(0, Math.min(1, container.scrollTop / maxScrollTop));
+      const fallbackCenter = Math.max(0, Math.min(messageIds.length - 1,
+        Math.round(scrollProgress * Math.max(0, messageIds.length - 1))));
+      const fallbackStart = Math.max(0, Math.min(
+        Math.max(0, messageIds.length - 64),
+        fallbackCenter - 32,
+      ));
+      // IntersectionObserver updates asynchronously. Include the current scroll
+      // window as well so a fast scroll cannot measure a stale observer set.
+      const candidateIds = new Set(messageIds.slice(fallbackStart, fallbackStart + 64));
+      for (const messageId of visibleMessageIdsRef.current) candidateIds.add(messageId);
+      const viewportCenter = container.getBoundingClientRect().top + container.clientHeight / 2;
+      let nearestId: string | undefined;
+      let nearestDistance = Number.POSITIVE_INFINITY;
+      for (const messageId of candidateIds) {
+        const element = messageRefs.current.get(messageId);
+        if (!element) continue;
+        metricsRef.current.geometryReads += 1;
+        const rect = element.getBoundingClientRect();
+        const distance = Math.abs(rect.top + rect.height / 2 - viewportCenter);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearestId = messageId;
+        }
+      }
+      metricsRef.current.visibilityDurationMs += (typeof performance !== "undefined" ? performance.now() : Date.now()) - startedAt;
+      if (nearestId && nearestId !== lastVisibleMessageRef.current) {
+        lastVisibleMessageRef.current = nearestId;
+        onVisibleMessageChange(nearestId);
+      }
+      onPerformanceMetrics?.({ ...metricsRef.current });
+    };
+    if (typeof requestAnimationFrame === "function") {
+      visibilityFrameRef.current = requestAnimationFrame(runVisibilityUpdate);
+    } else {
+      visibilityFrameRef.current = 1;
+      queueMicrotask(runVisibilityUpdate);
+    }
+  }, [messageIds, onPerformanceMetrics, onVisibleMessageChange]);
+
+  useEffect(() => () => {
+    if (visibilityFrameRef.current !== null) {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(visibilityFrameRef.current);
+      clearTimeout(visibilityFrameRef.current);
+    }
+    if (followLatestFrameRef.current !== null) {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(followLatestFrameRef.current);
+      clearTimeout(followLatestFrameRef.current);
+    }
+    if (persistenceTimerRef.current) clearTimeout(persistenceTimerRef.current);
+    if (jumpRetryTimerRef.current) clearTimeout(jumpRetryTimerRef.current);
   }, []);
 
   useEffect(() => {
     if (!explicitScrollTarget || lastHandledTargetRef.current === explicitScrollTarget.token) return;
-    lastHandledTargetRef.current = explicitScrollTarget.token;
     const target = messageRefs.current.get(explicitScrollTarget.messageId);
     if (!target) {
-      explicitNavigationRef.current = false;
-      onScrollTargetHandled?.(explicitScrollTarget.messageId);
+      if (jumpAttemptsRef.current < 20) {
+        jumpAttemptsRef.current += 1;
+        jumpRetryTimerRef.current = setTimeout(() => {
+          jumpRetryTimerRef.current = null;
+          setJumpRetryVersion((version) => version + 1);
+        }, 16);
+      } else {
+        // Keep the token pending. A MutationObserver below will wake this effect
+        // when a late-mounted message appears without a messages-array update.
+        jumpAttemptsRef.current = 0;
+      }
       return;
     }
+    jumpAttemptsRef.current = 0;
+    lastHandledTargetRef.current = explicitScrollTarget.token;
+    jumpStartedAtRef.current = typeof performance !== "undefined" ? performance.now() : Date.now();
     const reducedMotion = typeof window !== "undefined"
       && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     explicitNavigationRef.current = true;
     target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "nearest" });
-    onScrollTargetHandled?.(explicitScrollTarget.messageId);
-  }, [explicitScrollTarget, onScrollTargetHandled]);
+    let previousRect: DOMRect | undefined;
+    let stableFrames = 0;
+    const finishJump = () => {
+      const rect = target.getBoundingClientRect();
+      const containerRect = containerRef.current?.getBoundingClientRect();
+      const isAligned = !containerRect
+        || (rect.top >= containerRect.top && rect.bottom <= containerRect.bottom)
+        || Math.abs(rect.top - containerRect.top) < 2;
+      const isStable = previousRect
+        && Math.abs(previousRect.top - rect.top) < 1
+        && Math.abs(previousRect.left - rect.left) < 1;
+      stableFrames = isStable ? stableFrames + 1 : 0;
+      previousRect = rect;
+      if (!reducedMotion && (!isAligned || stableFrames < 1) && jumpAttemptsRef.current < 60) {
+        jumpAttemptsRef.current += 1;
+        requestAnimationFrame(finishJump);
+        return;
+      }
+      jumpAttemptsRef.current = 0;
+      const startedAt = jumpStartedAtRef.current;
+      if (startedAt !== null) {
+        const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+        onPerformanceMetrics?.({ ...metricsRef.current, jumpLatencyMs: now - startedAt });
+        jumpStartedAtRef.current = null;
+      }
+      onScrollTargetHandled?.(explicitScrollTarget.messageId);
+    };
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(finishJump);
+    else setTimeout(finishJump, reducedMotion ? 0 : 50);
+  }, [explicitScrollTarget, jumpRetryVersion, messageIds, onPerformanceMetrics, onScrollTargetHandled]);
 
   const handleScroll = () => {
     const container = containerRef.current;
     if (!container) return;
-
-    // A small tolerance avoids stopping follow mode because of fractional pixel
-    // rounding or the scrollbar itself.
-    scrollFollowRef.current.update(container.scrollHeight - container.scrollTop - container.clientHeight);
-    if (container.scrollHeight - container.scrollTop - container.clientHeight <= 24) {
-      explicitNavigationRef.current = false;
-    }
+    metricsRef.current.scrollEvents += 1;
+    onPerformanceMetrics?.({ ...metricsRef.current });
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    scrollFollowRef.current.update(distanceFromBottom);
+    if (distanceFromBottom <= 24) explicitNavigationRef.current = false;
     if (scrollKey) {
-      localStorage.setItem(`chat_scroll_${scrollKey}`, String(container.scrollTop));
+      if (persistenceTimerRef.current) clearTimeout(persistenceTimerRef.current);
+      persistenceTimerRef.current = setTimeout(() => {
+        localStorage.setItem(`chat_scroll_${scrollKey}`, String(container.scrollTop));
+        persistenceTimerRef.current = null;
+      }, 100);
     }
+    scheduleVisibilityUpdate();
   };
 
   useEffect(() => {
@@ -190,29 +335,58 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
     }
   }, [scrollKey]);
 
-  // Agent activity can grow every few seconds. Follow it only for readers who
-  // are already viewing the latest activity; never pull someone away from an
-  // earlier message they are reading.
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    if (!container || explicitNavigationRef.current || !scrollFollowRef.current.shouldFollow(followLatest)) return;
-    container.scrollTop = container.scrollHeight;
-  }, [followLatest, messages, subagents, isStreaming]);
+  const scheduleFollowLatest = useCallback(() => {
+    if (!followLatest || followLatestFrameRef.current !== null) return;
+    const write = () => {
+      followLatestFrameRef.current = null;
+      const container = containerRef.current;
+      if (!container || explicitNavigationRef.current || !scrollFollowRef.current.shouldFollow(followLatest)) return;
+      const nextTop = container.scrollHeight;
+      if (container.scrollTop !== nextTop) {
+        container.scrollTop = nextTop;
+        metricsRef.current.followLatestWrites += 1;
+        onPerformanceMetrics?.({ ...metricsRef.current });
+      }
+    };
+    if (typeof requestAnimationFrame === "function") followLatestFrameRef.current = requestAnimationFrame(write);
+    else followLatestFrameRef.current = setTimeout(write, 0) as unknown as number;
+  }, [followLatest, onPerformanceMetrics]);
 
-  // Tool output and Markdown blocks often change height after React commits
-  // (collapsible activity, syntax highlighting, fonts). Follow their actual
-  // rendered size while the reader is at the bottom; dependency-based effects
-  // alone run too early and leave the view several screens above the live work.
+  useLayoutEffect(() => {
+    scheduleFollowLatest();
+  }, [followLatest, messages, subagents, isStreaming, scheduleFollowLatest]);
+
   useEffect(() => {
+    if (!explicitScrollTarget || typeof MutationObserver === "undefined") return;
     const container = containerRef.current;
-    const content = contentRef.current;
-    if (!followLatest || !container || !content || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      if (!explicitNavigationRef.current && scrollFollowRef.current.shouldFollow(followLatest)) container.scrollTop = container.scrollHeight;
+    if (!container || messageRefs.current.has(explicitScrollTarget.messageId)) return;
+    const observer = new MutationObserver(() => {
+      if (messageRefs.current.has(explicitScrollTarget.messageId)) {
+        setJumpRetryVersion((version) => version + 1);
+      }
     });
+    observer.observe(container, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [explicitScrollTarget, jumpRetryVersion]);
+
+  // Dynamic Markdown and activity content is coalesced into the same frame path.
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!followLatest || !content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => scheduleFollowLatest());
     observer.observe(content);
     return () => observer.disconnect();
-  }, [followLatest]);
+  }, [followLatest, scheduleFollowLatest]);
+
+  const searchMatchesByMessage = useMemo(() => {
+    const matchesByMessage = new Map<string, ChatSearchMatch[]>();
+    for (const match of searchMatches) {
+      const matches = matchesByMessage.get(match.messageId);
+      if (matches) matches.push(match);
+      else matchesByMessage.set(match.messageId, [match]);
+    }
+    return matchesByMessage;
+  }, [searchMatches]);
 
   const renderGroup = (group: ChatGroup) => {
     if (group.type === "console") {
@@ -294,7 +468,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
                     onLinkClick={handleLinkClick}
                     streaming={isStreaming && msg.role === "assistant" && isLatestMessageInChat}
                     {...(searchMatches.length > 0 ? {
-                      searchMatches: searchMatches.filter((match) => match.messageId === msg.id),
+                      searchMatches: searchMatchesByMessage.get(msg.id) ?? [],
                       activeSearchMatch: activeSearchMatch?.messageId === msg.id ? activeSearchMatch : undefined,
                     } : {})}
                   />
@@ -329,11 +503,12 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
     );
   };
 
-  const visibleMessages = messages.filter((message) =>
+  const visibleMessages = useMemo(() => messages.filter((message) =>
     message.role !== "console"
     || Boolean(message.content.trim())
     || (streamingMessageId === message.id && (isStreaming || subagents.length > 0))
-  );
+  ), [messages, streamingMessageId, isStreaming, subagents.length]);
+  const messageGroups = useMemo(() => groupChatMessages(visibleMessages), [visibleMessages]);
 
   return (
     <div
@@ -348,7 +523,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
           <p>Agent interface initialized. Ready to receive commands.</p>
         </div>
       ) : (
-        groupChatMessages(visibleMessages).map(renderGroup)
+        messageGroups.map(renderGroup)
       )}
       {isStreaming && (
         <div className={`${styles.streaming} flex items-center gap-2 px-3 py-2`} aria-live="polite">

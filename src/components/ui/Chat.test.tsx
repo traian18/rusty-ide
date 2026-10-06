@@ -143,6 +143,7 @@ describe("Chat component rendering", () => {
       expect(dividers).toHaveLength(4);
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -183,6 +184,7 @@ describe("Chat component rendering", () => {
       expect(secondAgentCloud.querySelectorAll("[data-testid='grouped-divider']")).toHaveLength(0);
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -216,6 +218,7 @@ describe("Chat component rendering", () => {
       expect(list?.querySelectorAll('[data-activity-kind="update"]')).toHaveLength(15);
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -259,6 +262,7 @@ describe("Chat component rendering", () => {
       expect(list!.scrollTop).toBe(50);
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -275,6 +279,7 @@ describe("Chat component rendering", () => {
       expect(mount.querySelector('[data-activity-kind="tool"]')?.textContent).toBe("legacy log");
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -311,12 +316,83 @@ describe("Chat component rendering", () => {
       expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "nearest" });
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports the nearest visible message once while scrolling", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => setTimeout(() => callback(0), 0));
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+    const visible = vi.fn();
+    const messages: Message[] = [
+      { id: "u1", role: "user", content: "first", timestamp: "" },
+      { id: "a1", role: "assistant", content: "answer", timestamp: "" },
+    ];
+
+    try {
+      await act(async () => root.render(<Chat messages={messages} onVisibleMessageChange={visible} />));
+      const container = mount.querySelector<HTMLElement>(".chat-typography-scope")!;
+      const first = mount.querySelector<HTMLElement>("[data-message-id='u1']")!;
+      const second = mount.querySelector<HTMLElement>("[data-message-id='a1']")!;
+      Object.defineProperties(container, {
+        clientHeight: { configurable: true, value: 100 },
+        scrollHeight: { configurable: true, value: 300 },
+        scrollTop: { configurable: true, writable: true, value: 0 },
+      });
+      vi.spyOn(container, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 100, height: 100, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+      vi.spyOn(first, "getBoundingClientRect").mockReturnValue({ top: 0, bottom: 40, height: 40, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+      vi.spyOn(second, "getBoundingClientRect").mockReturnValue({ top: 80, bottom: 120, height: 40, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+
+      await act(async () => container.dispatchEvent(new Event("scroll", { bubbles: true })));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      await act(async () => container.dispatchEvent(new Event("scroll", { bubbles: true })));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(visible).toHaveBeenCalledTimes(1);
+      expect(visible).toHaveBeenCalledWith("u1");
+
+      vi.spyOn(first, "getBoundingClientRect").mockReturnValue({ top: -100, bottom: -60, height: 40, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+      vi.spyOn(second, "getBoundingClientRect").mockReturnValue({ top: 20, bottom: 60, height: 40, width: 100, left: 0, right: 100, x: 0, y: 0, toJSON: () => ({}) });
+      await act(async () => container.dispatchEvent(new Event("scroll", { bubbles: true })));
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(visible).toHaveBeenLastCalledWith("a1");
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+
+  it("retries an explicit target that mounts after the jump request", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const mount = document.createElement("div");
+    const root = createRoot(mount);
+    const messages: Message[] = [{ id: "late", role: "assistant", content: "late", timestamp: "" }];
+    try {
+      await act(async () => root.render(<Chat messages={[]} explicitScrollTarget={{ messageId: "late", token: 9 }} />));
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      await act(async () => {
+        root.render(<Chat messages={messages} explicitScrollTarget={{ messageId: "late", token: 9 }} />);
+        vi.advanceTimersByTime(32);
+      });
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "nearest" });
+    } finally {
+      await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
 
   it("handles missing explicit targets without throwing", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
     const mount = document.createElement("div");
     const root = createRoot(mount);
     const handled = vi.fn();
@@ -329,9 +405,13 @@ describe("Chat component rendering", () => {
           onScrollTargetHandled={handled}
         />,
       ));
-      expect(handled).toHaveBeenCalledWith("missing");
+      await act(async () => {
+        vi.runAllTimers();
+      });
+      expect(handled).not.toHaveBeenCalled();
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
@@ -365,6 +445,7 @@ describe("Chat component rendering", () => {
       expect(mount.textContent).toContain("fenced finding");
     } finally {
       await act(async () => root.unmount());
+      vi.useRealTimers();
       vi.unstubAllGlobals();
     }
   });
