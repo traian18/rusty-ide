@@ -46,6 +46,10 @@ it("lets a workflow step select context without editing JSON", () => {
   expect(checkbox.checked).toBe(true);
   act(() => checkbox.click());
   const build = (saved.nodes as JsonObject[]).find((node) => node.id === "build")!;
-  expect(build.input_bindings).toEqual([{ target: "request", source: { type: "run_input", pointer: "/request" } }, { target: "context", source: { type: "run_input", pointer: "/context" } }]);
+  expect(build.input_bindings).toEqual([
+    { target: "request", source: { type: "run_input", pointer: "/request" } },
+    { target: "context", source: { type: "run_input", pointer: "/context" } },
+    { target: "plan_notes", source: { type: "node_output", node_id: "approve_plan", pointer: "/notes" } },
+  ]);
   expect(host.textContent).toContain("Response format");
 });

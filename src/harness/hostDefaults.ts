@@ -17,6 +17,7 @@ export interface RunHostOptions {
   writeFile?: RunHost["writeFile"];
   writePlan?: RunHost["writePlan"];
   askQuestion?: RunHost["askQuestion"];
+  askWorkflowInput?: RunHost["askWorkflowInput"];
 }
 
 const askQuestionThroughNotifications: RunHost["askQuestion"] = async (question, signal) => {
@@ -53,6 +54,7 @@ export function createRunHost(options: RunHostOptions = {}): RunHost {
     writeFile: options.writeFile ?? unsupported("writeFile"),
     writePlan: options.writePlan,
     askQuestion: options.askQuestion ?? askQuestionThroughNotifications,
+    askWorkflowInput: options.askWorkflowInput,
     requestPermission: (request, signal) => commandPermissionService.request(request, signal),
   };
 }

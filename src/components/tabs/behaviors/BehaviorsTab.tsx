@@ -721,6 +721,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = ({ isActive = true
                   selection={workflowSelection}
                   issues={currentIssues}
                   profileIds={profileIds}
+                  flowIds={workflows.map((doc) => workflowId(doc.document)).filter((id) => id !== workflowId(currentWorkflow.document))}
                   onChange={(next) => updateWorkflow(currentWorkflow.path, () => next)}
                   onSelect={setWorkflowSelection}
                   onDrill={(profile) => {

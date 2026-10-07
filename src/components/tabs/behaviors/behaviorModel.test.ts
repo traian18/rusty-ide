@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionType,
   addStep,
+  approvalReviseTarget,
   connectProfiles,
   connectSteps,
   edgesOf,
@@ -13,7 +14,11 @@ import {
   positionOf,
   removeStep,
   removeEdge,
+  MIN_COLUMN_GAP,
+  NODE_SLOT,
   rulesOf,
+  separateOverlaps,
+  spreadColumns,
   stepIssues,
   stepsOf,
   switchEdges,
@@ -21,7 +26,7 @@ import {
   type Issue,
   type JsonObject,
 } from "./behaviorModel";
-import { STARTER_PROFILES, STARTER_WORKFLOW } from "./starterFlow";
+import { STARTER_PROFILES, STARTER_WORKFLOW, STARTER_WORKFLOWS } from "./starterFlow";
 
 const issue = (path: string): Issue => ({ path, code: "x", message: path, blocking: true });
 
@@ -81,6 +86,24 @@ describe("profiles", () => {
 
 describe("workflows", () => {
   const base = (): JsonObject => ({ schema_version: 1, id: "w", nodes: [], edges: [] });
+
+  it("adds an approval that reviews the latest agent step, and a subflow that runs a single step", () => {
+    let workflow = addStep(base(), "agent", { x: 0, y: 0 }).workflow;
+    workflow = addStep(workflow, "agent", { x: 300, y: 0 }).workflow;
+    const approval = stepsOf(addStep(workflow, "approval", { x: 600, y: 0 }).workflow).at(-1)!;
+    expect(approval.config).toEqual({
+      subject: { type: "node_output", node_id: "agent_2", pointer: "" },
+      max_revisions: 5,
+      allow_auto_approve: true,
+    });
+    expect(approvalReviseTarget(approval)).toBe("agent_2");
+    expect(approvalReviseTarget({ ...approval, config: { ...(approval.config as JsonObject), revise_target: "agent" } })).toBe("agent");
+    expect(approvalReviseTarget({ id: "x", config: {} })).toBeUndefined();
+
+    const subflow = stepsOf(addStep(workflow, "subflow", { x: 600, y: 0 }).workflow).at(-1)!;
+    expect(subflow.type).toBe("subflow");
+    expect((subflow.config as JsonObject).target).toMatchObject({ type: "step" });
+  });
 
   it("adds, connects, and removes steps with their edges", () => {
     let workflow = addStep(base(), "input", { x: 0, y: 0 }).workflow;
@@ -152,5 +175,47 @@ describe("issues", () => {
     const issues = [issue("rules[1]"), issue("rules[1].do"), issue("rules[10]"), issue("nodes.plan.config"), issue("nodes[2]")];
     expect(issuesUnder(issues, "rules[1]").map((found) => found.path)).toEqual(["rules[1]", "rules[1].do"]);
     expect(stepIssues(issues, 2, "plan").map((found) => found.path)).toEqual(["nodes.plan.config", "nodes[2]"]);
+  });
+});
+
+describe("canvas layout", () => {
+  const collide = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    Math.abs(a.x - b.x) < NODE_SLOT.width - 40 && Math.abs(a.y - b.y) < NODE_SLOT.height - 40;
+
+  it("moves a node that would hide another to the nearest free slot and leaves the rest alone", () => {
+    const placed = separateOverlaps([
+      ["verify", { x: 1020, y: 340 }],
+      ["architect", { x: 1040, y: 340 }],
+      ["third", { x: 1000, y: 330 }],
+      ["apart", { x: 60, y: 60 }],
+    ]);
+    expect(placed.get("verify")).toEqual({ x: 1020, y: 340 });
+    expect(placed.get("apart")).toEqual({ x: 60, y: 60 });
+    const all = [...placed.values()];
+    all.forEach((a, i) => all.slice(i + 1).forEach((b) => expect(collide(a, b)).toBe(false)));
+    expect(all.every((position) => position.x >= 0 && position.y >= 0)).toBe(true);
+  });
+
+  it("stretches a tight workflow row so every edge can be seen, and leaves a roomy one", () => {
+    const tight = new Map([["a", { x: 60, y: 80 }], ["b", { x: 360, y: 80 }], ["c", { x: 660, y: 80 }]]);
+    const edges = [{ source: "a", target: "b" }, { source: "b", target: "c" }];
+    const spread = spreadColumns(tight, edges);
+    expect(spread.get("a")).toEqual({ x: 60, y: 80 });
+    expect(spread.get("b")!.x - spread.get("a")!.x).toBeGreaterThanOrEqual(MIN_COLUMN_GAP);
+    expect(spread.get("c")!.x - spread.get("b")!.x).toBeGreaterThanOrEqual(MIN_COLUMN_GAP);
+    const roomy = new Map([["a", { x: 60, y: 80 }], ["b", { x: 560, y: 80 }]]);
+    expect(spreadColumns(roomy, [{ source: "a", target: "b" }])).toBe(roomy);
+  });
+
+  it("lays out every built-in profile and workflow with nothing on top of anything", () => {
+    const profiles = STARTER_PROFILES.map((profile) => positionOf(profile)!);
+    expect(profiles.every(Boolean)).toBe(true);
+    profiles.forEach((a, i) => profiles.slice(i + 1).forEach((b) => expect(collide(a, b)).toBe(false)));
+    for (const workflow of STARTER_WORKFLOWS) {
+      const positions = new Map(stepsOf(workflow).map((step) => [String(step.id), positionOf(step)!]));
+      expect(spreadColumns(positions, edgesOf(workflow)), String(workflow.id)).toBe(positions);
+      const all = [...positions.values()];
+      all.forEach((a, i) => all.slice(i + 1).forEach((b) => expect(collide(a, b), String(workflow.id)).toBe(false)));
+    }
   });
 });

@@ -63,7 +63,7 @@ export const ACTION_EVENTS: Record<ActionType, readonly RuleEvent[]> = {
   rewrite_result: ["PostToolUse", "PostToolUseFailure"],
 };
 
-export const STEP_TYPES = ["input", "agent", "verify", "output"] as const;
+export const STEP_TYPES = ["input", "agent", "verify", "approval", "subflow", "output"] as const;
 export type StepType = (typeof STEP_TYPES)[number];
 
 export const BUILTIN_PREFIX = "rusty.";
@@ -101,6 +101,60 @@ export function withPosition<T extends JsonObject>(item: T, position: Position):
 /** Grid slot for the `index`th item without a stored position. */
 export function gridPosition(index: number, columns = 3): Position {
   return { x: 60 + (index % columns) * 340, y: 60 + Math.floor(index / columns) * 240 };
+}
+
+/** The room a node needs on the canvas: its own size plus a margin to see edges and labels. */
+export const NODE_SLOT = { width: 340, height: 250 };
+
+/** Least horizontal distance between two connected steps in a row, so an edge and its label stay visible. */
+export const MIN_COLUMN_GAP = 400;
+
+const overlaps = (a: Position, b: Position) => Math.abs(a.x - b.x) < NODE_SLOT.width - 40 && Math.abs(a.y - b.y) < NODE_SLOT.height - 40;
+
+/**
+ * Positions with no node on top of another, in the order given: a node that
+ * would cover one placed before it moves to the nearest free slot. Nodes that
+ * do not collide keep exactly the position they have.
+ */
+export function separateOverlaps(entries: Array<[string, Position]>): Map<string, Position> {
+  const placed: Position[] = [];
+  const result = new Map<string, Position>();
+  const offsets: Array<[number, number]> = [];
+  for (let dx = -4; dx <= 4; dx += 1) for (let dy = -4; dy <= 4; dy += 1) if (dx || dy) offsets.push([dx, dy]);
+  offsets.sort((a, b) => a[0] ** 2 + a[1] ** 2 - (b[0] ** 2 + b[1] ** 2) || a[1] - b[1] || a[0] - b[0]);
+  for (const [id, wanted] of entries) {
+    let position = wanted;
+    if (placed.some((other) => overlaps(position, other))) {
+      const free = offsets
+        .map(([dx, dy]) => ({ x: wanted.x + dx * NODE_SLOT.width, y: wanted.y + dy * NODE_SLOT.height }))
+        .find((candidate) => candidate.x >= 0 && candidate.y >= 0 && !placed.some((other) => overlaps(candidate, other)));
+      if (free) position = free;
+    }
+    placed.push(position);
+    result.set(id, position);
+  }
+  return result;
+}
+
+/**
+ * Stretches the layout sideways when connected steps in the same row sit
+ * closer than [`MIN_COLUMN_GAP`], as in workflows saved with the old tight
+ * spacing, so every edge has room to be seen. A layout that is already
+ * roomy is returned as it is.
+ */
+export function spreadColumns(positions: Map<string, Position>, edges: JsonObject[]): Map<string, Position> {
+  let tightest = Infinity;
+  for (const edge of edges) {
+    const from = positions.get(String(edge.source));
+    const to = positions.get(String(edge.target));
+    if (!from || !to || Math.abs(from.y - to.y) >= NODE_SLOT.height / 2) continue;
+    const gap = Math.abs(to.x - from.x);
+    if (gap > 0) tightest = Math.min(tightest, gap);
+  }
+  if (!Number.isFinite(tightest) || tightest >= MIN_COLUMN_GAP) return positions;
+  const factor = Math.min(2, MIN_COLUMN_GAP / tightest);
+  const left = Math.min(...[...positions.values()].map((position) => position.x));
+  return new Map([...positions].map(([id, position]) => [id, { x: Math.round(left + (position.x - left) * factor), y: position.y }]));
 }
 
 /* ------------------------------------------------------------------ */
@@ -270,6 +324,17 @@ export function stepProfile(step: JsonObject): string | undefined {
   return isObject(profile) && typeof profile.id === "string" ? profile.id : undefined;
 }
 
+/** Where an approval step sends requested changes: its `revise_target`, or
+ * else the step that produced what it reviews. */
+export function approvalReviseTarget(step: JsonObject): string | undefined {
+  const config = stepConfig(step);
+  if (typeof config.revise_target === "string" && config.revise_target) return config.revise_target;
+  const subject = config.subject;
+  return isObject(subject) && subject.type === "node_output" && typeof subject.node_id === "string" && subject.node_id
+    ? subject.node_id
+    : undefined;
+}
+
 function uniqueId(used: Iterable<string>, base: string): string {
   const taken = new Set(used);
   if (!taken.has(base)) return base;
@@ -291,6 +356,18 @@ export function defaultStepConfig(type: StepType, workflow: Json): JsonObject {
       };
     case "verify":
       return { checks: [{ type: "schema" }] };
+    case "subflow":
+      // One step run as a flow of its own; point it at a saved flow instead if one fits.
+      return { target: { type: "step", instructions: "Gather what the next steps need." } };
+    case "approval": {
+      // Reviews the latest agent step's result; changes go back to it.
+      const agent = [...stepsOf(workflow)].reverse().find((step) => step.type === "agent");
+      return {
+        subject: { type: "node_output", node_id: String(agent?.id ?? ""), pointer: "" },
+        max_revisions: 5,
+        allow_auto_approve: true,
+      };
+    }
     case "output": {
       const agent = stepsOf(workflow).find((step) => step.type === "agent");
       return {
@@ -384,7 +461,7 @@ export function layoutSteps(workflow: Json): Map<string, Position> {
     const column = depth.get(id) ?? index;
     const row = rows.get(column) ?? 0;
     rows.set(column, row + 1);
-    positions.set(id, positionOf(step) ?? { x: 60 + column * 320, y: 80 + row * 220 });
+    positions.set(id, positionOf(step) ?? { x: 60 + column * 440, y: 80 + row * 260 });
   });
   return positions;
 }

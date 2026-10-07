@@ -183,6 +183,10 @@ pub struct SessionRecipe {
     /// profiles run, since the Behaviors canvas creates them as drafts.
     #[serde(default)]
     pub workflow: Option<serde_json::Value>,
+    /// Other saved workflows the `workflow` may run through `subflow` nodes
+    /// or a task queue's flows (the built-in ones are always available).
+    #[serde(default)]
+    pub workflow_library: Vec<serde_json::Value>,
 }
 
 /// Converts `recipe` into a ready-to-`.start()` `SessionBuilder`, wiring

@@ -61,12 +61,50 @@ fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
     prefixed_builtin_profiles()
 }
 
+/// The built-in workflows under their `rusty-ide.builtin.` ids, naming the
+/// built-in profiles under theirs (the same renaming `builtinWorkflow` does
+/// in starterFlow.ts), so any workflow can run them as subflows.
+fn prefixed_builtin_workflows() -> Vec<serde_json::Value> {
+    const PREFIX: &str = "rusty-ide.builtin.";
+    /// Renames the profile reference at `path` when there is one.
+    fn prefix_profile(node: &mut serde_json::Value, path: &[&str]) {
+        let mut at = Some(node);
+        for key in path {
+            at = at.and_then(|value| value.get_mut(*key));
+        }
+        if let Some(id) = at.and_then(|reference| reference.get_mut("id")) {
+            if let Some(name) = id.as_str() {
+                *id = serde_json::json!(format!("{PREFIX}{name}"));
+            }
+        }
+    }
+    serde_json::from_str::<serde_json::Value>(BUILTIN_CATALOG).expect("generated catalog")
+        ["workflows"]
+        .as_array()
+        .expect("catalog workflows")
+        .iter()
+        .cloned()
+        .map(|mut workflow| {
+            let id = workflow["id"].as_str().unwrap_or_default().to_owned();
+            workflow["id"] = serde_json::json!(format!("{PREFIX}{id}"));
+            for node in workflow["nodes"].as_array_mut().into_iter().flatten() {
+                prefix_profile(node, &["config", "profile"]);
+                prefix_profile(node, &["config", "task_queue", "review_profile"]);
+                prefix_profile(node, &["config", "target", "profile"]);
+            }
+            workflow
+        })
+        .collect()
+}
+
 /// Registers `document` on a fresh per-session orchestration config and
-/// enables it on `builder`. Drafts are allowed for both the workflow and the
-/// profiles its steps name: the Behaviors canvas creates both as drafts.
+/// enables it on `builder`, together with the workflows it may run: the
+/// built-in ones and `library`. Drafts are allowed for both the workflow and
+/// the profiles its steps name: the Behaviors canvas creates both as drafts.
 pub fn configure(
     builder: SessionBuilder,
     document: serde_json::Value,
+    library: Vec<serde_json::Value>,
 ) -> Result<(SessionBuilder, (String, u64)), String> {
     // App-owned profiles are available in every project without seeding files.
     let profiles = harness_engine::ProfilesConfig::default();
@@ -79,6 +117,16 @@ pub fn configure(
     let key = config
         .register_json(document)
         .map_err(|error| error.to_string())?;
+    // A workflow another one runs that does not register is left out: the run
+    // that needs it is refused with "not registered", which names it.
+    for other in prefixed_builtin_workflows().into_iter().chain(library) {
+        let same = other["id"].as_str() == Some(key.0.as_str())
+            && other["revision"].as_u64() == Some(key.1);
+        if !same {
+            // Built-ins that do not register would be a bug the tests catch.
+            let _ = config.register_json(other);
+        }
+    }
     Ok((
         builder
             .profiles(profiles)
@@ -115,6 +163,23 @@ pub enum WorkflowControl {
         id: String,
         decision: PermissionDecision,
     },
+    /// Answers an `input_requested` workflow event (an approval, or what to
+    /// do after a failure) with one of the decisions it offered.
+    ResolveInput {
+        request_id: String,
+        decision: String,
+        #[serde(default)]
+        text: Option<String>,
+    },
+}
+
+/// How a workflow run is started, chosen by the user at run time.
+#[derive(Debug, Default, Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkflowStartOptions {
+    /// Approval steps that allow it pass without asking.
+    #[serde(default)]
+    pub auto_approve: bool,
 }
 
 const TERMINAL_EVENTS: [&str; 3] = ["run_completed", "run_failed", "run_cancelled"];
@@ -182,8 +247,13 @@ impl HarnessState {
         session_id: SessionId,
         input: serde_json::Value,
     ) -> Result<String, String> {
-        self.start_workflow_from_checkpoint(session_id, input, None)
-            .await
+        self.start_workflow_from_checkpoint(
+            session_id,
+            input,
+            None,
+            WorkflowStartOptions::default(),
+        )
+        .await
     }
 
     pub async fn start_workflow_from_checkpoint(
@@ -191,6 +261,7 @@ impl HarnessState {
         session_id: SessionId,
         input: serde_json::Value,
         checkpoint: Option<harness_engine::OrchestrationRunState>,
+        options: WorkflowStartOptions,
     ) -> Result<String, String> {
         let (handle, workflow, outbound) = self
             .with_session(&session_id, |entry| {
@@ -216,7 +287,8 @@ impl HarnessState {
             .and_then(|value| value.as_str())
             .map(str::to_owned)
             .unwrap_or_else(|| input.to_string());
-        let request = OrchestrationRequest::exact(run_id.clone(), id, revision, input);
+        let request = OrchestrationRequest::exact(run_id.clone(), id, revision, input)
+            .with_auto_approve(options.auto_approve);
         let mut run = match checkpoint {
             Some(state) => handle.retry_orchestration(request, state, guidance).await,
             None => handle.start_orchestration(request).await,
@@ -277,6 +349,18 @@ impl HarnessState {
             WorkflowControl::Resume => handle.resume().await,
             WorkflowControl::ResolvePermission { id, decision } => {
                 handle.resolve_permission(id, decision).await
+            }
+            WorkflowControl::ResolveInput {
+                request_id,
+                decision,
+                text,
+            } => {
+                let response = harness_engine::InputResponse {
+                    decision,
+                    text,
+                    by: harness_engine::Responder::User,
+                };
+                handle.resolve_input(request_id, response).await
             }
         };
         result.map_err(|error| error.to_string())
@@ -894,6 +978,7 @@ mod tests {
                                 session,
                                 json!({"request": "continue"}),
                                 Some(serde_json::from_value(checkpoint).unwrap()),
+                                WorkflowStartOptions::default(),
                             )
                             .await
                             .unwrap();
@@ -928,8 +1013,8 @@ mod tests {
         state.close_session(session).await.unwrap();
     }
 
-    /// Every current editing workflow has a task queue and a deterministic
-    /// criterion gate; command outcomes alone cannot establish coverage.
+    /// Every task-queue workflow has a deterministic gate that requires every
+    /// planned criterion to be reported; command outcomes alone cannot establish coverage.
     #[test]
     fn editing_workflows_require_task_coverage() {
         for (name, workflow) in builtin_workflows() {
@@ -945,7 +1030,7 @@ mod tests {
                         .any(
                             |n| n["config"]["checks"].as_array().is_some_and(|checks| checks
                                 .iter()
-                                .any(|c| c["type"] == "requirements_satisfied"))
+                                .any(|c| c["type"] == "criteria" && c["plan_pointer"] == "/plan"))
                         ),
                     "{name}"
                 );
@@ -1856,5 +1941,196 @@ mod tests {
 
         state.close_session(session_id).await.unwrap();
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// input → approval of the request → output (the decision); no model turns.
+    async fn approval_session(state: &HarnessState) -> SessionId {
+        let document = json!({
+            "schema_version": 1, "id": "ide.approve", "revision": 1, "name": "Approve", "status": "draft",
+            "nodes": [
+                { "id": "input", "name": "Input", "type": "input", "config": {} },
+                { "id": "approve", "name": "Approve", "type": "approval",
+                  "config": { "subject": { "type": "run_input", "pointer": "/request" } } },
+                { "id": "output", "name": "Output", "type": "output",
+                  "config": { "source": { "type": "node_output", "node_id": "approve", "pointer": "/decision" }, "strict": false } }
+            ],
+            "edges": [
+                { "id": "a", "source": "input", "target": "approve", "condition": "on_success" },
+                { "id": "b", "source": "approve", "target": "output", "condition": "on_success" }
+            ]
+        });
+        let recipe: SessionRecipe = serde_json::from_value(json!({
+            "workspace": { "root": "/tmp", "binding": "host" },
+            "integration": "host",
+            "workflow": document,
+        }))
+        .unwrap();
+        state
+            .create_session(recipe)
+            .await
+            .expect("session with a workflow")
+    }
+
+    async fn next_event(inbox: &mut mpsc::UnboundedReceiver<BridgeEvent>) -> BridgeEvent {
+        tokio::time::timeout(Duration::from_secs(5), inbox.recv())
+            .await
+            .expect("the run must not stall")
+            .expect("the inbox stays open")
+    }
+
+    #[tokio::test]
+    async fn an_approval_waits_for_the_answer_given_through_workflow_control() {
+        let state = HarnessState::new();
+        let session_id = approval_session(&state).await;
+        let mut inbox = state.take_inbox(session_id).unwrap();
+        state
+            .start_workflow(session_id, json!({ "request": "ship it" }))
+            .await
+            .unwrap();
+        let request_id = loop {
+            if let BridgeEvent::WorkflowEvent(value) = next_event(&mut inbox).await {
+                if value["event"]["type"] == "input_requested" {
+                    assert_eq!(value["event"]["request"]["subject"], "ship it");
+                    break value["event"]["request"]["id"].as_str().unwrap().to_owned();
+                }
+            }
+        };
+        let refused = state
+            .workflow_control(
+                session_id,
+                WorkflowControl::ResolveInput {
+                    request_id: request_id.clone(),
+                    decision: "maybe".into(),
+                    text: None,
+                },
+            )
+            .await;
+        assert!(refused.is_err(), "an answer that was not offered");
+        let control: WorkflowControl = serde_json::from_value(json!({
+            "type": "resolve_input", "request_id": request_id, "decision": "approve", "text": "looks right"
+        }))
+        .unwrap();
+        state.workflow_control(session_id, control).await.unwrap();
+        let final_state = loop {
+            if let BridgeEvent::WorkflowFinished { state } = next_event(&mut inbox).await {
+                break state;
+            }
+        };
+        assert_eq!(final_state["status"], "completed", "{final_state}");
+        assert_eq!(final_state["final_output"], "approved");
+        assert_eq!(
+            final_state["steps"]["approve"]["output"]["notes"],
+            "looks right"
+        );
+        state.close_session(session_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_run_started_with_auto_approve_does_not_ask() {
+        let state = HarnessState::new();
+        let session_id = approval_session(&state).await;
+        let mut inbox = state.take_inbox(session_id).unwrap();
+        let options: WorkflowStartOptions =
+            serde_json::from_value(json!({ "autoApprove": true })).unwrap();
+        state
+            .start_workflow_from_checkpoint(
+                session_id,
+                json!({ "request": "ship it" }),
+                None,
+                options,
+            )
+            .await
+            .unwrap();
+        let final_state = loop {
+            match next_event(&mut inbox).await {
+                BridgeEvent::WorkflowEvent(value) => {
+                    assert_ne!(value["event"]["type"], "input_requested")
+                }
+                BridgeEvent::WorkflowFinished { state } => break state,
+                _ => {}
+            }
+        };
+        assert_eq!(final_state["status"], "completed", "{final_state}");
+        assert_eq!(final_state["steps"]["approve"]["output"]["by"], "auto");
+        assert_eq!(final_state["options"]["auto_approve"], true);
+        state.close_session(session_id).await.unwrap();
+    }
+
+    /// input → sub (a subflow of `target`) → output.
+    fn calling(target: serde_json::Value) -> serde_json::Value {
+        json!({
+            "schema_version": 1, "id": "ide.caller", "revision": 1, "name": "Caller", "status": "draft",
+            "nodes": [
+                { "id": "input", "name": "Input", "type": "input", "config": {} },
+                { "id": "sub", "name": "Gather", "type": "subflow", "config": { "target": target },
+                  "input_bindings": [{ "target": "request", "source": { "type": "run_input", "pointer": "/request" } }] },
+                { "id": "output", "name": "Output", "type": "output",
+                  "config": { "source": { "type": "node_output", "node_id": "sub", "pointer": "" }, "strict": false } }
+            ],
+            "edges": [
+                { "id": "a", "source": "input", "target": "sub", "condition": "on_success" },
+                { "id": "b", "source": "sub", "target": "output", "condition": "on_success" }
+            ]
+        })
+    }
+
+    async fn start_calling(
+        target: serde_json::Value,
+        library: Vec<serde_json::Value>,
+    ) -> Result<(), String> {
+        let state = HarnessState::new();
+        let recipe: SessionRecipe = serde_json::from_value(json!({
+            "workspace": { "root": "/tmp", "binding": "host" },
+            "integration": "host",
+            "workflow": calling(target),
+            "workflow_library": library,
+        }))
+        .unwrap();
+        let session_id = state.create_session(recipe).await.expect("session");
+        let started = state
+            .start_workflow(session_id, json!({ "request": "look into it" }))
+            .await
+            .map(|_| ());
+        state.close_session(session_id).await.unwrap();
+        started
+    }
+
+    #[tokio::test]
+    async fn a_workflow_may_run_a_built_in_workflow_as_a_subflow() {
+        start_calling(
+            json!({ "type": "flow", "id": "rusty-ide.builtin.investigate" }),
+            vec![],
+        )
+        .await
+        .expect("built-in workflows are always available");
+    }
+
+    #[tokio::test]
+    async fn a_workflow_may_run_a_saved_workflow_sent_with_the_session() {
+        let mut helper = harness_engine::validation::templates().default_workflow;
+        helper["id"] = json!("ws.helper");
+        helper["status"] = json!("draft");
+        start_calling(json!({ "type": "flow", "id": "ws.helper" }), vec![helper])
+            .await
+            .expect("saved workflows come with the session");
+    }
+
+    #[tokio::test]
+    async fn a_subflow_that_does_not_exist_is_refused_by_name() {
+        let error = start_calling(json!({ "type": "flow", "id": "ws.missing" }), vec![])
+            .await
+            .expect_err("unknown flow");
+        assert!(error.contains("ws.missing"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_subflow_step_under_a_built_in_profile_is_accepted() {
+        let target = json!({
+            "type": "step", "instructions": "Find where the sessions are stored.",
+            "profile": { "id": "rusty-ide.builtin.research" }
+        });
+        start_calling(target, vec![])
+            .await
+            .expect("built-in profiles resolve");
     }
 }

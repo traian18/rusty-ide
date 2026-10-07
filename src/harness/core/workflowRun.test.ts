@@ -3,9 +3,12 @@ import {
   MAX_FOLDED_RESULT_CHARS,
   MAX_WORKFLOW_CONTEXT_CHARS,
   conversationResults,
+  describeWorkflowEvent,
+  manualChecks,
   priorWorkflowContext,
   withConversation,
   workflowInputFor,
+  workflowOutcome,
   workflowUsesContext,
 } from "./workflowRun";
 
@@ -179,5 +182,48 @@ describe("conversationResults", () => {
       { role: "assistant", content: "**▶ Build**" },
     ];
     expect(conversationResults(chat)).toBe(analysis.trim());
+  });
+});
+
+describe("manual checks", () => {
+  const gateOutput = (checks: unknown[]) => ({ passed: true, checks: [], issues: [], manual_checks: checks });
+  const state = {
+    status: "completed",
+    final_output: "Done.",
+    steps: {
+      gate: { output: gateOutput([{ id: "C2", how_to_test: "Tap Share on iOS.", evidence: "needs a phone" }]) },
+      review_gate: { output: gateOutput([{ id: "C2", how_to_test: "Tap Share on iOS." }, { id: "R1", how_to_test: "" }]) },
+      verify: { output: { summary: "fine" } },
+    },
+  };
+
+  it("collects what every gate left for the user, once each", () => {
+    expect(manualChecks(state)).toEqual([
+      { id: "C2", howToTest: "Tap Share on iOS." },
+      { id: "R1", howToTest: "" },
+    ]);
+    expect(manualChecks({ steps: { verify: { output: "text" } } })).toEqual([]);
+  });
+
+  it("lists them after the result of a completed run", () => {
+    expect(workflowOutcome(state)).toEqual({
+      status: "completed",
+      output: "Done.\n\n## Manual checks for you\nThese could not be checked here. Please check them by hand:\n- **C2**: Tap Share on iOS.\n- **R1**: Check this by hand.",
+    });
+    expect(workflowOutcome({ ...state, steps: {} })).toEqual({ status: "completed", output: "Done." });
+  });
+});
+
+describe("questions to the user", () => {
+  const names = { approve: "Plan approval" };
+  it("shows the step as waiting for an answer, then says how it was answered", () => {
+    expect(describeWorkflowEvent({ event: { type: "input_requested", node_id: "approve", attempt: 1 } }, names)).toEqual({
+      log: "Plan approval is waiting for your answer.",
+      step: { nodeId: "approve", status: "asking", attempt: 1 },
+    });
+    expect(describeWorkflowEvent({ event: { type: "input_resolved", node_id: "approve", attempt: 1, response: { decision: "request_changes", by: "user" } } }, names).log)
+      .toBe("Plan approval: you chose request changes.");
+    expect(describeWorkflowEvent({ event: { type: "input_resolved", node_id: "approve", attempt: 1, response: { decision: "approve", by: "auto" } } }, names).log)
+      .toBe("Plan approval: answered automatically (approve).");
   });
 });

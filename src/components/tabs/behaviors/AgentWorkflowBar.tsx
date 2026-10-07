@@ -50,6 +50,9 @@ export interface AgentWorkflowBarProps {
   /** A running workflow may hand over to another at a step boundary. */
   flowSwitching?: boolean;
   onFlowSwitchingChange?: (allowed: boolean) => void;
+  /** Approval steps pass without asking (only those that allow it). */
+  autoApprove?: boolean;
+  onAutoApproveChange?: (enabled: boolean) => void;
   /** Stops the running workflow; offered from the "no activity" notice. */
   onStop?: () => void;
   onSelect: (path: string | undefined) => void;
@@ -80,6 +83,7 @@ export function formatQuiet(ms: number): string {
 const STATUS_CLASS: Record<WorkflowStepStatus, string> = {
   running: styles.running,
   waiting: styles.waiting,
+  asking: styles.waiting,
   retry: styles.waiting,
   succeeded: styles.succeeded,
   failed: styles.failed,
@@ -88,6 +92,7 @@ const STATUS_CLASS: Record<WorkflowStepStatus, string> = {
 const STATUS_LABEL: Record<WorkflowStepStatus, string> = {
   running: "running",
   waiting: "waiting for permission",
+  asking: "waiting for your answer",
   retry: "retrying",
   succeeded: "done",
   failed: "failed",
@@ -103,6 +108,8 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   autoAvailable = false,
   flowSwitching = false,
   onFlowSwitchingChange,
+  autoApprove = false,
+  onAutoApproveChange,
   onStop,
   onSelect,
 }) => {
@@ -139,6 +146,8 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   ];
 
   const handsOver = auto || workflowSwitchTargets(definition).length > 0;
+  // With Auto the workflow is chosen per message, so any of them may ask.
+  const hasApprovals = auto || stepsOf(definition ?? {}).some((step) => step.type === "approval");
   const showRun = Boolean(selected && run && (running || run.status !== "running"));
   const currentIndex = running && run?.current ? steps.findIndex((step) => step.id === run.current) : -1;
   const activeStep = currentIndex >= 0 ? steps[currentIndex] : undefined;
@@ -146,13 +155,15 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
   const summary = running
     ? activeStep
       ? `Running step ${currentIndex + 1} of ${steps.length}: ${activeStep.name}${
-          currentProgress?.status === "waiting" ? " (waiting for permission)" : currentProgress && currentProgress.attempt > 1 ? ` (attempt ${currentProgress.attempt})` : ""
+          currentProgress?.status === "waiting" ? " (waiting for permission)"
+            : currentProgress?.status === "asking" ? " (waiting for your answer)"
+            : currentProgress && currentProgress.attempt > 1 ? ` (attempt ${currentProgress.attempt})` : ""
         }`
       : "Starting the workflow…"
     : "";
 
   // A step that is only waiting on the user is not stuck, and a paused-for-permission step has nothing to report.
-  const quietMs = running && run && currentProgress?.status !== "waiting" ? now - run.lastActivityAt : 0;
+  const quietMs = running && run && currentProgress?.status !== "waiting" && currentProgress?.status !== "asking" ? now - run.lastActivityAt : 0;
   const stallLimit = (definition?.policies as { stall_timeout_ms?: unknown } | undefined)?.stall_timeout_ms;
   const stallMs = typeof stallLimit === "number" && stallLimit > 0 ? stallLimit : undefined;
   const idleNotice = quietMs >= IDLE_NOTICE_MS ? (
@@ -239,6 +250,20 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
             onChange={(event) => onFlowSwitchingChange(event.target.checked)}
           />
           Allow flow switching
+        </label>
+      ) : null}
+      {selected && onAutoApproveChange && hasApprovals ? (
+        <label
+          className={styles.toggle}
+          title="Approval steps (such as reviewing the plan) pass without asking you. Steps that must always be seen by a person still ask, and so do questions about failures."
+        >
+          <input
+            type="checkbox"
+            checked={autoApprove}
+            disabled={disabled}
+            onChange={(event) => onAutoApproveChange(event.target.checked)}
+          />
+          Auto-approve
         </label>
       ) : null}
     </div>

@@ -1,0 +1,8 @@
+.card { display: grid; gap: var(--space-2); margin-bottom: var(--space-2); border: 1px solid var(--color-status-warning-border); border-radius: var(--radius-md); background: var(--color-surface-panel); padding: var(--space-2); font-size: var(--font-size-ui-sm); }
+.header { display: flex; align-items: center; gap: var(--space-2); color: var(--color-status-warning); font-size: var(--font-size-ui-xs); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.prompt { margin: 0; color: var(--color-fg-strong); }
+.subject { max-height: 18rem; overflow-y: auto; border: 1px solid var(--color-border-subtle); border-radius: var(--radius-sm); background: var(--color-surface-sunken); padding: var(--space-2); }
+.notes { width: 100%; min-height: 3.5rem; resize: vertical; border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); background: var(--color-surface-input); color: var(--color-fg-strong); padding: var(--space-1) var(--space-2); font: inherit; }
+.notes:focus { outline: none; border-color: var(--color-border-focus); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.hint { color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); }

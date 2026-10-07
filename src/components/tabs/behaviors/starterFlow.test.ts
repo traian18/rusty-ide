@@ -25,13 +25,13 @@ const edges = STARTER_WORKFLOW.edges as JsonObject[];
 const profileIds = STARTER_PROFILES.map((profile) => String(profile.id));
 
 describe("the starter flow documents", () => {
-  it("is the flow it says it is: request → plan → build → verify → result", () => {
+  it("is the flow it says it is: request → plan → approval → build → verify → manual checks → result", () => {
     expect(STARTER_WORKFLOW.id).toBe("rusty-ide.builtin.plan-build-verify");
     expect(nodes.map((node) => `${node.id}:${node.type}`)).toEqual([
-      "input:input", "plan:agent", "build:agent", "verify:agent", "gate:verify", "output:output",
+      "input:input", "plan:agent", "approve_plan:approval", "build:agent", "verify:agent", "gate:verify", "confirm_checks:approval", "output:output",
     ]);
     expect(edges.map((edge) => `${edge.source}>${edge.target}`)).toEqual([
-      "input>plan", "plan>build", "build>verify", "verify>gate", "gate>output",
+      "input>plan", "plan>approve_plan", "approve_plan>build", "build>verify", "verify>gate", "gate>confirm_checks", "confirm_checks>output",
     ]);
   });
 
@@ -101,7 +101,7 @@ describe("the starter flow documents", () => {
       typeof value === "string"
         ? [value]
         : value && typeof value === "object"
-          ? Object.entries(value).flatMap(([key, entry]) => (key === "pointer" || key === "context" ? [] : text(entry)))
+          ? Object.entries(value).flatMap(([key, entry]) => (key === "pointer" || key === "skip_if_empty" || key === "context" ? [] : text(entry)))
           : [];
     for (const node of nodes.filter((step) => step.type === "agent")) {
       expect(String((node.config as JsonObject).instructions).length).toBeGreaterThan(80);

@@ -198,7 +198,7 @@ describe("Agent chat workflows", () => {
     expect(run).toHaveBeenCalledTimes(1);
     const [capability, input] = run.mock.calls[0];
     expect(capability).toBe("agent_chat");
-    expect(input.workflow).toEqual({ definition: FLOW, input: { request: "add password reset", attachments: [] } });
+    expect(input.workflow).toEqual({ definition: FLOW, input: { request: "add password reset", attachments: [] }, options: { autoApprove: false } });
     expect(useWorkflowRunStore.getState().runs.flow?.status).toBe("running");
     expect(container.textContent).toContain("Starting the workflow…");
     expect(select().disabled).toBe(true);

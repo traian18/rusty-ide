@@ -148,6 +148,44 @@ describe("AgentWorkflowBar", () => {
     expect(container.textContent).not.toContain("building on");
   });
 
+  describe("approvals", () => {
+    const WITH_APPROVAL = {
+      ...WORKFLOW,
+      nodes: [...WORKFLOW.nodes, { id: "approve", name: "Plan approval", type: "approval" }],
+    };
+
+    it("offers auto-approve only for a workflow that has an approval step", async () => {
+      const onAutoApproveChange = vi.fn();
+      await render({ selected: "/w/flow.json", definition: WORKFLOW, onAutoApproveChange });
+      expect(container.textContent).not.toContain("Auto-approve");
+      await render({ selected: "/w/flow.json", definition: WITH_APPROVAL, onAutoApproveChange });
+      const box = [...container.querySelectorAll<HTMLLabelElement>("label")]
+        .find((label) => label.textContent?.includes("Auto-approve"))!
+        .querySelector("input")!;
+      expect(box.checked).toBe(false);
+      await act(async () => box.click());
+      expect(onAutoApproveChange).toHaveBeenCalledWith(true);
+    });
+
+    it("says when a step waits for the user's answer and does not call it idle", async () => {
+      await render({
+        selected: "/w/flow.json",
+        definition: WITH_APPROVAL,
+        running: true,
+        disabled: true,
+        run: {
+          status: "running",
+          startedAt: 0,
+          lastActivityAt: 0,
+          current: "approve",
+          steps: { approve: { nodeId: "approve", status: "asking", attempt: 1 } },
+        },
+      });
+      expect(container.textContent).toContain("(waiting for your answer)");
+      expect(container.querySelector('[data-testid="workflow-idle"]')).toBeNull();
+    });
+  });
+
   describe("Auto and flow switching", () => {
     const workflows = [{ path: "/w/flow.json", name: "Plan and build" }];
     const toggle = () => container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;

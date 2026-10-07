@@ -5,9 +5,9 @@
 
 import React from "react";
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { ArrowDownToLine, ArrowUpFromLine, Bot, ChevronRight, ListChecks, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Bot, ChevronRight, ListChecks, ShieldCheck, Sparkles, Split, UserCheck } from "lucide-react";
 import type { WorkflowStepProgress } from "../../../harness/core/workflowRun";
-import { type JsonObject, isObject, rulesOf, stepConfig, stepProfile } from "./behaviorModel";
+import { type JsonObject, approvalReviseTarget, isObject, rulesOf, stepConfig, stepProfile } from "./behaviorModel";
 import styles from "./Behaviors.module.css";
 
 export interface ProfileNodeData extends Record<string, unknown> {
@@ -91,6 +91,7 @@ export const ProfileNode: React.FC<NodeProps<ProfileFlowNode>> = ({ data }) => {
 const RUN_BADGE: Record<WorkflowStepProgress["status"], string> = {
   running: styles.badgeRunning,
   waiting: styles.badgeWarning,
+  asking: styles.badgeWarning,
   retry: styles.badgeWarning,
   succeeded: styles.badgeSuccess,
   failed: styles.badgeDanger,
@@ -100,6 +101,8 @@ const STEP_ICONS = {
   input: { Icon: ArrowDownToLine, className: styles.nodeIconInput },
   agent: { Icon: Bot, className: "" },
   verify: { Icon: ShieldCheck, className: styles.nodeIconVerify },
+  approval: { Icon: UserCheck, className: styles.nodeIconVerify },
+  subflow: { Icon: Split, className: "" },
   output: { Icon: ArrowUpFromLine, className: styles.nodeIconOutput },
 } as const;
 
@@ -162,6 +165,35 @@ export const StepNode: React.FC<NodeProps<StepFlowNode>> = ({ data }) => {
             <span>retries</span>
             <span className={`${styles.nodeValue} ${styles.mono}`}>{config.retry_target}</span>
           </div>
+        ) : null}
+        {type === "subflow" ? (
+          <div className={styles.nodeLine}>
+            <span>runs</span>
+            <span className={`${styles.nodeValue} ${styles.mono}`}>
+              {isObject(config.target) && config.target.type === "flow" ? String(config.target.id || "—") : "a step"}
+            </span>
+          </div>
+        ) : null}
+        {type === "subflow" && isObject(config.target) && config.target.type === "step" && config.target.instructions ? (
+          <div className={styles.nodeText}>{String(config.target.instructions)}</div>
+        ) : null}
+        {type === "approval" ? (
+          <>
+            <div className={styles.nodeLine}>
+              <span>reviews</span>
+              <span className={`${styles.nodeValue} ${styles.mono}`}>
+                {isObject(config.subject) ? String(config.subject.node_id ?? "run input") : "—"}
+              </span>
+            </div>
+            <div className={styles.nodeLine}>
+              <span>changes go to</span>
+              <span className={`${styles.nodeValue} ${styles.mono}`}>{approvalReviseTarget(step) ?? "—"}</span>
+            </div>
+            <div className={styles.nodeLine}>
+              <span>auto-approve</span>
+              <span className={styles.nodeValue}>{config.allow_auto_approve === false ? "always asks" : "allowed"}</span>
+            </div>
+          </>
         ) : null}
       </div>
       {type !== "output" ? <Handle type="source" position={Position.Right} className={styles.handle} /> : null}

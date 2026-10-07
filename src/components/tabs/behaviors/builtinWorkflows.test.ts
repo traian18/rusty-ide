@@ -31,6 +31,8 @@ const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }>
 };
 
 const PREFIX = "rusty-ide.builtin.";
+/** Multi-step changes run the approved plan as a task queue. */
+const QUEUED = ["researched-feature", "careful-change", "security-remediation", "refactor"];
 const profileIds = new Set(STARTER_PROFILES.map((profile) => String(profile.id)));
 const nodesOf = (document: JsonObject) => document.nodes as JsonObject[];
 const agentsOf = (document: JsonObject) => nodesOf(document).filter((node) => node.type === "agent");
@@ -84,7 +86,11 @@ describe("the built-in workflow catalog", () => {
   it("hands each step its predecessors' text and only names inputs it was given", () => {
     for (const document of STARTER_WORKFLOWS) {
       const seen = new Set<string>();
-      for (const node of agentsOf(document)) {
+      for (const node of nodesOf(document)) {
+        if (node.type !== "agent") {
+          seen.add(String(node.id));
+          continue;
+        }
         const bindings = node.input_bindings as JsonObject[];
         const targets = bindings.map((binding) => String(binding.target));
         expect(targets).toContain("request");
@@ -97,15 +103,20 @@ describe("the built-in workflow catalog", () => {
         for (const name of mentioned) expect(targets, `${shortId(document)}/${node.id} mentions ${name}`).toContain(name);
         expect(String(configOf(node).instructions).length).toBeGreaterThan(80);
         const acceptanceReviewer = ["verify", "review", "recheck"].includes(String(node.id)) && agentsOf(document).some(n => n.id === "build");
-        expect(configOf(node).structured_output).toBe(acceptanceReviewer ? "host_validated" : "text");
+        // A queued flow's plan is a typed task plan, and its Build returns the tasks it completed.
+        const typedPlan = QUEUED.includes(shortId(document)) && ["plan", "build"].includes(String(node.id));
+        expect(configOf(node).structured_output).toBe(acceptanceReviewer || typedPlan ? "host_validated" : "text");
         expect(configOf(node).tools).toEqual({ type: "inherit" });
         expect(node.output_schema).toBeTruthy();
-        if (!acceptanceReviewer) {
+        if (!acceptanceReviewer && !typedPlan) {
           expect((node.output_schema as JsonObject).schema).toEqual({ type: "string" });
           expect(String(configOf(node).instructions)).not.toContain("Finish with exactly");
           for (const binding of bindings) {
-            if ((binding.source as JsonObject).type === "node_output") {
-              expect((binding.source as JsonObject).pointer).toBe("");
+            const source = binding.source as JsonObject;
+            if (source.type === "node_output") {
+              // An approval hands on only the user's notes.
+              const approval = nodesOf(document).find((n) => n.id === source.node_id)?.type === "approval";
+              expect(source.pointer).toBe(approval ? "/notes" : "");
             }
           }
         }
@@ -130,14 +141,53 @@ describe("the built-in workflow catalog", () => {
     }
   });
 
-  it("builds in one step and accepts only a passing verdict", () => {
+  it("asks the user to approve the plan before building, and to confirm the checks only a person can do", () => {
     for (const document of STARTER_WORKFLOWS) {
       const nodes = nodesOf(document);
-      // One build step implements the whole plan; no per-task queue to stall on.
-      expect(nodes.some(n => configOf(n).task_queue), shortId(document)).toBe(false);
+      if (!nodes.some((n) => n.id === "build")) {
+        expect(nodes.some((n) => n.type === "approval"), shortId(document)).toBe(false);
+        continue;
+      }
+      const ids = nodes.map((n) => String(n.id));
+      const approve = nodes.find((n) => n.id === "approve_plan")!;
+      expect(approve.type).toBe("approval");
+      expect(configOf(approve).subject).toEqual({ type: "node_output", node_id: "plan", pointer: "" });
+      expect(ids.indexOf("approve_plan")).toBe(ids.indexOf("plan") + 1);
+      expect(ids.indexOf("build")).toBe(ids.indexOf("approve_plan") + 1);
+      const build = nodes.find((n) => n.id === "build")!;
+      expect(build.input_bindings).toContainEqual({ target: "plan_notes", source: { type: "node_output", node_id: "approve_plan", pointer: "/notes" } });
+      const confirm = nodes.find((n) => n.id === "confirm_checks")!;
+      expect(configOf(confirm)).toMatchObject({
+        subject: { type: "node_output", node_id: "gate", pointer: "/manual_checks" },
+        revise_target: "build",
+        skip_if_empty: "",
+      });
+      expect(ids.at(-2)).toBe("confirm_checks");
+    }
+  });
+
+  it("runs a multi-step plan as a task queue that asks on failure, and judges acceptance criterion by criterion", () => {
+    for (const document of STARTER_WORKFLOWS) {
+      const nodes = nodesOf(document);
+      const queue = nodes.map(n => configOf(n).task_queue).find(Boolean) as JsonObject | undefined;
+      if (QUEUED.includes(shortId(document))) {
+        expect(queue, shortId(document)).toMatchObject({ plan_pointer: "/plan", review_profile: { id: `${PREFIX}review` }, on_task_failure: "ask" });
+        expect(nodes.find(n => n.id === "plan")!.output_schema).toEqual({ type: "registry", schema_id: "rusty.task_plan", revision: 1 });
+        expect(String(configOf(nodes.find(n => n.id === "verify")!).instructions)).toContain("under their ids");
+        expect(configOf(nodes.find(n => n.id === "gate")!).checks).toEqual([{ type: "criteria", pointer: "/check/criteria", plan_pointer: "/plan" }]);
+      } else {
+        // Smaller changes: one build step implements the whole plan.
+        expect(queue, shortId(document)).toBeUndefined();
+      }
       const gate = nodes.find(n => n.id === "gate");
       if (!gate) continue;
-      expect(configOf(gate).checks).toEqual([{ type: "required_status", pointer: "/check/verdict", equals: "pass" }]);
+      // Not a free-text verdict: fail goes back to Build, manual moves on.
+      if (!QUEUED.includes(shortId(document))) expect(configOf(gate).checks).toEqual([{ type: "criteria", pointer: "/check/criteria" }]);
+      const reviewer = nodes.find(n => n.id === "verify")!;
+      const schema = (reviewer.output_schema as JsonObject).schema as JsonObject;
+      const criterion = (((schema.properties as JsonObject).criteria as JsonObject).items as JsonObject).properties as JsonObject;
+      expect((criterion.status as JsonObject).enum).toEqual(["pass", "fail", "manual"]);
+      expect(String(configOf(reviewer).instructions)).toMatch(/manual/);
     }
   });
 
@@ -149,7 +199,7 @@ describe("the built-in workflow catalog", () => {
       const edge = (document.edges as JsonObject[]).find(e => e.source === last.id)!;
       const gate = nodes.find(n => n.id === edge.target)!;
       expect(gate.type, shortId(document)).toBe("verify");
-      expect(JSON.stringify(configOf(gate).checks)).toMatch(/required_status/);
+      expect(JSON.stringify(configOf(gate).checks)).toMatch(/"criteria"/);
     }
   });
 

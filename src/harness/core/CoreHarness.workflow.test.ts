@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentEvent, AgentEventEnvelope, MutationCommand } from "@rusty/harness-sdk";
 
-import type { CapabilityEvent, InlineChatInput } from "../contract";
+import type { CapabilityEvent, InlineChatInput, WorkflowQuestion } from "../contract";
 import type { HarnessControlPlane } from "../contract/controlPlane";
 import { createRecordingHost } from "../testing/recordingHost";
 import type { BridgeEvent, CoreEngine, WorkflowControl } from "./engine/CoreEngineClient";
@@ -50,9 +50,11 @@ class FakeEngine implements CoreEngine {
   closeSession() {
     return Promise.resolve();
   }
-  startWorkflow(_sessionId: string, input: unknown, checkpoint?: unknown) {
+  startOptions: unknown[] = [];
+  startWorkflow(_sessionId: string, input: unknown, checkpoint?: unknown, options?: unknown) {
     this.started.push(input);
     this.checkpoints.push(checkpoint);
+    this.startOptions.push(options);
     return Promise.resolve("run-1");
   }
   stepConfigs: Array<{ sessionId: string; stepSessionId: string; params: unknown }> = [];
@@ -136,6 +138,44 @@ async function start(permission: "allow" | "never" = "never", checkpoint?: unkno
 }
 
 describe("CoreHarness workflow runs", () => {
+  it("asks the host a step's question, sends the answer back and starts with the run options", async () => {
+    const engine = new FakeEngine();
+    const harness = new CoreHarness({
+      engine,
+      controlPlane: { recordUsage: async () => {} } as unknown as HarnessControlPlane,
+      executionAnswerer: {} as ExecutionAnswerer,
+      definitions: { inline_chat: { ...definition, workflow: () => ({ ...definition.workflow!(INPUT)!, options: { autoApprove: true } }) } },
+    });
+    const { host } = createRecordingHost();
+    const asked: WorkflowQuestion[] = [];
+    host.askWorkflowInput = async (question) => {
+      asked.push(question);
+      return { decision: "request_changes", text: "split step 2" };
+    };
+    const events: CapabilityEvent<"inline_chat">[] = [];
+    const handle = harness.run("inline_chat", INPUT, host, (event) => events.push(event));
+    await handle.started;
+    await flush();
+    expect(engine.startOptions).toEqual([{ autoApprove: true }]);
+
+    engine.emit({ kind: "workflow_event", data: { sequence: 4, event: {
+      type: "input_requested", node_id: "build", attempt: 1,
+      request: { id: "build:1", kind: "approval", prompt: "Review the plan", subject: "the plan", decisions: [
+        { id: "approve", label: "Approve", requires_text: false },
+        { id: "request_changes", label: "Request changes", requires_text: true },
+      ] },
+    } } });
+    await flush();
+    await flush();
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toMatchObject({ requestId: "build:1", step: "Build", kind: "approval", prompt: "Review the plan", subject: "the plan" });
+    expect(asked[0].decisions[1]).toEqual({ id: "request_changes", label: "Request changes", requiresText: true });
+    expect(engine.controls).toContainEqual({ type: "resolve_input", request_id: "build:1", decision: "request_changes", text: "split step 2" });
+    expect(events).toContainEqual(expect.objectContaining({ kind: "workflow_step", nodeId: "build", status: "asking" }));
+    handle.cancel();
+  });
+
+
   it("passes the saved checkpoint to native and exposes the next checkpoint before settling", async () => {
     const checkpoint = { status: "failed", failed_step: "build", definition_id: "plan-build", steps: { plan: { output: "keep this plan" } } };
     const { engine, handle, events } = await start("never", checkpoint);

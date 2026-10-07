@@ -422,10 +422,11 @@ pub async fn harness_start_workflow(
     session_id: String,
     input: serde_json::Value,
     checkpoint: Option<harness_engine::OrchestrationRunState>,
+    options: Option<super::workflow::WorkflowStartOptions>,
 ) -> Result<String, String> {
     let session_id = parse_session_id(&session_id)?;
     state
-        .start_workflow_from_checkpoint(session_id, input, checkpoint)
+        .start_workflow_from_checkpoint(session_id, input, checkpoint, options.unwrap_or_default())
         .await
 }
 

@@ -86,4 +86,6 @@ export interface SessionRecipe {
   /** An orchestration definition to run with `startWorkflow` instead of a
    * prompt (see src-tauri/src/harness/workflow.rs). */
   workflow?: unknown;
+  /** Other saved workflows `workflow` may run as subflows. */
+  workflow_library?: unknown[];
 }

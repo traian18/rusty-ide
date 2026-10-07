@@ -20,6 +20,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type { AgentEventEnvelope, MutationCommand, PermissionDecision } from "@rusty/harness-sdk";
 import type { WorkflowEventEnvelope } from "../workflowRun";
+import type { WorkflowRunOptions } from "../../contract/capabilities";
 
 import type { ExecutionParams, SessionRecipe } from "../SessionRecipe";
 import { logExecutionDiagnostic } from "../executionDiagnostics";
@@ -44,7 +45,7 @@ export interface CoreEngine {
   hostExecuteResult(sessionId: string, callId: string, outcome: HostExecuteOutcome): Promise<void>;
   closeSession(sessionId: string): Promise<void>;
   /** Starts the workflow the session's recipe carries; resolves to the run id. */
-  startWorkflow?(sessionId: string, input: unknown, checkpoint?: unknown): Promise<string>;
+  startWorkflow?(sessionId: string, input: unknown, checkpoint?: unknown, options?: WorkflowRunOptions): Promise<string>;
   workflowControl?(sessionId: string, control: WorkflowControl): Promise<void>;
   /** The running workflow's state (finished steps' outputs included); with
    * `afterStep` it waits briefly for that step to settle first. */
@@ -58,7 +59,9 @@ export type WorkflowControl =
   | { type: "cancel" }
   | { type: "pause" }
   | { type: "resume" }
-  | { type: "resolve_permission"; id: string; decision: PermissionDecision };
+  | { type: "resolve_permission"; id: string; decision: PermissionDecision }
+  /** Answers an `input_requested` event with one of the decisions it offered. */
+  | { type: "resolve_input"; request_id: string; decision: string; text?: string };
 
 /**
  * Mirrors `BridgeEvent` (src-tauri/src/harness/bridge_event.rs), whose
@@ -188,8 +191,8 @@ export class CoreEngineClient implements CoreEngine {
     return invoke("harness_snapshot", { sessionId });
   }
 
-  startWorkflow(sessionId: string, input: unknown, checkpoint?: unknown): Promise<string> {
-    return invoke("harness_start_workflow", { sessionId, input, checkpoint });
+  startWorkflow(sessionId: string, input: unknown, checkpoint?: unknown, options?: WorkflowRunOptions): Promise<string> {
+    return invoke("harness_start_workflow", { sessionId, input, checkpoint, options: options ?? null });
   }
 
   workflowControl(sessionId: string, control: WorkflowControl): Promise<void> {

@@ -2,7 +2,10 @@ import React from "react";
 import { useWorkspaceStore } from "../../store";
 import { selectActiveTab, selectActiveTabId } from "../../store/tabSelectors";
 import { useShallow } from "zustand/react/shallow";
-import { NAVIGATION_RAIL_ICONS } from "./NavigationRailPresenter";
+import { NAVIGATION_RAIL_ICONS, type NavigationRailIconItem } from "./NavigationRailPresenter";
+
+export const getVisibleTopIcons = (items: NavigationRailIconItem[]) =>
+  items.filter((item) => item.id !== "settings" && item.id !== "onboarding" && item.id !== "rusty");
 import { NavigationRailView } from "./NavigationRail.view";
 import { formatShortcut } from "../../preferences/shortcuts";
 
@@ -57,8 +60,7 @@ export const NavigationRail: React.FC = () => {
     metricsTodayTotal: state.metricsTodayTotal,
     toggleDrawerView: state.toggleDrawerView,
   })));
-  const topIcons = NAVIGATION_RAIL_ICONS
-    .filter((item) => item.id !== "settings" && item.id !== "onboarding")
+  const topIcons = getVisibleTopIcons(NAVIGATION_RAIL_ICONS)
     .map((item) => item.id === "explorer"
       ? { ...item, label: `Files (${formatShortcut(toggleExplorerShortcut)})` }
       : item);

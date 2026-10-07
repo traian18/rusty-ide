@@ -10,7 +10,9 @@
 
 import { markdownText } from "./markdownText";
 
-export type WorkflowStepStatus = "running" | "waiting" | "retry" | "succeeded" | "failed";
+/** `waiting` is for a tool permission, `asking` for an answer to a question
+ * the step put to the user (an approval). */
+export type WorkflowStepStatus = "running" | "waiting" | "asking" | "retry" | "succeeded" | "failed";
 
 export interface FailedWorkflowCheckpoint {
   status: "failed";
@@ -174,6 +176,16 @@ export function describeWorkflowEvent(
       return { log: `Step ${name} is waiting for a permission.`, step: { nodeId, status: "waiting", attempt } };
     case "permission_resolved":
       return { step: { nodeId, status: "running", attempt } };
+    case "input_requested":
+      return { log: `${name} is waiting for your answer.`, step: { nodeId, status: "asking", attempt } };
+    case "input_resolved": {
+      const response = (event.response ?? {}) as { decision?: unknown; by?: unknown };
+      const decision = String(response.decision ?? "").replace(/_/g, " ");
+      return {
+        log: response.by === "auto" ? `${name}: answered automatically (${decision}).` : `${name}: you chose ${decision}.`,
+        step: { nodeId, status: "running", attempt },
+      };
+    }
     case "transition_selected": {
       const to = typeof event.to === "string" ? names[event.to] ?? event.to : "";
       return event.condition === "on_failure" ? { log: `Following the failure path to ${to}.` } : {};
@@ -189,10 +201,38 @@ export function describeWorkflowEvent(
   }
 }
 
+export interface ManualCheck {
+  id: string;
+  howToTest: string;
+}
+
+/** What the acceptance gates of a run left for the user to check by hand: a
+ * `criteria` check lets work move on when a criterion is only checkable by a
+ * person, and lists it in the gate's `manual_checks`. */
+export function manualChecks(state: unknown): ManualCheck[] {
+  const steps = ((state ?? {}) as { steps?: Record<string, { output?: unknown }> }).steps ?? {};
+  const found: ManualCheck[] = [];
+  for (const step of Object.values(steps)) {
+    const listed = (step?.output as { manual_checks?: unknown } | undefined)?.manual_checks;
+    if (!Array.isArray(listed)) continue;
+    for (const item of listed as Array<{ id?: unknown; how_to_test?: unknown }>) {
+      const check = { id: String(item?.id ?? "check"), howToTest: String(item?.how_to_test ?? "").trim() };
+      if (!found.some((known) => known.id === check.id && known.howToTest === check.howToTest)) found.push(check);
+    }
+  }
+  return found;
+}
+
+function withManualChecks(output: unknown, checks: ManualCheck[]): unknown {
+  if (checks.length === 0) return output;
+  const lines = checks.map((check) => `- **${check.id}**: ${check.howToTest || "Check this by hand."}`);
+  return `${formatWorkflowOutput(output)}\n\n## Manual checks for you\nThese could not be checked here. Please check them by hand:\n${lines.join("\n")}`;
+}
+
 /** The outcome of a finished run, from its final `OrchestrationRunState`. */
 export function workflowOutcome(state: unknown): WorkflowOutcome {
   const run = (state ?? {}) as { status?: unknown; final_output?: unknown; error?: unknown };
-  if (run.status === "completed") return { status: "completed", output: run.final_output ?? null };
+  if (run.status === "completed") return { status: "completed", output: withManualChecks(run.final_output ?? null, manualChecks(state)) };
   if (run.status === "cancelled") return { status: "cancelled" };
   const error = (run.error ?? {}) as { code?: unknown };
   return {

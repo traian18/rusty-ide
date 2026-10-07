@@ -19,7 +19,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { ArrowDownToLine, ArrowUpFromLine, Bot, ShieldCheck } from "lucide-react";
+import { ArrowDownToLine, ArrowUpFromLine, Bot, ShieldCheck, Split, UserCheck } from "lucide-react";
 import { Button } from "../../ui";
 import type { WorkflowStepProgress } from "../../../harness/core/workflowRun";
 import { behaviorNodeTypes, type ProfileNodeData, type StepNodeData } from "./BehaviorNodes";
@@ -28,10 +28,13 @@ import {
   type JsonObject,
   type Position,
   type StepType,
+  approvalReviseTarget,
   edgesOf,
   gridPosition,
   isBuiltin,
   layoutSteps,
+  separateOverlaps,
+  spreadColumns,
   positionOf,
   profileId,
   stepIssues,
@@ -101,13 +104,19 @@ const ProfileCanvasInner: React.FC<ProfileCanvasProps> = ({
 }) => {
   const derived = useMemo(() => {
     const all = [...profiles, ...builtins];
-    return all.map((profile, index): Node<ProfileNodeData, "profile"> => {
+    // Where each profile asks to be; one that would hide another is moved to a free spot.
+    const wanted = all.map((profile, index): [string, Position] => {
+      const id = profileId(profile);
+      return [id, (isBuiltin(id) ? builtinPositions[id] : positionOf(profile)) ?? gridPosition(index)];
+    });
+    const placed = separateOverlaps(wanted);
+    return all.map((profile): Node<ProfileNodeData, "profile"> => {
       const id = profileId(profile);
       const readOnly = isBuiltin(id);
       return {
         id,
         type: "profile",
-        position: (readOnly ? builtinPositions[id] : positionOf(profile)) ?? gridPosition(index),
+        position: placed.get(id)!,
         data: {
           profile,
           selected: id === selected,
@@ -196,6 +205,8 @@ const PALETTE: { type: StepType; label: string; Icon: typeof Bot }[] = [
   { type: "input", label: "Input", Icon: ArrowDownToLine },
   { type: "agent", label: "Agent", Icon: Bot },
   { type: "verify", label: "Verify", Icon: ShieldCheck },
+  { type: "approval", label: "Approval", Icon: UserCheck },
+  { type: "subflow", label: "Subflow", Icon: Split },
   { type: "output", label: "Output", Icon: ArrowUpFromLine },
 ];
 
@@ -215,13 +226,17 @@ const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
   onDrill,
 }) => {
   const derived = useMemo(() => {
-    const positions = layoutSteps(workflow);
-    return stepsOf(workflow).map((step, index): Node<StepNodeData, "step"> => {
+    const stored = layoutSteps(workflow);
+    const steps = stepsOf(workflow);
+    // Room for every edge to be seen, and no step on top of another.
+    const spread = spreadColumns(stored, edgesOf(workflow));
+    const positions = separateOverlaps(steps.map((step, index): [string, Position] => [String(step.id), spread.get(String(step.id)) ?? gridPosition(index, 4)]));
+    return steps.map((step, index): Node<StepNodeData, "step"> => {
       const id = String(step.id);
       return {
         id,
         type: "step",
-        position: positions.get(id) ?? gridPosition(index, 4),
+        position: positions.get(id)!,
         data: {
           step,
           selected: id === selectedStep,
@@ -254,19 +269,23 @@ const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
     [workflow, selectedEdge],
   );
 
-  // Verify steps with a retry target draw a dotted loop back to it.
+  // Verify steps with a retry target, and approval steps (where requested
+  // changes go), draw a dotted loop back to that step.
   const retryEdges = useMemo(
     () =>
       stepsOf(workflow).flatMap((step): Edge[] => {
         const config = step.config as JsonObject | undefined;
-        const target = config && typeof config.retry_target === "string" ? config.retry_target : undefined;
-        if (step.type !== "verify" || !target) return [];
+        const approval = step.type === "approval";
+        const target = approval
+          ? approvalReviseTarget(step)
+          : config && typeof config.retry_target === "string" ? config.retry_target : undefined;
+        if ((step.type !== "verify" && !approval) || !target) return [];
         return [
           {
             id: `retry:${String(step.id)}`,
             source: String(step.id),
             target,
-            label: "retry",
+            label: approval ? "changes" : "retry",
             type: "smoothstep",
             selectable: false,
             style: { stroke: "var(--color-status-warning)", strokeWidth: 1.5, strokeDasharray: "2 4" },

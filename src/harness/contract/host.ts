@@ -47,10 +47,32 @@ export interface AgentQuestion {
   options: Array<{ label: string; description?: string }>;
 }
 
+/** A question a workflow step puts to the user -- an approval, or what to do
+ * after a failure. Mirrors `InputRequest` in rusty-core. The run waits until
+ * it is answered. */
+export interface WorkflowQuestion {
+  requestId: string;
+  /** The name of the step asking. */
+  step: string;
+  /** What is being asked, e.g. "approval". */
+  kind: string;
+  prompt: string;
+  /** What the user decides on, e.g. the plan. */
+  subject: unknown;
+  decisions: Array<{ id: string; label: string; requiresText: boolean }>;
+}
+
+export interface WorkflowAnswer {
+  /** One of the question's decision ids. */
+  decision: string;
+  text?: string;
+}
+
 export interface RunHost {
   readFile(path: string, signal: AbortSignal): Promise<string>;
   writeFile(path: string, content: string, signal: AbortSignal): Promise<void>;
   writePlan?(filename: string, content: string, signal: AbortSignal): Promise<string>;
   requestPermission(request: CommandPermissionRequest, signal: AbortSignal): Promise<CommandPermissionDecision>;
   askQuestion?(question: AgentQuestion, signal: AbortSignal): Promise<string>;
+  askWorkflowInput?(question: WorkflowQuestion, signal: AbortSignal): Promise<WorkflowAnswer>;
 }

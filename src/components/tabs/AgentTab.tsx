@@ -46,9 +46,12 @@ import { AUTO_FLOW, shortWorkflowId, workflowMayEdit, workflowRoute, workflowSwi
 import { loadAgentModelSelection, saveAgentModelSelection } from "../../preferences/agentModelSelection";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
+import { WorkflowApprovalCard } from "./behaviors/WorkflowApprovalCard";
+import type { WorkflowAnswer, WorkflowQuestion } from "../../harness/contract";
 import { recentPrompts, userPrompts } from "../../services/promptHistory";
 import { openAgentChangedFile } from "./AgentTabChangedFile";
 import type { JsonObject } from "./behaviors/behaviorModel";
+import { referencedFlowIds, workflowLibraryFor } from "./behaviors/workflowLibrary";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -233,6 +236,23 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   // How the previous workflow run ended, which the Auto router sees.
   const lastWorkflowRunRef = useRef<{ name: string; status: string } | undefined>(undefined);
   const questionResolversRef = useRef<Map<string, (answer: string) => void>>(new Map());
+  // Questions a running workflow step put to the user (approvals), oldest first.
+  const [workflowQuestions, setWorkflowQuestions] = useState<WorkflowQuestion[]>([]);
+  const workflowAnswersRef = useRef<Map<string, (answer: WorkflowAnswer) => void>>(new Map());
+  const clearWorkflowQuestions = () => {
+    setWorkflowQuestions([]);
+    workflowAnswersRef.current.clear();
+  };
+  // Approval steps pass without asking. Remembered across chats, chosen per run.
+  const [autoApprove, setAutoApproveState] = useState(() => {
+    try { return localStorage.getItem("rusty_workflow_auto_approve") === "true"; } catch { return false; }
+  });
+  const autoApproveRef = useRef(autoApprove);
+  autoApproveRef.current = autoApprove;
+  const setAutoApprove = (enabled: boolean) => {
+    setAutoApproveState(enabled);
+    try { localStorage.setItem("rusty_workflow_auto_approve", String(enabled)); } catch { /* optional preference */ }
+  };
   const consoleMessageIdRef = useRef<string | null>(null);
   const consoleBufferRef = useRef<string>("");
   const consoleEntriesRef = useRef<AgentActivityEntry[]>([]);
@@ -412,6 +432,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setRunUsage(null);
     setStreamingLabel("Model is thinking…");
     setAgentQuestions([]);
+    clearWorkflowQuestions();
     isStreamingRef.current = false;
     setIsStreaming(false);
     lastUserMessageIdRef.current = null;
@@ -601,6 +622,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setIsStreaming(false);
     setStreamingLabel("Model is thinking…");
     setAgentQuestions([]);
+    clearWorkflowQuestions();
     // Anything still waiting on an answer (a run's question, Auto's choice) is released as declined.
     for (const resolve of questionResolversRef.current.values()) resolve("");
     questionResolversRef.current.clear();
@@ -700,6 +722,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     );
     setSubagents([]);
     setAgentQuestions([]);
+    clearWorkflowQuestions();
     questionResolversRef.current.clear();
     setRunUsage(null);
     saveChatHistory();
@@ -878,6 +901,17 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       // which ones the active skill actually gets (skillExecutionPolicy.ts).
       const mcpServers = Object.values(useWorkspaceStore.getState().mcpServers).filter((server) => server.enabled);
 
+      // Saved workflows this one runs as subflows go along with the run.
+      let workflowLibrary: JsonObject[] = [];
+      if (workflowDefinition && referencedFlowIds(workflowDefinition as JsonObject).length > 0) {
+        try {
+          const saved = await behaviorService.loadWorkflows(rootPath);
+          workflowLibrary = workflowLibraryFor(workflowDefinition as JsonObject, saved.documents.map((stored) => stored.document));
+        } catch {
+          // Without them the run is refused by name when it needs one.
+        }
+      }
+
       const host = createRunHost({
         readFile: (path) => invoke<string>("read_file_disk", { path }),
         writeFile: async (path, content) => {
@@ -890,6 +924,23 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               if (prev.some((q) => q.requestId === question.requestId)) return prev;
               return [...prev, question];
             });
+          }),
+        askWorkflowInput: (question, signal) =>
+          new Promise<WorkflowAnswer>((resolve, reject) => {
+            const forget = () => {
+              workflowAnswersRef.current.delete(question.requestId);
+              setWorkflowQuestions((prev) => prev.filter((q) => q.requestId !== question.requestId));
+            };
+            signal.addEventListener("abort", () => {
+              forget();
+              reject(new DOMException("The workflow stopped", "AbortError"));
+            }, { once: true });
+            workflowAnswersRef.current.set(question.requestId, (answer) => {
+              forget();
+              resolve(answer);
+            });
+            setWorkflowQuestions((prev) => prev.some((q) => q.requestId === question.requestId) ? prev : [...prev, question]);
+            notify(`${question.step} needs your answer`, question.prompt, "info");
           }),
       });
       // While a workflow runs, the status line names its current step.
@@ -964,6 +1015,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
                 Boolean(workflowDefinition.input_schema),
               ),
             checkpoint: workflowCheckpointRef.current,
+            options: { autoApprove: autoApproveRef.current },
+            ...(workflowLibrary.length ? { library: workflowLibrary } : {}),
           } : undefined,
         },
         host,
@@ -1204,6 +1257,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           setIsStreaming(false);
           setStreamingLabel("Model is thinking…");
           setAgentQuestions([]);
+          clearWorkflowQuestions();
           questionResolversRef.current.clear();
           agentRunRef.current = null;
           saveChatHistory();
@@ -1235,6 +1289,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           setIsStreaming(false);
           setStreamingLabel("Model is thinking…");
           setAgentQuestions([]);
+          clearWorkflowQuestions();
           questionResolversRef.current.clear();
           agentRunRef.current = null;
           if (review) notify("Verification incomplete", "The workflow finished with unresolved findings. See the review in chat.", "error");
@@ -1282,6 +1337,14 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     setChatWorkflowState(path);
     setAutoWorkflow(undefined);
     if (persist && (useWorkspaceStore.getState().agentChats[tab.id] || []).length > 0) void saveChatHistory();
+  };
+
+  const handleWorkflowAnswer = (answer: WorkflowAnswer) => {
+    const question = workflowQuestions[0];
+    if (!question) return;
+    appendConsoleActivity(`Your answer to ${question.step}: ${answer.decision.replace(/_/g, " ")}${answer.text ? ` (${answer.text})` : ""}`, "update");
+    flushConsoleBuffer();
+    workflowAnswersRef.current.get(question.requestId)?.(answer);
   };
 
   const setFlowSwitching = (allowed: boolean, { persist = true }: { persist?: boolean } = {}) => {
@@ -1547,6 +1610,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               disabled={isAgentBusy}
               autoAvailable={Boolean(findOpenRouterJevProvider(customProviders, intelligentModelSelectionSettings.jevModelId))}
               flowSwitching={flowSwitching}
+              autoApprove={autoApprove}
+              onAutoApproveChange={setAutoApprove}
               onFlowSwitchingChange={(allowed) => setFlowSwitching(allowed)}
               onStop={handleStopExecution}
               onSelect={(path) => {
@@ -1559,6 +1624,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
                 <button type="button" className="underline" onClick={() => { setWorkflowCheckpoint(undefined); void saveChatHistory(); }}>Start over instead</button>
               </div>
             )}
+            {workflowQuestions[0] ? (
+              <WorkflowApprovalCard key={workflowQuestions[0].requestId} question={workflowQuestions[0]} onAnswer={handleWorkflowAnswer} />
+            ) : null}
             <ChatInput
               value={message}
               onChange={setMessage}

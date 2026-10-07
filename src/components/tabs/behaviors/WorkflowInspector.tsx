@@ -33,6 +33,8 @@ interface WorkflowInspectorProps {
   selection: WorkflowSelection;
   issues: Issue[];
   profileIds: string[];
+  /** The ids of the other workflows a subflow step may run. */
+  flowIds?: string[];
   onChange: (workflow: JsonObject) => void;
   onSelect: (selection: WorkflowSelection) => void;
   onDrill: (profileId: string | undefined) => void;
@@ -148,12 +150,32 @@ const WorkflowSettings: React.FC<WorkflowInspectorProps> = ({ workflow, issues, 
   );
 };
 
+/** Where a new task queue reads its plan: the first step this one is bound to. */
+function upstreamPlanBinding(step: JsonObject): string {
+  const bindings = Array.isArray(step.input_bindings) ? (step.input_bindings as JsonObject[]) : [];
+  const plan = bindings.find((binding) => isObject(binding.source) && binding.source.type === "node_output" && binding.target === "plan");
+  return String(plan?.target ?? "plan");
+}
+
+/** A task queue as built-in flows use it: an "ask me" failure policy and a read-only reviewer. */
+function taskQueueDefaults(profileIds: string[], plan: string): JsonObject {
+  const reviewer = profileIds.find((id) => id === "review" || id.endsWith(".review")) ?? "review";
+  return {
+    plan_pointer: `/${plan}`,
+    review_profile: { id: reviewer },
+    review_instructions: "Review the change made for workflow_input.task against its acceptance criteria. Read the changed code; do not edit. Give evidence from the workspace for each criterion the task names.",
+    max_repairs: 2,
+    on_task_failure: "ask",
+  };
+}
+
 const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index: number }> = ({
   workflow,
   step,
   index,
   issues,
   profileIds,
+  flowIds = [],
   onChange,
   onSelect,
   onDrill,
@@ -230,6 +252,14 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
                 onChange={(e) => setConfig("instructions", e.target.value)}
               />
             </Field>
+            <label style={{ display: "block" }}>
+              <input
+                type="checkbox"
+                checked={isObject(config.task_queue)}
+                onChange={(e) => setConfig("task_queue", e.target.checked ? taskQueueDefaults(profileIds, upstreamPlanBinding(step)) : undefined)}
+              />{" "}
+              Run the plan as a task queue
+            </label>
             {isObject(config.task_queue) ? (
               <JsonField
                 id={field("task-queue")}
@@ -328,7 +358,7 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
           <JsonField
             id={field("checks")}
             label="Checks"
-            hint='[{"type": "schema"}, {"type": "required_status", "pointer": "/status", "equals": "done"}, {"type": "artifact_exists", "pointer": "/path"}]'
+            hint='[{"type": "criteria", "pointer": "/check/criteria"}] judges each criterion: fail sends the work back, manual (only a person can check it) moves on and is listed for the user. Also: {"type": "schema"}, {"type": "required_status", "pointer": "/status", "equals": "done"}, {"type": "artifact_exists", "pointer": "/path"}'
             value={config.checks}
             onChange={(value) => setConfig("checks", value ?? [])}
           />
@@ -343,6 +373,143 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
               ]}
             />
           </Field>
+        </div>
+      ) : null}
+
+      {type === "subflow" ? (
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>Subflow</div>
+          <p className={styles.muted}>
+            Runs another workflow, or a single step, in the middle of this one: to research something first, fix a bug found on the way, and so on. What is bound to this step is its input; its result is this step's output.
+          </p>
+          {(() => {
+            const target = isObject(config.target) ? config.target : { type: "step", instructions: "" };
+            const kind = target.type === "flow" ? "flow" : "step";
+            const setTarget = (next: JsonObject) => setConfig("target", next);
+            return (
+              <>
+                <Field id={field("target-kind")} label="Run">
+                  <Select
+                    id={field("target-kind")}
+                    value={kind}
+                    onChange={(e) => setTarget(e.target.value === "flow"
+                      ? { type: "flow", id: flowIds[0] ?? "" }
+                      : { type: "step", instructions: String(target.instructions ?? "Gather what the next steps need.") })}
+                    options={[
+                      { value: "step", label: "A single step" },
+                      { value: "flow", label: "A saved workflow" },
+                    ]}
+                  />
+                </Field>
+                {kind === "flow" ? (
+                  <Field id={field("target-flow")} label="Workflow">
+                    <Select
+                      id={field("target-flow")}
+                      value={String(target.id ?? "")}
+                      onChange={(e) => setTarget({ type: "flow", id: e.target.value })}
+                      options={[
+                        { value: "", label: "Select a workflow" },
+                        ...(target.id && !flowIds.includes(String(target.id)) ? [{ value: String(target.id), label: `${String(target.id)} (not found)` }] : []),
+                        ...flowIds.map((id) => ({ value: id, label: id })),
+                      ]}
+                    />
+                  </Field>
+                ) : (
+                  <>
+                    <Field id={field("target-profile")} label="Profile">
+                      <Select
+                        id={field("target-profile")}
+                        value={isObject(target.profile) ? String(target.profile.id ?? "") : ""}
+                        onChange={(e) => setTarget(assign(target, "profile", e.target.value ? { id: e.target.value } : undefined))}
+                        options={[{ value: "", label: "Session default" }, ...profileIds.map((id) => ({ value: id, label: id }))]}
+                      />
+                    </Field>
+                    <Field id={field("target-instructions")} label="Instructions">
+                      <Textarea
+                        id={field("target-instructions")}
+                        rows={4}
+                        value={String(target.instructions ?? "")}
+                        onChange={(e) => setTarget({ ...target, instructions: e.target.value })}
+                      />
+                    </Field>
+                  </>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
+
+      {type === "approval" ? (
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>Approval</div>
+          <p className={styles.muted}>
+            The run waits until you approve, ask for changes, or reject. Asking for changes sends your notes back and runs the steps in between again.
+          </p>
+          <Field id={field("subject")} label="Review the result of">
+            <Select
+              id={field("subject")}
+              value={isObject(config.subject) ? String(config.subject.node_id ?? "") : ""}
+              onChange={(e) => setConfig("subject", { type: "node_output", node_id: e.target.value, pointer: "" })}
+              options={[
+                { value: "", label: "Select a step" },
+                ...otherSteps
+                  .filter((candidate) => upstream.has(String(candidate.id)) && candidate.type !== "input")
+                  .map((candidate) => ({ value: String(candidate.id), label: String(candidate.name ?? candidate.id) })),
+              ]}
+            />
+          </Field>
+          <Field id={field("prompt")} label="Question" hint="Shown above what you review.">
+            <Textarea
+              id={field("prompt")}
+              rows={2}
+              placeholder={`Review ${String(step.name ?? stepId)} before the workflow continues.`}
+              value={String(config.prompt ?? "")}
+              onChange={(e) => setConfig("prompt", e.target.value || undefined)}
+            />
+          </Field>
+          <Field id={field("revise")} label="Requested changes go to">
+            <Select
+              id={field("revise")}
+              value={typeof config.revise_target === "string" ? config.revise_target : ""}
+              onChange={(e) => setConfig("revise_target", e.target.value || undefined)}
+              options={[
+                { value: "", label: "The step being reviewed" },
+                ...otherSteps
+                  .filter((candidate) => upstream.has(String(candidate.id)) && candidate.type === "agent")
+                  .map((candidate) => ({ value: String(candidate.id), label: String(candidate.name ?? candidate.id) })),
+              ]}
+            />
+          </Field>
+          <div className={styles.row}>
+            <Field id={field("revisions")} label="Times changes may be asked for">
+              <Input
+                id={field("revisions")}
+                type="number"
+                min={0}
+                max={10}
+                value={String(config.max_revisions ?? 5)}
+                onChange={(e) => setConfig("max_revisions", optionalNumber(e.target.value) ?? 0)}
+              />
+            </Field>
+            <Field id={field("skip")} label="Skip when empty at" hint="A JSON pointer into what is reviewed; nothing there means nothing to ask.">
+              <Input
+                id={field("skip")}
+                className={styles.mono}
+                placeholder="never skip"
+                value={typeof config.skip_if_empty === "string" ? config.skip_if_empty : ""}
+                onChange={(e) => setConfig("skip_if_empty", e.target.value === "" ? undefined : e.target.value)}
+              />
+            </Field>
+          </div>
+          <label style={{ display: "block" }}>
+            <input
+              type="checkbox"
+              checked={config.allow_auto_approve === false}
+              onChange={(e) => setConfig("allow_auto_approve", e.target.checked ? false : undefined)}
+            />{" "}
+            Always ask a person, even when the run auto-approves
+          </label>
         </div>
       ) : null}
 

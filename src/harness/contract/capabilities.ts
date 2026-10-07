@@ -84,7 +84,13 @@ export interface AgentChatInput {
   /** Run this workflow (a `.rusty/workflows/*.json` document) instead of a
    * single agent loop: `input` is the workflow's run input. Its agent steps
    * use this chat's provider, model and tools. */
-  workflow?: { definition: unknown; input: unknown; checkpoint?: unknown };
+  workflow?: { definition: unknown; input: unknown; checkpoint?: unknown; options?: WorkflowRunOptions; library?: unknown[] };
+}
+
+/** Choices made when a workflow run starts rather than in its definition. */
+export interface WorkflowRunOptions {
+  /** Approval steps that allow it pass without asking the user. */
+  autoApprove?: boolean;
 }
 
 export interface ExecuteNodeInput {

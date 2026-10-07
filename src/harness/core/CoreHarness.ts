@@ -26,6 +26,7 @@ import type {
   RunHost,
   RunOutcome,
   TokenUsage,
+  WorkflowRunOptions,
 } from "../contract";
 import type { HarnessControlPlane, UsageRecordSample } from "../contract/controlPlane";
 import { CoreEngineClient, type BridgeEvent, type CoreEngine, type HostToolOutcome } from "./engine/CoreEngineClient";
@@ -288,7 +289,7 @@ export interface CoreCapabilityDefinition<K extends CapabilityName> {
    * (`undefined` for a normal agent loop). The session is created from
    * `recipe()` as usual, so the workflow's agent steps share its backend,
    * tools and host tool handlers. */
-  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown; checkpoint?: unknown } | undefined;
+  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown; checkpoint?: unknown; options?: WorkflowRunOptions; library?: unknown[] } | undefined;
   /** The capability result for a completed workflow's final output.
    * Required whenever `workflow` can return a workflow. */
   workflowResult?(output: unknown, input: CapabilityInput<K>, ctx: RunContext): CapabilityResult<K>;
@@ -925,11 +926,50 @@ export class CoreHarness implements AgentHarness {
       }
     };
 
+    // A step asked the user something (an approval): show it, then send the
+    // answer back. An answer the run refuses is asked again.
+    const answerWorkflowQuestion = (event: WorkflowEventEnvelope["event"]) => {
+      const request = (event.request ?? {}) as { id?: unknown; kind?: unknown; prompt?: unknown; subject?: unknown; decisions?: unknown };
+      const nodeId = typeof event.node_id === "string" ? event.node_id : "";
+      const requestId = String(request.id ?? "");
+      if (!requestId) return;
+      if (!host.askWorkflowInput) {
+        onEvent({ kind: "log", message: `${workflowNames[nodeId] ?? nodeId} is waiting for an answer this view cannot give.` } as CapabilityEvent<K>);
+        return;
+      }
+      const question = {
+        requestId,
+        step: workflowNames[nodeId] ?? nodeId,
+        kind: String(request.kind ?? ""),
+        prompt: String(request.prompt ?? ""),
+        subject: request.subject,
+        decisions: (Array.isArray(request.decisions) ? request.decisions : []).map((decision: { id?: unknown; label?: unknown; requires_text?: unknown }) => ({
+          id: String(decision?.id ?? ""),
+          label: String(decision?.label ?? decision?.id ?? ""),
+          requiresText: decision?.requires_text === true,
+        })),
+      };
+      const ask = (): void => {
+        void host.askWorkflowInput!(question, controller.signal)
+          .then((answer) => {
+            if (settled || controller.signal.aborted || !sessionId || !this.engine.workflowControl) return undefined;
+            return this.engine.workflowControl(sessionId, { type: "resolve_input", request_id: requestId, decision: answer.decision, ...(answer.text ? { text: answer.text } : {}) });
+          })
+          .catch((error: unknown) => {
+            if (settled || controller.signal.aborted) return;
+            onEvent({ kind: "log", message: `The answer was not accepted: ${errorMessage(error)}` } as CapabilityEvent<K>);
+            ask();
+          });
+      };
+      ask();
+    };
+
     const handleWorkflowEvent = (envelope: WorkflowEventEnvelope) => {
       const { log, step } = describeWorkflowEvent(envelope, workflowNames);
       if (log) onEvent({ kind: "log", message: log } as CapabilityEvent<K>);
       if (step?.status === "running") runContext.scratch.workflowStep = workflowNames[step.nodeId] ?? step.nodeId;
       if (step) onEvent({ kind: "workflow_step", workflowId, ...step, name: workflowNames[step.nodeId] ?? step.nodeId } as CapabilityEvent<K>);
+      if (envelope.event.type === "input_requested") answerWorkflowQuestion(envelope.event);
       handleBoundaryEvent(envelope.event);
     };
 
@@ -984,7 +1024,9 @@ export class CoreHarness implements AgentHarness {
         // Already validated non-null above -- TS's narrowing doesn't carry
         // this far into the closure captured by this async IIFE.
         const baseRecipe = await enrichedRecipe(definition, definition.recipe!(input), input, host, controller.signal);
-        const recipe: SessionRecipe = workflow ? { ...baseRecipe, workflow: workflow.definition } : baseRecipe;
+        const recipe: SessionRecipe = workflow
+          ? { ...baseRecipe, workflow: workflow.definition, ...(workflow.library?.length ? { workflow_library: workflow.library } : {}) }
+          : baseRecipe;
         observe(() => trajectories.append(runId, "Session context", {
           systemPrompt: recipe.system_prompt, prompt: definition.promptText!(input),
           integration: recipe.integration, executionParams: recipe.execution_params,
@@ -1009,7 +1051,7 @@ export class CoreHarness implements AgentHarness {
         if (workflow) {
           if (!this.engine.startWorkflow) throw new Error("This build of the harness cannot run workflows.");
           observe(() => trajectories.append(runId, "Workflow", { workflow: workflowId, input: workflow.input }));
-          await this.engine.startWorkflow(id, workflow.input, workflow.checkpoint);
+          await this.engine.startWorkflow(id, workflow.input, workflow.checkpoint, workflow.options);
           return;
         }
         await this.engine.mutate(id, { type: "prompt", payload: { text: definition.promptText!(input), attachments: [] } });
