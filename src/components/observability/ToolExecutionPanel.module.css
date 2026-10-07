@@ -17,6 +17,11 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
+:global([data-appearance="light"]) .panelOverlay {
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+
 .panel {
   position: relative;
   display: flex;
@@ -77,10 +82,26 @@
 .runPromptPreview { color: var(--color-fg-strong); font-size: var(--font-size-ui-xs); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 28rem; }
 .runStats { display: flex; align-items: center; gap: var(--space-4); color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); font-family: var(--font-family-mono); flex-shrink: 0; }
 
-.timelineContainer { width: 100%; overflow-x: auto; overflow-y: hidden; padding: var(--space-4) var(--space-4) var(--space-3); position: relative; }
+.timelineViewport { width: 100%; min-width: 0; }
+.timelineContainer {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  position: relative;
+  scrollbar-width: none;
+}
+.timelineContainer::-webkit-scrollbar {
+  display: none;
+}
+.timelineScrubber { display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4) var(--space-3); background: var(--color-surface-app); }
+.timelineScrubberLabel { color: var(--color-fg-muted); font-size: var(--font-size-ui-xs); white-space: nowrap; }
+.timelineScrubberInput { flex: 1; min-width: 0; height: 1.25rem; accent-color: var(--color-primary); cursor: ew-resize; }
+.timelineScrubberInput:disabled { cursor: default; opacity: .45; }
+.timelineScrubberInput:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
 .timelineTrack { display: flex; align-items: center; min-width: max-content; position: relative; padding-bottom: .25rem; }
-.timelineConnector { height: 2px; min-width: 2.25rem; flex: 1; background: var(--color-border-default); position: relative; margin: 0 4px; }
-.timelineConnectorRunning { background: linear-gradient(90deg, var(--color-border-default) 0%, var(--color-primary) 50%, var(--color-border-default) 100%); background-size: 200% 100%; animation: connectorPulse 1.8s infinite linear; }
+.timelineConnector { height: 2px; min-width: 2.25rem; flex: 1; background: color-mix(in srgb, var(--color-fg-muted) 42%, var(--color-surface-app)); position: relative; margin: 0 4px; }
+.timelineConnectorRunning { background: linear-gradient(90deg, color-mix(in srgb, var(--color-fg-muted) 42%, var(--color-surface-app)) 0%, var(--color-primary) 50%, color-mix(in srgb, var(--color-fg-muted) 42%, var(--color-surface-app)) 100%); background-size: 200% 100%; animation: connectorPulse 1.8s infinite linear; }
 @keyframes connectorPulse { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 
 .timelineNode { position: relative; display: flex; flex-direction: column; align-items: center; gap: .3rem; background: transparent; border: 0; padding: 0 .35rem; cursor: pointer; transition: transform var(--motion-fast); outline: none; }
@@ -115,6 +136,7 @@
 .timelineNode:hover .nodePill { border-color: var(--color-border-default); background: var(--color-interaction-hover); }
 .timelineNodeSelected .nodePill { border-color: var(--color-primary); background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface-app)); color: var(--color-fg-strong); }
 .nodeToolIcon { color: var(--color-fg-muted); }
+:global([data-appearance="light"]) .nodeToolIcon { color: var(--color-status-success); }
 .nodeToolName { color: var(--color-fg-strong); font-weight: 600; }
 .nodeDuration { color: var(--color-fg-muted); font-size: .65rem; }
 .nodeTokens { background: color-mix(in srgb, var(--color-primary) 12%, transparent); color: var(--color-primary); padding: 0 .25rem; border-radius: var(--radius-sm); font-size: .62rem; }

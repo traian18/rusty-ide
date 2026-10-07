@@ -47,6 +47,7 @@ import { loadAgentModelSelection, saveAgentModelSelection } from "../../preferen
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 import { AgentWorkflowBar, type WorkflowChoice } from "./behaviors/AgentWorkflowBar";
 import { recentPrompts, userPrompts } from "../../services/promptHistory";
+import { openAgentChangedFile } from "./AgentTabChangedFile";
 import type { JsonObject } from "./behaviors/behaviorModel";
 
 interface AgentTabProps {
@@ -98,6 +99,11 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const setAgentMessages = useWorkspaceStore((state) => state.setAgentMessages);
   const clearAgentMessages = useWorkspaceStore((state) => state.clearAgentMessages);
   const rootPath = useWorkspaceStore((state) => state.rootPath);
+  const repositories = useWorkspaceStore((state) => state.repositories);
+  const discoverRepositories = useWorkspaceStore((state) => state.discoverRepositories);
+  useEffect(() => {
+    if (rootPath) void discoverRepositories();
+  }, [rootPath, discoverRepositories]);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const skills = useWorkspaceStore((state) => state.skills);
   const activeSkillId = useWorkspaceStore((state) => state.activeSkillId);
@@ -1115,11 +1121,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           }
           setModifiedFiles([...modifiedFilesRef.current, ...files]);
           files.forEach((filePath) => {
-            const path = filePath.startsWith("/") || !rootPath
-              ? filePath
-              : `${rootPath.replace(/[\\\/]$/, "")}/${filePath.replace(/^\.\//, "")}`;
-            const fileName = path.split(/[\\\/]/).pop() || path;
-            openTab({ type: "file", path, title: fileName });
+            openAgentChangedFile(openTab, filePath, rootPath, repositories);
           });
           // Refresh after opening the returned files.  The agent may have
           // created them during the run, so the explorer must observe the
@@ -1252,8 +1254,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   };
 
   const handleOpenModifiedFile = (filePath: string) => {
-    const fileName = filePath.split(/[\\\/]/).pop() || filePath;
-    openTab({ type: "file", path: filePath, title: fileName });
+    openAgentChangedFile(openTab, filePath, rootPath, repositories);
   };
 
   const saveChatHistory = async () => {

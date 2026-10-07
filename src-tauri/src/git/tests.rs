@@ -71,6 +71,23 @@ async fn git_status_reports_untracked_file() {
 }
 
 #[tokio::test]
+async fn git_get_index_content_is_empty_for_untracked_file() {
+    let fx = GitFixture::init();
+    fx.commit_file("tracked.txt", "tracked\n", "initial commit");
+    fx.write("untracked.txt", "working tree\n");
+
+    assert_eq!(
+        git_get_index_content(
+            fx.path_str(),
+            fx.path().join("untracked.txt").to_string_lossy().into_owned(),
+        )
+            .await
+            .unwrap(),
+        ""
+    );
+}
+
+#[tokio::test]
 async fn git_status_reports_a_staged_then_further_modified_file_in_both_lists() {
     let fx = GitFixture::init();
     fx.commit_file("a.txt", "one\n", "initial commit");

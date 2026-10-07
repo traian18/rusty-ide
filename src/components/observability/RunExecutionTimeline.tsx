@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Bot, Brain, Clock, FileCode2, Loader2, MessageSquare } from "lucide-react";
 import type { ToolExecutionRecord, ToolExecutionStatus } from "../../observability/types";
 import { describeCallModels, extractCallSummary, formatCompactCallLabel } from "./callSummary";
@@ -95,14 +95,47 @@ export const RunExecutionTimeline: React.FC<RunExecutionTimelineProps> = ({ item
   const selectedId = selectedItemId ?? selectedRecordId ?? null;
   const select = onSelectItem ?? onSelectRecord ?? noop;
   const handleSelect = useCallback((id: string) => select(id), [select]);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const [scrollPosition, setScrollPosition] = useState(0);
+  const [maxScroll, setMaxScroll] = useState(0);
+  const updateScrollMetrics = useCallback(() => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    setScrollPosition(timeline.scrollLeft);
+    setMaxScroll(Math.max(0, timeline.scrollWidth - timeline.clientWidth));
+  }, []);
+  useEffect(() => {
+    updateScrollMetrics();
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    timeline.addEventListener("scroll", updateScrollMetrics, { passive: true });
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateScrollMetrics);
+    observer?.observe(timeline);
+    return () => {
+      timeline.removeEventListener("scroll", updateScrollMetrics);
+      observer?.disconnect();
+    };
+  }, [effectiveItems, updateScrollMetrics]);
+  const handleScrubberChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const timeline = timelineRef.current;
+    if (!timeline) return;
+    timeline.scrollLeft = Number(event.target.value);
+    setScrollPosition(timeline.scrollLeft);
+  }, []);
   if (!effectiveItems.length) return <div className={styles.emptyTimeline}><span>No execution events recorded in this run.</span></div>;
   const effectiveStart = runStartedAt || effectiveItems[0]?.timestamp;
-  return <div className={styles.timelineContainer}><div className={styles.timelineTrack}>
+  return <div className={styles.timelineViewport}>
+    <div ref={timelineRef} className={styles.timelineContainer}><div className={styles.timelineTrack}>
     {effectiveItems.map((item, index) => {
       const props: NodeProps = { item, position: index + 1, isLast: index === effectiveItems.length - 1, selected: selectedId === item.id, effectiveStart, onSelect: handleSelect };
       return item.kind === "tool" ? <ToolTimelineNode key={item.id} {...props} /> : <TextTimelineNode key={item.id} {...props} />;
     })}
-  </div></div>;
+  </div></div>
+    <div className={styles.timelineScrubber}>
+      <label htmlFor="timeline-scroll-position" className={styles.timelineScrubberLabel}>Browse execution steps</label>
+      <input id="timeline-scroll-position" className={styles.timelineScrubberInput} type="range" min="0" max={maxScroll} value={Math.min(scrollPosition, maxScroll)} onChange={handleScrubberChange} disabled={maxScroll === 0} aria-label="Scroll through execution steps" />
+    </div>
+  </div>;
 };
 
 export function estimateTokens(text: string): number {

@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { DiffEditor } from "@monaco-editor/react";
 import { useWorkspaceStore } from "../../store";
-import { invoke } from "@tauri-apps/api/core";
-import { VfsRegistry } from "../../services/vfs";
 import { getFileTypeDetails } from "../../services/fileTypeService";
 import { useDiffViewMode } from "../../hooks/useDiffViewMode";
 import { DiffViewToggle } from "../ui/DiffViewToggle";
 import { createMonacoDiffOptions } from "../../editor/monacoOptions";
 import { gitErrorMessage } from "../git/gitErrors";
 import type { TabOfType } from "../../tabs/types";
+import { loadGitDiffContent } from "./GitDiffContent";
 
 interface GitDiffTabProps {
   tab: TabOfType<"git-diff">;
@@ -24,15 +23,6 @@ export const GitDiffTab: React.FC<GitDiffTabProps> = ({ tab, isActive }) => {
   const diffEditorRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const canvasTabId = useMemo(() => {
-    const contexts = useWorkspaceStore.getState().canvasContexts;
-    for (const tId in contexts) {
-      const ctx = contexts[tId];
-      const hasNode = ctx.nodes.some((n: any) => n.data?.modifiedFiles?.includes(tab.path));
-      if (hasNode) return tId;
-    }
-    return undefined;
-  }, [tab.path]);
   const { viewMode, isAutoMode, toggleViewMode, enableAutoMode, renderSideBySide } = useDiffViewMode(containerRef);
 
   useEffect(() => {
@@ -42,45 +32,7 @@ export const GitDiffTab: React.FC<GitDiffTabProps> = ({ tab, isActive }) => {
       setLoading(true);
       try {
         console.log(`GitDiffTab loading diff for: ${tab.path} (${tab.diffType || "unstaged"})`);
-        let original = "";
-        let modified = "";
-
-        if (tab.diffType === "commit" && tab.commitHash) {
-          original = await invoke("git_get_file_content_at_rev", {
-            rootDir: tab.repoPath,
-            revision: `${tab.commitHash}~1`,
-            filePath: tab.path,
-          });
-          modified = await invoke("git_get_file_content_at_rev", {
-            rootDir: tab.repoPath,
-            revision: tab.commitHash,
-            filePath: tab.path,
-          });
-        } else if (tab.diffType === "staged") {
-          original = await invoke("git_get_head_content", {
-            rootDir: tab.repoPath,
-            filePath: tab.path,
-          });
-          modified = await invoke("git_get_index_content", {
-            rootDir: tab.repoPath,
-            filePath: tab.path,
-          });
-        } else {
-          original = await invoke("git_get_index_content", {
-            rootDir: tab.repoPath,
-            filePath: tab.path,
-          });
-          try {
-            modified = await VfsRegistry.getOrCreate(canvasTabId).readFile(tab.path);
-          } catch (e) {
-            try {
-              modified = await invoke("read_file_disk", { path: tab.path });
-            } catch (err) {
-              modified = "";
-            }
-          }
-        }
-
+        const { original, modified } = await loadGitDiffContent(tab);
         setGitOriginalCode(original);
         setGitModifiedCode(modified);
       } catch (err) {
