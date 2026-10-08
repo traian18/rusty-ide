@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { Loader2 } from "lucide-react";
 import { useWorkspaceStore } from "../store";
 import { invoke } from "@tauri-apps/api/core";
 import { gitPresenter } from "./git/GitPresenter";
@@ -89,6 +90,7 @@ const SourceControl: React.FC = () => {
   const setIsHistoryExpanded = useWorkspaceStore((state) => state.setGitHistoryExpanded);
   const [historyCommits, setHistoryCommits] = useState<any[]>([]);
   const [showBranchPopover, setShowBranchPopover] = useState(false);
+  const [isRepoDataLoading, setIsRepoDataLoading] = useState(false);
   const [fileContextMenu, setFileContextMenu] = useState<{
     x: number;
     y: number;
@@ -156,8 +158,12 @@ const SourceControl: React.FC = () => {
 
   /** Reload Git status, branches, and commit history when switching repos. */
   const loadRepoData = useCallback(async (): Promise<void> => {
-    if (!activeRepo) return;
+    if (!activeRepo) {
+      setIsRepoDataLoading(false);
+      return;
+    }
     const sequence = ++repoDataSequence.current;
+    setIsRepoDataLoading(true);
     try {
       await loadGitStatus(activeRepo);
       if (sequence !== repoDataSequence.current) return;
@@ -176,6 +182,8 @@ const SourceControl: React.FC = () => {
       await loadBranches(activeRepo);
     } catch (err) {
       console.error("Failed to load repo data:", err);
+    } finally {
+      if (sequence === repoDataSequence.current) setIsRepoDataLoading(false);
     }
   }, [activeRepo, loadGitStatus, loadBranches]);
 
@@ -575,7 +583,12 @@ const SourceControl: React.FC = () => {
   }
 
   if (repositoriesLoading && repositories.length === 0) {
-    return <div className="p-4 text-xs text-[var(--text-muted)]" role="status">Finding repositories…</div>;
+    return (
+      <div className="p-4 text-xs text-[var(--text-muted)] flex items-center gap-2" role="status" aria-label="Finding repositories">
+        <Loader2 size={14} className="animate-spin" aria-hidden="true" />
+        <span>Finding repositories…</span>
+      </div>
+    );
   }
 
   if (!activeRepository && gitStatus && !gitStatus.isRepo) {
@@ -598,6 +611,7 @@ const SourceControl: React.FC = () => {
         activeRepository={activeRepository}
         rootPath={rootPath}
         gitStatus={gitStatus}
+        isLoading={isRepoDataLoading}
         headLabel={headLabel}
         disableBranchOnlyActions={disableBranchOnlyActions}
         branchOnlyActionsReason={branchOnlyActionsReason}

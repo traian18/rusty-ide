@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { DiffEditor } from "@monaco-editor/react";
+import { TreePine } from "lucide-react";
 import { useWorkspaceStore } from "../../store";
 import { getFileTypeDetails } from "../../services/fileTypeService";
 import { useDiffViewMode } from "../../hooks/useDiffViewMode";
@@ -16,6 +17,7 @@ interface GitDiffTabProps {
 
 export const GitDiffTab: React.FC<GitDiffTabProps> = ({ tab, isActive }) => {
   const editorFontSize = useWorkspaceStore((state) => state.typographyPreferences.editorFontSize);
+  const revealFileInTree = useWorkspaceStore((state) => state.revealFileInTree);
 
   const [gitOriginalCode, setGitOriginalCode] = useState("");
   const [gitModifiedCode, setGitModifiedCode] = useState("");
@@ -80,12 +82,22 @@ export const GitDiffTab: React.FC<GitDiffTabProps> = ({ tab, isActive }) => {
             {tab.path}
           </span>
         </div>
-        <DiffViewToggle
-          viewMode={viewMode}
-          isAutoMode={isAutoMode}
-          onToggle={toggleViewMode}
-          onEnableAuto={enableAutoMode}
-        />
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => revealFileInTree(tab.path)}
+            className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)] p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1"
+            title="Reveal in File Tree"
+          >
+            <TreePine size={10} />
+            <span>Reveal</span>
+          </button>
+          <DiffViewToggle
+            viewMode={viewMode}
+            isAutoMode={isAutoMode}
+            onToggle={toggleViewMode}
+            onEnableAuto={enableAutoMode}
+          />
+        </div>
       </div>
 
       {/* Diff editor viewport */}

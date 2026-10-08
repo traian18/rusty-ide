@@ -18,7 +18,7 @@ function props(repositories: GitRepository[]): ComponentProps<typeof SourceContr
     repositories, subprojects: repositories.map((repo) => repo.worktreePath),
     activeRepo: repositories[0].worktreePath, activeRepository: repositories[0], rootPath: "/workspace",
     gitStatus: { isRepo: true, currentBranch: "main", staged: [], unstaged: [] },
-    headLabel: "main", disableBranchOnlyActions: false, submoduleActionLoading: null,
+    isLoading: false, headLabel: "main", disableBranchOnlyActions: false, submoduleActionLoading: null,
     localBranches: ["main"], remoteBranches: [], showBranchPopover: false,
     onRepoChange, onInitSubmodule: vi.fn(), onUpdateSubmodule: vi.fn(), onSyncSubmodule: vi.fn(),
     onOpenGraph: vi.fn(), onToggleBranchPopover: vi.fn(), onCloseBranchPopover: vi.fn(),
@@ -34,6 +34,21 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
+it("shows a spinner while repository information is loading", async () => {
+  await act(async () => root.render(
+    <SourceControlHeader {...props([repository("/workspace/api")])} isLoading />,
+  ));
+  expect(container.textContent).toContain("Source Control");
+  expect(container.querySelector(".animate-spin")).not.toBeNull();
+  expect(container.querySelector('[aria-label="Loading repository information"]')).not.toBeNull();
+});
+
+it("hides the repository loading spinner after loading completes", async () => {
+  await act(async () => root.render(
+    <SourceControlHeader {...props([repository("/workspace/api")])} isLoading={false} />,
+  ));
+  expect(container.querySelector(".animate-spin")).toBeNull();
+});
 it("shows only the branch control for a single repository", async () => {
   await act(async () => root.render(<SourceControlHeader {...props([repository("/workspace/api")])} />));
   expect(container.textContent).toContain("main");

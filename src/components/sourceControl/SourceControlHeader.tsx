@@ -1,5 +1,5 @@
 import React from "react";
-import { GitBranch, GitCommit, RotateCcw, ChevronDown, Boxes, Download, RefreshCw, FolderGit2 } from "lucide-react";
+import { GitBranch, GitCommit, RotateCcw, ChevronDown, Boxes, Download, RefreshCw, FolderGit2, Loader2 } from "lucide-react";
 import type { GitRepository, GitStatusResult } from "../../store/types";
 import { CustomSelect } from "../CustomSelect";
 import { GitBranchManager } from "../git/GitBranchManager";
@@ -58,6 +58,7 @@ interface SourceControlHeaderProps {
   activeRepository: GitRepository | null;
   rootPath: string;
   gitStatus: GitStatusResult | null;
+  isLoading: boolean;
   /** The active repository's real HEAD label (REFACTOR_PLAN.md PR 5b
       commit 22) -- replaces the branch pill's old
       `gitStatus.currentBranch` read, which couldn't represent a detached
@@ -262,6 +263,7 @@ const SourceControlHeader: React.FC<SourceControlHeaderProps> = ({
   activeRepository,
   rootPath,
   gitStatus,
+  isLoading,
   headLabel,
   disableBranchOnlyActions,
   branchOnlyActionsReason,
@@ -310,6 +312,13 @@ const SourceControlHeader: React.FC<SourceControlHeaderProps> = ({
           <span className="font-bold text-[var(--text-light)] uppercase tracking-wider text-[10px] font-mono">
             Source Control
           </span>
+          {isLoading && (
+            <Loader2
+              size={13}
+              className="animate-spin text-[var(--accent-color)]"
+              aria-label="Loading repository information"
+            />
+          )}
           <button
             type="button"
             onClick={onOpenGraph}
