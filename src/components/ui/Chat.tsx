@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useLayoutEffect, useCallback, useMemo, memo, useState } from "react";
 import type { ChatSearchMatch } from "./chatSearch";
-import { FileText, Folder, Loader2, Terminal } from "lucide-react";
+import { FileText, Folder, Loader2, Pin, Terminal } from "lucide-react";
 import { AgentActivityCard } from "./SubagentActivityPanel";
 import styles from "./Chat.module.css";
 import { useWorkspaceStore } from "../../store";
@@ -19,6 +19,7 @@ export interface Message {
   activityEntries?: ActivityEntry[];
   timestamp: string;
   attachments?: { path: string; name: string; isDir?: boolean }[];
+  pinned?: boolean;
 }
 
 export interface SubagentActivity {
@@ -80,6 +81,8 @@ interface ChatProps {
   activeMessageId?: string;
   searchMatches?: ChatSearchMatch[];
   activeSearchMatch?: ChatSearchMatch;
+  /** Shows a pin on user and assistant messages; pinned ones are kept word for word when a long chat is trimmed. */
+  onTogglePin?: (messageId: string, pinned: boolean) => void;
 }
 export type ChatGroup =
   | { type: "console"; message: Message; phase?: string }
@@ -134,7 +137,7 @@ export function formatTimestamp(timestamp: string): string {
 
 const EMPTY_SUBAGENTS: SubagentActivity[] = [];
 
-export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, onVisibleMessageChange, onPerformanceMetrics, activeMessageId, searchMatches = [], activeSearchMatch }: ChatProps) {
+export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, onVisibleMessageChange, onPerformanceMetrics, activeMessageId, searchMatches = [], activeSearchMatch, onTogglePin }: ChatProps) {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const handleLinkClick = useCallback((href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -463,6 +466,21 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
                   id={`chat-message-${msg.id}`}
                   className={`${activeMessageId === msg.id ? styles.activeMessage : ""}`}
                 >
+                  {onTogglePin && (msg.role === "user" || msg.role === "assistant") && (
+                    <div className={styles.messageActions}>
+                      <button
+                        type="button"
+                        className={`${styles.pinButton} ${msg.pinned ? styles.pinned : ""}`}
+                        aria-pressed={Boolean(msg.pinned)}
+                        aria-label={msg.pinned ? "Unpin message" : "Pin message"}
+                        title={msg.pinned ? "Pinned: kept word for word when this chat is trimmed. Click to unpin." : "Pin: keep this word for word when this chat is trimmed"}
+                        onClick={() => onTogglePin(msg.id, !msg.pinned)}
+                      >
+                        <Pin size={12} aria-hidden="true" />
+                        {msg.pinned && <span>Pinned</span>}
+                      </button>
+                    </div>
+                  )}
                   <ChatMessageContent
                     content={msg.content}
                     onLinkClick={handleLinkClick}

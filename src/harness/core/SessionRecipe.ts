@@ -81,6 +81,13 @@ export interface SessionRecipe {
   /** Registers `agent_spawn`'s descriptor so the model can see and call it;
    * rusty-core's own `agent_runner.rs` handles the actual spawning. */
   enable_agent_spawn?: boolean;
+  /** Long-conversation compaction. Absent means rusty-core's default. */
+  context_compaction?: {
+    mode: "standard" | "smart";
+    /** The model's context window in tokens, when the catalog knows it. */
+    context_window?: number;
+    jev?: { api_key: string; model_id: string; confidence?: number };
+  };
   /** Behavior profile for the root agent (`.rusty/profiles/`); absent → workspace default. */
   behavior_profile?: { id: string; revision?: number };
   /** An orchestration definition to run with `startWorkflow` instead of a

@@ -248,6 +248,8 @@ export interface AgentMessage {
   toolCalls?: AgentToolCall[];
   attachments?: { path: string; name: string; isDir?: boolean }[];
   attachmentContext?: string;
+  /** Kept word for word when a long chat is trimmed for the model. */
+  pinned?: boolean;
 }
 
 export interface AgentToolCall {
@@ -375,6 +377,11 @@ export interface LspSettings {
   servers: Record<string, LspServerConfig>;
 }
 
+export type FileTreeSelectionRequest = {
+  path: string;
+  requestId: number;
+} | null;
+
 export interface WorkspaceState {
   /** The startup coordinator's live lifecycle state (REFACTOR_PLAN.md PR
       3a). No consumers yet as of commit 9 -- AppBootstrapBoundary is wired
@@ -457,6 +464,7 @@ export interface WorkspaceState {
   setLastRename: (rename: { originalPath: string; newPath: string } | null) => void;
   expandedPaths: Record<string, boolean>;
   revealPath: string | null;
+  fileTreeSelectionRequest: FileTreeSelectionRequest;
   selectedEdgeId: string | null;
   edgeReconciliationStatus: Record<string, "idle" | "unreconciled" | "reconciled">;
 
@@ -476,6 +484,7 @@ export interface WorkspaceState {
   addAgentMessage: (tabId: string, message: AgentMessage) => void;
   updateAgentMessage: (tabId: string, messageId: string, content: string, activityEntries?: AgentActivityEntry[]) => void;
   setAgentMessages: (tabId: string, messages: AgentMessage[]) => void;
+  setAgentMessagePinned: (tabId: string, messageId: string, pinned: boolean) => void;
   clearAgentMessages: (tabId: string) => void;
   updateAgentStream: (tabId: string, content: string) => void;
   clearAgentStream: (tabId: string) => void;
@@ -647,6 +656,8 @@ export interface WorkspaceState {
   collapseAllFolders: () => void;
   revealFileInTree: (filePath: string) => void;
   clearRevealPath: () => void;
+  selectFileInTree: (filePath: string) => void;
+  clearFileTreeSelectionRequest: (requestId: number) => void;
   addAndConnectContextNode: (x: number, y: number, taskId: string, taskHandleId: string, tabId?: string) => void;
   getGlobalChatHistory: (nodeId: string) => GlobalChatMessage[];
   setSelectedEdgeId: (id: string | null) => void;

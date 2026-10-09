@@ -15,6 +15,7 @@ export const defaultIntelligentModelSelectionSettings: IntelligentModelSelection
   decisionToolEnabled: false,
   decisionConfidenceThreshold: DEFAULT_DECISION_CONFIDENCE,
   riskReviewEnabled: false,
+  smartContextCompactionEnabled: false,
 };
 
 const STORAGE_KEY = "rusty_intelligent_model_selection_settings";
@@ -38,6 +39,7 @@ function loadStoredSettings(): IntelligentModelSelectionSettings {
         ? parsed!.decisionConfidenceThreshold!
         : DEFAULT_DECISION_CONFIDENCE,
       riskReviewEnabled: Boolean(parsed?.riskReviewEnabled),
+      smartContextCompactionEnabled: Boolean(parsed?.smartContextCompactionEnabled),
     };
   } catch {
     return defaultIntelligentModelSelectionSettings;

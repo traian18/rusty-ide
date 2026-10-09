@@ -11,6 +11,8 @@
 // per session key, cleaned up on completion" allowance.
 // ============================================================
 
+import { compactionRecipe, isContextSummaryRequest } from "./contextCompaction";
+import type { ContextCompactionRunConfig } from "./decideToolConfig";
 import { trajectories } from "../../observability/trajectoryStore";
 import { IncompleteAgentRun, CONTINUE_AGENT_PROMPT } from "./incompleteAgentRun";
 import { changedPathsFromTool } from "./fileChangeTracking";
@@ -48,7 +50,7 @@ import { executionObservability } from "../../observability/executionStore";
 import type { ExecutionOrigin } from "../../observability/types";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../contract/observability";
 import { parseUsageTokens } from "../../observability/executionStore";
-import { addUsage, hasTokens, mapAgentUsage, UsageAccumulator, usageRequestKey } from "./usageAccumulator";
+import { addUsage, hasTokens, mapAgentUsage, mapModelUsage, UsageAccumulator, usageRequestKey } from "./usageAccumulator";
 
 /**
  * Answers one `HostExecuteCall` -- a single model turn -- on behalf of
@@ -648,8 +650,12 @@ export class CoreHarness implements AgentHarness {
         delivery = delivery.then(send).catch(() => {});
         return delivery;
       };
+      // rusty-core's background context summary: answered on the run's
+      // provider like any turn, but never treated as a step's first turn,
+      // and its tokens are accounted as their own surface.
+      const contextSummary = isContextSummaryRequest(data.input);
       const execute = (request: ExecutionRequest): Promise<ExecutionResult> => {
-        observe(() => trajectories.append(runId, "Model request", request));
+        observe(() => trajectories.append(runId, contextSummary ? "Context summary request" : "Model request", request));
         try {
           return this.executionAnswerer.execute(
             request,
@@ -666,14 +672,17 @@ export class CoreHarness implements AgentHarness {
       // The capability may adjust the request first (a per-step model), and
       // the turn waits for it; a failure there never costs the model turn.
       // Without that hook the answerer starts synchronously, as it always has.
-      const prepared = definition.prepareExecution
+      const prepared = definition.prepareExecution && !contextSummary
         ? Promise.resolve()
             .then(() => definition.prepareExecution!(data.input, input, runContext, onEvent, controller.signal))
             .catch(() => data.input)
         : undefined;
       (prepared ? prepared.then(execute) : execute(data.input))
         .then(
-          (result) => enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: true, result })),
+          (result) => {
+            if (contextSummary) usage.background(data.input.params?.model ?? definition.usageContext(input).model, mapModelUsage(result.usage), "context_summary");
+            return enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: true, result }));
+          },
           (error: unknown) =>
             enqueue(() => this.engine.hostExecuteResult(sid, data.call_id, { ok: false, error: toExecutionError(error) })),
         )
@@ -1024,9 +1033,15 @@ export class CoreHarness implements AgentHarness {
         // Already validated non-null above -- TS's narrowing doesn't carry
         // this far into the closure captured by this async IIFE.
         const baseRecipe = await enrichedRecipe(definition, definition.recipe!(input), input, host, controller.signal);
-        const recipe: SessionRecipe = workflow
+        const withWorkflow: SessionRecipe = workflow
           ? { ...baseRecipe, workflow: workflow.definition, ...(workflow.library?.length ? { workflow_library: workflow.library } : {}) }
           : baseRecipe;
+        const contextCompaction = compactionRecipe(
+          (input as { contextCompaction?: ContextCompactionRunConfig }).contextCompaction,
+          input.customProvider,
+          (input as { model?: unknown }).model,
+        );
+        const recipe: SessionRecipe = contextCompaction ? { ...withWorkflow, context_compaction: contextCompaction } : withWorkflow;
         observe(() => trajectories.append(runId, "Session context", {
           systemPrompt: recipe.system_prompt, prompt: definition.promptText!(input),
           integration: recipe.integration, executionParams: recipe.execution_params,
@@ -1442,6 +1457,13 @@ export class CoreHarness implements AgentHarness {
         notify(`${runId}:${key}`, total);
         if (hasTokens(delta)) record(usageSample({ ...context, model }, surface, runId, delta, newRequest));
         return total;
+      },
+      /** Tokens a run spends outside its agents' turns (a background context
+       * summary): recorded in Token Metrics under its own surface, like tool
+       * models, and kept out of the run's own total. */
+      background: (model: string, delta: TokenUsage, label: string) => {
+        if (!hasTokens(delta)) return;
+        record(usageSample({ ...context, model }, `${surface}/${label}`, runId, delta));
       },
       /** The observer a host tool handler gets: reports to observability and
        * records any delegated usage into Token Metrics. */

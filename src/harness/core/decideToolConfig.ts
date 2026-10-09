@@ -1,3 +1,4 @@
+import type { HistorySummaryView } from "./definitions/promptHistory";
 import type { AutoLevel } from "../../store/intelligentModelSelectionTypes";
 
 /** The model-facing name of the JEV decision tool. rusty-core allows it
@@ -86,15 +87,34 @@ export interface JevRiskReviewRunConfig {
   proceedConfidence?: number;
 }
 
+/** How a run's long conversations are compacted. `standard` trims old tool
+ * output and drops the oldest turns locally; `smart` also summarizes them with
+ * a model after JEV rates which messages matter, so it carries the JEV
+ * connection. The model's context window is added when the recipe is built. */
+export interface ContextCompactionRunConfig {
+  mode: "standard" | "smart";
+  jev?: {
+    apiKey: string;
+    jevModelId: string;
+    /** JEV confidence below which an unsure rating leans towards keeping a message. */
+    confidence?: number;
+  };
+}
+
 declare module "../contract/capabilities" {
   interface AgentChatInput {
     jevDecisionTool?: DecideToolRunConfig;
     jevRiskReview?: JevRiskReviewRunConfig;
+    contextCompaction?: ContextCompactionRunConfig;
+    /** Smart compaction's running summary of the chat's earlier turns; it
+     * stands in for the turns it covers in the prompt. */
+    historySummary?: HistorySummaryView;
     autoStepModels?: StepModelRunConfig;
     flowSwitching?: FlowSwitchingRunConfig;
   }
   interface ExecuteNodeInput {
     jevDecisionTool?: DecideToolRunConfig;
     jevRiskReview?: JevRiskReviewRunConfig;
+    contextCompaction?: ContextCompactionRunConfig;
   }
 }

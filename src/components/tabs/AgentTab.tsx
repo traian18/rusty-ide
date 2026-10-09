@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
-import { snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
+import { historyTurnsOf, readHistorySummary, refreshHistorySummary, type HistorySummary } from "../../services/historySummary";
+import { historyBudgetChars } from "../../harness/core/contextCompaction";
+import type { ContextCompactionRunConfig } from "../../harness/core/decideToolConfig";
+import { snapshotContextCompaction, snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
 import { chooseFlow, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
 import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
-import { useWorkspaceStore, AgentMessage, type AgentActivityEntry } from "../../store";
+import { useWorkspaceStore, AgentMessage, type AgentActivityEntry, type CustomProvider } from "../../store";
 import { resolveSkill, toSkillData, DEFAULT_SKILL_ID, BUILT_IN_SKILL_IDS } from "../../config/skillDefinitions";
 import { CustomSelect } from "../CustomSelect";
 import { invoke } from "@tauri-apps/api/core";
@@ -258,6 +261,10 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const consoleEntriesRef = useRef<AgentActivityEntry[]>([]);
   const responseStreamRef = useRef<AgentChatResponseStream | null>(null);
   const chatSaveQueueRef = useRef(new AgentChatSaveQueue());
+  /** Smart compaction's running summary of this chat's earlier turns (saved with the chat). */
+  const historySummaryRef = useRef<HistorySummary | undefined>(undefined);
+  /** The background summary pass in progress, if any. */
+  const historySummaryJobRef = useRef<AbortController | null>(null);
   const consoleFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamingResponseFlushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStreamingRef = useRef(false);
@@ -419,6 +426,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     void harness.releaseSession(tab.id);
     commandPermissionService.clearSession(tab.id);
     chatSaveQueueRef.current = new AgentChatSaveQueue();
+    resetHistorySummary();
     setActiveChatPath(null);
     setModifiedFiles([]);
     setChatWorkflow(undefined, { persist: false });
@@ -501,6 +509,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       setAgentMessages(tab.id, messages);
       setActiveChatPath(chat.path);
       chatSaveQueueRef.current = new AgentChatSaveQueue(chat.path);
+      resetHistorySummary(readHistorySummary(parsed.historySummary));
       setModifiedFiles(readModifiedFiles(parsed.modifiedFiles));
       setChatWorkflow(readChatWorkflow(parsed.workflow), { persist: false });
       setFlowSwitching(readFlowSwitching(parsed.flowSwitching), { persist: false });
@@ -517,6 +526,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     clearAgentMessages(tab.id);
     setActiveChatPath(null);
     chatSaveQueueRef.current = new AgentChatSaveQueue();
+    resetHistorySummary();
     setModifiedFiles([]);
     setChatWorkflow(undefined, { persist: false });
     setFlowSwitching(false, { persist: false });
@@ -970,6 +980,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       // Every file this run changed, whichever tool changed it: a run that
       // changed none leaves its Result behind as a Markdown report.
       const changedThisRun = new Set<string>();
+      const contextCompaction = snapshotContextCompaction(useWorkspaceStore.getState());
       const run = harness.run(
         "agent_chat",
         {
@@ -985,6 +996,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
                 m.role === "user" && m.attachmentContext
                   ? `${m.content}\n\n${m.attachmentContext}`
                   : m.content,
+              ...(m.pinned ? { pinned: true } : {}),
+              id: m.id,
             })),
           customProvider: prov,
           skill: skillData,
@@ -997,6 +1010,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           smartToolSettings: snapshotSmartToolSettings(useWorkspaceStore.getState()),
           jevDecisionTool: snapshotJevDecisionTool(useWorkspaceStore.getState(), autoStepUp),
           jevRiskReview: snapshotJevRiskReview(useWorkspaceStore.getState()),
+          contextCompaction,
+          ...(contextCompaction.mode === "smart" && historySummaryRef.current ? { historySummary: historySummaryRef.current } : {}),
           ...(autoStepModels ? { autoStepModels } : {}),
           ...(flowSwitchingConfig ? { flowSwitching: flowSwitchingConfig } : {}),
           workflow: workflowDefinition ? {
@@ -1261,6 +1276,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           questionResolversRef.current.clear();
           agentRunRef.current = null;
           saveChatHistory();
+          refreshHistorySummaryInBackground(prov, concreteModelId, contextCompaction);
           return;
         }
 
@@ -1319,13 +1335,60 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     const messages = useWorkspaceStore.getState().agentChats[tab.id] || [];
     const queue = chatSaveQueueRef.current;
     try {
-      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current, workflowCheckpointRef.current, flowSwitchingRef.current);
+      await queue.save(rootPath, tab.id, messages, modifiedFilesRef.current, chatWorkflowRef.current, workflowCheckpointRef.current, flowSwitchingRef.current, historySummaryRef.current);
       if (chatSaveQueueRef.current === queue) setActiveChatPath(queue.path);
       await loadChatHistory();
     } catch (error) {
       console.error("Failed to save chat history:", error);
       notify("Chat not saved", "Could not save this conversation. Please check workspace access.", "error");
     }
+  };
+
+  /** Drops the running summary (and any pass still producing one) when the
+   * conversation changes; `next` is the summary saved with the chat now shown. */
+  function resetHistorySummary(next?: HistorySummary) {
+    historySummaryJobRef.current?.abort();
+    historySummaryJobRef.current = null;
+    historySummaryRef.current = next;
+  }
+
+  /** Smart compaction for earlier turns: after a run, refresh the running
+   * summary in the background so the next run's prompt can use it. Never
+   * delays a run; a failed pass keeps the previous summary. */
+  const refreshHistorySummaryInBackground = (provider: CustomProvider, model: string, compaction: ContextCompactionRunConfig) => {
+    if (compaction.mode !== "smart" || !compaction.jev || !rootPath) return;
+    const budgetChars = historyBudgetChars(provider, model);
+    if (!budgetChars || historySummaryJobRef.current) return;
+    const conversation = chatSaveQueueRef.current;
+    const controller = new AbortController();
+    historySummaryJobRef.current = controller;
+    void refreshHistorySummary({
+      turns: historyTurnsOf(useWorkspaceStore.getState().agentChats[tab.id] || []),
+      previous: historySummaryRef.current,
+      budgetChars,
+      provider,
+      model,
+      jev: compaction.jev,
+      workspaceRoot: rootPath,
+      tabId: tab.id,
+      signal: controller.signal,
+    })
+      .then((next) => {
+        // The chat may have been switched or cleared while this ran.
+        if (!next || controller.signal.aborted || chatSaveQueueRef.current !== conversation) return;
+        historySummaryRef.current = next;
+        void saveChatHistory();
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (historySummaryJobRef.current === controller) historySummaryJobRef.current = null;
+      });
+  };
+
+  /** Pins or unpins a message and saves the chat so the pin survives reopening it. */
+  const handleTogglePin = (messageId: string, pinned: boolean) => {
+    useWorkspaceStore.getState().setAgentMessagePinned(tab.id, messageId, pinned);
+    void saveChatHistory();
   };
 
   /** Which workflow this chat follows. A conversation already on disk
@@ -1584,6 +1647,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             <ChatQueryRail queries={queryMetadata} activeQueryId={activeQueryId} onSelect={selectQuery} disabled={agentChats.length === 0} />
             <Chat
               messages={agentChats}
+              onTogglePin={handleTogglePin}
               isStreaming={isAgentBusy}
               streamingMessageId={consoleMessageIdRef.current}
               streamingLabel={streamingLabel}

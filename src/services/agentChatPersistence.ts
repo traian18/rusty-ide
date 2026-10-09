@@ -29,14 +29,16 @@ export class AgentChatSaveQueue {
     this.path = path;
   }
 
-  /** `workflow` is the path of the workflow this chat follows, if any. */
-  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean): Promise<void> {
+  /** `workflow` is the path of the workflow this chat follows, if any;
+   * `historySummary` is its smart-compaction summary of earlier turns. */
+  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean, historySummary?: unknown): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
       tabId, messages, modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
       ...(workflow ? { workflow } : {}),
       ...(workflowCheckpoint ? { workflowCheckpoint } : {}),
       ...(flowSwitching ? { flowSwitching: true } : {}),
+      ...(historySummary ? { historySummary } : {}),
     });
     this.pending = this.pending.catch(() => {}).then(async () => {
       if (this.path) {

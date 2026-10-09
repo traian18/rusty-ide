@@ -99,6 +99,7 @@ import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
+import { historyBudgetChars } from "../contextCompaction";
 import { GATED_RUN_COMMAND_TOOL, gatedRunCommandTool } from "./runCommandTool";
 import { runWebSearch, type WebSearchApiKeys, type WebSearchOptions } from "./webSearch";
 
@@ -529,7 +530,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     return brief ? { ...recipe, system_prompt: `${recipe.system_prompt ?? ""}\n\n${brief}` } : undefined;
   },
 
-  promptText: (input) => `${flattenHistory(input.chatHistory)}${input.message}`,
+  promptText: (input) => `${flattenHistory(input.chatHistory, { budgetChars: historyBudgetChars(input.customProvider, input.model), summary: input.historySummary })}${input.message}`,
 
   hostTools: (input, host: RunHost, ctx, onEvent): Record<string, HostToolHandler> => {
     const modifiedFiles = (ctx.scratch.modifiedFiles ??= new Set<string>()) as Set<string>;

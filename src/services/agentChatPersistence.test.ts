@@ -29,6 +29,17 @@ describe("conversation persistence", () => {
     expect(readChatWorkflow("")).toBeUndefined();
   });
 
+  it("saves the smart-compaction summary of earlier turns only when there is one", async () => {
+    invoke.mockResolvedValue("/workspace/.rusty/chats/chat.json");
+    const summary = { text: "- decided X", summarizedIds: ["2"], droppedIds: [], essentialIds: [], updatedAt: "2026-10-09" };
+    const queue = new AgentChatSaveQueue();
+    await queue.save("/workspace", "agent", [message], [], undefined, undefined, false, summary);
+    await queue.save("/workspace", "agent", [message], []);
+    const [withSummary, without] = invoke.mock.calls.map((call) => JSON.parse(call[1].content));
+    expect(withSummary.historySummary).toEqual(summary);
+    expect("historySummary" in without).toBe(false);
+  });
+
   it("round-trips changed files, removes duplicates, and accepts older chats", async () => {
     invoke.mockResolvedValue("/workspace/.rusty/chats/chat.json");
     await new AgentChatSaveQueue().save("/workspace", "agent", [message], ["/a.ts", "/b.ts", "/a.ts"]);

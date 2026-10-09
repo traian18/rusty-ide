@@ -40,6 +40,21 @@ export const createAgentSlice: WorkspaceSliceCreator = (set) => ({
     },
   })),
 
+  setAgentMessagePinned: (tabId, messageId, pinned) => set((state) => {
+    const chat = state.agentChats[tabId];
+    if (!chat) return {};
+    return {
+      agentChats: {
+        ...state.agentChats,
+        [tabId]: chat.map((message) => {
+          if (message.id !== messageId) return message;
+          const { pinned: _previous, ...rest } = message;
+          return pinned ? { ...rest, pinned: true } : rest;
+        }),
+      },
+    };
+  }),
+
   setAgentMessages: (tabId, messages) => set((state) => {
     if (!state.agentChats[tabId]) return {};
     return { agentChats: { ...state.agentChats, [tabId]: messages } };

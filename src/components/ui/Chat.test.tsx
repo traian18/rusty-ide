@@ -450,3 +450,32 @@ describe("Chat component rendering", () => {
     }
   });
 });
+
+describe("Chat pins", () => {
+  it("offers a pin on user and assistant messages only when a handler is given, and reports the toggle", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const onTogglePin = vi.fn();
+    const messages: Message[] = [
+      { id: "u", role: "user", content: "keep this", timestamp: "", pinned: true },
+      { id: "a", role: "assistant", content: "reply", timestamp: "" },
+      { id: "c", role: "console", content: "log line", timestamp: "" },
+    ];
+
+    await act(async () => root.render(<Chat messages={messages} />));
+    expect(container.querySelectorAll("button[aria-pressed]")).toHaveLength(0);
+
+    await act(async () => root.render(<Chat messages={messages} onTogglePin={onTogglePin} />));
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")];
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual(["Unpin message", "Pin message"]);
+    await act(async () => buttons[1]!.click());
+    expect(onTogglePin).toHaveBeenCalledWith("a", true);
+    await act(async () => buttons[0]!.click());
+    expect(onTogglePin).toHaveBeenCalledWith("u", false);
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});

@@ -82,7 +82,7 @@ tokio = { version = "1", features = ["sync", "rt", "macros", "process", "time"] 
 # reflect the real Milestone B dependency graph, not a trimmed subset of it.
 harness-engine = { path = "../../rusty-core/crates/harness-engine", optional = true }
 harness-protocol = { path = "../../rusty-core/crates/harness-protocol", optional = true }
-harness-context = { path = "../../rusty-core/crates/harness-context", optional = true }
+harness-context = { path = "../../rusty-core/crates/harness-context", optional = true, features = ["jev-http"] }
 harness-tools = { path = "../../rusty-core/crates/harness-tools", optional = true }
 harness-workspace = { path = "../../rusty-core/crates/harness-workspace", optional = true }
 harness-runtime = { path = "../../rusty-core/crates/harness-runtime", optional = true }

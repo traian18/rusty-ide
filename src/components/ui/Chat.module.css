@@ -199,3 +199,34 @@
   color: var(--color-bg);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent-color) 45%, transparent);
 }
+
+.messageActions {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 0;
+}
+
+.pinButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-secondary, currentColor);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.groupedItem:hover .pinButton,
+.pinButton:focus-visible,
+.pinButton.pinned {
+  opacity: 1;
+}
+
+.pinButton.pinned {
+  color: var(--accent-color);
+}

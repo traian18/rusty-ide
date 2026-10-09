@@ -1,4 +1,4 @@
-import type { DecideStepUpConfig, DecideToolRunConfig, FlowRouterRunConfig, JevRiskReviewRunConfig, StepModelRunConfig } from "../harness/core/decideToolConfig";
+import type { ContextCompactionRunConfig, DecideStepUpConfig, DecideToolRunConfig, FlowRouterRunConfig, JevRiskReviewRunConfig, StepModelRunConfig } from "../harness/core/decideToolConfig";
 import type { WorkspaceState } from "../store/types";
 import { findOpenRouterJevProvider, openRouterModelId, resolveOpenRouterJevModel } from "./intelligentModelSelector";
 
@@ -30,6 +30,20 @@ export function snapshotJevRiskReview(state: WorkspaceState): JevRiskReviewRunCo
   const apiKey = provider?.apiKey?.trim();
   if (!model || !apiKey) return undefined;
   return { apiKey, jevModelId: openRouterModelId(model), proceedConfidence: settings.decisionConfidenceThreshold };
+}
+
+/** Captures how a run compacts long conversations. Always present: the
+ * default is local compaction. `smart` is used only when its setting is on and
+ * OpenRouter/JEV is available, the same check as the other JEV features, and
+ * otherwise falls back to the default. */
+export function snapshotContextCompaction(state: WorkspaceState): ContextCompactionRunConfig {
+  const settings = state.intelligentModelSelectionSettings;
+  if (!settings.smartContextCompactionEnabled) return { mode: "standard" };
+  const provider = findOpenRouterJevProvider(state.customProviders, settings.jevModelId);
+  const model = resolveOpenRouterJevModel(provider, settings.jevModelId);
+  const apiKey = provider?.apiKey?.trim();
+  if (!model || !apiKey) return { mode: "standard" };
+  return { mode: "smart", jev: { apiKey, jevModelId: openRouterModelId(model), confidence: settings.decisionConfidenceThreshold } };
 }
 
 /** Captures the JEV connection and level-to-model mapping a workflow run uses
