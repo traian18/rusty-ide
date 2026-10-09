@@ -2,7 +2,11 @@
 //! The public client ID comes from Rusty's GitHub OAuth app registration.
 use std::{path::PathBuf, time::Duration};
 
-use harness_integration_github_copilot::{auth::CopilotAuth, credentials, InferenceAuth};
+use harness_integration_github_copilot::{
+    auth::CopilotAuth,
+    credentials::{self, TokenGrant},
+    InferenceAuth,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tauri::Manager;
@@ -153,15 +157,19 @@ fn default_interval() -> u64 {
 enum PollResult {
     Pending,
     SlowDown(Option<u64>),
-    Token(String),
+    Token(TokenGrant),
 }
 
 fn parse_poll(payload: Value) -> Result<PollResult, String> {
-    if let Some(token) = payload["access_token"]
+    if payload["access_token"]
         .as_str()
-        .filter(|token| !token.is_empty())
+        .is_some_and(|token| !token.is_empty())
     {
-        return Ok(PollResult::Token(token.into()));
+        // Keep the refresh token and lifetimes too: an app with expiring
+        // tokens gets an 8-hour access token that must be renewed.
+        return serde_json::from_value(payload)
+            .map(PollResult::Token)
+            .map_err(|_| "Invalid GitHub authorization response.".into());
     }
     match payload["error"].as_str() {
         Some("authorization_pending") => Ok(PollResult::Pending),
@@ -248,7 +256,7 @@ pub async fn authorize(
     publish_device(&device.verification_uri, &device.user_code);
     let expires = tokio::time::Instant::now() + Duration::from_secs(device.expires_in.min(600));
     let mut interval = device.interval.clamp(1, 600);
-    let token = loop {
+    let grant = loop {
         tokio::time::sleep(Duration::from_secs(interval + POLLING_MARGIN)).await;
         if tokio::time::Instant::now() >= expires {
             return Err("GitHub Copilot device code expired. Start sign-in again.".into());
@@ -261,13 +269,13 @@ pub async fn authorize(
                     .max(interval)
                     .min(600)
             }
-            PollResult::Token(token) => break token,
+            PollResult::Token(grant) => break grant,
         }
     };
     let github_api = github_api(host);
     let user: Value = client
         .get(format!("{github_api}/user"))
-        .bearer_auth(&token)
+        .bearer_auth(&grant.access_token)
         .header("user-agent", concat!("rusty/", env!("CARGO_PKG_VERSION")))
         .send()
         .await
@@ -281,7 +289,7 @@ pub async fn authorize(
         .as_str()
         .filter(|login| !login.is_empty())
         .ok_or("GitHub did not identify the signed-in account.")?;
-    credentials::save_credential(&path, host, login, &client_id, &token)?;
+    credentials::save_credential(&path, host, login, &client_id, &grant)?;
     Ok(login.into())
 }
 
@@ -464,7 +472,7 @@ mod tests {
             PollResult::SlowDown(Some(10))
         ));
         assert!(
-            matches!(poll_device(&client, &root, &device.device_code, TEST_CLIENT_ID).await.unwrap(), PollResult::Token(token) if token == "secret-fixture")
+            matches!(poll_device(&client, &root, &device.device_code, TEST_CLIENT_ID).await.unwrap(), PollResult::Token(grant) if grant.access_token == "secret-fixture")
         );
         server.await.unwrap();
     }
@@ -479,7 +487,10 @@ mod tests {
             PollResult::SlowDown(Some(10))
         ));
         assert!(
-            matches!(parse_poll(json!({"access_token":"fixture"})).unwrap(), PollResult::Token(token) if token == "fixture")
+            matches!(parse_poll(json!({"access_token":"fixture"})).unwrap(), PollResult::Token(grant) if grant.access_token == "fixture" && grant.refresh_token.is_none() && grant.expires_in.is_none())
+        );
+        assert!(
+            matches!(parse_poll(json!({"access_token":"fixture","token_type":"bearer","refresh_token":"refresh-fixture","expires_in":28800,"refresh_token_expires_in":15897600})).unwrap(), PollResult::Token(grant) if grant.refresh_token.as_deref() == Some("refresh-fixture") && grant.expires_in == Some(28800) && grant.refresh_token_expires_in == Some(15897600))
         );
         assert!(parse_poll(json!({"error":"access_denied"}))
             .err()

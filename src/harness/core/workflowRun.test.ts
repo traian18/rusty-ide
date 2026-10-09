@@ -226,4 +226,12 @@ describe("questions to the user", () => {
     expect(describeWorkflowEvent({ event: { type: "input_resolved", node_id: "approve", attempt: 1, response: { decision: "approve", by: "auto" } } }, names).log)
       .toBe("Plan approval: answered automatically (approve).");
   });
+
+  it("reports changes the user asked for as a revision, not a failure", () => {
+    expect(describeWorkflowEvent({ event: { type: "step_failed", node_id: "approve", attempt: 1, error: { code: "changes_approved", message: "drop step 3" } } }, names)).toEqual({
+      log: "Plan approval: approved with your notes; revising to include them first.",
+      step: { nodeId: "approve", status: "retry", attempt: 1, message: "approved with your notes; revising to include them first." },
+    });
+    expect(describeWorkflowEvent({ event: { type: "step_failed", node_id: "approve", attempt: 1, error: { code: "changes_requested", message: "split it" } } }, names).step?.status).toBe("retry");
+  });
 });

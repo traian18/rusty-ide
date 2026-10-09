@@ -161,6 +161,11 @@ export function describeWorkflowEvent(
       return { log: `Step ${name} succeeded.`, step: { nodeId, status: "succeeded", attempt } };
     case "step_failed": {
       const error = event.error as { code?: unknown } | undefined;
+      // The user's answer at an approval sends the work back; nothing failed.
+      if (error?.code === "changes_requested" || error?.code === "changes_approved") {
+        const message = error.code === "changes_approved" ? "approved with your notes; revising to include them first." : "you asked for changes.";
+        return { log: `${name}: ${message}`, step: { nodeId, status: "retry", attempt, message } };
+      }
       const message = error?.code === "verification_failed" ? "Verification found unmet criteria." : errorText(event.error);
       return { log: `Step ${name} failed: ${message}`, step: { nodeId, status: "failed", attempt, message } };
     }
@@ -168,7 +173,7 @@ export function describeWorkflowEvent(
       const next = typeof event.next_attempt === "number" ? event.next_attempt : attempt + 1;
       const by = typeof event.triggered_by === "string" ? names[event.triggered_by] ?? event.triggered_by : name;
       return {
-        log: by === name ? `Retrying ${name} (attempt ${next}).` : `${by} failed; retrying ${name} (attempt ${next}).`,
+        log: by === name ? `Retrying ${name} (attempt ${next}).` : `${by} sent the work back; running ${name} again (attempt ${next}).`,
         step: { nodeId, status: "retry", attempt: next },
       };
     }

@@ -7,6 +7,7 @@ import { useConfirm } from "./useConfirm";
 import { gitErrorMessage } from "./git/gitErrors";
 import { formatHeadLabel } from "./git/gitHeadLabel";
 import type { TabOfType } from "../tabs/types";
+import { buildGitDiffRequest } from "../tabs/gitDiffRequest";
 
 interface GitCommitInfo {
   hash: string;
@@ -90,13 +91,12 @@ export const GitHistoryTabContent: React.FC<{ tab: TabOfType<"git-history"> }> =
   };
 
   const handleOpenFileDiff = (filePath: string, _fileName: string, commitHash: string, _shortHash: string) => {
-    openTab({
-      type: "git-diff",
-      repoPath,
+    openTab(buildGitDiffRequest({
+      repoPath: repoPath ?? "",
       path: filePath,
       diffType: "commit",
       commitHash,
-    });
+    }));
   };
 
   const handleRevertCommit = async (commitHash: string) => {

@@ -1,13 +1,10 @@
 import type { OpenTabRequest } from "../../tabs/types";
 import type { GitRepository } from "../../store/types";
+import { buildGitDiffRequest } from "../../tabs/gitDiffRequest";
 import { resolveRepositoryForPath } from "../git/resolveRepositoryForPath";
 
 function isAbsolutePath(path: string): boolean {
   return path.startsWith("/") || path.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(path);
-}
-
-function basename(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).pop() || path;
 }
 
 export function resolveAgentFilePath(filePath: string, rootPath: string): string {
@@ -25,13 +22,11 @@ export function buildAgentChangedFileRequest(
 
   const path = resolveAgentFilePath(filePath, rootPath);
   const repository = resolveRepositoryForPath(path, repositories);
-  return {
-    type: "git-diff",
+  return buildGitDiffRequest({
     repoPath: repository?.worktreePath ?? rootPath,
     path,
     diffType: "unstaged",
-    title: `${basename(path)} (Workspace)`,
-  };
+  });
 }
 
 export function openAgentChangedFile(

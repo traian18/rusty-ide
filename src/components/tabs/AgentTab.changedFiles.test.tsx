@@ -75,6 +75,6 @@ it.each([false, true])("opens the actual modified-file header against the nested
   expect(openTab.mock.calls[0]?.[0].repoPath).toBe("/workspace/rusty-ide");
   expect(openTab).toHaveBeenCalledWith({
     type: "git-diff", repoPath: "/workspace/rusty-ide", path: "/workspace/rusty-ide/src/file.ts",
-    diffType: "unstaged", title: "file.ts (Workspace)",
+    diffType: "unstaged",
   });
 });

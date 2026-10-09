@@ -154,15 +154,49 @@ describe("the built-in workflow catalog", () => {
       expect(configOf(approve).subject).toEqual({ type: "node_output", node_id: "plan", pointer: "" });
       expect(ids.indexOf("approve_plan")).toBe(ids.indexOf("plan") + 1);
       expect(ids.indexOf("build")).toBe(ids.indexOf("approve_plan") + 1);
-      const build = nodes.find((n) => n.id === "build")!;
-      expect(build.input_bindings).toContainEqual({ target: "plan_notes", source: { type: "node_output", node_id: "approve_plan", pointer: "/notes" } });
+      // Notes given with the approval revise the plan, so everything after it
+      // works from the plan as approved, and still sees the notes themselves.
+      expect(configOf(approve).revise_on_notes).toBe(true);
+      const notes = { target: "plan_notes", source: { type: "node_output", node_id: "approve_plan", pointer: "/notes" } };
+      for (const step of agentsOf(document).slice(agentsOf(document).findIndex((n) => n.id === "build"))) {
+        expect(step.input_bindings, `${shortId(document)}/${step.id}`).toContainEqual(notes);
+        expect(String(configOf(step).instructions), `${shortId(document)}/${step.id}`).toContain("plan_notes");
+      }
       const confirm = nodes.find((n) => n.id === "confirm_checks")!;
       expect(configOf(confirm)).toMatchObject({
         subject: { type: "node_output", node_id: "gate", pointer: "/manual_checks" },
         revise_target: "build",
         skip_if_empty: "",
       });
-      expect(ids.at(-2)).toBe("confirm_checks");
+      // A final review's manual checks are asked too, after Verify's.
+      const post = agentsOf(document).at(-1)!;
+      if (post.id === "verify") {
+        expect(ids.at(-2)).toBe("confirm_checks");
+      } else {
+        expect(ids.slice(-3)).toEqual(["confirm_checks", "confirm_review_checks", "output"]);
+        expect(configOf(nodes.find((n) => n.id === "confirm_review_checks")!)).toMatchObject({
+          subject: { type: "node_output", node_id: `${post.id}_gate`, pointer: "/manual_checks" },
+          revise_target: "build",
+          skip_if_empty: "",
+        });
+      }
+    }
+  });
+
+  it("tells every step where it stands in its workflow and what it is given", () => {
+    for (const document of STARTER_WORKFLOWS) {
+      const agents = agentsOf(document);
+      expect(String(document.description).length, shortId(document)).toBeGreaterThan(120);
+      for (const [index, node] of agents.entries()) {
+        const text = String(configOf(node).instructions);
+        const where = `${shortId(document)}/${node.id}`;
+        expect(text, where).toContain(`"${String(document.name)}" runs:`);
+        expect(text, where).toContain(`You are ${String(node.name)}, step`);
+        for (const binding of node.input_bindings as JsonObject[]) expect(text, where).toContain(`- ${String(binding.target)}: `);
+        // Only the last step's message is the result; the others are told it is passed on.
+        expect(text.includes("Only your final message is passed on"), where).toBe(index < agents.length - 1);
+        expect(text.length, where).toBeGreaterThan(1200);
+      }
     }
   });
 

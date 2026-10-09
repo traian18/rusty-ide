@@ -8,6 +8,7 @@ import {
   edgesOf,
   issuesUnder,
   layoutSteps,
+  loopLanes,
   newProfile,
   newRule,
   newWorkflow,
@@ -217,5 +218,30 @@ describe("canvas layout", () => {
       const all = [...positions.values()];
       all.forEach((a, i) => all.slice(i + 1).forEach((b) => expect(collide(a, b), String(workflow.id)).toBe(false)));
     }
+  });
+});
+
+describe("loopLanes", () => {
+  it("runs a loop below every shorter loop it overlaps, and lets loops side by side share a lane", () => {
+    // High-risk change: approval -> plan, then four loops back to build.
+    const lanes = loopLanes([
+      { id: "confirm_review", left: 4, right: 10 },
+      { id: "gate", left: 4, right: 6 },
+      { id: "approve", left: 2, right: 3 },
+      { id: "review_gate", left: 4, right: 8 },
+      { id: "confirm", left: 4, right: 9 },
+    ]);
+    expect(Object.fromEntries(lanes)).toEqual({ approve: 0, gate: 0, review_gate: 1, confirm: 2, confirm_review: 3 });
+  });
+
+  it("places a longer loop below a shorter one it only partly overlaps", () => {
+    const lanes = loopLanes([
+      { id: "a", left: 0, right: 3 },
+      { id: "b", left: 2, right: 6 },
+      { id: "c", left: 5, right: 12 },
+    ]);
+    expect(lanes.get("a")).toBe(0);
+    expect(lanes.get("b")).toBe(1);
+    expect(lanes.get("c")).toBe(2);
   });
 });

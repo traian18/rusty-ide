@@ -21,8 +21,13 @@ vi.mock("../store", async () => {
     repositories: [],
     statusByRepositoryId: {},
     revealPath: null,
+    fileTreeSelectionRequest: null,
     clearRevealPath: () => set({ revealPath: null }),
+    clearFileTreeSelectionRequest: vi.fn((requestId: number) => set((state: any) =>
+      state.fileTreeSelectionRequest?.requestId === requestId ? { fileTreeSelectionRequest: null } : {},
+    )),
     revealFileInTree: vi.fn(),
+    selectFileInTree: vi.fn(),
     openTab: vi.fn(),
   }));
   return { useWorkspaceStore: store.current };
@@ -100,8 +105,52 @@ describe("FileTree", () => {
     expect(store.current.getState().openTab).toHaveBeenCalledWith({ type: "file", path: "/ws/README.md", title: "README.md" });
   });
 
-  it("draws folder icons in the accent color", () => {
-    const icon = row("/ws/src")!.querySelector("[data-folder-icon]");
-    expect(icon?.className).toContain("text-[var(--accent-color)]");
+  it("applies a matching selection request without opening a tab", () => {
+    act(() => {
+      store.current.setState({ expandedPaths: { "/ws/src": true } });
+      store.current.setState({ fileTreeSelectionRequest: { path: "/ws/./src/../src/main.ts", requestId: 7 } });
+    });
+
+    expect(selectedPath()).toBe("/ws/src/main.ts");
+    expect(row("/ws/src/main.ts")?.getAttribute("aria-selected")).toBe("true");
+    expect(document.activeElement).toBe(tree());
+    expect(store.current.getState().clearFileTreeSelectionRequest).toHaveBeenCalledWith(7);
+  });
+
+  it("retains an unmatched request and the current selection", () => {
+    press("ArrowDown");
+    const openTab = store.current.getState().openTab;
+    (openTab as any).mockClear();
+    act(() => store.current.setState({ fileTreeSelectionRequest: { path: "/ws/missing.ts", requestId: 8 } }));
+
+    expect(selectedPath()).toBe("/ws/src");
+    expect(store.current.getState().clearFileTreeSelectionRequest).not.toHaveBeenCalledWith(8);
+    expect(store.current.getState().openTab).not.toHaveBeenCalled();
+  });
+
+  it("applies repeated requests for the same file independently", () => {
+    act(() => {
+      store.current.setState({ expandedPaths: { "/ws/src": true } });
+      store.current.setState({ fileTreeSelectionRequest: { path: "/ws/src/main.ts", requestId: 9 } });
+    });
+    expect(selectedPath()).toBe("/ws/src/main.ts");
+
+    const clearRequest = store.current.getState().clearFileTreeSelectionRequest;
+    (clearRequest as any).mockClear();
+    act(() => store.current.setState({ fileTreeSelectionRequest: { path: "/ws/src/main.ts", requestId: 10 } }));
+
+    expect(selectedPath()).toBe("/ws/src/main.ts");
+    expect(clearRequest).toHaveBeenCalledWith(10);
+  });
+
+  it("fulfills a retained request after its ancestor becomes visible", () => {
+    act(() => store.current.setState({ fileTreeSelectionRequest: { path: "/ws/src/main.ts", requestId: 11 } }));
+    expect(selectedPath()).toBeUndefined();
+    expect(store.current.getState().fileTreeSelectionRequest).toEqual({ path: "/ws/src/main.ts", requestId: 11 });
+
+    act(() => store.current.setState({ expandedPaths: { "/ws/src": true } }));
+
+    expect(selectedPath()).toBe("/ws/src/main.ts");
+    expect(store.current.getState().clearFileTreeSelectionRequest).toHaveBeenCalledWith(11);
   });
 });

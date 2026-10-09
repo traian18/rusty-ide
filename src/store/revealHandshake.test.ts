@@ -96,4 +96,33 @@ describe("revealFileInTree: the drawer-open handshake", () => {
       "C:/src/components/shell": true,
     });
   });
+
+  it("publishes a canonical selection request and opens Explorer synchronously", () => {
+    const store = createRevealHandshakeTestStore({ drawerOpen: true, drawerView: "git" } as never);
+
+    store.getState().selectFileInTree("C:\\src\\components\\..\\App.tsx");
+
+    expect(store.getState()).toMatchObject({
+      drawerOpen: true,
+      drawerView: "explorer",
+      fileTreeSelectionRequest: { path: "C:/src/App.tsx" },
+      expandedPaths: { "C:": true, "C:/src": true },
+    });
+  });
+
+  it("uses distinct request IDs and only clears the current request", () => {
+    const store = createRevealHandshakeTestStore();
+    store.getState().selectFileInTree("src/App.tsx");
+    const firstId = store.getState().fileTreeSelectionRequest!.requestId;
+
+    store.getState().selectFileInTree("src/App.tsx");
+    const secondId = store.getState().fileTreeSelectionRequest!.requestId;
+    expect(secondId).not.toBe(firstId);
+
+    store.getState().clearFileTreeSelectionRequest(firstId);
+    expect(store.getState().fileTreeSelectionRequest?.requestId).toBe(secondId);
+
+    store.getState().clearFileTreeSelectionRequest(secondId);
+    expect(store.getState().fileTreeSelectionRequest).toBeNull();
+  });
 });

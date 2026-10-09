@@ -79,10 +79,13 @@ async fn git_get_index_content_is_empty_for_untracked_file() {
     assert_eq!(
         git_get_index_content(
             fx.path_str(),
-            fx.path().join("untracked.txt").to_string_lossy().into_owned(),
+            fx.path()
+                .join("untracked.txt")
+                .to_string_lossy()
+                .into_owned(),
         )
-            .await
-            .unwrap(),
+        .await
+        .unwrap(),
         ""
     );
 }

@@ -12,7 +12,6 @@ describe("AgentTab changed file opener", () => {
       repoPath: "/workspace/",
       path: "/workspace/src/file.ts",
       diffType: "unstaged",
-      title: "file.ts (Workspace)",
     });
   });
 
@@ -37,7 +36,7 @@ describe("AgentTab changed file opener", () => {
     openAgentChangedFile(openTab, "src/file.ts", "/workspace");
     expect(openTab).toHaveBeenCalledWith({
       type: "git-diff", repoPath: "/workspace", path: "/workspace/src/file.ts",
-      diffType: "unstaged", title: "file.ts (Workspace)",
+      diffType: "unstaged",
     });
   });
 });

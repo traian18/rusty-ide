@@ -193,6 +193,12 @@ export const StepNode: React.FC<NodeProps<StepFlowNode>> = ({ data }) => {
               <span>auto-approve</span>
               <span className={styles.nodeValue}>{config.allow_auto_approve === false ? "always asks" : "allowed"}</span>
             </div>
+            {config.revise_on_notes === true ? (
+              <div className={styles.nodeLine}>
+                <span>approval notes</span>
+                <span className={styles.nodeValue}>revise first</span>
+              </div>
+            ) : null}
           </>
         ) : null}
       </div>

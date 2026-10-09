@@ -335,6 +335,25 @@ export function approvalReviseTarget(step: JsonObject): string | undefined {
     : undefined;
 }
 
+/**
+ * Lanes for the loops drawn below the cards (a step sending work back to an
+ * earlier one), given each loop's horizontal span. The shortest loops run
+ * closest to the cards; a loop runs one lane below every shorter loop it
+ * overlaps, so nested loops never cross. Loops side by side share a lane.
+ */
+export function loopLanes(loops: Array<{ id: string; left: number; right: number }>): Map<string, number> {
+  const placed: Array<{ left: number; right: number; lane: number }> = [];
+  const lanes = new Map<string, number>();
+  const byLength = [...loops].sort((a, b) => a.right - a.left - (b.right - b.left) || a.left - b.left);
+  for (const loop of byLength) {
+    const below = placed.filter((other) => other.left < loop.right && loop.left < other.right);
+    const lane = below.length ? Math.max(...below.map((other) => other.lane)) + 1 : 0;
+    placed.push({ left: loop.left, right: loop.right, lane });
+    lanes.set(loop.id, lane);
+  }
+  return lanes;
+}
+
 function uniqueId(used: Iterable<string>, base: string): string {
   const taken = new Set(used);
   if (!taken.has(base)) return base;

@@ -510,6 +510,14 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
             />{" "}
             Always ask a person, even when the run auto-approves
           </label>
+          <label style={{ display: "block" }}>
+            <input
+              type="checkbox"
+              checked={config.revise_on_notes === true}
+              onChange={(e) => setConfig("revise_on_notes", e.target.checked ? true : undefined)}
+            />{" "}
+            Notes given with an approval revise the result first (it is not asked again)
+          </label>
         </div>
       ) : null}
 

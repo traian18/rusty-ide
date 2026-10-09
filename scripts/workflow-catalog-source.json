@@ -17,8 +17,12 @@
       "analyze": {
         "name": "Analyze",
         "profile": "analyze",
-        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it."
+        "instructions": "Map the code the request will change so the plan can be precise.\n1. Find the entry points and modules involved, and follow the real data and control flow through them.\n2. Identify the change surface: the files and symbols that must change, the callers and consumers affected, and any configuration, schema or persisted data involved.\n3. Find the patterns to follow: how similar features are built here, naming, error handling and test style. Point at concrete examples.\n4. List the tests that cover this area, the commands that run them, and where new tests belong.\n5. Name the risks: compatibility, migrations, concurrency, performance, security, and areas you could not make sense of.\nDo not change any files. Plan reads your report next and builds the plan on it, so reference concrete files and symbols and keep facts apart from assumptions."
       }
+    },
+    "description": "Builds a change in code that should be understood first: Analyze maps the code and the change surface, Plan writes the plan you approve, Build implements it, and Verify checks every criterion and sends failures back to Build.",
+    "focus": {
+      "plan": "Build the plan on the analysis: use its change surface, the patterns it points at and the test locations it found."
     }
   },
   "implement": {
@@ -38,7 +42,11 @@
         "security-audit"
       ]
     },
-    "stages": {}
+    "stages": {},
+    "description": "For a change that is already decided, often a plan from an earlier workflow: Plan adopts or completes it, you approve it, Build implements it, and Verify checks every criterion and sends failures back to Build.",
+    "focus": {
+      "plan": "This workflow usually starts once the change is decided. If the context already holds a plan or design the user agreed to (from Architect & plan, Debug & plan a fix or Security audit & fix plan), adopt it: keep its requirements, criteria, tasks and ids, and change only what the code shows is out of date or missing. Otherwise write the plan from the request."
+    }
   },
   "documentation": {
     "schema_version": 1,
@@ -57,8 +65,15 @@
       "analyze": {
         "name": "Analyze",
         "profile": "analyze",
-        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it. Identify documentation gaps, intended readers, source-of-truth symbols and examples that need validation."
+        "instructions": "Find what documentation is needed and what it must say.\n1. Identify the audience (users, contributors, operators, API consumers) and what they need to do with the docs.\n2. Find the existing documentation: where it lives, its format and conventions, and what is outdated or missing.\n3. Find the source of truth for everything to be documented: the symbols, commands, options, configuration and defaults in the code.\n4. List the examples the docs need and how each can be checked (a command to run, a test, a compile).\nDo not change any files. Plan reads your report next; reference concrete files and symbols."
       }
+    },
+    "description": "Writes or updates documentation from the code itself: Analyze finds the gaps and the source of truth, Plan lists what to write for your approval, the docs are written, Verify checks them against the code, and a final review reads them as their audience would.",
+    "focus": {
+      "plan": "Name each document or section to write or update, where it lives and who it is for. Criteria include that every statement matches the code and every example and command works.",
+      "build": "Write for the audience in the plan and follow the existing documentation conventions. Check every statement, name, option and default against the code, and run or compile every example and command you include where you can.",
+      "verify": "Check every documented name, option, default and behavior against the code, and run or compile the examples and commands where you can. Wrong or stale documentation is fail.",
+      "review": "Read the docs as their intended audience would: accurate against the code, complete for the task they support, easy to follow, consistent with the rest of the documentation, with working links and examples. Inaccurate content is fail; style preferences are not."
     }
   },
   "refactor": {
@@ -79,8 +94,14 @@
       "analyze": {
         "name": "Analyze",
         "profile": "analyze",
-        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it. Identify observable behavior and public interfaces that must remain unchanged, with regression coverage."
+        "instructions": "Pin down what the refactor must keep.\n1. Identify the code to restructure and the goal of the refactor in the request.\n2. List the observable behavior and the public interfaces that must not change: functions and types other modules use, outputs, file and data formats, errors.\n3. Find the tests that cover that behavior and the commands that run them, and name the gaps where behavior is not pinned by a test.\n4. Find every caller and dependent of the code that will move or change.\n5. Suggest a safe order of small steps that each keep the project building and the tests passing.\nDo not change any files. Plan reads your report next; reference concrete files and symbols."
       }
+    },
+    "description": "Restructures code without changing what it does: Analyze pins the behavior and interfaces that must stay the same, Plan splits the refactor into small tasks you approve, each task is built and reviewed on its own, Verify runs the checks, and a final review confirms behavior is unchanged.",
+    "focus": {
+      "plan": "Tests that pin behavior not yet covered come first. Every task keeps the project building and the tests passing, and behavior and public interfaces stay the same unless the request says otherwise.",
+      "build": "Keep observable behavior and public interfaces identical. Run the tests before and after your change; a test may change only for an interface change the plan names, never to make a behavior change pass.",
+      "review": "Confirm behavior is unchanged: compare the old and new code paths, check every caller still gets the same results and errors, look for dropped edge-case handling, and check the structure improved the way the request intended, with no dead code or leftover duplicates. A behavior change the plan did not call for is fail."
     }
   },
   "investigate": {
@@ -104,14 +125,15 @@
       "research": {
         "name": "Research",
         "profile": "research",
-        "instructions": "Investigate the requested scope using workspace evidence and relevant external sources. Provide sourced options, trade-offs, uncertainties and a recommendation; do not implement changes."
+        "instructions": "Find out what the user needs to understand or decide, and gather the evidence for it.\n1. Restate the question in one or two sentences and list the sub-questions that must be answered before the user can decide.\n2. Look at the workspace first: what the project uses today (manifests and lockfiles for libraries and versions, configuration, existing patterns) and which constraints that sets.\n3. Where the answer depends on how a library, API, standard or tool behaves, check primary sources: official documentation for the versions in use, changelogs, release notes, issue trackers. Note the version and date of what you rely on.\n4. When there are several ways to go, compare them on what matters for this project: fit with the existing code, complexity, performance, security, maintenance, licensing and the cost of switching.\n5. Recommend one option, say why, and say what would change your recommendation.\n6. Keep verified facts (with a link or a file path) apart from inference, and list what is still uncertain.\nDo not change any files. Analyze reads your findings next and maps them onto the code, so name the parts of the codebase your findings touch and the questions only the code can answer."
       },
       "analyze": {
         "name": "Analyze",
         "profile": "analyze",
-        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it."
+        "instructions": "Answer the user's question from the code, using the research as a guide.\n1. Start from the request and from the questions Research left for the code.\n2. Find the entry points and follow the real flow: callers, data structures, state, configuration and error paths. Read the code rather than guessing from names.\n3. Answer the question directly first, then give the evidence: a file path and symbol for every claim, with short excerpts only where they make the point.\n4. Relate the research to this codebase: which option fits how the code is built, what adopting it would touch, and what it would cost.\n5. Call out risks, surprises and anything you could not confirm, and say how to confirm it.\nDo not change any files. Your report is the workflow's final result and goes straight to the user, who may continue with a design or a plan from it, so it must stand on its own: lead with the answer and a recommendation, then the supporting detail."
       }
-    }
+    },
+    "description": "Answers a question about the code or a technology without changing anything: Research gathers sourced options and a recommendation, then Analyze traces how the existing code works and answers the question with file-level evidence."
   },
   "researched-feature": {
     "schema_version": 1,
@@ -131,13 +153,18 @@
       "research": {
         "name": "Research",
         "profile": "research",
-        "instructions": "Investigate the requested scope using workspace evidence and relevant external sources. Provide sourced options, trade-offs, uncertainties and a recommendation; do not implement changes."
+        "instructions": "Gather what has to be known before the feature is designed.\n1. Restate what the feature must do, and list the open questions that need outside knowledge: libraries, APIs, protocols, standards, platform limits.\n2. Check what the project already uses (manifests, lockfiles, existing integrations) so the options fit the stack and versions in place.\n3. Research primary sources: official documentation for the versions in use, changelogs, known issues, reference implementations. Note versions and dates.\n4. Compare the viable approaches on fit with the codebase, complexity, performance, security, maintenance and licensing.\n5. Recommend one, with the reasons and the conditions under which another would be better, and list what is still uncertain.\nDo not change any files. Architect designs the feature from your findings next, so give it the facts it needs: API shapes, limits, configuration and pitfalls."
       },
       "architect": {
         "name": "Architect",
         "profile": "architect",
-        "instructions": "Design components, interfaces, data flow and failure handling. Compare viable alternatives and explain the chosen design, compatibility constraints and implementation boundaries."
+        "instructions": "Design the feature in this codebase, using the research.\n1. Start from Research's recommendation; depart from it only for a reason you state.\n2. Read the code the feature will live in: modules, interfaces, the patterns used for similar features, and the tests.\n3. Lay out the design: components and responsibilities, interfaces and data shapes, data and control flow, state, error handling, configuration, and how each part is tested.\n4. Name the compatibility constraints and the boundaries of the change: which files and modules change and which must not.\n5. Order the work into pieces that can each be built and checked on their own.\nDo not change any files. Plan turns your design into small tasks, each built by a fresh builder that sees only its own task, so be concrete: real paths, symbols and types."
       }
+    },
+    "description": "For a feature that needs outside knowledge and a design first: Research gathers sourced options, Architect designs the solution, Plan breaks it into small tasks you approve, each task is built and reviewed on its own, and Verify checks every criterion.",
+    "focus": {
+      "plan": "Follow the Architect's design and its order of work.",
+      "build": "Follow the Architect's design: its interfaces, data shapes and boundaries. If the code makes part of it impossible, do the closest thing that meets the criteria and say what differs."
     }
   },
   "optimize-performance": {
@@ -158,8 +185,14 @@
       "analyze": {
         "name": "Analyze",
         "profile": "analyze",
-        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it. Identify measurable bottlenecks, baseline conditions and a repeatable comparison. Do not invent measurements."
+        "instructions": "Find where the time or memory really goes, and how to measure it.\n1. Identify the slow or heavy path the request is about and the code on it.\n2. Find or define a repeatable measurement: an existing benchmark, a profiling command, a timed test or a script, with its input size and conditions.\n3. If you can run it, record the baseline numbers together with the command. If you cannot, say how it should be run. Never invent measurements.\n4. Identify the likely bottlenecks with evidence (complexity, repeated work, I/O, allocations, locking), ranked by expected gain.\n5. Note the behavior that must stay the same and the tests that pin it.\nDo not change any files. Plan reads your report next and sets measurable targets."
       }
+    },
+    "description": "Makes something measurably faster or lighter: Analyze finds the bottleneck and how to measure it, Plan sets targets you approve, Build measures before and after its change, and Verify checks the numbers and that behavior is unchanged.",
+    "focus": {
+      "plan": "Make the measurement part of the plan: a baseline task with the exact command, then the changes, then the same measurement again. Criteria state each target as a comparison with the baseline under the same conditions, plus unchanged behavior.",
+      "build": "Measure the baseline with the planned command before changing anything, then change the code, then measure again the same way. Report both numbers from real runs only; if a measurement cannot run here, say so and give the command.",
+      "verify": "Check that the before and after numbers come from the same command and conditions and meet the plan's targets, and rerun the measurement if you can. Run the tests to confirm behavior is unchanged. A claimed improvement without a real measurement is fail, unless measuring is impossible here: then it is manual."
     }
   },
   "security-remediation": {
@@ -179,8 +212,13 @@
       "audit": {
         "name": "Security audit",
         "profile": "security",
-        "instructions": "Audit the requested scope for concrete security risks. For each finding identify severity, file/symbol, exploit conditions, affected trust boundary and a precise remediation with an acceptance check. Clearly distinguish confirmed findings from unverified risks."
+        "instructions": "Audit the requested scope for real, exploitable security problems.\n1. Define the scope and its trust boundaries: who supplies input, what is trusted, where secrets and sensitive data live, what runs with elevated rights.\n2. Check the classes of problem that apply: injection (SQL, shell, path, template), missing authentication or authorization, unsafe deserialization, secrets in code, logs or errors, insecure defaults and configuration, misused cryptography, SSRF and open redirects, missing validation at boundaries, and dependencies with known advisories for the versions in use.\n3. For each finding give an id (S1, S2, ...), a severity (critical, high, medium, low) with a one-line reason, the file and symbol, the conditions under which it can be exploited, the impact, and a precise remediation with the check that proves it is fixed.\n4. Mark each finding confirmed (you traced it in the code) or unverified (a pattern that needs a closer look), and do not inflate severity.\n5. Say what you did not cover.\nDo not change any files. Plan turns your findings into fix tasks next, and at the end a security acceptance step checks each finding by its id, so the ids must stay stable."
       }
+    },
+    "description": "Finds and fixes security problems: a security audit ranks the findings, Plan turns them into tasks you approve, each fix is built and reviewed on its own, Verify checks every criterion, and a security acceptance step confirms each finding is really fixed.",
+    "focus": {
+      "plan": "Each confirmed finding becomes a requirement under its id (S1, ...) with an acceptance criterion that proves the exploit no longer works; fix the highest severity first. Rotating leaked secrets, deploying and rewriting history are follow-ups for the user, not tasks.",
+      "build": "Fix the root cause of the finding at the trust boundary, not only the one call site, and do not weaken any other control. Add a test that shows the exploit no longer works where that is feasible."
     }
   },
   "security-audit": {
@@ -203,8 +241,12 @@
       "audit": {
         "name": "Security",
         "profile": "security",
-        "instructions": "Audit the requested scope for concrete security risks. For each finding identify severity, file/symbol, exploit conditions, affected trust boundary and a precise remediation with an acceptance check. Clearly distinguish confirmed findings from unverified risks."
+        "instructions": "Audit the requested scope for real, exploitable security problems.\n1. Define the scope and its trust boundaries: who supplies input, what is trusted, where secrets and sensitive data live, what runs with elevated rights.\n2. Check the classes of problem that apply: injection (SQL, shell, path, template), missing authentication or authorization, unsafe deserialization, secrets in code, logs or errors, insecure defaults and configuration, misused cryptography, SSRF and open redirects, missing validation at boundaries, and dependencies with known advisories for the versions in use.\n3. For each finding give an id (S1, S2, ...), a severity (critical, high, medium, low) with a one-line reason, the file and symbol, the conditions under which it can be exploited, the impact, and a precise remediation with the check that proves it is fixed.\n4. Mark each finding confirmed (you traced it in the code) or unverified (a pattern that needs a closer look), and do not inflate severity.\n5. Say what you did not cover.\nDo not change any files. Plan reads your findings next and turns them into a fix plan."
       }
+    },
+    "description": "Audits the requested scope for concrete security risks, ranks the findings and plans how to fix them. Nothing is changed; the fix plan can be handed to a build workflow.",
+    "focus": {
+      "plan": "Plan the fixes in order of severity. Each confirmed finding becomes a requirement under its id (S1, ...) with an acceptance criterion that proves the exploit no longer works. Unverified findings become investigation tasks or follow-ups. Rotating leaked secrets, changing production configuration and rewriting history are follow-ups for the user, not tasks."
     }
   },
   "careful-change": {
@@ -225,8 +267,14 @@
       "analyze": {
         "name": "Analyze",
         "profile": "analyze",
-        "instructions": "Inspect how the relevant code works, trace data and control flow, identify the change surface and risks, and reference concrete files and symbols. Incorporate supplied research rather than repeating it."
+        "instructions": "Map the change and its blast radius before anything is planned.\n1. Find every place the change reaches: the code that changes, its callers and consumers, public interfaces, persisted data and its formats, configuration, background jobs and other services.\n2. For each, say what could break and how it would show up.\n3. Find what protects it today: the tests that cover it and the commands that run them, types, validation, feature flags, and the gaps.\n4. Identify what must not change: behavior other code relies on, data compatibility, the public API.\n5. Suggest the safest order of work, how to roll back, and what to test before and after.\nDo not change any files. Plan reads your report next and splits the work into small tasks, so reference concrete files and symbols."
       }
+    },
+    "description": "For changes where mistakes are expensive (shared code, data, public interfaces): Analyze maps the blast radius, Plan splits the work into small tasks you approve, each task is built and reviewed on its own, Verify checks every criterion, and a final review looks for regressions before you confirm.",
+    "focus": {
+      "plan": "Keep every task small and safe on its own, and put tests that pin current behavior before the change that could break it. Make compatibility and rollback explicit criteria.",
+      "build": "Change only what your task needs. Keep public interfaces, data formats and behavior other code relies on unless the task says otherwise, and add or run tests for every path you touch.",
+      "review": "Focus on risk: callers and consumers that may break, data compatibility and migrations, error handling and partial failure, concurrency, and whether a rollback is possible. A regression or an unhandled failure path is fail."
     }
   },
   "plan-build-verify": {
@@ -243,7 +291,8 @@
         "security-audit"
       ]
     },
-    "stages": {}
+    "stages": {},
+    "description": "The everyday workflow for a change: Plan writes requirements, acceptance criteria and tasks; you approve the plan (your notes revise it); Build implements it; Verify checks every criterion against the workspace and sends failures back to Build; checks only a person can do are given to you to confirm."
   },
   "check-changes": {
     "schema_version": 1,
@@ -266,14 +315,15 @@
       "verify": {
         "name": "Verify",
         "profile": "verify",
-        "instructions": "Inspect the requested scope and report actual evidence."
+        "instructions": "Run the checks that apply to the changes and give the final verdict.\n1. Run the project's checks that cover the changed code (tests, type check, lint, build) with the tools you have: focused tests for the changed areas first, then the wider suite when that is practical.\n2. Report each check with the command, whether it passed, and the output that matters. Tell failures the changes caused apart from failures that were already there.\n3. Confirm or refute what Review asked you to check.\n4. Give the verdict: acceptable, acceptable after fixes, or not acceptable, with Review's blocking findings and any failing checks first.\nDo not edit files. Your report is the workflow's final result for the user."
       },
       "review": {
         "name": "Review",
         "profile": "review",
-        "instructions": "Inspect the actual requested changes for correctness, regressions, missing tests and maintainability. Return prioritized actionable findings with file/symbol evidence. A completed assessment can contain defects: explicitly state whether the changes are acceptable and what remains unresolved."
+        "instructions": "Review the changes the user means, without editing anything.\n1. Work out which changes are meant: the ones the request names, the result of the previous workflow in the context, or the uncommitted changes in the workspace. Look at the actual code with the tools you have, and say which changes you reviewed.\n2. Read every changed file and enough of the surrounding code to judge the change: callers, tests, configuration.\n3. Look for wrong behavior and missed edge cases, regressions for existing callers, missing or weak tests, poor error handling, security problems, performance traps, and code that does not follow the project's conventions.\n4. Give prioritized findings (blocking, should fix, minor), each with file and line, what is wrong, why it matters, and the fix.\n5. Say whether the changes are acceptable as they are.\nVerify runs the project's checks next and gives the final verdict with your findings, so list anything it should confirm by running a check."
       }
-    }
+    },
+    "description": "Reviews work that is already done (your own changes or the previous result) for correctness, regressions and quality, then runs the project's checks. Nothing is edited; you get prioritized findings and a verdict."
   },
   "diagnose": {
     "schema_version": 1,
@@ -296,8 +346,12 @@
       "debug": {
         "name": "Debug",
         "profile": "debug",
-        "instructions": "Reproduce the reported failure with the smallest relevant check, distinguish observed evidence from hypotheses, identify the root cause and specify a regression test. Report missing prerequisites explicitly; do not edit files or install dependencies."
+        "instructions": "Find the root cause of the failure the user reports.\n1. Pin down the symptom: the exact error, failing test, input or behavior, and what was expected instead. Take it from the request and the context; ask the user only if you cannot go on without it.\n2. Reproduce it with the smallest check you can: one test, one command, one input. Record the command and its output. If you cannot reproduce it, say what you tried and what is missing.\n3. Trace from the symptom to the cause: read the code on the failing path, form hypotheses, and test each against evidence (outputs, logs, code paths). Keep what you observed apart from what you suspect.\n4. State the root cause with file and line, why it produces the symptom, and since when if that is visible (a recent change, a dependency update).\n5. Specify the regression test: where it goes, what it does, and that it fails today and should pass after the fix.\n6. Note other places with the same defect, and what the fix must not break.\nDo not edit files or install dependencies; describe the fix instead. Plan reads your diagnosis next and turns it into the fix plan."
       }
+    },
+    "description": "Finds the cause of a failure (an error, a failing test, wrong behavior) by reproducing it, then plans the fix and its regression test. Nothing is changed yet.",
+    "focus": {
+      "plan": "Plan the fix for the root cause in the diagnosis, not a workaround for the symptom. The first task adds the regression test the diagnosis specifies (it fails today), the next fixes the cause, and the plan covers the other occurrences the diagnosis found. One criterion is that the regression test passes."
     }
   },
   "design": {
@@ -321,8 +375,12 @@
       "architect": {
         "name": "Architect",
         "profile": "architect",
-        "instructions": "Design components, interfaces, data flow and failure handling. Compare viable alternatives and explain the chosen design, compatibility constraints and implementation boundaries."
+        "instructions": "Design how the request should be built in this codebase.\n1. Restate the goal, the constraints the user gave, and the decisions already made in the context.\n2. Read the code the design will live in: the modules, their interfaces, the patterns used for similar features, and the tests.\n3. Lay out the design: components and their responsibilities, interfaces and data shapes, data and control flow, where state lives, error and failure handling, and how each part is tested.\n4. Where there is a real choice, compare at least two approaches and explain the one you pick: why it fits this codebase, what it costs, what it rules out.\n5. Name the compatibility constraints (public APIs, persisted data, configuration, migrations) and the boundaries of the change: which files and modules change and which must not.\nDo not change any files. Plan reads your design next and turns it into requirements and ordered tasks, so be concrete: real paths, symbols and types, not generic advice."
       }
+    },
+    "description": "Turns a requirement or earlier findings into a design and an ordered implementation plan before any code is written. Nothing is changed; the plan can be handed to Build & verify.",
+    "focus": {
+      "plan": "Turn the Architect's design into the plan and keep its choices. Where the code contradicts part of the design, say so and plan what the code allows."
     }
   },
   "bug-fix": {
@@ -343,8 +401,14 @@
       "debug": {
         "name": "Debug",
         "profile": "debug",
-        "instructions": "Reproduce the reported failure with the smallest relevant check, distinguish observed evidence from hypotheses, identify the root cause and specify a regression test. Report missing prerequisites explicitly; do not edit files or install dependencies."
+        "instructions": "Find the root cause of the failure the user reports.\n1. Pin down the symptom: the exact error, failing test, input or behavior, and what was expected instead. Take it from the request and the context; ask the user only if you cannot go on without it.\n2. Reproduce it with the smallest check you can: one test, one command, one input. Record the command and its output. If you cannot reproduce it, say what you tried and what is missing.\n3. Trace from the symptom to the cause: read the code on the failing path, form hypotheses, and test each against evidence (outputs, logs, code paths). Keep what you observed apart from what you suspect.\n4. State the root cause with file and line, why it produces the symptom, and since when if that is visible (a recent change, a dependency update).\n5. Specify the regression test: where it goes, what it does, and that it fails today and should pass after the fix.\n6. Note other places with the same defect, and what the fix must not break.\nDo not edit files or install dependencies; describe the fix instead. Plan writes the fix plan from your diagnosis next, and Build implements it."
       }
+    },
+    "description": "Fixes a failure end to end: Debug reproduces it and finds the root cause, Plan writes the fix and its regression test for you to approve, Build adds the test and fixes the code, and Verify confirms the test passes and nothing else broke.",
+    "focus": {
+      "plan": "Plan the fix for the root cause in the diagnosis, not a workaround for the symptom. The first task adds the regression test the diagnosis specifies (it fails today), the next fixes the cause, and the plan covers the other occurrences the diagnosis found. One criterion is that the regression test passes.",
+      "build": "Write the regression test first and run it to see it fail for the reason in the diagnosis. Then fix the root cause, run it again to see it pass, and run the tests around the changed code. Report both runs.",
+      "verify": "Confirm that the regression test exists, exercises the reported failure and passes; that the fix addresses the root cause in the diagnosis rather than hiding the symptom; and that the tests around the changed code still pass."
     }
   }
 }

@@ -12,6 +12,7 @@ import { resolveRepositoryForPath } from "./git/resolveRepositoryForPath";
 import { fileTreePresenter, refreshTree } from "./filetree/FileTreePresenter";
 import { FileTreeNode, readDraggedPaths } from "./filetree/FileTreeNode";
 import { FileTreeContextMenu, type FileTreeMenuAction } from "./filetree/FileTreeContextMenu";
+import { canonicalizeFilePath } from "../tabs/identity";
 import {
   createTargetFor,
   flattenVisible,
@@ -69,6 +70,8 @@ export const FileTree: React.FC<FileTreeProps> = ({ entries }) => {
 
   const revealPath = useWorkspaceStore((state) => state.revealPath);
   const clearRevealPath = useWorkspaceStore((state) => state.clearRevealPath);
+  const fileTreeSelectionRequest = useWorkspaceStore((state) => state.fileTreeSelectionRequest);
+  const clearFileTreeSelectionRequest = useWorkspaceStore((state) => state.clearFileTreeSelectionRequest);
   const activeFilePath = useWorkspaceStore(selectActiveFilePath);
   const revealFileInTree = useWorkspaceStore((state) => state.revealFileInTree);
   const expandedPaths = useWorkspaceStore((state) => state.expandedPaths);
@@ -93,6 +96,21 @@ export const FileTree: React.FC<FileTreeProps> = ({ entries }) => {
     }, 100);
     return () => clearTimeout(timer);
   }, [revealPath, clearRevealPath]);
+
+  useEffect(() => {
+    if (!fileTreeSelectionRequest || !treeContainerRef.current) return;
+    const requestedPath = canonicalizeFilePath(fileTreeSelectionRequest.path);
+    const entry = visibleEntries.find(
+      (candidate) => !candidate.is_dir && canonicalizeFilePath(candidate.path) === requestedPath,
+    );
+    if (!entry) return;
+
+    setSelectedPaths(new Set([entry.path]));
+    setFocusedPath(entry.path);
+    treeContainerRef.current.focus({ preventScroll: true });
+    scrollIntoView(entry.path);
+    clearFileTreeSelectionRequest(fileTreeSelectionRequest.requestId);
+  }, [fileTreeSelectionRequest, visibleEntries, clearFileTreeSelectionRequest]);
 
   const activateEntry = (node: FileEntry) => {
     if (node.is_dir) setPathExpanded(node.path, !expandedPaths[node.path]);

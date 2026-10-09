@@ -17,16 +17,21 @@ export async function loadGitDiffContent(
   },
   invokeCommand: Invoke = invoke,
 ): Promise<GitDiffContent> {
-  if (tab.diffType === "commit" && tab.commitHash) {
+  if (tab.diffType === "commit") {
+    const commitHash = tab.commitHash;
+    if (!commitHash?.trim()) {
+      throw new Error("commitHash is required for commit diffs");
+    }
+
     return {
       original: await invokeCommand<string>("git_get_file_content_at_rev", {
         rootDir: tab.repoPath,
-        revision: `${tab.commitHash}~1`,
+        revision: `${commitHash}~1`,
         filePath: tab.path,
       }),
       modified: await invokeCommand<string>("git_get_file_content_at_rev", {
         rootDir: tab.repoPath,
-        revision: tab.commitHash,
+        revision: commitHash,
         filePath: tab.path,
       }),
     };

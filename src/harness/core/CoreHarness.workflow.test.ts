@@ -283,7 +283,7 @@ describe("workflowRun helpers", () => {
     expect(names).toEqual({ input: "Input", build: "Build" });
     expect(
       describeWorkflowEvent({ event: { type: "step_retry_scheduled", node_id: "build", next_attempt: 2, triggered_by: "verify" } }, names),
-    ).toEqual({ log: "verify failed; retrying Build (attempt 2).", step: { nodeId: "build", status: "retry", attempt: 2 } });
+    ).toEqual({ log: "verify sent the work back; running Build again (attempt 2).", step: { nodeId: "build", status: "retry", attempt: 2 } });
     expect(
       describeWorkflowEvent({ event: { type: "step_failed", node_id: "build", attempt: 1, error: { code: "x", message: "boom" } } }, names),
     ).toMatchObject({ step: { status: "failed", message: "boom" } });

@@ -95,6 +95,16 @@ describe("loadGitDiffContent", () => {
     ]);
   });
 
+  it.each([undefined, "   "])("rejects an incomplete commit request before invoking commands", async (commitHash) => {
+    const { calls, invokeCommand } = mockedInvoke({});
+
+    await expect(loadGitDiffContent(
+      { ...tab, diffType: "commit", commitHash },
+      invokeCommand,
+    )).rejects.toThrow(/commitHash.*required/i);
+    expect(calls).toHaveLength(0);
+  });
+
   it("keeps commit diffs on the parent and selected revisions", async () => {
     const { calls, invokeCommand } = mockedInvoke({
       git_get_file_content_at_rev: "revision content",

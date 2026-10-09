@@ -6,11 +6,14 @@ import { canonicalizeFilePath } from "../../tabs/identity";
 import type { WorkspaceSliceCreator } from "../sliceTypes";
 import type { WorkspaceState } from "../types";
 
+let fileTreeSelectionRequestId = 0;
+
 export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
   rootPath: "",
   fileTree: [],
   expandedPaths: {},
   revealPath: null,
+  fileTreeSelectionRequest: null,
 
   setRootPath: (path) => {
     if (path) {
@@ -140,4 +143,30 @@ export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
   }),
 
   clearRevealPath: () => set({ revealPath: null }),
+
+  selectFileInTree: (filePath) => set((state) => {
+    const canonicalPath = canonicalizeFilePath(filePath);
+    const parts = canonicalPath.split("/");
+    const expandedPaths = { ...state.expandedPaths };
+    let currentPath = "";
+    for (let index = 0; index < parts.length - 1; index++) {
+      currentPath += (index > 0 ? "/" : "") + parts[index];
+      expandedPaths[currentPath] = true;
+    }
+    return {
+      expandedPaths,
+      fileTreeSelectionRequest: {
+        path: canonicalPath,
+        requestId: ++fileTreeSelectionRequestId,
+      },
+      drawerOpen: true,
+      drawerView: "explorer",
+    };
+  }),
+
+  clearFileTreeSelectionRequest: (requestId) => set((state) =>
+    state.fileTreeSelectionRequest?.requestId === requestId
+      ? { fileTreeSelectionRequest: null }
+      : {},
+  ),
 });

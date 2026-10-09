@@ -13,6 +13,7 @@ import SourceControlCommitBox from "./sourceControl/SourceControlCommitBox";
 import SourceControlChangeList from "./sourceControl/SourceControlChangeList";
 import SourceControlHistory from "./sourceControl/SourceControlHistory";
 import { GitFileContextMenu } from "./sourceControl/SourceControlContextMenu";
+import { buildGitDiffRequest } from "../tabs/gitDiffRequest";
 import {
   NoFolderEmptyState,
   NoGitRepoEmptyState,
@@ -527,12 +528,11 @@ const SourceControl: React.FC = () => {
       _fileName: string,
       diffType: "staged" | "unstaged",
     ): void => {
-      openTab({
-        type: "git-diff",
+      openTab(buildGitDiffRequest({
         repoPath: activeRepo,
         path: filePath,
         diffType,
-      });
+      }));
     },
     [openTab, activeRepo],
   );

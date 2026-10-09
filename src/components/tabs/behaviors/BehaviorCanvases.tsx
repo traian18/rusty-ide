@@ -23,6 +23,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Bot, ShieldCheck, Split, UserCheck } 
 import { Button } from "../../ui";
 import type { WorkflowStepProgress } from "../../../harness/core/workflowRun";
 import { behaviorNodeTypes, type ProfileNodeData, type StepNodeData } from "./BehaviorNodes";
+import { behaviorEdgeTypes, type LoopFlowEdge } from "./LoopEdge";
 import {
   type Issue,
   type JsonObject,
@@ -33,6 +34,7 @@ import {
   gridPosition,
   isBuiltin,
   layoutSteps,
+  loopLanes,
   separateOverlaps,
   spreadColumns,
   positionOf,
@@ -270,32 +272,38 @@ const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
   );
 
   // Verify steps with a retry target, and approval steps (where requested
-  // changes go), draw a dotted loop back to that step.
-  const retryEdges = useMemo(
-    () =>
-      stepsOf(workflow).flatMap((step): Edge[] => {
-        const config = step.config as JsonObject | undefined;
-        const approval = step.type === "approval";
-        const target = approval
-          ? approvalReviseTarget(step)
-          : config && typeof config.retry_target === "string" ? config.retry_target : undefined;
-        if ((step.type !== "verify" && !approval) || !target) return [];
-        return [
-          {
-            id: `retry:${String(step.id)}`,
-            source: String(step.id),
-            target,
-            label: approval ? "changes" : "retry",
-            type: "smoothstep",
-            selectable: false,
-            style: { stroke: "var(--color-status-warning)", strokeWidth: 1.5, strokeDasharray: "2 4" },
-            labelStyle,
-            labelBgStyle,
-          },
-        ];
+  // changes go), draw a dotted loop back to that step, below the cards.
+  const retryEdges = useMemo(() => {
+    const loops = stepsOf(workflow).flatMap((step) => {
+      const config = step.config as JsonObject | undefined;
+      const approval = step.type === "approval";
+      const target = approval
+        ? approvalReviseTarget(step)
+        : config && typeof config.retry_target === "string" ? config.retry_target : undefined;
+      if ((step.type !== "verify" && !approval) || !target) return [];
+      return [{ id: `retry:${String(step.id)}`, source: String(step.id), target, approval }];
+    });
+    const x = new Map(derived.map((node) => [node.id, node.position.x]));
+    const lanes = loopLanes(
+      loops.map(({ id, source, target }) => {
+        const [from, to] = [x.get(source) ?? 0, x.get(target) ?? 0];
+        return { id, left: Math.min(from, to), right: Math.max(from, to) };
       }),
-    [workflow],
-  );
+    );
+    return loops.map(({ id, source, target, approval }): LoopFlowEdge => ({
+      id,
+      source,
+      target,
+      label: approval ? "changes" : "retry",
+      type: "loop",
+      data: { lane: lanes.get(id) ?? 0 },
+      selectable: false,
+      style: { stroke: "var(--color-status-warning)", strokeWidth: 1.5, strokeDasharray: "2 4" },
+      markerEnd: { type: MarkerType.ArrowClosed, color: "var(--color-status-warning)" },
+      labelStyle,
+      labelBgStyle,
+    }));
+  }, [workflow, derived]);
 
   const nextPosition = (): Position => {
     const placed = stepsOf(workflow).map((step) => positionOf(step)).filter(Boolean) as Position[];
@@ -318,6 +326,7 @@ const WorkflowCanvasInner: React.FC<WorkflowCanvasProps> = ({
         nodesDraggable={!readOnly}
         nodesConnectable={!readOnly}
         nodeTypes={behaviorNodeTypes}
+        edgeTypes={behaviorEdgeTypes}
         onNodesChange={onNodesChange}
         onNodeClick={(_, node) => onSelectStep(node.id)}
         onNodeDoubleClick={(_, node) => {
