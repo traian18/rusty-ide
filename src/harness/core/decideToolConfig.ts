@@ -111,6 +111,8 @@ declare module "../contract/capabilities" {
     historySummary?: HistorySummaryView;
     autoStepModels?: StepModelRunConfig;
     flowSwitching?: FlowSwitchingRunConfig;
+    /** JEV trims a workflow step's long hand-off to what the step needs (see handoffCuration.ts). */
+    handoffCuration?: FlowRouterRunConfig;
   }
   interface ExecuteNodeInput {
     jevDecisionTool?: DecideToolRunConfig;

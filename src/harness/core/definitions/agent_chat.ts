@@ -559,7 +559,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     };
     if (input.workflow) {
       const data = input.workflow.input as { conversation?: unknown; context?: unknown };
-      handlers.read_workflow_context = workflowContextTool(data.conversation ?? input.chatHistory, data.context);
+      handlers.read_workflow_context = workflowContextTool(data.conversation ?? input.chatHistory, data.context, () => ctx.scratch.trimmedHandoffs);
     }
     handlers.report_progress = reportProgressTool(onEvent);
     handlers.ask_user_question = askUserQuestionTool(host);

@@ -53,3 +53,15 @@ it("lets a workflow step select context without editing JSON", () => {
   ]);
   expect(host.textContent).toContain("Response format");
 });
+
+it("chooses which other steps' records a step sees", () => {
+  mount({ kind: "step", id: "verify" });
+  const list = host.querySelector('[data-testid="context-access-steps"]')!;
+  const box = (name: string) => [...list.querySelectorAll("label")].find((label) => label.textContent?.trim() === name)!.querySelector<HTMLInputElement>("input")!;
+  // The built-in Verify sees what Build did.
+  expect(box("Build").checked).toBe(true);
+  expect(box("Plan").checked).toBe(false);
+  act(() => box("Plan").click());
+  const verify = (saved.nodes as JsonObject[]).find((node) => node.id === "verify")!;
+  expect((verify.config as JsonObject).context_access).toEqual({ steps: ["build", "plan"] });
+});

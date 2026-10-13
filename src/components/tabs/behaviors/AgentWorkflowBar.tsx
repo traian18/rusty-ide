@@ -12,7 +12,7 @@ import { IconButton } from "../../ui";
 import { Select } from "./ChoiceSelect";
 import { type WorkflowStepStatus } from "../../../harness/core/workflowRun";
 import { type JsonObject, layoutSteps, stepsOf } from "./behaviorModel";
-import type { WorkflowRunView } from "./workflowRunStore";
+import type { WorkflowResearchProgress, WorkflowRunView } from "./workflowRunStore";
 import styles from "./AgentWorkflowBar.module.css";
 import { AUTO_FLOW, workflowSwitchTargets } from "./flowCatalog";
 import type { BuiltinWorkflowKind } from "./starterFlow";
@@ -86,6 +86,12 @@ const STATUS_CLASS: Record<WorkflowStepStatus, string> = {
   asking: styles.waiting,
   retry: styles.waiting,
   succeeded: styles.succeeded,
+  failed: styles.failed,
+};
+
+const RESEARCH_CLASS: Record<WorkflowResearchProgress["status"], string> = {
+  running: styles.running,
+  done: styles.succeeded,
   failed: styles.failed,
 };
 
@@ -213,7 +219,7 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
             {steps.map((step, index) => {
               const progress = showRun ? run?.steps[step.id] : undefined;
               const label = progress ? STATUS_LABEL[progress.status] : "not run";
-              return (
+              const item = (
                 <li
                   key={step.id}
                   className={`${styles.step} ${progress ? STATUS_CLASS[progress.status] : ""} ${step.id === activeStep?.id ? styles.current : ""}`}
@@ -226,6 +232,26 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
                   <span>{step.name}</span>
                   {progress && progress.attempt > 1 ? <span className={styles.attempt}>×{progress.attempt}</span> : null}
                 </li>
+              );
+              // Research the step asked for on the way, inserted right after it.
+              const research = showRun ? (run?.research ?? []).filter((item) => item.nodeId === step.id) : [];
+              return research.length === 0 ? item : (
+                <React.Fragment key={step.id}>
+                  {item}
+                  {research.map((entry) => (
+                    <li
+                      key={entry.callId}
+                      className={`${styles.step} ${styles.research} ${RESEARCH_CLASS[entry.status]}`}
+                      title={`Research asked by ${step.name}: ${entry.question}`}
+                      aria-label={`Research for ${step.name}: ${entry.status === "running" ? "running" : entry.status === "done" ? "answered" : "failed"}`}
+                      data-testid="workflow-research-step"
+                    >
+                      <span className={styles.arrow} aria-hidden>↳</span>
+                      {entry.status === "running" ? <Loader2 size={11} className={styles.spin} aria-hidden /> : null}
+                      <span>Research</span>
+                    </li>
+                  ))}
+                </React.Fragment>
               );
             })}
             {showRun && run?.status === "failed" && run.error ? <li className={styles.error}>{run.error}</li> : null}

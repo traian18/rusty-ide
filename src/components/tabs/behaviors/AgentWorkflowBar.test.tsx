@@ -58,6 +58,31 @@ describe("AgentWorkflowBar", () => {
     vi.unstubAllGlobals();
   });
 
+  it("inserts the research a step asked for right after that step", async () => {
+    const run = {
+      status: "running" as const,
+      startedAt: Date.now(),
+      lastActivityAt: Date.now(),
+      current: "build",
+      steps: { build: { nodeId: "build", status: "running" as const, attempt: 1 } },
+      research: [
+        { callId: "c1", nodeId: "build", question: "Where are sessions stored?", status: "done" as const },
+        { callId: "c2", nodeId: "build", question: "Which hash does login use?", status: "running" as const },
+      ],
+    };
+    await render({ selected: "/w/flow.json", definition: WORKFLOW, run, running: true });
+    const items = [...container.querySelectorAll('[aria-label="Workflow steps"] li')].map((item) => item.getAttribute("aria-label"));
+    const build = items.indexOf("Build: running");
+    expect(items.slice(build, build + 4)).toEqual([
+      "Build: running",
+      "Research for Build: answered",
+      "Research for Build: running",
+      "Output: not run",
+    ]);
+    const research = container.querySelectorAll('[data-testid="workflow-research-step"]');
+    expect(research[1]!.getAttribute("title")).toBe("Research asked by Build: Which hash does login use?");
+  });
+
   it("shows single-agent mode without explanatory guidance", async () => {
     await render({});
     expect(trigger().textContent).toBe("Single agent");

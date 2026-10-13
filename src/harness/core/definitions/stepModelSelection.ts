@@ -41,7 +41,7 @@ const MAX_PROMPT_CHARS = 16_000;
 export const STEP_SELECTION_TIMEOUT_MS = 12_000;
 
 const STEP_LEVEL_INSTRUCTIONS =
-  "How capable must the AI model be to carry out this workflow step well? Judge the step's own work: reading code and summarizing, verifying a result, or writing documentation needs less than designing a system, diagnosing a subtle fault, or editing many files at once. Choose the lowest level that is enough: more capable models are slower and more expensive, so a stronger model than needed is a worse answer.";
+  "How capable must the AI model be to carry out this workflow step well? Judge the step's own work: reading code and summarizing, verifying a result, or writing documentation needs less than designing a system, diagnosing a subtle fault, or editing many files at once. Carrying out an approved plan that already names the files, the changes and how to check them needs less than working the plan out did: judge the decisions the step still has to make, not how much code it will touch. A step repairing its own earlier attempt with the rejection in hand is usually no harder than the first attempt. Choose the lowest level that is enough: more capable models are slower and more expensive, so a stronger model than needed is a worse answer.";
 
 export interface StepModelChoice {
   /** The level whose model the step runs on. */

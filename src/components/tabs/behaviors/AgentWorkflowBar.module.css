@@ -17,6 +17,8 @@
 .succeeded { color: var(--color-status-success); }
 .failed { background: var(--color-status-danger-bg); color: var(--color-status-danger); font-weight: 600; }
 .attempt { opacity: 0.8; }
+/* Research a step asked for on the way: smaller, set off from the declared steps. */
+.research { font-style: italic; }
 .current { outline: 1px solid var(--color-status-info-border); }
 .error { overflow: hidden; color: var(--color-status-danger); font-size: var(--font-size-ui-xs); text-overflow: ellipsis; white-space: nowrap; }
 .spin { animation: spin 1s linear infinite; }

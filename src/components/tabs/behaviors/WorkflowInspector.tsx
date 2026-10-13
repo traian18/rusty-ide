@@ -189,6 +189,10 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
   const tools = isObject(config.tools) ? config.tools : { type: "none" };
   const profile = stepProfile(step);
   const otherSteps = stepsOf(workflow).filter((candidate) => candidate.id !== stepId);
+  // Which other steps' records the step sees: "own" (omitted), "all", or {steps: [...]}.
+  const access = config.context_access;
+  const accessMode = access === "all" ? "all" : isObject(access) ? "steps" : "own";
+  const accessSteps = isObject(access) && Array.isArray(access.steps) ? access.steps.filter((id): id is string => typeof id === "string") : [];
   const upstream = new Set<string>();
   const pending = [stepId];
   while (pending.length) {
@@ -332,6 +336,39 @@ const StepInspector: React.FC<WorkflowInspectorProps & { step: JsonObject; index
                 />
               </Field>
             </div>
+            <Field
+              id={field("access")}
+              label="Sees other steps"
+              hint="What the chosen steps did (files changed, commands run, hand-offs, verdicts) is added after this step's input, and a step that runs again always sees its own last attempt. Plan and research steps usually judge the request afresh; a builder sent back needs everything; a verifier needs the work it checks."
+            >
+              <Select
+                id={field("access")}
+                value={accessMode}
+                onChange={(e) => setConfig("context_access", e.target.value === "own" ? undefined : e.target.value === "all" ? "all" : { steps: [] })}
+                options={[
+                  { value: "own", label: "Only its own inputs" },
+                  { value: "all", label: "All other steps" },
+                  { value: "steps", label: "Chosen steps" },
+                ]}
+              />
+            </Field>
+            {accessMode === "steps" ? (
+              <div data-testid="context-access-steps">
+                {otherSteps.filter((candidate) => ["agent", "verify", "approval", "subflow"].includes(String(candidate.type))).map((candidate) => {
+                  const id = String(candidate.id);
+                  return (
+                    <label key={id} style={{ display: "block" }}>
+                      <input
+                        type="checkbox"
+                        checked={accessSteps.includes(id)}
+                        onChange={(e) => setConfig("context_access", { steps: e.target.checked ? [...accessSteps, id] : accessSteps.filter((other) => other !== id) })}
+                      />{" "}
+                      {String(candidate.name ?? id)}
+                    </label>
+                  );
+                })}
+              </div>
+            ) : null}
             <Field id={field("structured")} label="Response format" hint="Text passes the final message directly to the next agent.">
               <Select
                 id={field("structured")}

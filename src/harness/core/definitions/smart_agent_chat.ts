@@ -8,6 +8,7 @@ import { jevSelectionRecord } from "../../../observability/modelSelectionRecord"
 import { agentChatBoundary, agentChatSwitched } from "./flowSwitching";
 import { createRiskReview } from "./riskReview";
 import { prepareStepRequest } from "./stepModelSelection";
+import { curateStepRequest, withCuratedPrompt } from "./handoffCuration";
 import { applySmartToolHandlers, applySmartToolsToRecipe, type SmartToolDescriptions } from "./smartTools";
 
 const DESCRIPTIONS: SmartToolDescriptions = {
@@ -47,23 +48,40 @@ export const smartAgentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = 
   switchesFlows: (input) => Boolean(input.workflow && input.flowSwitching && input.flowSwitching.targets.length > 0),
   workflowBoundary: agentChatBoundary,
   workflowSwitched: (outcome, _input, ctx) => agentChatSwitched(outcome, ctx),
-  // An AUTO workflow run rates each step on its own and runs it on that level's model.
-  prepareExecution: (request, input, ctx, onEvent, signal) => {
-    if (!input.autoStepModels || !input.workflow) return request;
+  // Before a workflow step's first model turn, and side by side: JEV trims a
+  // long hand-off to what the step needs, and an AUTO run rates the step on
+  // its own and runs it on that level's model.
+  prepareExecution: async (request, input, ctx, onEvent, signal) => {
+    if (!input.workflow || (!input.autoStepModels && !input.handoffCuration)) return request;
     const step = typeof ctx.scratch.workflowStep === "string" ? ctx.scratch.workflowStep : undefined;
-    return prepareStepRequest({
-      request,
-      config: input.autoStepModels,
-      provider: input.customProvider as CustomProvider | undefined,
-      baseModel: input.model,
-      step,
-      scratch: ctx.scratch,
-      signal,
-      onEvent,
-      onTrace: (trace) => executionObservability.recordStandalone(
-        jevSelectionRecord(trace, { tabId: input.tabId, workspaceRoot: input.workspaceRoot, step }),
-      ),
-    });
+    const curation = input.handoffCuration
+      ? curateStepRequest({
+          request,
+          config: input.handoffCuration,
+          definition: input.workflow.definition,
+          scratch: ctx.scratch,
+          step,
+          signal,
+          onEvent,
+        })
+      : undefined;
+    const modelled = input.autoStepModels
+      ? prepareStepRequest({
+          request,
+          config: input.autoStepModels,
+          provider: input.customProvider as CustomProvider | undefined,
+          baseModel: input.model,
+          step,
+          scratch: ctx.scratch,
+          signal,
+          onEvent,
+          onTrace: (trace) => executionObservability.recordStandalone(
+            jevSelectionRecord(trace, { tabId: input.tabId, workspaceRoot: input.workspaceRoot, step }),
+          ),
+        })
+      : request;
+    const [prepared, curated] = await Promise.all([modelled, curation]);
+    return curated ? withCuratedPrompt(prepared, curated.original, curated.prompt) : prepared;
   },
   recipe: (input: AgentChatInput) => applyDecideToolToRecipe(
     applySmartToolsToRecipe(agentChatDefinition.recipe!(input), input, DESCRIPTIONS),

@@ -981,6 +981,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       // changed none leaves its Result behind as a Markdown report.
       const changedThisRun = new Set<string>();
       const contextCompaction = snapshotContextCompaction(useWorkspaceStore.getState());
+      const handoffCuration = workflowDefinition ? snapshotFlowRouter(useWorkspaceStore.getState()) : undefined;
       const run = harness.run(
         "agent_chat",
         {
@@ -1014,6 +1015,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           ...(contextCompaction.mode === "smart" && historySummaryRef.current ? { historySummary: historySummaryRef.current } : {}),
           ...(autoStepModels ? { autoStepModels } : {}),
           ...(flowSwitchingConfig ? { flowSwitching: flowSwitchingConfig } : {}),
+          // With JEV available, a step whose hand-off is long gets only the parts it needs.
+          ...(workflowDefinition && handoffCuration ? { handoffCuration } : {}),
           workflow: workflowDefinition ? {
             definition: workflowDefinition,
             // A stage picks up the result the previous run left in this chat, or
@@ -1078,6 +1081,22 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             case "workflow_checkpoint":
               setWorkflowCheckpoint(event.state);
               break;
+            case "workflow_research": {
+              useWorkflowRunStore.getState().research(event.workflowId, {
+                callId: event.callId,
+                nodeId: event.nodeId,
+                question: event.question,
+                status: event.status,
+              });
+              if (event.status === "running") {
+                setRunLabel("Researching…");
+                appendConsoleActivity(`↳ Research: ${event.question}`, "update");
+              } else {
+                appendConsoleActivity(event.status === "done" ? "↳ Research answered." : "↳ Research failed; the step goes on without it.", "update");
+              }
+              flushConsoleBuffer();
+              break;
+            }
             case "workflow_boundary":
               if (event.status === "checking") setRunLabel("Checking whether to switch flows…");
               break;

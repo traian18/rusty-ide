@@ -426,6 +426,8 @@ export class CoreHarness implements AgentHarness {
     const incompleteAgentRun = capability === "agent_chat" ? new IncompleteAgentRun() : undefined;
     const runContext: RunContext = { scratch: {} };
     const pendingFileChanges = new Map<string, string[]>();
+    // Research a workflow step asked for and that has not answered yet, by tool call id.
+    const pendingResearch = new Map<string, { nodeId: string; question: string }>();
     let settled = false;
     let sessionId: string | undefined;
     // Only advanced by definition.onCompleted's own retry decision -- 1 for
@@ -720,6 +722,12 @@ export class CoreHarness implements AgentHarness {
       }
       if ("ToolCallRequested" in event) {
         const call = event.ToolCallRequested.call;
+        const stepId = runContext.scratch.workflowStepId;
+        if (call.name === "request_research" && workflow && typeof stepId === "string") {
+          const question = String((call.arguments as { question?: unknown } | null)?.question ?? "").trim();
+          pendingResearch.set(call.id, { nodeId: stepId, question });
+          onEvent({ kind: "workflow_research", workflowId, nodeId: stepId, callId: call.id, question, status: "running" } as CapabilityEvent<K>);
+        }
         const workspaceRoot = typeof input.workspaceRoot === "string" ? input.workspaceRoot : "";
         const paths = changedPathsFromTool(call.name, call.arguments, workspaceRoot);
         if (paths.length > 0) pendingFileChanges.set(call.id, paths);
@@ -742,6 +750,11 @@ export class CoreHarness implements AgentHarness {
       }
       if ("ToolCallCompleted" in event) {
         const res = event.ToolCallCompleted.result;
+        const research = pendingResearch.get(event.ToolCallCompleted.call_id);
+        if (research) {
+          pendingResearch.delete(event.ToolCallCompleted.call_id);
+          onEvent({ kind: "workflow_research", workflowId, ...research, callId: event.ToolCallCompleted.call_id, status: res.has_error ? "failed" : "done" } as CapabilityEvent<K>);
+        }
         const paths = pendingFileChanges.get(event.ToolCallCompleted.call_id) ?? [];
         pendingFileChanges.delete(event.ToolCallCompleted.call_id);
         if (!res.has_error && paths.length > 0) {
@@ -976,7 +989,10 @@ export class CoreHarness implements AgentHarness {
     const handleWorkflowEvent = (envelope: WorkflowEventEnvelope) => {
       const { log, step } = describeWorkflowEvent(envelope, workflowNames);
       if (log) onEvent({ kind: "log", message: log } as CapabilityEvent<K>);
-      if (step?.status === "running") runContext.scratch.workflowStep = workflowNames[step.nodeId] ?? step.nodeId;
+      if (step?.status === "running") {
+        runContext.scratch.workflowStep = workflowNames[step.nodeId] ?? step.nodeId;
+        runContext.scratch.workflowStepId = step.nodeId;
+      }
       if (step) onEvent({ kind: "workflow_step", workflowId, ...step, name: workflowNames[step.nodeId] ?? step.nodeId } as CapabilityEvent<K>);
       if (envelope.event.type === "input_requested") answerWorkflowQuestion(envelope.event);
       handleBoundaryEvent(envelope.event);

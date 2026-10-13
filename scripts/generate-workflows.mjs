@@ -52,7 +52,13 @@ const QUEUE_INPUTS=[
 // A preparation step's text from the source: its lead, numbered steps, and a
 // closing paragraph about what it must not do and who reads it.
 const stageText=text=>{const [lead,...rest]=text.split('\n');return lines(lead,'','What to do',...rest.slice(0,-1),'',rest.at(-1));};
-const NOT_PASSED_ON='Only your final message is passed on: the steps after you do not see your exploration or tool calls, so put everything they need in it.';
+const NOT_PASSED_ON='Only your final message is passed on as your hand-off. Of the rest of your work the later steps see only which files you changed and which commands you ran, so put everything else they need in that message.';
+// Which other steps' records (files changed, commands run, hand-offs, verdicts)
+// each role is shown. Plan and research judge the request afresh; a builder
+// sent back needs everything that happened; a verifier sees the work it judges.
+const ACCESS={build:'all',verify:['build'],post:['build','verify','gate']};
+const JOURNAL_LINE=steps=>`workflow_journal (after your input): what ${steps} did so far: the files they changed, the commands and checks they ran, their hand-offs, and how the acceptance checks judged them. Build on it instead of redoing their work.`;
+const PREVIOUS_LINE='previous_attempt (only when you are sent back): what your last attempt changed and ran, and the report it gave. Its changes are still in the workspace: continue from them and fix what the rejection names, do not start over.';
 const planSteps=queued=>[
  'Read the request, the context and the results of the steps before you. Treat decisions recorded there as made.',
  'Read the code the change touches, so every task names real files, symbols and commands rather than guesses.',
@@ -188,9 +194,10 @@ const outputs=[];
 for(const [id,preps,writer,post] of catalog){
  const {stages,focus={},description,...old}=definitions[id];
  const queued=QUEUED.has(id);
- const workflow={...old,revision:old.revision+(writer?5:3),nodes:[],edges:[],
+ const workflow={...old,revision:old.revision+(writer?6:4),nodes:[],edges:[],
   // stall_timeout_ms: no sign of life from a step for 10 min cancels the attempt and retries it (waiting on a permission prompt does not count).
-  policies:{max_total_attempts:40,stall_timeout_ms:600000}};
+  // research: any step that reads may send a question to a read-only Research step (2 per attempt).
+  policies:{max_total_attempts:40,stall_timeout_ms:600000,research:{max_per_attempt:2,profile:{id:'research'}}}};
  const nodes=workflow.nodes;
  const add=n=>{n.metadata={editor:{position:{x:60+nodes.length*440,y:80}}};nodes.push(n);return n;};
  const node=(id,name,type,config,bindings=[],output=null,r={max_attempts:1,retry_on:[]})=>add({id,name,type,config,input_bindings:bindings,output_schema:output,retry:r});
@@ -218,14 +225,14 @@ for(const [id,preps,writer,post] of catalog){
   if(queued)nodes.find(n=>n.id==='plan').output_schema=taskPlanSchema;
   labels.set(node('approve_plan','Plan approval','approval',{subject:source('plan'),prompt:planApprovalPrompt,revise_on_notes:true}),'you approve the plan');
   const name=WRITER_NAMES[writer];
-  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},withNotes(inputs()),{task_queue:{plan_pointer:'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),max_repairs:2,on_task_failure:'ask'}});
-  else addAgent('build',name,writer,buildText,null,withNotes(inputs()));
-  addAgent('verify','Verify','verify',verifyText,reviewSchema,withNotes(inputs()));
+  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},withNotes(inputs()),{task_queue:{plan_pointer:'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
+  else addAgent('build',name,writer,buildText,null,withNotes(inputs()),{context_access:ACCESS.build});
+  addAgent('verify','Verify','verify',verifyText,reviewSchema,withNotes(inputs()),{context_access:{steps:ACCESS.verify}});
   // A queued plan's acceptance criteria must all be reported on, not just the ones the reviewer chose to mention.
   gate('gate','verify',queued?[{type:'criteria',pointer:'/check/criteria',plan_pointer:'/plan'}]:acceptance);
   const postName=post==='recheck'?'Security acceptance':'Final review';
   if(post){
-   addAgent(post,postName,post==='recheck'?'security':'review',post==='recheck'?recheckText:finalReviewText,reviewSchema,withNotes(inputs()));
+   addAgent(post,postName,post==='recheck'?'security':'review',post==='recheck'?recheckText:finalReviewText,reviewSchema,withNotes(inputs()),{context_access:{steps:ACCESS.post}});
    gate(`${post}_gate`,post,acceptance);
   }
   labels.set(node('confirm_checks','Manual checks','approval',{subject:source('gate','/manual_checks'),prompt:manualChecksPrompt,revise_target:'build',skip_if_empty:''}),'you try the manual checks');
@@ -248,6 +255,10 @@ for(const [id,preps,writer,post] of catalog){
   while(body[0]==='')body.shift();
   const given=n.input_bindings.map(b=>INPUTS[b.target==='build'&&queued?'queuedBuild':b.target]);
   if(n.config.task_queue)given.push(...QUEUE_INPUTS);
+  const access=n.config.context_access;
+  const seen=access==='all'?nodes.filter(o=>o!==n&&(o.type==='agent'||o.type==='verify')).map(o=>o.name):access?.steps?.map(id=>nodes.find(o=>o.id===id).name);
+  if(seen?.length)given.push(JOURNAL_LINE([...new Set(seen)].join(', ').replace(/, ([^,]*)$/,' and $1')));
+  if(n.retry.retry_on.includes('verification_failed'))given.push(PREVIOUS_LINE);
   n.config.instructions=lines(
    purpose,
    '','Your place in the workflow',

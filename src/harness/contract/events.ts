@@ -37,6 +37,17 @@ export type CommonEvent =
       /** The step that just finished. */
       step: string;
     }
+  /** A workflow step sent a question to a research step (`request_research`), which runs inside it. */
+  | {
+      kind: "workflow_research";
+      workflowId: string;
+      /** The step that asked. */
+      nodeId: string;
+      /** The tool call: one research run. */
+      callId: string;
+      question: string;
+      status: "running" | "done" | "failed";
+    }
   /** Progress of one step of a workflow run (`.rusty/workflows`). */
   | {
       kind: "workflow_step";

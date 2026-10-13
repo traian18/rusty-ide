@@ -14,9 +14,20 @@ import type { WorkflowStepProgress } from "../../../harness/core/workflowRun";
 
 export type WorkflowRunStatus = "running" | "completed" | "failed" | "cancelled";
 
+/** Research a step asked for while it ran: shown in the bar right after that step. */
+export interface WorkflowResearchProgress {
+  callId: string;
+  /** The step that asked. */
+  nodeId: string;
+  question: string;
+  status: "running" | "done" | "failed";
+}
+
 export interface WorkflowRunView {
   status: WorkflowRunStatus;
   steps: Record<string, WorkflowStepProgress>;
+  /** Research steps inserted on demand, oldest first. */
+  research?: WorkflowResearchProgress[];
   /** The step the run is on: the one that last started, retried or waits. */
   current?: string;
   startedAt: number;
@@ -43,6 +54,7 @@ interface WorkflowRunStore {
   /** Record activity on every run that is still going. */
   touchRunning(): void;
   step(workflowId: string, progress: WorkflowStepProgress): void;
+  research(workflowId: string, progress: WorkflowResearchProgress): void;
   finish(workflowId: string, status: Exclude<WorkflowRunStatus, "running">, error?: string): void;
 }
 
@@ -82,6 +94,15 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
           [workflowId]: { ...run, lastActivityAt: Date.now(), current: active ? progress.nodeId : run.current, steps: { ...run.steps, [progress.nodeId]: progress } },
         },
       };
+    }),
+  research: (workflowId, progress) =>
+    set((state) => {
+      const run = state.runs[workflowId];
+      if (!run) return {};
+      const research = run.research ?? [];
+      const index = research.findIndex((item) => item.callId === progress.callId);
+      const next = index >= 0 ? research.map((item, at) => (at === index ? { ...item, status: progress.status } : item)) : [...research, progress];
+      return { runs: { ...state.runs, [workflowId]: { ...run, lastActivityAt: Date.now(), research: next } } };
     }),
   finish: (workflowId, status, error) =>
     set((state) => {
