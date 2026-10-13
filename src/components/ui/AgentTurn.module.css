@@ -1,0 +1,271 @@
+.turn {
+  margin-bottom: var(--space-3);
+}
+
+/* ── Process balloon: small, scrollable, folded away once the answer is in ── */
+
+.balloon {
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-log-surface);
+  transition: border-color var(--motion-normal) ease, box-shadow var(--motion-normal) ease;
+}
+
+.live {
+  border-color: color-mix(in srgb, var(--color-primary) 35%, var(--color-border-subtle));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding-right: var(--space-2);
+  background: var(--color-log-header);
+}
+
+.toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--color-log-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle:hover {
+  color: var(--color-fg-strong);
+}
+
+.toggle:focus-visible,
+.enlarge:focus-visible,
+.scroller:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -2px;
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--color-primary);
+  transition: transform var(--motion-normal) ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.statusIcon {
+  flex-shrink: 0;
+  color: var(--color-primary);
+}
+
+.doneIcon {
+  flex-shrink: 0;
+  color: var(--color-status-success);
+}
+
+.title {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  color: var(--color-fg-default);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enlarge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-log-muted);
+  cursor: pointer;
+}
+
+.enlarge:hover {
+  background: var(--color-interaction-hover);
+  color: var(--color-fg-strong);
+}
+
+/* Height animates through the grid row, so the body can grow and fold without a fixed size. */
+.body {
+  display: grid;
+  grid-template-rows: 1fr;
+  border-top: 1px solid var(--color-border-subtle);
+  animation: unfold 320ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.closing .body {
+  animation: fold 360ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.clip {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.scroller {
+  max-height: 13rem;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-log-background);
+  font-size: var(--font-size-chat-sm);
+  line-height: 1.55;
+  transition: max-height 280ms ease;
+}
+
+.enlarged {
+  max-height: 70vh;
+}
+
+.row + .row {
+  margin-top: var(--space-1);
+}
+
+.live .row {
+  animation: drift 420ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+}
+
+.toolRow {
+  color: var(--color-log-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.updateRow {
+  color: var(--color-fg-default);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.stepRow {
+  margin-top: var(--space-2);
+  color: var(--color-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: var(--font-size-chat-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.textRow {
+  padding: 0 0 0 var(--space-2);
+  border-left: 2px solid color-mix(in srgb, var(--color-primary) 30%, transparent);
+  color: var(--color-fg-default);
+  --font-size-chat-md: var(--font-size-chat-sm);
+}
+
+/* The pin floats in the corner instead of taking a line of its own. */
+.textRow,
+.answer {
+  position: relative;
+}
+
+.textRow [data-message-actions],
+.answer [data-message-actions] {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  z-index: 1;
+}
+
+/* Interim messages sit tight between the tool lines. */
+.textRow p:first-child {
+  margin-top: 0;
+}
+
+.textRow p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── The answer: the one thing that stays large ── */
+
+.answer {
+  margin-top: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border-subtle);
+  border-left: 3px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+  color: var(--color-fg-strong);
+  /* The Markdown inside sizes itself from this role. */
+  --font-size-chat-md: var(--font-size-chat-lg);
+  font-size: var(--font-size-chat-lg);
+  line-height: 1.6;
+}
+
+/* Fresh answers drift in block by block. */
+.reveal > * > * > * {
+  animation: drift 560ms cubic-bezier(0.2, 0.6, 0.2, 1) both;
+}
+
+.reveal > * > * > *:nth-child(2) { animation-delay: 70ms; }
+.reveal > * > * > *:nth-child(3) { animation-delay: 140ms; }
+.reveal > * > * > *:nth-child(4) { animation-delay: 210ms; }
+.reveal > * > * > *:nth-child(5) { animation-delay: 280ms; }
+.reveal > * > * > *:nth-child(n + 6) { animation-delay: 340ms; }
+
+@keyframes drift {
+  from {
+    opacity: 0;
+    filter: blur(3px);
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+@keyframes unfold {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0.4;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@keyframes fold {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .body,
+  .closing .body,
+  .live .row,
+  .reveal > * > * > * {
+    animation: none;
+  }
+}

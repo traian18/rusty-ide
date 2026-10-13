@@ -1131,6 +1131,8 @@ mod file_open_safety_tests {
     }
 }
 
+
+// This is the search tool 
 #[tauri::command]
 async fn search_project(
     root_dir: String,

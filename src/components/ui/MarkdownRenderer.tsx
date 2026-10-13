@@ -4,6 +4,7 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import styles from "./MarkdownRenderer.module.css";
 import type { ChatSearchMatch } from "./chatSearch";
+import { rehypeFadeWords, type FadeWordsOptions } from "./fadeWords";
 
 interface MarkdownRendererProps {
   content: string;
@@ -12,6 +13,8 @@ interface MarkdownRendererProps {
   renderText?: (text: string, sourceOffset?: number) => ReactNode;
   searchMatches?: ChatSearchMatch[];
   activeSearchMatch?: ChatSearchMatch;
+  /** Wrap words so newly streamed ones fade in. */
+  fadeWords?: FadeWordsOptions;
 }
 
 const isExternalLink = (href?: string) => Boolean(href && /^(https?:|mailto:|tel:|\/\/)/i.test(href));
@@ -63,12 +66,13 @@ const rehypeSearchHighlights = (options: { content: string; matches: ChatSearchM
 };
 
 /** Renders untrusted Markdown without allowing raw HTML. */
-export const MarkdownRenderer = memo(({ content, className = "", onLinkClick, renderText: _renderText, searchMatches = [], activeSearchMatch }: MarkdownRendererProps) => (
+export const MarkdownRenderer = memo(({ content, className = "", onLinkClick, renderText: _renderText, searchMatches = [], activeSearchMatch, fadeWords }: MarkdownRendererProps) => (
   <div className={`${styles.root} ${className}`}>
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[
         ...(searchMatches.length ? [[rehypeSearchHighlights, { content, matches: searchMatches, active: activeSearchMatch }] as [typeof rehypeSearchHighlights, { content: string; matches: ChatSearchMatch[]; active?: ChatSearchMatch }] ] : []),
+        ...(fadeWords ? [[rehypeFadeWords, fadeWords] as [typeof rehypeFadeWords, FadeWordsOptions]] : []),
         [rehypeHighlight, { detect: false, ignoreMissing: true }],
       ]}
       components={{

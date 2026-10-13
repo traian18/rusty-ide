@@ -3,6 +3,7 @@ import { MarkdownRenderer } from "./MarkdownRenderer";
 import type { ChatSearchMatch } from "./chatSearch";
 import styles from "./Chat.module.css";
 import { CHAT_RENDER_CHARS } from "../../config/chatLimits";
+import { StreamingMarkdown } from "./StreamingMarkdown";
 
 // Large or incomplete Markdown (especially tables) is expensive to parse on
 // each streamed update. Keep the full saved response, but bound normal rendering.
@@ -19,9 +20,11 @@ function latestPart(content: string, chars: number): { text: string; offset: num
   return { text: tail, offset: start };
 }
 
-export const ChatMessageContent = memo(function ChatMessageContent({ content, streaming = false, onLinkClick, searchMatches = [], activeSearchMatch }: {
+export const ChatMessageContent = memo(function ChatMessageContent({ content, streaming = false, liveMarkdown = false, onLinkClick, searchMatches = [], activeSearchMatch }: {
   content: string;
   streaming?: boolean;
+  /** While streaming, render the Markdown as it arrives, new words fading in, instead of raw text. */
+  liveMarkdown?: boolean;
   onLinkClick?: (href: string, event: React.MouseEvent<HTMLAnchorElement>) => void;
   searchMatches?: ChatSearchMatch[];
   activeSearchMatch?: ChatSearchMatch;
@@ -46,6 +49,9 @@ export const ChatMessageContent = memo(function ChatMessageContent({ content, st
     return parts;
   };
   if (!streaming && !large) return <MarkdownRenderer content={content} onLinkClick={onLinkClick} searchMatches={visibleMatches} activeSearchMatch={activeSearchMatch} renderText={renderText} />;
+  if (streaming && liveMarkdown && !large) {
+    return <StreamingMarkdown content={content} onLinkClick={onLinkClick} searchMatches={visibleMatches} activeSearchMatch={activeSearchMatch} />;
+  }
   if (streaming) {
     // Follow the live end of a long response instead of freezing on its start.
     const visible = large ? latestPart(content, CHAT_PREVIEW_CHARS) : { text: content, offset: 0 };

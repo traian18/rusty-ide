@@ -235,6 +235,8 @@ export interface AgentActivityEntry {
   /** Display-ready activity text captured with its semantic source. */
   content: string;
   kind: "tool" | "update";
+  /** When it was recorded (ms since epoch): places it among the model's messages. Missing in older chats. */
+  at?: number;
 }
 
 export interface AgentMessage {

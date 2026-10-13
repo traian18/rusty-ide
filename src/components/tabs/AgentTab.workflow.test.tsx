@@ -220,8 +220,8 @@ describe("Agent chat workflows", () => {
     expect(container.textContent).toContain("Build · Generating response…");
     const activityMessage = useWorkspaceStore.getState().agentChats.agent.find((message) => message.role === "console");
     expect(activityMessage?.activityEntries).toEqual([
-      { content: "▶ Build", kind: "update" },
-      { content: "checked package.json", kind: "tool" },
+      { content: "▶ Build", kind: "update", at: expect.any(Number) },
+      { content: "checked package.json", kind: "tool", at: expect.any(Number) },
     ]);
     // The new conversation is saved with its workflow.
     expect(savedWorkflow()).toBe(FLOW_PATH);
@@ -261,13 +261,13 @@ describe("Agent chat workflows", () => {
       "console", "assistant", "console", "assistant",
     ]);
     expect(messages[0].activityEntries).toEqual([
-      { content: "▶ Build", kind: "update" },
-      { content: "building", kind: "tool" },
+      { content: "▶ Build", kind: "update", at: expect.any(Number) },
+      { content: "building", kind: "tool", at: expect.any(Number) },
     ]);
     expect(messages[1].content).toBe("Build finished.");
     expect(messages[2].activityEntries).toEqual([
-      { content: "▶ Verify", kind: "update" },
-      { content: "testing", kind: "tool" },
+      { content: "▶ Verify", kind: "update", at: expect.any(Number) },
+      { content: "testing", kind: "tool", at: expect.any(Number) },
     ]);
     expect(messages[3].content).toBe("Verification passed.");
   });

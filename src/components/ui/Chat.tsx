@@ -6,10 +6,13 @@ import styles from "./Chat.module.css";
 import { useWorkspaceStore } from "../../store";
 import { ChatScrollFollow } from "./chatScrollFollow";
 import { ChatMessageContent } from "./ChatMessageContent";
+import { AgentTurn, groupAgentTurns } from "./AgentTurn";
 
 export interface ActivityEntry {
   content: string;
   kind: "tool" | "update";
+  /** When it was recorded (ms since epoch), so it can sit between the model's messages. */
+  at?: number;
 }
 
 export interface Message {
@@ -83,6 +86,9 @@ interface ChatProps {
   activeSearchMatch?: ChatSearchMatch;
   /** Shows a pin on user and assistant messages; pinned ones are kept word for word when a long chat is trimmed. */
   onTogglePin?: (messageId: string, pinned: boolean) => void;
+  /** Agent turns: the thinking and tool work behind each answer stays in one small balloon that
+   * folds away when the turn is done, leaving the final answer large. Streamed words fade in. */
+  turnLayout?: boolean;
 }
 export type ChatGroup =
   | { type: "console"; message: Message; phase?: string }
@@ -137,7 +143,7 @@ export function formatTimestamp(timestamp: string): string {
 
 const EMPTY_SUBAGENTS: SubagentActivity[] = [];
 
-export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, onVisibleMessageChange, onPerformanceMetrics, activeMessageId, searchMatches = [], activeSearchMatch, onTogglePin }: ChatProps) {
+export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, onVisibleMessageChange, onPerformanceMetrics, activeMessageId, searchMatches = [], activeSearchMatch, onTogglePin, turnLayout = false }: ChatProps) {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const handleLinkClick = useCallback((href: string, event: React.MouseEvent<HTMLAnchorElement>) => {
@@ -391,6 +397,41 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
     return matchesByMessage;
   }, [searchMatches]);
 
+  const renderMessageBody = (msg: Message) => (
+    <div
+      ref={(element) => registerMessage(msg.id, element)}
+      data-message-id={msg.id}
+      id={`chat-message-${msg.id}`}
+      className={`${styles.groupedItem} ${activeMessageId === msg.id ? styles.activeMessage : ""}`}
+    >
+      {onTogglePin && (msg.role === "user" || msg.role === "assistant") && (
+        <div className={styles.messageActions} data-message-actions>
+          <button
+            type="button"
+            className={`${styles.pinButton} ${msg.pinned ? styles.pinned : ""}`}
+            aria-pressed={Boolean(msg.pinned)}
+            aria-label={msg.pinned ? "Unpin message" : "Pin message"}
+            title={msg.pinned ? "Pinned: kept word for word when this chat is trimmed. Click to unpin." : "Pin: keep this word for word when this chat is trimmed"}
+            onClick={() => onTogglePin(msg.id, !msg.pinned)}
+          >
+            <Pin size={12} aria-hidden="true" />
+            {msg.pinned && <span>Pinned</span>}
+          </button>
+        </div>
+      )}
+      <ChatMessageContent
+        content={msg.content}
+        onLinkClick={handleLinkClick}
+        streaming={isStreaming && msg.role === "assistant" && msg.id === messages[messages.length - 1]?.id}
+        liveMarkdown={turnLayout}
+        {...(searchMatches.length > 0 ? {
+          searchMatches: searchMatchesByMessage.get(msg.id) ?? [],
+          activeSearchMatch: activeSearchMatch?.messageId === msg.id ? activeSearchMatch : undefined,
+        } : {})}
+      />
+    </div>
+  );
+
   const renderGroup = (group: ChatGroup) => {
     if (group.type === "console") {
       const msg = group.message;
@@ -446,7 +487,6 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
         <div className={styles.content}>
           {groupMessages.map((msg, index) => {
             const formattedTime = formatTimestamp(msg.timestamp);
-            const isLatestMessageInChat = msg.id === messages[messages.length - 1]?.id;
 
             return (
               <div key={msg.id} className={styles.groupedItem}>
@@ -460,37 +500,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
                   </div>
                 )}
 
-                <div
-                  ref={(element) => registerMessage(msg.id, element)}
-                  data-message-id={msg.id}
-                  id={`chat-message-${msg.id}`}
-                  className={`${activeMessageId === msg.id ? styles.activeMessage : ""}`}
-                >
-                  {onTogglePin && (msg.role === "user" || msg.role === "assistant") && (
-                    <div className={styles.messageActions}>
-                      <button
-                        type="button"
-                        className={`${styles.pinButton} ${msg.pinned ? styles.pinned : ""}`}
-                        aria-pressed={Boolean(msg.pinned)}
-                        aria-label={msg.pinned ? "Unpin message" : "Pin message"}
-                        title={msg.pinned ? "Pinned: kept word for word when this chat is trimmed. Click to unpin." : "Pin: keep this word for word when this chat is trimmed"}
-                        onClick={() => onTogglePin(msg.id, !msg.pinned)}
-                      >
-                        <Pin size={12} aria-hidden="true" />
-                        {msg.pinned && <span>Pinned</span>}
-                      </button>
-                    </div>
-                  )}
-                  <ChatMessageContent
-                    content={msg.content}
-                    onLinkClick={handleLinkClick}
-                    streaming={isStreaming && msg.role === "assistant" && isLatestMessageInChat}
-                    {...(searchMatches.length > 0 ? {
-                      searchMatches: searchMatchesByMessage.get(msg.id) ?? [],
-                      activeSearchMatch: activeSearchMatch?.messageId === msg.id ? activeSearchMatch : undefined,
-                    } : {})}
-                  />
-                </div>
+                {renderMessageBody(msg)}
 
                 {/* Attachments List */}
                 {msg.attachments && msg.attachments.length > 0 && (
@@ -524,9 +534,27 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
   const visibleMessages = useMemo(() => messages.filter((message) =>
     message.role !== "console"
     || Boolean(message.content.trim())
+    || Boolean(message.activityEntries?.length)
     || (streamingMessageId === message.id && (isStreaming || subagents.length > 0))
   ), [messages, streamingMessageId, isStreaming, subagents.length]);
-  const messageGroups = useMemo(() => groupChatMessages(visibleMessages), [visibleMessages]);
+  const messageGroups = useMemo(() => turnLayout ? [] : groupChatMessages(visibleMessages), [turnLayout, visibleMessages]);
+  const turnItems = useMemo(() => turnLayout ? groupAgentTurns(visibleMessages) : [], [turnLayout, visibleMessages]);
+  const liveTurnIndex = isStreaming && turnItems[turnItems.length - 1]?.type === "turn" ? turnItems.length - 1 : -1;
+  const revealMessageId = explicitScrollTarget?.messageId ?? activeMessageId;
+
+  const renderTurns = () => turnItems.map((item, index) => item.type === "user"
+    ? renderGroup({ type: "messages", id: item.message.id, isUser: true, messages: [item.message], phase: (item.message as any).phase || "query" })
+    : (
+      <AgentTurn
+        key={item.id}
+        messages={item.messages}
+        live={index === liveTurnIndex}
+        label={streamingLabel}
+        subagents={streamingMessageId && item.messages.some((message) => message.id === streamingMessageId) ? subagents : EMPTY_SUBAGENTS}
+        revealMessageId={revealMessageId}
+        renderMessage={renderMessageBody}
+      />
+    ));
 
   return (
     <div
@@ -540,10 +568,13 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
           <Terminal size={32} className="text-[var(--accent-color)]/30 mb-3 animate-pulse" />
           <p>Agent interface initialized. Ready to receive commands.</p>
         </div>
+      ) : turnLayout ? (
+        renderTurns()
       ) : (
         messageGroups.map(renderGroup)
       )}
-      {isStreaming && (
+      {/* With turns, the live turn's balloon carries the status line. */}
+      {isStreaming && liveTurnIndex < 0 && (
         <div className={`${styles.streaming} flex items-center gap-2 px-3 py-2`} aria-live="polite">
           <Loader2 size={14} className="animate-spin text-[var(--accent-color)]" />
           <span>{streamingLabel}</span>

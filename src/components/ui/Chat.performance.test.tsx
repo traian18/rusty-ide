@@ -262,3 +262,20 @@ it("renders responses up to double the previous 16k limit as Markdown", async ()
     expect(markdownRender).toHaveBeenCalledWith(content);
   } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
 });
+
+it("live Markdown parses only the block still being written", async () => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  markdownRender.mockClear();
+  const mount = document.createElement("div");
+  const root = createRoot(mount);
+  const render = (content: string) => root.render(<Chat turnLayout isStreaming messages={[
+    { id: "q", role: "user", content: "explain", timestamp: "" },
+    { id: "live", role: "assistant", content, timestamp: "" },
+  ]} />);
+  try {
+    await act(async () => render("First paragraph.\n\nSecond"));
+    for (let i = 0; i < 10; i++) await act(async () => render(`First paragraph.\n\nSecond${" more".repeat(i + 1)}`));
+    expect(markdownRender.mock.calls.filter(([content]) => content === "First paragraph.")).toHaveLength(1);
+    expect(markdownRender).toHaveBeenLastCalledWith(`Second${" more".repeat(10)}`);
+  } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+});

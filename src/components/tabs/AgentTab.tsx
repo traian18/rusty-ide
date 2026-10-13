@@ -91,7 +91,7 @@ function appendActivityEntry(
 ): AgentActivityEntry[] {
   const normalized = String(content ?? "").trim();
   if (!normalized) return entries;
-  return [...entries, { content: appendBoundedText("", normalized), kind }];
+  return [...entries, { content: appendBoundedText("", normalized), kind, at: Date.now() }];
 }
 export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
@@ -1653,6 +1653,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               streamingLabel={streamingLabel}
               subagents={subagents}
               followLatest
+              turnLayout
               explicitScrollTarget={scrollTarget}
               onScrollTargetHandled={(messageId) => {
                 setScrollTarget((current) => current?.messageId === messageId ? undefined : current);

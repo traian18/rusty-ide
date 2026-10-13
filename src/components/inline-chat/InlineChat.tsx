@@ -191,7 +191,7 @@ export const InlineChat = ({ sessionId, context, position, onClose }: InlineChat
           {isStreaming && !streamingText && (
             <div className="flex items-center gap-2 text-[length:var(--font-size-chat-xs)] text-[var(--text-muted)]">
               <Loader2 size={13} className="animate-spin text-[var(--accent-color)]" />
-              <span>Pi is thinking…</span>
+              <span>Core is thinking…</span>
             </div>
           )}
         </div>
