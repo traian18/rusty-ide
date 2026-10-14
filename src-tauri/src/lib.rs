@@ -1489,7 +1489,11 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             harness::workflow_author::save_workflow,
             #[cfg(feature = "core-harness")]
-            harness::commands::behavior_templates,
+            harness::workflow_author::workflow_catalog,
+            #[cfg(feature = "core-harness")]
+            harness::commands::behavior_catalog,
+            #[cfg(feature = "core-harness")]
+            harness::commands::behavior_catalog_workflow,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_start_workflow,
             #[cfg(feature = "core-harness")]

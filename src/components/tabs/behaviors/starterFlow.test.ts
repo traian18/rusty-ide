@@ -4,29 +4,18 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 import { invoke } from "@tauri-apps/api/core";
 import type { JsonObject } from "./behaviorModel";
-import { behaviorService, workflowPath } from "./behaviorService";
-import previousWorkflow from "./starter/legacy/v1/plan-build-verify.workflow.json";
-import v2Workflow from "./starter/legacy/v2/plan-build-verify.workflow.json";
-import {
-  STARTER_PROFILES,
-  STARTER_WORKFLOW,
-  STARTER_WORKFLOWS,
-  STARTER_WORKFLOW_ID,
-  BUILTIN_WORKFLOW_PATH,
-  builtinWorkflowDocument,
-  isStarterWorkflowPath,
-  starterWorkflowPaths,
-} from "./starterFlow";
-import v3Workflow from "./starter/legacy/v3/plan-build-verify.workflow.json";
+import { behaviorService } from "./behaviorService";
+import { BUILTIN_WORKFLOW_ID, BUILTIN_WORKFLOW_PATH, STARTER_WORKFLOW_ID } from "./starterFlow";
+import { BUILTIN_PROFILES, BUILTIN_WORKFLOW } from "../../../test/fakeWorkflowCatalog";
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
-const nodes = STARTER_WORKFLOW.nodes as JsonObject[];
-const edges = STARTER_WORKFLOW.edges as JsonObject[];
-const profileIds = STARTER_PROFILES.map((profile) => String(profile.id));
+const nodes = BUILTIN_WORKFLOW.nodes as JsonObject[];
+const edges = BUILTIN_WORKFLOW.edges as JsonObject[];
+const profileIds = BUILTIN_PROFILES.map((profile) => String(profile.id));
 
 describe("the starter flow documents", () => {
   it("is the flow it says it is: request → plan → approval → build → verify → manual checks → result", () => {
-    expect(STARTER_WORKFLOW.id).toBe("rusty-ide.builtin.plan-build-verify");
+    expect(BUILTIN_WORKFLOW.id).toBe("rusty-ide.builtin.plan-build-verify");
     expect(nodes.map((node) => `${node.id}:${node.type}`)).toEqual([
       "input:input", "plan:agent", "approve_plan:approval", "build:agent", "verify:agent", "gate:verify", "confirm_checks:approval", "output:output",
     ]);
@@ -48,7 +37,7 @@ describe("the starter flow documents", () => {
       if (node.type === "output") referenced.push(String((config.source as JsonObject).node_id));
     }
     for (const edge of edges) referenced.push(String(edge.source), String(edge.target));
-    referenced.push(String(((STARTER_WORKFLOW.output_contract as JsonObject).source as JsonObject).node_id));
+    referenced.push(String(((BUILTIN_WORKFLOW.output_contract as JsonObject).source as JsonObject).node_id));
     expect(referenced.filter((id) => !ids.has(id))).toEqual([]);
   });
 
@@ -73,8 +62,9 @@ describe("the starter flow documents", () => {
       // does), on every request of a tool-using step. Gemini rejects tools
       // together with a JSON response type, and rejects a schema its
       // constraint compiler finds too large.
-      // Verify returns the verdict the gate reads, so it is JSON the host validates.
-      expect(config.structured_output).toBe(node.id === "verify" ? "host_validated" : "text");
+      // Verify returns the verdict the gate reads, the typed plan feeds the
+      // task queue, and the queue returns its tasks: JSON the host validates.
+      expect(config.structured_output).toBe(node.id === "verify" || node.id === "plan" || node.id === "build" ? "host_validated" : "text");
       // A step allow-list naming a tool the session lacks fails the whole run
       // before it starts, so narrowing happens in the profile instead.
       expect(config.tools).toEqual({ type: "inherit" });
@@ -82,7 +72,7 @@ describe("the starter flow documents", () => {
   });
 
   it("keeps Plan read-only and Build able to edit", () => {
-    const profile = (name: string) => STARTER_PROFILES.find((entry) => entry.id === `rusty-ide.builtin.${name}`)!;
+    const profile = (name: string) => BUILTIN_PROFILES.find((entry) => entry.id === `rusty-ide.builtin.${name}`)!;
     const [plan, build, verify] = [profile("plan"), profile("build"), profile("verify")];
     const allowed = (plan.tools as JsonObject).tools as string[];
     expect((plan.tools as JsonObject).type).toBe("allow_list");
@@ -107,20 +97,20 @@ describe("the starter flow documents", () => {
       expect(String((node.config as JsonObject).instructions).length).toBeGreaterThan(80);
       expect(node.output_schema).toBeTruthy();
     }
-    for (const profile of STARTER_PROFILES) {
+    for (const profile of BUILTIN_PROFILES) {
       expect(String(profile.description).length).toBeGreaterThan(20);
       expect(String((profile.instructions as JsonObject).text).length).toBeGreaterThan(80);
       expect(Array.isArray(profile.rules)).toBe(true);
       expect(profile.completion_gate).toBeTruthy();
       expect(profile.limits).toBeUndefined();
     }
-    expect(STARTER_WORKFLOW.policies).toEqual({
+    expect(BUILTIN_WORKFLOW.policies).toEqual({
       max_total_attempts: 40,
       stall_timeout_ms: 600000,
-      research: { max_per_attempt: 2, profile: { id: "research" } },
+      research: { max_per_attempt: 2, profile: { id: "rusty-ide.builtin.research" } },
     });
     for (const node of nodes) expect(node.timeout_ms).toBeUndefined();
-    expect([STARTER_WORKFLOW, ...STARTER_PROFILES].flatMap(text).filter((entry) => entry.trim() === "")).toEqual([]);
+    expect([BUILTIN_WORKFLOW, ...BUILTIN_PROFILES].flatMap(text).filter((entry) => entry.trim() === "")).toEqual([]);
   });
 
   it("gives every step a place on the canvas", () => {
@@ -132,62 +122,22 @@ describe("the starter flow documents", () => {
   });
 });
 
-describe("built-in workflow availability", () => {
-  const legacyPath = workflowPath("/project", STARTER_WORKFLOW_ID);
-  let files: Map<string, string>;
+describe("built-in workflows", () => {
   beforeEach(() => {
-    files = new Map();
     vi.mocked(invoke).mockReset();
-    vi.mocked(invoke).mockImplementation((async (command: string, args: Record<string, string>) => {
-      if (command === "get_directory_structure") return [...files.keys()].map((path) => ({ path, name: path.split("/").pop(), is_dir: false }));
-      if (command === "read_file_disk") { if (!files.has(args.path)) throw new Error("missing"); return files.get(args.path); }
-      if (command === "delete_file_or_dir") { files.delete(args.path); return; }
+    vi.mocked(invoke).mockImplementation((async (command: string) => {
       throw new Error(`Unexpected disk mutation: ${command}`);
     }) as never);
   });
-  it("is available in any project without writing files", async () => {
-    for (const project of ["/project", "/other"]) {
-      const { documents } = await behaviorService.loadWorkflows(project);
-      expect(documents.map((doc) => doc.path)).toEqual(starterWorkflowPaths());
-      expect(documents[0].path).toBe(BUILTIN_WORKFLOW_PATH);
-      for (const [index, path] of starterWorkflowPaths().entries()) {
-        expect(await behaviorService.readWorkflow(path)).toEqual(STARTER_WORKFLOWS[index]);
-      }
-      expect(await behaviorService.readWorkflow(BUILTIN_WORKFLOW_PATH)).toEqual(STARTER_WORKFLOW);
-    }
-    expect(files.size).toBe(0);
+
+  it("are named by the ids the catalog lists them under", () => {
+    expect(BUILTIN_WORKFLOW.id).toBe(BUILTIN_WORKFLOW_ID);
+    expect(BUILTIN_WORKFLOW_PATH).toBe(`builtin:${STARTER_WORKFLOW_ID}`);
   });
-  it("removes only exact generated starter copies and preserves user workflows", async () => {
-    files.set(legacyPath, JSON.stringify(previousWorkflow));
-    files.set("/project/.rusty/workflows/mine.json", JSON.stringify({ ...v2Workflow, id: "mine", name: "Mine" }));
-    const { documents } = await behaviorService.loadWorkflows("/project");
-    expect(files.has(legacyPath)).toBe(false);
-    expect(documents).toHaveLength(STARTER_WORKFLOWS.length + 1);
-    expect(documents.at(-1)!.document.id).toBe("mine");
-  });
-  it("keeps a customized starter file alongside the built-in", async () => {
-    const custom = { ...previousWorkflow, name: "My changes" };
-    files.set(legacyPath, JSON.stringify(custom));
-    expect((await behaviorService.loadWorkflows("/project")).documents).toHaveLength(STARTER_WORKFLOWS.length + 1);
-    expect(await behaviorService.readWorkflow(legacyPath)).toEqual(custom);
-  });
-  it("recognises the previously shipped revision as an unmodified starter", async () => {
-    files.set(legacyPath, JSON.stringify(v3Workflow));
-    const { documents } = await behaviorService.loadWorkflows("/project");
-    expect(files.has(legacyPath)).toBe(false);
-    expect(documents).toHaveLength(STARTER_WORKFLOWS.length);
-  });
-  it("restores old chat references after an unmodified starter is removed", async () => {
-    expect(await behaviorService.readWorkflow(legacyPath)).toEqual(STARTER_WORKFLOW);
-  });
-  it("cannot be saved or deleted and returns independent copies", async () => {
-    for (const path of starterWorkflowPaths()) {
-      await expect(behaviorService.save(path, STARTER_WORKFLOW)).rejects.toThrow("read-only");
-      await expect(behaviorService.remove(path)).rejects.toThrow("cannot be deleted");
-    }
-    const copy = builtinWorkflowDocument(); copy.name = "Changed";
-    expect(builtinWorkflowDocument().name).not.toBe("Changed");
-    expect(isStarterWorkflowPath(BUILTIN_WORKFLOW_PATH)).toBe(true);
-    expect(isStarterWorkflowPath(legacyPath)).toBe(false);
+
+  it("cannot be saved or deleted", async () => {
+    await expect(behaviorService.save(BUILTIN_WORKFLOW_PATH, BUILTIN_WORKFLOW)).rejects.toThrow("read-only");
+    await expect(behaviorService.remove(BUILTIN_WORKFLOW_PATH)).rejects.toThrow("cannot be deleted");
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

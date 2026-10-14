@@ -92,30 +92,23 @@ fn json_bytes(value: &Value) -> Result<Vec<u8>, AuthoringIssue> {
     serde_json::to_vec_pretty(value).map_err(|e| issue("", "invalid_document", e.to_string()))
 }
 
+/// What a workflow may name: every profile in the workspace's catalog (the
+/// core default, the built-ins and the workspace's own), plus `proposed`.
 fn effective_profiles(root: &Path, proposed: &[Value]) -> Result<Vec<Value>, Vec<AuthoringIssue>> {
-    let mut result = super::workflow::authoring_builtin_profiles()
-        .map_err(|message| vec![issue(".rusty/profiles", "invalid_document", message)])?;
-    let dir = root.join(".rusty/profiles");
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
-                continue;
-            }
-            match fs::read_to_string(entry.path())
-                .ok()
-                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
-            {
-                Some(value) => result.push(value),
-                None => {
-                    return Err(vec![issue(
-                        ".rusty/profiles",
-                        "invalid_document",
-                        "an existing profile is not valid JSON",
-                    )])
-                }
-            }
-        }
+    let catalog = super::catalog::Catalog::load(Some(root));
+    let profiles_dir = root.join(".rusty/profiles");
+    if catalog
+        .failures
+        .iter()
+        .any(|failure| Path::new(&failure.path).starts_with(&profiles_dir))
+    {
+        return Err(vec![issue(
+            ".rusty/profiles",
+            "invalid_document",
+            "an existing profile is not valid JSON",
+        )]);
     }
+    let mut result = catalog.profile_documents();
     result.extend(proposed.iter().cloned());
     Ok(result)
 }
@@ -374,6 +367,108 @@ pub fn save_workflow(request: SaveWorkflowRequest) -> SaveWorkflowResult {
     save_workflow_request(request)
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct WorkflowCatalogRequest {
+    pub workspace_root: String,
+    /// A workflow to return in full: its catalog path, its file relative to
+    /// the workspace, or its id.
+    #[serde(default)]
+    pub path: Option<String>,
+    /// A profile to return in full, by id.
+    #[serde(default)]
+    pub profile: Option<String>,
+}
+
+fn summary(path: Option<&str>, source: super::catalog::Source, document: &Value) -> Value {
+    let mut out = serde_json::json!({
+        "id": document_id(document),
+        "name": document.get("name"),
+        "description": document.get("description"),
+        "source": source,
+    });
+    if let Some(path) = path {
+        out["path"] = Value::String(path.to_owned());
+    }
+    out
+}
+
+/// What Workflow Author reads before saving: with no `path` or `profile`, a
+/// summary of every workflow and profile the workspace can use; otherwise
+/// that one document in full. A saved workflow comes with the content token
+/// an update must send back to `save_workflow`.
+pub fn workflow_catalog_request(request: WorkflowCatalogRequest) -> Result<Value, String> {
+    use super::catalog::{Catalog, Source, BUILTIN_ID_PREFIX};
+    let root = PathBuf::from(&request.workspace_root);
+    let catalog = Catalog::load(Some(&root));
+    if let Some(wanted) = request.profile.as_deref() {
+        let entry = catalog
+            .profiles
+            .iter()
+            .find(|entry| {
+                document_id(&entry.document).is_some_and(|id| {
+                    id == wanted || id.strip_prefix(BUILTIN_ID_PREFIX) == Some(wanted)
+                })
+            })
+            .ok_or_else(|| format!("No profile with id {wanted}"))?;
+        return Ok(serde_json::json!({ "source": entry.source, "document": entry.document }));
+    }
+    let Some(wanted) = request.path.as_deref() else {
+        return Ok(serde_json::json!({
+            "workflows": catalog
+                .workflows
+                .iter()
+                .map(|entry| summary(Some(&entry.path), entry.source, &entry.document))
+                .collect::<Vec<_>>(),
+            "profiles": catalog
+                .profiles
+                .iter()
+                .map(|entry| summary(None, entry.source, &entry.document))
+                .collect::<Vec<_>>(),
+            "unreadable": catalog.failures,
+        }));
+    };
+    let relative = root.join(wanted).to_string_lossy().into_owned();
+    let entry = catalog
+        .workflows
+        .iter()
+        .find(|entry| {
+            entry.path == wanted
+                || entry.path == relative
+                || document_id(&entry.document).is_some_and(|id| {
+                    id == wanted || id.strip_prefix(BUILTIN_ID_PREFIX) == Some(wanted)
+                })
+        })
+        .ok_or_else(|| format!("No workflow at {wanted}"))?;
+    let mut out = serde_json::json!({
+        "path": entry.path,
+        "source": entry.source,
+        "document": entry.document,
+    });
+    let id = document_id(&entry.document).unwrap_or_default();
+    // `save_workflow` updates `.rusty/workflows/<id>.json` only.
+    let saved_as_id = Path::new(&entry.path)
+        == root.join(".rusty/workflows").join(format!("{id}.json"));
+    if entry.source != Source::Workspace {
+        out["note"] = Value::String(
+            "Built-in workflows cannot be updated. To change one, save a copy under a new id with intent \"create\".".into(),
+        );
+    } else if saved_as_id {
+        let bytes = fs::read(&entry.path).map_err(|e| e.to_string())?;
+        out["content_token"] = Value::String(token(&bytes));
+        out["workflow_id"] = Value::String(id.to_owned());
+    } else {
+        out["note"] = Value::String(format!(
+            "This file is not named after its id ({id}.json), so save_workflow cannot update it; save a copy with intent \"create\" instead."
+        ));
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn workflow_catalog(request: WorkflowCatalogRequest) -> Result<Value, String> {
+    workflow_catalog_request(request)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -403,7 +498,7 @@ mod tests {
     #[test]
     fn accepts_a_runtime_builtin_profile_reference() {
         let d = tempdir().unwrap();
-        let profiles = super::super::workflow::authoring_builtin_profiles().unwrap();
+        let profiles = super::super::catalog::Catalog::load(None).profile_documents();
         let builtin = profiles
             .iter()
             .find(|profile| {
@@ -502,5 +597,50 @@ mod tests {
         fs::write(p.join("one.json"), "{}").unwrap();
         let result = save_workflow(request(d.path(), SaveIntent::Create, "one"));
         assert_eq!(result.outcome, "collision");
+    }
+
+    fn catalog(root: &Path, path: Option<&str>, profile: Option<&str>) -> Result<Value, String> {
+        workflow_catalog(WorkflowCatalogRequest {
+            workspace_root: root.to_string_lossy().into(),
+            path: path.map(str::to_owned),
+            profile: profile.map(str::to_owned),
+        })
+    }
+
+    #[test]
+    fn the_catalog_lists_built_ins_and_reads_one_by_id() {
+        let d = tempdir().unwrap();
+        let listed = catalog(d.path(), None, None).unwrap();
+        assert!(listed["workflows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|w| w["path"] == "builtin:plan-build-verify" && w.get("nodes").is_none()));
+        assert!(listed["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p["id"] == "rusty-ide.builtin.plan"));
+        let builtin = catalog(d.path(), Some("plan-build-verify"), None).unwrap();
+        assert!(builtin["document"]["nodes"].is_array());
+        assert!(builtin.get("content_token").is_none());
+        let profile = catalog(d.path(), None, Some("plan")).unwrap();
+        assert_eq!(profile["document"]["id"], "rusty-ide.builtin.plan");
+        assert!(catalog(d.path(), Some("missing"), None).is_err());
+    }
+
+    #[test]
+    fn a_read_token_lets_the_workflow_be_updated() {
+        let d = tempdir().unwrap();
+        let mut create = request(d.path(), SaveIntent::Create, "mine");
+        create.workflow = valid_workflow("mine");
+        assert!(save_workflow(create).ready);
+        let read = catalog(d.path(), Some(".rusty/workflows/mine.json"), None).unwrap();
+        assert_eq!(read["workflow_id"], "mine");
+        let mut update = request(d.path(), SaveIntent::Update, "mine");
+        update.workflow = read["document"].clone();
+        update.workflow["name"] = serde_json::json!("Renamed");
+        update.expected_content_token = read["content_token"].as_str().map(str::to_owned);
+        assert_eq!(save_workflow(update).outcome, "saved");
     }
 }

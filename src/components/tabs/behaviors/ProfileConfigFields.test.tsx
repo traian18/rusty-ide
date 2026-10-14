@@ -7,7 +7,7 @@ import { ConditionEditor } from "./ConditionEditor";
 import { ValueFields } from "./ValueFields";
 import { ProfileInspector } from "./ProfileInspector";
 import type { Json, JsonObject } from "./behaviorModel";
-import { STARTER_PROFILES } from "./starterFlow";
+import { BUILTIN_PROFILES } from "../../../test/fakeWorkflowCatalog";
 import { PROFILE_TOOLS } from "./ToolSelector";
 
 let host: HTMLDivElement;
@@ -94,7 +94,7 @@ it("keeps a saved gate that combines the new condition and filter readable inste
 it("lets every tool the built-in profiles name be picked, not shown as a saved custom tool", () => {
   const known = new Set(PROFILE_TOOLS.map((tool) => tool.id));
   for (const id of ["edit_file", "project_info", "run_check", "install_dependencies", "web_extract"]) expect(known.has(id)).toBe(true);
-  for (const profile of STARTER_PROFILES) {
+  for (const profile of BUILTIN_PROFILES) {
     const tools = profile.tools as JsonObject;
     const listed = tools.type === "allow_list" ? (tools.tools as string[]) : [];
     const overridden = Object.keys((profile.tool_overrides ?? {}) as JsonObject);
@@ -123,7 +123,7 @@ it("edits typed nested tool arguments without asking for JSON", () => {
 });
 
 it("renders the built-in profile with structured controls and keeps it read-only", () => {
-  act(() => root.render(<ProfileInspector profile={STARTER_PROFILES.find((profile) => profile.id === "rusty-ide.builtin.build")!} readOnly issues={[]} profileIds={[]} isDefault={false} onChange={vi.fn()} onSetDefault={vi.fn()} />));
+  act(() => root.render(<ProfileInspector profile={BUILTIN_PROFILES.find((profile) => profile.id === "rusty-ide.builtin.build")!} readOnly issues={[]} profileIds={[]} isDefault={false} onChange={vi.fn()} onSetDefault={vi.fn()} />));
   expect(host.textContent).toContain("Per-tool settings");
   expect(host.textContent).toContain("Additional attempts");
   expect([...host.querySelectorAll("textarea")].some((input) => input.value.trim().startsWith("{"))).toBe(false);

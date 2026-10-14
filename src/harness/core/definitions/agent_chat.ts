@@ -171,6 +171,23 @@ const SAVE_WORKFLOW_TOOL: HostToolSpec = {
   },
 };
 
+const WORKFLOW_CATALOG_TOOL: HostToolSpec = {
+  name: "workflow_catalog",
+  description: "Read the workflows and profiles this workspace can use, built-in and saved. No input lists them (id, name, description, source; workflows also a path). {\"path\": \"<path or id>\"} returns that workflow in full, with the content_token an update must send to save_workflow; {\"profile\": \"<id>\"} returns that profile in full.",
+  input_schema: {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "A workflow's path from the listing, or its id." },
+      profile: { type: "string", description: "A profile's id from the listing." },
+    },
+  },
+};
+
+/** Workflow Author reads the catalog in any mode: it only reads. */
+function workflowAuthorSkill(skillValue: unknown, workflow?: unknown): boolean {
+  return !workflow && asSkill(skillValue)?.skillId === BUILT_IN_SKILL_IDS.WORKFLOW_AUTHOR;
+}
+
 function workflowAuthorAuthorized(skillValue: unknown, mode: ChatMode, workflow?: unknown): boolean {
   const skill = asSkill(skillValue);
   return !mode.planOnly && !mode.vfsOnly && !workflow
@@ -190,6 +207,7 @@ const TOOL_SPECS: Record<string, HostToolSpec> = {
   install_dependencies: INSTALL_DEPENDENCIES_TOOL,
   run_command: GATED_RUN_COMMAND_TOOL,
   save_workflow: SAVE_WORKFLOW_TOOL,
+  workflow_catalog: WORKFLOW_CATALOG_TOOL,
 };
 const SUPPORTED_TOOL_NAMES = Object.keys(TOOL_SPECS);
 
@@ -254,6 +272,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   write_plan: '- \'write_plan\': Save a Markdown plan under the project-root plans folder (input: {"filename": "descriptive-name.md", "content": "complete plan"}).',
   web_search: '- \'web_search\': Search the public web for current information and cited sources (input: {"query": "search query"}).',
   run_command: '- \'run_command\': Last-resort execution for an essential build, test, typecheck, lint, generator, or explicitly requested executable. Never use it for file inspection, search, or modification (input: {"program": "npm", "args": ["test"], "cwd": "."}).',
+  workflow_catalog: "- 'workflow_catalog': List the workflows and profiles this workspace can use, or read one in full (input: {} | {\"path\": \"<workflow path or id>\"} | {\"profile\": \"<profile id>\"}). Reading a saved workflow also gives the content_token an update needs.",
   report_progress: "- 'report_progress': Publish a brief progress update and the next action.",
   ask_user_question: "- 'ask_user_question': Pause for a focused user decision, optionally with selectable suggestions.",
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.",
@@ -280,11 +299,12 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   const requested = skill?.enabledTools;
   const names = Array.isArray(requested) ? requested : SUPPORTED_TOOL_NAMES;
   let structuralNames = SUPPORTED_TOOL_NAMES
-    .filter((name) => name !== "save_workflow")
+    .filter((name) => name !== "save_workflow" && name !== "workflow_catalog")
     .filter((name) => names.includes(grantedToolName(name)));
   const runsCommands = (name: string) => name === "run_command" || name === "run_check" || name === "install_dependencies";
   if (mode.planOnly) structuralNames = structuralNames.filter((name) => name !== "write_file" && name !== "edit_file" && !runsCommands(name));
   if (mode.vfsOnly) structuralNames = structuralNames.filter((name) => !runsCommands(name));
+  if (workflowAuthorSkill(skill) && names.includes("read_file")) structuralNames.push("workflow_catalog");
   if (workflowAuthorAuthorized(skill, mode)) structuralNames.push("save_workflow");
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
@@ -555,6 +575,13 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
         const result = await invoke("save_workflow", { request: { ...args as Record<string, unknown>, workspace_root: input.workspaceRoot } }) as { ready?: boolean; outcome?: string };
         if (result.ready === true && result.outcome === "saved") useWorkflowRunStore.getState().catalogChanged();
         return { ok: true, output: JSON.stringify(result) };
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
+    };
+    if (names.has("workflow_catalog") && workflowAuthorSkill(input.skill, input.workflow)) handlers.workflow_catalog = async (args) => {
+      try {
+        const { path, profile } = args as { path?: unknown; profile?: unknown };
+        const request = { workspace_root: input.workspaceRoot, path: typeof path === "string" && path.trim() ? path.trim() : undefined, profile: typeof profile === "string" && profile.trim() ? profile.trim() : undefined };
+        return { ok: true, output: JSON.stringify(await invoke("workflow_catalog", { request })) };
       } catch (error) { return { ok: false, error: error instanceof Error ? error.message : String(error) }; }
     };
     if (input.workflow) {

@@ -49,6 +49,8 @@ const QUEUE_INPUTS=[
  'completed_tasks: the tasks already built and accepted, with what each changed.',
  'previous_attempt: when present, your last attempt at this task and why it was not accepted.',
 ];
+// The builder also gets the step planner's plan for its task.
+const STEP_PLAN_INPUT='step_plan: the detailed plan for your task, written for it by the step planner just before you. Follow it in order.';
 // A preparation step's text from the source: its lead, numbered steps, and a
 // closing paragraph about what it must not do and who reads it.
 const stageText=text=>{const [lead,...rest]=text.split('\n');return lines(lead,'','What to do',...rest.slice(0,-1),'',rest.at(-1));};
@@ -64,16 +66,18 @@ const planSteps=queued=>[
  'Read the code the change touches, so every task names real files, symbols and commands rather than guesses.',
  `Write the requirements: what must be true when the work is done. Give each one acceptance criteria that someone who was not here can check (a behavior, an output, a test that passes), including the edge and failure cases that matter.${queued?'':' Number them (R1, R2, ...) and their criteria (R1.1, R1.2, ...) so they can be reported on by id.'}`,
  queued
-  ?'Write small, ordered tasks that each change the workspace and leave it working. A fresh builder implements each task seeing only that task, the requirements and the tasks already done, and a reviewer then checks it against the criteria it names. So each task\'s instructions must stand on their own: the files and symbols, what to change, the pattern to follow and what done looks like. List the requirement_ids and criterion_ids each task satisfies; every criterion belongs to a task. Set status to ready.'
+  ?'Break the work into general, ordered steps (the tasks). Each step is one coherent piece of the change that leaves the workspace working and fits in one builder session; a large request is several steps, not one. Do not write each step\'s low-level detail: before a step is built, a step planner reads the code and plans that step alone in detail, a fresh builder implements it, and a reviewer checks it against the criteria it names before the next step starts. So give each step its goal, its scope (the modules, files or areas it touches), the decisions and interfaces it must respect, and what done looks like, in instructions that stand on their own. List the requirement_ids and criterion_ids each step satisfies; every criterion belongs to a step, and a step\'s criteria are the ones it can meet on its own. Set status to ready.'
   :'Write ordered tasks that change the workspace, each naming the files and symbols, what to change, the pattern to follow and the criteria it satisfies. Every criterion is covered by a task.',
  'Say how each criterion will be verified: the tests to run or add, the commands, and the checks only a person can do (a device, a real service, a visual result).',
  'Put the decisions and assumptions the user should confirm, and the main risks, where they are easy to find. Work only someone outside the workspace can do (rotating credentials, deploying, changing external systems) goes in the summary as follow-ups for the user, not as tasks.',
 ];
 const planText=({focus,queued})=>lines(
- queued?'Write the plan as requirements with acceptance criteria and small ordered tasks, which are built one at a time once the user approves it.':'Write the plan the user approves before anything is built.',
+ queued?'Write the general plan: requirements with acceptance criteria and ordered steps. Once the user approves it, each step is planned in detail, built and reviewed on its own, one at a time.':'Write the plan the user approves before anything is built.',
  '','What to do',list(planSteps(queued)),inThisWorkflow(focus),
  '','What happens to your plan',
- 'The user reads it next. They approve it, approve it with notes, or ask for changes; notes and changes come back to you to revise the plan. The approved plan is then implemented as written, and Verify checks the workspace against every acceptance criterion: a failed criterion sends the work back to the builder. So keep the criteria specific and checkable, and keep the plan easy to review.',
+ queued
+  ?'The user reads it next. They approve it, approve it with notes, or ask for changes; notes and changes come back to you to revise the plan. Each step is then planned in detail, built and reviewed in turn, and at the end Verify checks the workspace against every acceptance criterion: a failed criterion reopens the step that owns it. So keep the criteria specific and checkable, and keep the plan easy to review.'
+  :'The user reads it next. They approve it, approve it with notes, or ask for changes; notes and changes come back to you to revise the plan. The approved plan is then implemented as written, and Verify checks the workspace against every acceptance criterion: a failed criterion sends the work back to the builder. So keep the criteria specific and checkable, and keep the plan easy to review.',
  'When you revise, change exactly what the user asked for, keep everything else (ids included), and say at the top what changed.',
  'Do not change any files.',
 );
@@ -104,10 +108,10 @@ const buildText=({focus})=>lines(
  'Verify checks the workspace against every acceptance criterion itself: your report is not evidence, it tells Verify where to look. So report, task by task, what you changed and in which files, the tests you added, each check you ran with its result, what you did differently from the plan and why, and what is left for the user.',
 );
 const queueBuildText=({focus})=>lines(
- 'Implement one task of the approved plan. The task queue hands out the plan\'s tasks one at a time, each to a fresh builder.',
+ 'Implement one step (task) of the approved plan. The task queue hands out the plan\'s steps one at a time; a step planner plans each one in detail, then a fresh builder implements it.',
  '','What to do',
  list([
-  'Read your task, the criteria it names, and plan_notes, and follow them in the order of precedence above.',
+  'Read your task, the criteria it names, step_plan and plan_notes. Follow step_plan in order, within the order of precedence above; where the code proves it wrong, do the smallest thing that meets the criteria and say what you did differently.',
   'Look at completed_tasks so your change fits what is already there; do not undo or redo their work.',
   'Read the code before changing it, make the change your task describes, and add the tests it calls for. Stay within your task.',
   'Run focused checks for what you changed (run_check, with a test name or file when that is enough). Fix what your change broke.',
@@ -122,13 +126,28 @@ const taskReviewText=({workflow,focus})=>lines(
  'Review the change made for workflow_input.task against its acceptance criteria in workflow_input.requirements. Do not edit anything.',
  `This is the per-task review of "${workflow.name}": each task is built by a fresh builder and checked here before the next one starts; after the last task, Verify checks the whole plan.`,
  list([
-  'Read the code the builder changed (its summary names the files) and enough of the code around it to judge the change. The summary tells you where to look; it is not evidence.',
+  'Read the code the builder changed (its summary names the files) and enough of the code around it to judge the change. The summary tells you where to look; it is not evidence. The builder followed workflow_input.step_plan, the detailed plan for this task: check that the tests it called for exist.',
   'For each criterion the task names, give evidence from the workspace: file and line, and what there implements it.',
   'Check that the change does not break completed tasks or nearby code, and that it follows the notes the user gave when approving the plan (workflow_input.plan_notes), which take precedence over the plan.',
   'Use status complete only when every named criterion is implemented. Otherwise use needs_repair and say exactly what is missing or wrong and where, so the builder can fix it in one more attempt.',
   'The task final-repair names no criteria: check that it does what its instructions ask.',
  ]),
  Boolean(focus)&&`The builder in this workflow was told: ${focus} Check that too.`,
+);
+// Plans one step of the general plan in detail, just before it is built.
+const stepPlanText=lines(
+ 'Plan one step of the approved plan in detail, so that a builder can implement it without exploring.',
+ '','What to do',
+ list([
+  'Read workflow_input.task (the step), the criteria it names in requirements, and plan_notes, which take precedence over the plan.',
+  'Look at completed_tasks: plan on top of what they did; do not plan to redo it.',
+  'Read the code this step touches: the files and symbols, their callers and tests, and the existing patterns to follow. Check external APIs with web_search when the step depends on how they behave.',
+  'Write the step plan, in order: each file and symbol to add or change and what to change in it; the tests to add or update; the focused checks to run (run_check with a test name or file); and, for each criterion of this step, how the change meets it.',
+  'Keep to this step. Mention what a later step will need from it, but do not plan their work.',
+  'When previous_attempt is present, this step was reopened or tried before: plan the fix for what it names, on top of the code already there.',
+ ]),
+ '','What happens next',
+ 'A fresh builder, possibly a smaller model, follows your plan, then a reviewer checks the step\'s criteria before the next step is planned. So name real paths and symbols and concrete changes, never "investigate X". Your whole reply is the step plan. Do not change any files.',
 );
 const criteriaRule='Report every requirement and every problem you find as a criterion: pass when it is done properly, fail followed by what is wrong. Use manual only for what cannot be checked here (it needs a person, a device, an external service, or a command that cannot run in this environment), and read the code for it first: a problem found by reading is fail. For a manual criterion, how_to_test gives the user the exact steps or command; leave it empty otherwise.';
 const verifyText=({focus,queued,next})=>lines(
@@ -183,7 +202,7 @@ const reviewChecksPrompt=step=>`${step} found more checks only a person can do. 
 // Multi-step changes run the approved plan as a task queue: one fresh builder
 // and a read-only review per task, each accepted task checkpointed. The plan
 // is the typed task plan (`rusty.task_plan`) the queue reads.
-const QUEUED=new Set(['researched-feature','careful-change','security-remediation','refactor']);
+const QUEUED=new Set(['plan-build-verify','researched-feature','careful-change','security-remediation','refactor']);
 const taskPlanSchema={type:'registry',schema_id:'rusty.task_plan',revision:1};
 const WRITER_NAMES={build:'Build',refactor:'Refactor',optimize:'Optimize',document:'Document'};
 const catalog=[
@@ -225,7 +244,7 @@ for(const [id,preps,writer,post] of catalog){
   if(queued)nodes.find(n=>n.id==='plan').output_schema=taskPlanSchema;
   labels.set(node('approve_plan','Plan approval','approval',{subject:source('plan'),prompt:planApprovalPrompt,revise_on_notes:true}),'you approve the plan');
   const name=WRITER_NAMES[writer];
-  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},withNotes(inputs()),{task_queue:{plan_pointer:'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
+  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},withNotes(inputs()),{task_queue:{plan_pointer:'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),task_planner:{profile:{id:'plan'},instructions:''},max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
   else addAgent('build',name,writer,buildText,null,withNotes(inputs()),{context_access:ACCESS.build});
   addAgent('verify','Verify','verify',verifyText,reviewSchema,withNotes(inputs()),{context_access:{steps:ACCESS.verify}});
   // A queued plan's acceptance criteria must all be reported on, not just the ones the reviewer chose to mention.
@@ -247,14 +266,14 @@ for(const [id,preps,writer,post] of catalog){
  }
  // Every step learns where it stands, what it is given and who reads its result.
  const steps=nodes.slice(1);
- const pipeline=steps.map(n=>n.type==='agent'?n.name:n.type==='verify'?'acceptance check':labels.get(n)).join(' → ');
+ const pipeline=steps.map(n=>n.type!=='agent'?(n.type==='verify'?'acceptance check':labels.get(n)):n.config.task_queue?`${n.name} (for each step of the plan: step plan → build → review)`:n.name).join(' → ');
  const agents=nodes.filter(n=>n.type==='agent');
  for(const [n,text] of texts){
   const later=agents.slice(agents.indexOf(n)+1);
   const [purpose,...body]=text({workflow,focus:focus[n.id],queued,next:later[0]?.name}).split('\n');
   while(body[0]==='')body.shift();
   const given=n.input_bindings.map(b=>INPUTS[b.target==='build'&&queued?'queuedBuild':b.target]);
-  if(n.config.task_queue)given.push(...QUEUE_INPUTS);
+  if(n.config.task_queue)given.push(...QUEUE_INPUTS,STEP_PLAN_INPUT);
   const access=n.config.context_access;
   const seen=access==='all'?nodes.filter(o=>o!==n&&(o.type==='agent'||o.type==='verify')).map(o=>o.name):access?.steps?.map(id=>nodes.find(o=>o.id===id).name);
   if(seen?.length)given.push(JOURNAL_LINE([...new Set(seen)].join(', ').replace(/, ([^,]*)$/,' and $1')));
@@ -269,6 +288,22 @@ for(const [id,preps,writer,post] of catalog){
    later.length>0&&`\n${NOT_PASSED_ON}`,
   );
  }
+ // The step planner works inside the builder's step, on the builder's inputs.
+ for(const n of agents.filter(n=>n.config.task_queue?.task_planner)){
+  const given=[...n.input_bindings.map(b=>INPUTS[b.target==='build'?'queuedBuild':b.target]),
+   'task: the step you plan now, with the criteria it must satisfy.',
+   ...QUEUE_INPUTS.slice(1,3),
+   'previous_attempt: when present, the last attempt at this step and why it was not accepted.'];
+  const [purpose,...body]=stepPlanText.split('\n');
+  n.config.task_queue.task_planner.instructions=lines(
+   purpose,
+   '','Your place in the workflow',
+   `"${workflow.name}" runs: ${pipeline}. You are the step planner inside ${n.name}: you plan the step it is about to build.`,
+   '','What you are given (in workflow_input)',
+   ...given.map(item=>`- ${item}`),
+   '',...body.filter((line,i)=>i>0||line!==''),
+  );
+ }
  const last=history.at(-1);const lastAgent=nodes.find(n=>n.id===last);const pointer=lastAgent.config.structured_output==='text'?'':'/summary';
  node('output','Result','output',{source:source(last,pointer),strict:false});
  workflow.output_contract={schema:schema('result',{type:'string'}),source:source(last,pointer),strict:false};
@@ -278,7 +313,24 @@ for(const [id,preps,writer,post] of catalog){
  const file=id==='plan-build-verify'?'plan-build-verify.workflow.json':`workflows/${id}.workflow.json`;
  outputs.push([file,workflow]);
 }
-const manifest={profiles:['research','analyze','plan','build','verify','review','debug','architect','security','document','refactor','optimize'].map(id=>read(`${id}.profile.json`)),workflows:outputs.map(([,d])=>d)};
+// Built-ins are app-owned, so their ids carry the `rusty-ide.builtin.`
+// namespace and never collide with a workspace's own `plan` or `build`. This
+// is the only place it is applied: the app and the native host read the
+// catalog as it is (through the workflow catalog service).
+const NS='rusty-ide.builtin.';
+const named=ref=>({...ref,id:NS+ref.id});
+const namespacedNode=node=>{
+ const {profile,task_queue:queue,target}=node.config;
+ return {...node,config:{...node.config,
+  ...(profile?{profile:named(profile)}:{}),
+  ...(queue?{task_queue:{...queue,review_profile:named(queue.review_profile),...(queue.task_planner?{task_planner:{...queue.task_planner,profile:named(queue.task_planner.profile)}}:{})}}:{}),
+  ...(target?.profile?{target:{...target,profile:named(target.profile)}}:{}),
+ }};
+};
+const namespaced=workflow=>({...workflow,id:NS+workflow.id,
+ policies:{...workflow.policies,research:{...workflow.policies.research,profile:named(workflow.policies.research.profile)}},
+ nodes:workflow.nodes.map(namespacedNode)});
+const manifest={profiles:['research','analyze','plan','build','verify','review','debug','architect','security','document','refactor','optimize'].map(id=>({...read(`${id}.profile.json`),id:NS+id})),workflows:outputs.map(([,d])=>namespaced(d))};
 const content=JSON.stringify(manifest,null,2)+'\n';
 if(process.argv.includes('--check')){if(fs.readFileSync(path.join(root,'catalog.json'),'utf8')!==content)throw Error('Stale catalog');}
 else fs.writeFileSync(path.join(root,'catalog.json'),content);

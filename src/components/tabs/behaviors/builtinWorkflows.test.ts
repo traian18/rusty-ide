@@ -1,15 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { JsonObject } from "./behaviorModel";
 import { workflowUsesContext } from "../../../harness/core/workflowRun";
-import {
-  STARTER_PROFILES,
-  STARTER_WORKFLOWS,
-  builtinWorkflowDocument,
-  builtinWorkflowPath,
-  isStarterWorkflowPath,
-  starterWorkflowPaths,
-  workflowKind,
-} from "./starterFlow";
+import { isBuiltinWorkflowPath, workflowKind } from "./starterFlow";
+import { BUILTIN_PROFILES, BUILTIN_WORKFLOWS } from "../../../test/fakeWorkflowCatalog";
 
 /** What each built-in workflow runs, in order: the catalog the Agent's Mode picker offers. */
 const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }> = {
@@ -32,8 +25,8 @@ const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }>
 
 const PREFIX = "rusty-ide.builtin.";
 /** Multi-step changes run the approved plan as a task queue. */
-const QUEUED = ["researched-feature", "careful-change", "security-remediation", "refactor"];
-const profileIds = new Set(STARTER_PROFILES.map((profile) => String(profile.id)));
+const QUEUED = ["plan-build-verify", "researched-feature", "careful-change", "security-remediation", "refactor"];
+const profileIds = new Set(BUILTIN_PROFILES.map((profile) => String(profile.id)));
 const nodesOf = (document: JsonObject) => document.nodes as JsonObject[];
 const agentsOf = (document: JsonObject) => nodesOf(document).filter((node) => node.type === "agent");
 const configOf = (node: JsonObject) => node.config as JsonObject;
@@ -42,13 +35,13 @@ const shortId = (document: JsonObject) => String(document.id).slice(PREFIX.lengt
 
 describe("the built-in workflow catalog", () => {
   it("offers exactly the documented workflows, the everyday one first", () => {
-    expect(STARTER_WORKFLOWS.map(shortId).sort()).toEqual(Object.keys(CATALOG).sort());
-    expect(shortId(STARTER_WORKFLOWS[0])).toBe("plan-build-verify");
-    expect(new Set(STARTER_WORKFLOWS.map((document) => document.id)).size).toBe(STARTER_WORKFLOWS.length);
+    expect(BUILTIN_WORKFLOWS.map(shortId).sort()).toEqual(Object.keys(CATALOG).sort());
+    expect(shortId(BUILTIN_WORKFLOWS[0])).toBe("plan-build-verify");
+    expect(new Set(BUILTIN_WORKFLOWS.map((document) => document.id)).size).toBe(BUILTIN_WORKFLOWS.length);
   });
 
   it("runs each workflow's profiles in the documented order, all of them shipped with the app", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const expected = CATALOG[shortId(document)];
       expect(agentsOf(document).map(profileOf).map((id) => id.slice(PREFIX.length)), shortId(document)).toEqual(expected.steps);
       for (const node of agentsOf(document)) expect(profileIds.has(profileOf(node)), `${shortId(document)}/${node.id}`).toBe(true);
@@ -56,7 +49,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("separates short stages from end-to-end pipelines", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const { kind } = CATALOG[shortId(document)];
       const steps = agentsOf(document).length;
       if (kind === "stage") expect(steps, shortId(document)).toBeLessThanOrEqual(3);
@@ -67,7 +60,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("is a straight line from the request to the last step's result", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const nodes = nodesOf(document);
       const edges = document.edges as JsonObject[];
       const order = nodes.map((node) => String(node.id));
@@ -84,7 +77,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("hands each step its predecessors' text and only names inputs it was given", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const seen = new Set<string>();
       for (const node of nodesOf(document)) {
         if (node.type !== "agent") {
@@ -126,7 +119,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("advances ordinary steps on success without parsing status or summary fields", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const nodes = nodesOf(document);
       for (const agent of agentsOf(document).filter(n => configOf(n).structured_output === "text")) {
         const edge = (document.edges as JsonObject[]).find(e => e.source === agent.id)!;
@@ -142,7 +135,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("asks the user to approve the plan before building, and to confirm the checks only a person can do", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const nodes = nodesOf(document);
       if (!nodes.some((n) => n.id === "build")) {
         expect(nodes.some((n) => n.type === "approval"), shortId(document)).toBe(false);
@@ -184,7 +177,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("tells every step where it stands in its workflow and what it is given", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const agents = agentsOf(document);
       expect(String(document.description).length, shortId(document)).toBeGreaterThan(120);
       for (const [index, node] of agents.entries()) {
@@ -201,11 +194,13 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("runs a multi-step plan as a task queue that asks on failure, and judges acceptance criterion by criterion", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const nodes = nodesOf(document);
       const queue = nodes.map(n => configOf(n).task_queue).find(Boolean) as JsonObject | undefined;
       if (QUEUED.includes(shortId(document))) {
-        expect(queue, shortId(document)).toMatchObject({ plan_pointer: "/plan", review_profile: { id: `${PREFIX}review` }, on_task_failure: "ask" });
+        // Each step of the general plan is planned in detail, built, then reviewed.
+        expect(queue, shortId(document)).toMatchObject({ plan_pointer: "/plan", review_profile: { id: `${PREFIX}review` }, task_planner: { profile: { id: `${PREFIX}plan` } }, on_task_failure: "ask" });
+        expect(String((queue!.task_planner as JsonObject).instructions)).toContain("step plan");
         expect(nodes.find(n => n.id === "plan")!.output_schema).toEqual({ type: "registry", schema_id: "rusty.task_plan", revision: 1 });
         expect(String(configOf(nodes.find(n => n.id === "verify")!).instructions)).toContain("under their ids");
         expect(configOf(nodes.find(n => n.id === "gate")!).checks).toEqual([{ type: "criteria", pointer: "/check/criteria", plan_pointer: "/plan" }]);
@@ -226,7 +221,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("never lets a final review or security recheck bypass acceptance", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       const nodes = nodesOf(document);
       if (!agentsOf(document).some(n => n.id === "build")) continue;
       const last = agentsOf(document).at(-1)!;
@@ -238,7 +233,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("preserves context access and has finite attempt budgets in every workflow", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       expect(workflowUsesContext(document), shortId(document)).toBe(true);
       expect((document.policies as JsonObject).max_total_attempts).toBe(40);
       for (const node of agentsOf(document)) {
@@ -250,7 +245,7 @@ describe("the built-in workflow catalog", () => {
 
   it("does not offer editing, installation or delegation to read-only profiles", () => {
     for (const id of ["research", "analyze", "architect", "plan", "debug", "verify", "review", "security"]) {
-      const profile = STARTER_PROFILES.find(p => p.id === `${PREFIX}${id}`)!;
+      const profile = BUILTIN_PROFILES.find(p => p.id === `${PREFIX}${id}`)!;
       expect((profile.tools as JsonObject).type).toBe("allow_list");
       const tools = (profile.tools as JsonObject).tools as string[];
       expect(tools).toContain("read_workflow_context");
@@ -259,7 +254,7 @@ describe("the built-in workflow catalog", () => {
   });
 
   it("makes the second security pass a re-audit of the first", () => {
-    const remediation = STARTER_WORKFLOWS.find((entry) => shortId(entry) === "security-remediation")!;
+    const remediation = BUILTIN_WORKFLOWS.find((entry) => shortId(entry) === "security-remediation")!;
     const recheck = agentsOf(remediation).at(-1)!;
     const inputs = (recheck.input_bindings as JsonObject[]).map((binding) => String(binding.target));
     expect(inputs).toEqual(expect.arrayContaining(["audit", "plan", "build", "verify"]));
@@ -267,24 +262,9 @@ describe("the built-in workflow catalog", () => {
 });
 
 describe("built-in workflow paths", () => {
-  it("map ids to paths and back, and only know the built-ins", () => {
-    const paths = starterWorkflowPaths();
-    expect(paths).toHaveLength(STARTER_WORKFLOWS.length);
-    expect(paths.every((path) => path.startsWith("builtin:"))).toBe(true);
-    for (const [index, document] of STARTER_WORKFLOWS.entries()) {
-      expect(builtinWorkflowPath(String(document.id))).toBe(paths[index]);
-      expect(builtinWorkflowPath(shortId(document))).toBe(paths[index]);
-      expect(isStarterWorkflowPath(paths[index])).toBe(true);
-    }
-    expect(isStarterWorkflowPath("builtin:nope")).toBe(false);
-    expect(isStarterWorkflowPath("/project/.rusty/workflows/investigate.json")).toBe(false);
-  });
-
-  it("return independent copies and reject an unknown path", () => {
-    const path = builtinWorkflowPath("investigate");
-    const copy = builtinWorkflowDocument(path);
-    copy.name = "Changed";
-    expect(builtinWorkflowDocument(path).name).toBe("Research & analyze");
-    expect(() => builtinWorkflowDocument("builtin:nope")).toThrow("No built-in workflow");
+  // The catalog lists each built-in at builtin:<id> (catalog.rs); only those are read-only.
+  it("are the builtin: ones", () => {
+    expect(isBuiltinWorkflowPath("builtin:investigate")).toBe(true);
+    expect(isBuiltinWorkflowPath("/project/.rusty/workflows/investigate.json")).toBe(false);
   });
 });

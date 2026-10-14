@@ -199,6 +199,16 @@ describe("agentChatDefinition", () => {
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "report_progress"]);
   });
 
+  it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
+    const author = toSkillData(BUILT_IN_SKILLS.find((skill) => skill.id === BUILT_IN_SKILL_IDS.WORKFLOW_AUTHOR)!);
+    const names = (overrides: Partial<AgentChatInput>) => agentChatDefinition.recipe!(input(overrides)).host_tools?.map((t) => t.name);
+    expect(names({ skill: author })).toEqual(expect.arrayContaining(["workflow_catalog", "save_workflow"]));
+    expect(names({ skill: author, planOnly: true })).toContain("workflow_catalog");
+    expect(names({ skill: author, planOnly: true })).not.toContain("save_workflow");
+    expect(names({ skill: { enabledTools: ["read_file"] } })).not.toContain("workflow_catalog");
+    expect(names({})).not.toContain("workflow_catalog");
+  });
+
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "report_progress"]);

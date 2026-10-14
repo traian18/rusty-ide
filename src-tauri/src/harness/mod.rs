@@ -16,6 +16,7 @@
 #![allow(dead_code, unused_imports)]
 
 mod bridge_event;
+pub mod catalog;
 pub mod commands;
 mod copilot_oauth;
 mod host_bridge;

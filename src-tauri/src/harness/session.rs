@@ -45,14 +45,17 @@ impl HarnessState {
 
         let mut recipe = recipe;
         let workflow_document = recipe.workflow.take();
-        let workflow_library = std::mem::take(&mut recipe.workflow_library);
+        let root = recipe.workspace.root.clone();
         let mut builder = build_session_builder(harness, recipe, bridge.clone())
             .await
             .map_err(|error| error.to_string())?;
         let mut workflow = None;
         if let Some(document) = workflow_document {
-            let (configured, key) =
-                super::workflow::configure(builder, document, workflow_library)?;
+            let (configured, key) = super::workflow::configure(
+                builder,
+                document,
+                &super::catalog::Catalog::load(Some(&root)),
+            )?;
             builder = configured;
             workflow = Some(key);
         }

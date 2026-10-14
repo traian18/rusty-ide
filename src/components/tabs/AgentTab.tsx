@@ -43,8 +43,8 @@ import {
 import type { DecideStepUpConfig } from "../../harness/core/decideToolConfig";
 import { workflowReportFor } from "../../services/workflowReport";
 import { workflowInputFor, readWorkflowCheckpoint, workflowUsesContext, priorWorkflowContext, conversationResults, withConversation, failedVerificationReport, type FailedWorkflowCheckpoint } from "../../harness/core/workflowRun";
-import { behaviorService } from "./behaviors/behaviorService";
-import { BUILTIN_WORKFLOW_PATH, STARTER_PROFILES, STARTER_WORKFLOW, workflowKind } from "./behaviors/starterFlow";
+import { BUILTIN_WORKFLOW_ID, BUILTIN_WORKFLOW_PATH, workflowKind } from "./behaviors/starterFlow";
+import { workflowCatalogService } from "../../services/workflowCatalogService";
 import { AUTO_FLOW, shortWorkflowId, workflowMayEdit, workflowRoute, workflowSwitchTargets } from "./behaviors/flowCatalog";
 import { loadAgentModelSelection, saveAgentModelSelection } from "../../preferences/agentModelSelection";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
@@ -54,7 +54,6 @@ import type { WorkflowAnswer, WorkflowQuestion } from "../../harness/contract";
 import { recentPrompts, userPrompts } from "../../services/promptHistory";
 import { openAgentChangedFile } from "./AgentTabChangedFile";
 import type { JsonObject } from "./behaviors/behaviorModel";
-import { referencedFlowIds, workflowLibraryFor } from "./behaviors/workflowLibrary";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -285,13 +284,13 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       return;
     }
     let cancelled = false;
-    void Promise.all([behaviorService.loadWorkflows(rootPath), behaviorService.loadProfiles(rootPath)])
-      .then(([{ documents }, { documents: profiles }]) => {
+    void workflowCatalogService.load(rootPath)
+      .then((catalog) => {
         if (cancelled) return;
         // Whether a workflow edits is read from the profiles its steps run under.
-        const library = [...profiles.map((profile) => profile.document), ...STARTER_PROFILES];
+        const library = catalog.profiles.map((profile) => profile.document);
         setWorkflowOptions(
-          documents.map(({ path, document }) => ({
+          catalog.workflows.map(({ path, document }) => ({
             path,
             name: String(document.name ?? document.id ?? path.split("/").pop()),
             kind: workflowKind(document),
@@ -302,7 +301,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             switchTo: workflowSwitchTargets(document),
           })),
         );
-      });
+      })
+      // Without the catalog the chat runs as a single agent; the picker shows no workflows.
+      .catch(() => !cancelled && setWorkflowOptions([]));
     return () => {
       cancelled = true;
     };
@@ -317,11 +318,11 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       return;
     }
     let cancelled = false;
-    behaviorService.readWorkflow(activeWorkflowPath)
+    workflowCatalogService.workflow(rootPath, activeWorkflowPath)
       .then((document) => {
         if (cancelled) return;
         setWorkflowDocument(document);
-        if (chatWorkflow !== AUTO_FLOW && document.id === STARTER_WORKFLOW.id && chatWorkflow !== BUILTIN_WORKFLOW_PATH) {
+        if (chatWorkflow !== AUTO_FLOW && document.id === BUILTIN_WORKFLOW_ID && chatWorkflow !== BUILTIN_WORKFLOW_PATH) {
           chatWorkflowRef.current = BUILTIN_WORKFLOW_PATH;
           setChatWorkflowState(BUILTIN_WORKFLOW_PATH);
         }
@@ -330,7 +331,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     return () => {
       cancelled = true;
     };
-  }, [activeWorkflowPath, chatWorkflow, workflowCatalogVersion]);
+  }, [activeWorkflowPath, chatWorkflow, rootPath, workflowCatalogVersion]);
 
   // Build model options including AUTO if intelligent selection is enabled
   const modelOptions = useCallback(() => {
@@ -680,7 +681,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     let workflowDefinition: Record<string, unknown> | undefined;
     if (followedWorkflow) {
       try {
-        workflowDefinition = await behaviorService.readWorkflow(followedWorkflow);
+        workflowDefinition = await workflowCatalogService.workflow(rootPath, followedWorkflow);
       } catch (error) {
         notify("Workflow unavailable", `Could not read ${followedWorkflow}: ${String(error)}. Choose another in the Mode picker.`, "error");
         return;
@@ -780,7 +781,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       if (!isStreamingRef.current) return; // stopped while choosing
       if (choice.type === "workflow") {
         try {
-          workflowDefinition = await behaviorService.readWorkflow(choice.candidate.path);
+          workflowDefinition = await workflowCatalogService.workflow(rootPath, choice.candidate.path);
           followedWorkflow = choice.candidate.path;
         } catch (error) {
           notify("Workflow unavailable", `Could not read ${choice.candidate.path}: ${String(error)}. Answering directly.`, "error");
@@ -911,17 +912,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       // which ones the active skill actually gets (skillExecutionPolicy.ts).
       const mcpServers = Object.values(useWorkspaceStore.getState().mcpServers).filter((server) => server.enabled);
 
-      // Saved workflows this one runs as subflows go along with the run.
-      let workflowLibrary: JsonObject[] = [];
-      if (workflowDefinition && referencedFlowIds(workflowDefinition as JsonObject).length > 0) {
-        try {
-          const saved = await behaviorService.loadWorkflows(rootPath);
-          workflowLibrary = workflowLibraryFor(workflowDefinition as JsonObject, saved.documents.map((stored) => stored.document));
-        } catch {
-          // Without them the run is refused by name when it needs one.
-        }
-      }
-
       const host = createRunHost({
         readFile: (path) => invoke<string>("read_file_disk", { path }),
         writeFile: async (path, content) => {
@@ -1034,7 +1024,6 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               ),
             checkpoint: workflowCheckpointRef.current,
             options: { autoApprove: autoApproveRef.current },
-            ...(workflowLibrary.length ? { library: workflowLibrary } : {}),
           } : undefined,
         },
         host,
@@ -1265,7 +1254,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             agentRunRef.current = null;
             setStreamingLabel(`Starting ${switchTo.name}…`);
             try {
-              const nextDefinition = await behaviorService.readWorkflow(switchTo.path);
+              const nextDefinition = await workflowCatalogService.workflow(rootPath, switchTo.path);
               if (isStreamingRef.current) {
                 // A chat that follows one workflow now follows the one it handed over to; Auto keeps choosing per message.
                 if (chatWorkflowRef.current === AUTO_FLOW) setAutoWorkflow(switchTo.path);

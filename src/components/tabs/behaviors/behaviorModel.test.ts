@@ -27,7 +27,7 @@ import {
   type Issue,
   type JsonObject,
 } from "./behaviorModel";
-import { STARTER_PROFILES, STARTER_WORKFLOW, STARTER_WORKFLOWS } from "./starterFlow";
+import { BUILTIN_PROFILES, BUILTIN_WORKFLOW, BUILTIN_WORKFLOWS } from "../../../test/fakeWorkflowCatalog";
 
 const issue = (path: string): Issue => ({ path, code: "x", message: path, blocking: true });
 
@@ -43,7 +43,7 @@ describe("positions", () => {
 
 describe("starter profiles", () => {
   it("registers the complete app-owned catalog once and aligns workflow references", () => {
-    const ids = STARTER_PROFILES.map((profile) => String(profile.id));
+    const ids = BUILTIN_PROFILES.map((profile) => String(profile.id));
     expect(ids).toEqual([
       "rusty-ide.builtin.research", "rusty-ide.builtin.analyze", "rusty-ide.builtin.plan",
       "rusty-ide.builtin.build", "rusty-ide.builtin.verify", "rusty-ide.builtin.review",
@@ -51,7 +51,7 @@ describe("starter profiles", () => {
       "rusty-ide.builtin.document", "rusty-ide.builtin.refactor", "rusty-ide.builtin.optimize",
     ]);
     expect(new Set(ids).size).toBe(ids.length);
-    const profiles = stepsOf(STARTER_WORKFLOW)
+    const profiles = stepsOf(BUILTIN_WORKFLOW)
       .map((step) => (step.config as JsonObject).profile as JsonObject | undefined)
       .filter((profile): profile is JsonObject => Boolean(profile))
       .map((profile) => String(profile.id));
@@ -209,10 +209,10 @@ describe("canvas layout", () => {
   });
 
   it("lays out every built-in profile and workflow with nothing on top of anything", () => {
-    const profiles = STARTER_PROFILES.map((profile) => positionOf(profile)!);
+    const profiles = BUILTIN_PROFILES.map((profile) => positionOf(profile)!);
     expect(profiles.every(Boolean)).toBe(true);
     profiles.forEach((a, i) => profiles.slice(i + 1).forEach((b) => expect(collide(a, b)).toBe(false)));
-    for (const workflow of STARTER_WORKFLOWS) {
+    for (const workflow of BUILTIN_WORKFLOWS) {
       const positions = new Map(stepsOf(workflow).map((step) => [String(step.id), positionOf(step)!]));
       expect(spreadColumns(positions, edgesOf(workflow)), String(workflow.id)).toBe(positions);
       const all = [...positions.values()];

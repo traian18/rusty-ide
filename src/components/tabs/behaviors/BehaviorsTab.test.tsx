@@ -9,6 +9,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 import { useWorkspaceStore } from "../../../store";
 import { BehaviorsTab } from "./BehaviorsTab";
 import { useWorkflowRunStore } from "./workflowRunStore";
+import { answerCatalogCommand } from "../../../test/fakeWorkflowCatalog";
 
 const demo = {
   schema_version: 1,
@@ -82,6 +83,9 @@ describe("BehaviorsTab", () => {
     invoke.mockReset();
     invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
       switch (command) {
+        case "behavior_catalog":
+        case "behavior_catalog_workflow":
+          return answerCatalogCommand(files, command, args);
         case "get_directory_structure": {
           const dir = `${String(args.rootDir)}/`;
           return Object.keys(files)
@@ -99,11 +103,6 @@ describe("BehaviorsTab", () => {
           return undefined;
         case "create_directory":
           return undefined;
-        case "behavior_templates":
-          return {
-            builtin_profiles: [{ schema_version: 1, id: "rusty.default", revision: 1, name: "Default" }],
-            default_workflow: { schema_version: 1, id: "rusty.single", nodes: [], edges: [] },
-          };
         case "behavior_validate_profile":
           return (args.document as { id: string }).id === "demo"
             ? [{ path: "rules[0].do.switch_profile.profile", code: "unknown_profile", message: "no profile review@latest", blocking: true }]

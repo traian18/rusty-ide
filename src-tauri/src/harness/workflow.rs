@@ -20,97 +20,24 @@ use serde::Deserialize;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 
+use super::catalog::{Catalog, Source};
 use super::{BridgeEvent, HarnessState};
 
-/// The profiles every workspace has without seeding files: the documents the
-/// Behaviors tab lists as built-in (`STARTER_PROFILES` in starterFlow.ts), read
-/// from the same files. Keep the two lists in step.
-const BUILTIN_CATALOG: &str =
-    include_str!("../../../src/components/tabs/behaviors/starter/catalog.json");
-
-fn catalog_profiles() -> Vec<serde_json::Value> {
-    serde_json::from_str::<serde_json::Value>(BUILTIN_CATALOG).expect("generated catalog")
-        ["profiles"]
-        .as_array()
-        .expect("catalog profiles")
-        .clone()
-}
-
-/// The built-in profile documents under their `rusty-ide.builtin.` ids.
-fn prefixed_builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
-    catalog_profiles()
-        .into_iter()
-        .map(|mut profile| {
-            let id = profile["id"]
-                .as_str()
-                .ok_or("a built-in profile has no id")?
-                .to_owned();
-            profile["id"] = serde_json::json!(format!("rusty-ide.builtin.{id}"));
-            Ok(profile)
-        })
-        .collect()
-}
-
-pub(crate) fn authoring_builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
-    let mut profiles = catalog_profiles();
-    profiles.extend(prefixed_builtin_profiles()?);
-    Ok(profiles)
-}
-
-fn builtin_profiles() -> Result<Vec<serde_json::Value>, String> {
-    prefixed_builtin_profiles()
-}
-
-/// The built-in workflows under their `rusty-ide.builtin.` ids, naming the
-/// built-in profiles under theirs (the same renaming `builtinWorkflow` does
-/// in starterFlow.ts), so any workflow can run them as subflows.
-fn prefixed_builtin_workflows() -> Vec<serde_json::Value> {
-    const PREFIX: &str = "rusty-ide.builtin.";
-    /// Renames the profile reference at `path` when there is one.
-    fn prefix_profile(node: &mut serde_json::Value, path: &[&str]) {
-        let mut at = Some(node);
-        for key in path {
-            at = at.and_then(|value| value.get_mut(*key));
-        }
-        if let Some(id) = at.and_then(|reference| reference.get_mut("id")) {
-            if let Some(name) = id.as_str() {
-                *id = serde_json::json!(format!("{PREFIX}{name}"));
-            }
-        }
-    }
-    serde_json::from_str::<serde_json::Value>(BUILTIN_CATALOG).expect("generated catalog")
-        ["workflows"]
-        .as_array()
-        .expect("catalog workflows")
-        .iter()
-        .cloned()
-        .map(|mut workflow| {
-            let id = workflow["id"].as_str().unwrap_or_default().to_owned();
-            workflow["id"] = serde_json::json!(format!("{PREFIX}{id}"));
-            for node in workflow["nodes"].as_array_mut().into_iter().flatten() {
-                prefix_profile(node, &["config", "profile"]);
-                prefix_profile(node, &["config", "task_queue", "review_profile"]);
-                prefix_profile(node, &["config", "target", "profile"]);
-            }
-            workflow
-        })
-        .collect()
-}
-
 /// Registers `document` on a fresh per-session orchestration config and
-/// enables it on `builder`, together with the workflows it may run: the
-/// built-in ones and `library`. Drafts are allowed for both the workflow and
+/// enables it on `builder`, together with every workflow in `catalog` it may
+/// run (built-in and saved). Drafts are allowed for both the workflow and
 /// the profiles its steps name: the Behaviors canvas creates both as drafts.
 pub fn configure(
     builder: SessionBuilder,
     document: serde_json::Value,
-    library: Vec<serde_json::Value>,
+    catalog: &Catalog,
 ) -> Result<(SessionBuilder, (String, u64)), String> {
-    // App-owned profiles are available in every project without seeding files.
+    // App-owned profiles are available in every project without seeding
+    // files; the workspace's own are loaded by the session builder.
     let profiles = harness_engine::ProfilesConfig::default();
-    for profile in builtin_profiles()? {
+    for profile in catalog.profiles_from(Source::Builtin) {
         profiles
-            .register_json(profile)
+            .register_json(profile.clone())
             .map_err(|error| error.to_string())?;
     }
     let config = OrchestrationConfig::default().allow_drafts(true);
@@ -119,12 +46,12 @@ pub fn configure(
         .map_err(|error| error.to_string())?;
     // A workflow another one runs that does not register is left out: the run
     // that needs it is refused with "not registered", which names it.
-    for other in prefixed_builtin_workflows().into_iter().chain(library) {
+    for other in catalog.workflow_documents() {
         let same = other["id"].as_str() == Some(key.0.as_str())
             && other["revision"].as_u64() == Some(key.1);
         if !same {
             // Built-ins that do not register would be a bug the tests catch.
-            let _ = config.register_json(other);
+            let _ = config.register_json(other.clone());
         }
     }
     Ok((
@@ -681,16 +608,17 @@ mod tests {
         document
     }
 
-    /// The built-in profiles under the plain ids the bundled workflows name.
+    /// The built-in profiles, under the ids the built-in workflows name.
     fn starter_library() -> Vec<serde_json::Value> {
-        catalog_profiles()
+        Catalog::load(None)
+            .profiles_from(Source::Builtin)
+            .cloned()
+            .collect()
     }
 
     fn builtin_workflows() -> Vec<(String, serde_json::Value)> {
-        serde_json::from_str::<serde_json::Value>(BUILTIN_CATALOG).unwrap()["workflows"]
-            .as_array()
-            .unwrap()
-            .iter()
+        Catalog::load(None)
+            .workflow_documents()
             .map(|w| (w["id"].as_str().unwrap().to_owned(), w.clone()))
             .collect()
     }
@@ -703,7 +631,7 @@ mod tests {
             let issues = harness_engine::validation::validate_profile(profile, &library);
             assert!(issues.is_empty(), "{}: {issues:?}", profile["id"]);
         }
-        let registered = builtin_profiles().expect("the built-in profiles are valid JSON");
+        let registered = starter_library();
         let ids: Vec<_> = registered
             .iter()
             .map(|profile| profile["id"].as_str().unwrap().to_owned())
@@ -751,15 +679,30 @@ mod tests {
         }
     }
 
+    /// Research named the bare `research` profile, which is registered only
+    /// as `rusty-ide.builtin.research`, so every question failed with
+    /// `unknown_profile`.
+    #[test]
+    fn builtin_research_policies_name_a_registered_profile() {
+        let registered: Vec<_> = starter_library()
+            .iter()
+            .map(|profile| profile["id"].as_str().unwrap().to_owned())
+            .collect();
+        for (_, workflow) in builtin_workflows() {
+            let Some(profile) = workflow["policies"]["research"]["profile"]["id"].as_str() else {
+                continue;
+            };
+            assert!(
+                registered.iter().any(|id| id == profile),
+                "{}: research runs under unknown profile {profile}",
+                workflow["id"]
+            );
+        }
+    }
+
     #[tokio::test]
     async fn builtin_workflows_create_sessions_with_their_builtin_profiles() {
-        for (name, workflow) in builtin_workflows() {
-            let mut document = workflow;
-            for node in document["nodes"].as_array_mut().unwrap() {
-                if let Some(id) = node["config"]["profile"]["id"].as_str() {
-                    node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
-                }
-            }
+        for (name, document) in builtin_workflows() {
             let state = HarnessState::new();
             let recipe: SessionRecipe = serde_json::from_value(json!({
                 "workspace": { "root": "/tmp", "binding": "host" },
@@ -2074,16 +2017,24 @@ mod tests {
         })
     }
 
+    /// Starts the calling workflow in a workspace that has `saved` in
+    /// `.rusty/workflows`.
     async fn start_calling(
         target: serde_json::Value,
-        library: Vec<serde_json::Value>,
+        saved: Vec<serde_json::Value>,
     ) -> Result<(), String> {
+        let workspace = tempfile::tempdir().unwrap();
+        let dir = workspace.path().join(".rusty/workflows");
+        std::fs::create_dir_all(&dir).unwrap();
+        for document in &saved {
+            let file = dir.join(format!("{}.json", document["id"].as_str().unwrap()));
+            std::fs::write(file, document.to_string()).unwrap();
+        }
         let state = HarnessState::new();
         let recipe: SessionRecipe = serde_json::from_value(json!({
-            "workspace": { "root": "/tmp", "binding": "host" },
+            "workspace": { "root": workspace.path(), "binding": "host" },
             "integration": "host",
             "workflow": calling(target),
-            "workflow_library": library,
         }))
         .unwrap();
         let session_id = state.create_session(recipe).await.expect("session");
@@ -2106,13 +2057,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_workflow_may_run_a_saved_workflow_sent_with_the_session() {
+    async fn a_workflow_may_run_a_workflow_saved_in_the_workspace() {
         let mut helper = harness_engine::validation::templates().default_workflow;
         helper["id"] = json!("ws.helper");
         helper["status"] = json!("draft");
         start_calling(json!({ "type": "flow", "id": "ws.helper" }), vec![helper])
             .await
-            .expect("saved workflows come with the session");
+            .expect("the workspace's saved workflows are in the catalog");
     }
 
     #[tokio::test]

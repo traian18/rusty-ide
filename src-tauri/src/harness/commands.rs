@@ -466,7 +466,22 @@ pub async fn harness_workflow_state(
     state.workflow_state(session_id, after_step).await
 }
 
+/// Every workflow and profile the workspace at `root_path` can use (the
+/// built-ins without one), read afresh: see `catalog.rs`.
 #[tauri::command]
-pub fn behavior_templates() -> harness_engine::validation::Templates {
-    harness_engine::validation::templates()
+pub fn behavior_catalog(root_path: Option<String>) -> super::catalog::Catalog {
+    super::catalog::Catalog::load(root_path.as_deref().map(std::path::Path::new))
+}
+
+/// The workflow the catalog lists at `path` (a built-in `builtin:<id>` or a
+/// saved file), read afresh.
+#[tauri::command]
+pub fn behavior_catalog_workflow(
+    root_path: Option<String>,
+    path: String,
+) -> Result<serde_json::Value, String> {
+    super::catalog::Catalog::load(root_path.as_deref().map(std::path::Path::new))
+        .workflow(&path)
+        .cloned()
+        .ok_or_else(|| format!("No workflow at {path}"))
 }

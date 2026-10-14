@@ -291,7 +291,7 @@ export interface CoreCapabilityDefinition<K extends CapabilityName> {
    * (`undefined` for a normal agent loop). The session is created from
    * `recipe()` as usual, so the workflow's agent steps share its backend,
    * tools and host tool handlers. */
-  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown; checkpoint?: unknown; options?: WorkflowRunOptions; library?: unknown[] } | undefined;
+  workflow?(input: CapabilityInput<K>): { definition: unknown; input: unknown; checkpoint?: unknown; options?: WorkflowRunOptions } | undefined;
   /** The capability result for a completed workflow's final output.
    * Required whenever `workflow` can return a workflow. */
   workflowResult?(output: unknown, input: CapabilityInput<K>, ctx: RunContext): CapabilityResult<K>;
@@ -1050,7 +1050,7 @@ export class CoreHarness implements AgentHarness {
         // this far into the closure captured by this async IIFE.
         const baseRecipe = await enrichedRecipe(definition, definition.recipe!(input), input, host, controller.signal);
         const withWorkflow: SessionRecipe = workflow
-          ? { ...baseRecipe, workflow: workflow.definition, ...(workflow.library?.length ? { workflow_library: workflow.library } : {}) }
+          ? { ...baseRecipe, workflow: workflow.definition }
           : baseRecipe;
         const contextCompaction = compactionRecipe(
           (input as { contextCompaction?: ContextCompactionRunConfig }).contextCompaction,

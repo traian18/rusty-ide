@@ -17,7 +17,8 @@ import { AUTO_MODEL_ID } from "../../services/intelligentModelSelector";
 import { saveAgentModelSelection } from "../../preferences/agentModelSelection";
 import { AgentTab } from "./AgentTab";
 import { AUTO_FLOW } from "./behaviors/flowCatalog";
-import { STARTER_WORKFLOWS, workflowKind } from "./behaviors/starterFlow";
+import { workflowKind } from "./behaviors/starterFlow";
+import { BUILTIN_WORKFLOWS, answerCatalogCommand } from "../../test/fakeWorkflowCatalog";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
 
 const FLOW_PATH = "/ws/.rusty/workflows/flow.json";
@@ -95,6 +96,9 @@ describe("Agent chat workflows", () => {
     invoke.mockReset();
     invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
       switch (command) {
+        case "behavior_catalog":
+        case "behavior_catalog_workflow":
+          return answerCatalogCommand(files, command, args);
         case "get_directory_structure": {
           const dir = `${String(args.rootDir)}/`;
           return Object.keys(files)
@@ -135,7 +139,7 @@ describe("Agent chat workflows", () => {
 
   it("offers the picker with the built-in workflows, stages labelled, and the workspace's own", async () => {
     await act(async () => select().click());
-    const builtIn = STARTER_WORKFLOWS.map((document) => `${workflowKind(document) === "stage" ? "Stage" : "Workflow"}: ${document.name}`);
+    const builtIn = BUILTIN_WORKFLOWS.map((document) => `${workflowKind(document) === "stage" ? "Stage" : "Workflow"}: ${document.name}`);
     expect(options().map((option) => option.textContent)).toEqual([
       "Single agent",
       ...builtIn,

@@ -7,7 +7,7 @@ import {
   workflowRoute,
   workflowSwitchTargets,
 } from "./flowCatalog";
-import { STARTER_PROFILES, STARTER_WORKFLOWS } from "./starterFlow";
+import { BUILTIN_PROFILES, BUILTIN_WORKFLOWS } from "../../../test/fakeWorkflowCatalog";
 
 const doc = (metadata: unknown): JsonObject => ({ id: "x", nodes: [], edges: [], metadata } as unknown as JsonObject);
 const agent = (profile?: string): JsonObject => ({ id: "a", type: "agent", config: profile ? { profile: { id: profile } } : {} });
@@ -95,26 +95,26 @@ describe("workflowMayEdit", () => {
 });
 
 describe("the built-in workflows", () => {
-  const byId = (id: string) => STARTER_WORKFLOWS.find((document) => shortWorkflowId(String(document.id)) === id)!;
+  const byId = (id: string) => BUILTIN_WORKFLOWS.find((document) => shortWorkflowId(String(document.id)) === id)!;
 
   it("edit exactly where the catalog says: only the read-mostly stages do not", () => {
-    const readOnly = STARTER_WORKFLOWS
-      .filter((document) => !workflowMayEdit(document, STARTER_PROFILES))
+    const readOnly = BUILTIN_WORKFLOWS
+      .filter((document) => !workflowMayEdit(document, BUILTIN_PROFILES))
       .map((document) => shortWorkflowId(String(document.id)))
       .sort();
     expect(readOnly).toEqual(["check-changes", "design", "diagnose", "investigate", "security-audit"]);
-    expect(workflowMayEdit(byId("implement"), STARTER_PROFILES)).toBe(true);
+    expect(workflowMayEdit(byId("implement"), BUILTIN_PROFILES)).toBe(true);
   });
 
   it("describe when each routable workflow applies", () => {
-    const routable = STARTER_WORKFLOWS.filter((document) => workflowRoute(document)).map((document) => shortWorkflowId(String(document.id))).sort();
+    const routable = BUILTIN_WORKFLOWS.filter((document) => workflowRoute(document)).map((document) => shortWorkflowId(String(document.id))).sort();
     expect(routable).toEqual(["check-changes", "design", "diagnose", "implement", "investigate", "security-audit"]);
     for (const id of routable) expect(workflowRoute(byId(id))!.when.length, id).toBeGreaterThan(60);
   });
 
   it("only offer to switch to workflows that exist, never to themselves, and every pipeline offers some", () => {
-    const ids = new Set(STARTER_WORKFLOWS.map((document) => shortWorkflowId(String(document.id))));
-    for (const document of STARTER_WORKFLOWS) {
+    const ids = new Set(BUILTIN_WORKFLOWS.map((document) => shortWorkflowId(String(document.id))));
+    for (const document of BUILTIN_WORKFLOWS) {
       const id = shortWorkflowId(String(document.id));
       const targets = workflowSwitchTargets(document);
       expect(targets.length, id).toBeGreaterThan(0);
@@ -126,9 +126,9 @@ describe("the built-in workflows", () => {
   });
 
   it("switch automatically only to targets that cannot edit, so no switch needs a confirmation by default", () => {
-    for (const document of STARTER_WORKFLOWS) {
+    for (const document of BUILTIN_WORKFLOWS) {
       for (const target of workflowSwitchTargets(document)) {
-        expect(workflowMayEdit(byId(target), STARTER_PROFILES), `${String(document.id)} -> ${target}`).toBe(false);
+        expect(workflowMayEdit(byId(target), BUILTIN_PROFILES), `${String(document.id)} -> ${target}`).toBe(false);
       }
     }
   });

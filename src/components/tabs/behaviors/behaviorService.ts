@@ -1,6 +1,7 @@
 /**
- * behaviorService.ts — workspace files and core validation for the
- * Behaviors canvas.
+ * behaviorService.ts — writing workspace behavior files and core validation
+ * for the Behaviors canvas. Reading what exists is the workflow catalog
+ * service's job (src/services/workflowCatalogService.ts).
  *
  * Profiles live in `.rusty/profiles/<id>.json` (the directory rusty-core's
  * `SessionBuilder::workspace_profiles` loads, with `config.json` naming the
@@ -9,8 +10,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { type Issue, type Json, type JsonObject, isObject, stableStringify } from "./behaviorModel";
-
-import { builtinWorkflowDocument, isStarterWorkflowPath, isUnmodifiedStarter, starterWorkflowPaths } from "./starterFlow";
+import { isBuiltinWorkflowPath } from "./starterFlow";
 
 export const PROFILES_DIR = ".rusty/profiles";
 export const WORKFLOWS_DIR = ".rusty/workflows";
@@ -29,44 +29,6 @@ export interface LoadFailure {
   error: string;
 }
 
-export interface Templates {
-  builtin_profiles: JsonObject[];
-  default_workflow: JsonObject;
-}
-
-interface DirectoryEntry {
-  name: string;
-  path: string;
-  is_dir?: boolean;
-  isDir?: boolean;
-}
-
-async function listJson(dir: string): Promise<DirectoryEntry[]> {
-  try {
-    const tree = await invoke<DirectoryEntry[]>("get_directory_structure", { rootDir: dir });
-    return (tree ?? []).filter((entry) => entry.name.endsWith(".json") && !(entry.is_dir ?? entry.isDir));
-  } catch {
-    return [];
-  }
-}
-
-async function loadDir(dir: string, skip: string[] = []) {
-  const documents: StoredDocument[] = [];
-  const failures: LoadFailure[] = [];
-  for (const entry of await listJson(dir)) {
-    if (skip.includes(entry.name)) continue;
-    try {
-      const text = await invoke<string>("read_file_disk", { path: entry.path });
-      const document = JSON.parse(text) as Json;
-      if (!isObject(document)) throw new Error("not a JSON object");
-      documents.push({ path: entry.path, document, saved: stableStringify(document) });
-    } catch (error) {
-      failures.push({ path: entry.path, error: String(error) });
-    }
-  }
-  return { documents, failures };
-}
-
 export function profilePath(rootPath: string, id: string): string {
   return `${rootPath}/${PROFILES_DIR}/${id}.json`;
 }
@@ -76,40 +38,6 @@ export function workflowPath(rootPath: string, id: string): string {
 }
 
 export const behaviorService = {
-  loadProfiles(rootPath: string) {
-    return loadDir(`${rootPath}/${PROFILES_DIR}`, [PROFILES_CONFIG]);
-  },
-
-  async loadWorkflows(rootPath: string) {
-    const loaded = await loadDir(`${rootPath}/${WORKFLOWS_DIR}`);
-    const documents: StoredDocument[] = [];
-    for (const doc of loaded.documents) {
-      if (doc.path === workflowPath(rootPath, "plan-build-verify") && isUnmodifiedStarter(doc.document)) {
-        // These exact bundled definitions are recoverable from the app. Never
-        // remove a customized workflow, even if it uses the starter filename.
-        try { await behaviorService.remove(doc.path); }
-        catch (error) { loaded.failures.push({ path: doc.path, error: String(error) }); }
-      } else documents.push(doc);
-    }
-    const builtins = starterWorkflowPaths().map((path) => {
-      const document = builtinWorkflowDocument(path);
-      return { path, document, saved: stableStringify(document) };
-    });
-    return { ...loaded, documents: [...builtins, ...documents] };
-  },
-
-  async readWorkflow(path: string): Promise<JsonObject> {
-    if (isStarterWorkflowPath(path)) return builtinWorkflowDocument(path);
-    try {
-      const document = JSON.parse(await invoke<string>("read_file_disk", { path })) as JsonObject;
-      return isUnmodifiedStarter(document) ? builtinWorkflowDocument() : document;
-    } catch (error) {
-      if (path.replace(/\\/g, "/").endsWith("/.rusty/workflows/plan-build-verify.workflow.json")
-        || path.replace(/\\/g, "/").endsWith("/.rusty/workflows/plan-build-verify.json")) return builtinWorkflowDocument();
-      throw error;
-    }
-  },
-
   /** The workspace default profile id from `config.json`, if any. */
   async loadDefaultProfile(rootPath: string): Promise<string | undefined> {
     try {
@@ -143,7 +71,7 @@ export const behaviorService = {
   },
 
   async save(path: string, document: JsonObject): Promise<string> {
-    if (isStarterWorkflowPath(path)) throw new Error("Built-in workflows are read-only");
+    if (isBuiltinWorkflowPath(path)) throw new Error("Built-in workflows are read-only");
     await ensureDir(path.slice(0, path.lastIndexOf("/")));
     const content = stableStringify(document);
     await invoke("write_file_disk", { path, content });
@@ -151,7 +79,7 @@ export const behaviorService = {
   },
 
   async remove(path: string): Promise<void> {
-    if (isStarterWorkflowPath(path)) throw new Error("Built-in workflows cannot be deleted");
+    if (isBuiltinWorkflowPath(path)) throw new Error("Built-in workflows cannot be deleted");
     await invoke("delete_file_or_dir", { path });
   },
 
@@ -161,10 +89,6 @@ export const behaviorService = {
 
   validateWorkflow(document: JsonObject, profiles: JsonObject[]): Promise<Issue[]> {
     return invoke<Issue[]>("behavior_validate_workflow", { document, profiles });
-  },
-
-  templates(): Promise<Templates> {
-    return invoke<Templates>("behavior_templates");
   },
 };
 

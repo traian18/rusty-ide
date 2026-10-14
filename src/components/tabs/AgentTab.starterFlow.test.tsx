@@ -22,6 +22,7 @@ import { useWorkspaceStore } from "../../store";
 import { AgentTab } from "./AgentTab";
 import { BUILTIN_WORKFLOW_PATH } from "./behaviors/starterFlow";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
+import { answerCatalogCommand } from "../../test/fakeWorkflowCatalog";
 
 const STARTER_PATH = BUILTIN_WORKFLOW_PATH;
 const STARTER_LABEL = "Workflow: Plan, build, verify";
@@ -86,6 +87,9 @@ describe("Agent chat and the starter flow", () => {
     invoke.mockReset();
     invoke.mockImplementation(async (command: string, args: Record<string, unknown>) => {
       switch (command) {
+        case "behavior_catalog":
+        case "behavior_catalog_workflow":
+          return answerCatalogCommand(files, command, args);
         case "get_directory_structure": {
           const dir = `${String(args.rootDir)}/`;
           return Object.keys(files)

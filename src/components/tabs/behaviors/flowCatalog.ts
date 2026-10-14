@@ -66,7 +66,7 @@ export function profileMayEdit(profile: JsonObject | undefined): boolean {
 }
 
 function findProfile(profiles: JsonObject[], id: string): JsonObject | undefined {
-  return profiles.find((profile) => profile.id === id) ?? profiles.find((profile) => profile.id === `${BUILTIN_ID_PREFIX}${id}`);
+  return profiles.find((profile) => profile.id === id);
 }
 
 /** Whether any agent step of `document` can change files. A step with no
