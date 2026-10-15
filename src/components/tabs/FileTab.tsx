@@ -18,6 +18,7 @@ import { UnsupportedFilePreview, formatFileSize } from "./UnsupportedFilePreview
 import { ImageFilePreview } from "./ImageFilePreview";
 import { isImageFile, getImageMimeType } from "../../services/imageFile";
 import type { TabOfType } from "../../tabs/types";
+import { computeLineChanges, toGutterDecorations } from "./fileTabGitChanges";
 
 const DEFINITION_MENU_WIDTH = 360;
 const DEFINITION_MENU_MAX_HEIGHT = 320;
@@ -51,6 +52,11 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
   const [showBlame, setShowBlame] = useState(false);
   const [blameData, setBlameData] = useState<Record<number, any>>({});
   const [maxBlameLength, setMaxBlameLength] = useState(5);
+  // HEAD version of the file (null = not loaded / not applicable) and the Monaco
+  // decoration collection that paints the added/modified/deleted gutter bars.
+  const [headContent, setHeadContent] = useState<string | null>(null);
+  const [editorReady, setEditorReady] = useState(false);
+  const gutterDecorationsRef = useRef<any>(null);
   const [definitionMenu, setDefinitionMenu] = useState<{
     symbol: string;
     x: number;
@@ -154,6 +160,38 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
     };
     fetchBlame();
   }, [tab.path, fileRepoPath]);
+
+  // Baseline for the live change gutter. Reloaded after each save because a commit or
+  // checkout moves HEAD underneath us; same skip rules as blame.
+  const gitGutterEnabled = !!fileRepoPath && !!tab.path && !isImage && !tab.vfsTabId;
+  const loadHeadContent = async () => {
+    if (!gitGutterEnabled) return;
+    try {
+      setHeadContent(await invoke<string>("git_get_head_content", { rootDir: fileRepoPath, filePath: tab.path }));
+    } catch (err) {
+      console.warn("Failed to load HEAD content for change gutter:", err);
+      setHeadContent(null);
+    }
+  };
+  useEffect(() => {
+    setHeadContent(null);
+    loadHeadContent();
+  }, [tab.path, fileRepoPath]);
+
+  // Recompute the gutter from the live buffer (debounced) so bars follow typing.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editorReady || !editor || headContent === null || !gitGutterEnabled) {
+      gutterDecorationsRef.current?.clear();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const decorations = toGutterDecorations(computeLineChanges(headContent, fileContent));
+      if (gutterDecorationsRef.current) gutterDecorationsRef.current.set(decorations);
+      else gutterDecorationsRef.current = editor.createDecorationsCollection(decorations);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [fileContent, headContent, editorReady, gitGutterEnabled]);
 
   // Load content on mount
   useEffect(() => {
@@ -299,6 +337,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
           await invoke("write_file_disk", { path: tab.path, content: value });
           console.log(`FileTab auto-saved: ${tab.title}`);
           useWorkspaceStore.getState().loadGitStatus(); // Reload git changes list
+          loadHeadContent();
         }
       } catch (err) {
         console.error("FileTab save failed:", err);
@@ -481,6 +520,9 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
 
   const handleEditorMount = (editor: any, monaco: any) => {
     editorRef.current = editor;
+    // A remount (tab move) creates a new model, so a stale collection must not be reused.
+    gutterDecorationsRef.current = null;
+    setEditorReady(true);
 
     if (monaco) {
       inlineChatCommandRef.current?.dispose();
@@ -753,6 +795,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
               return String(num);
             },
             lineNumbersMinChars: showBlame ? maxBlameLength + 2 : 5,
+            lineDecorationsWidth: 10,
             tabSize: 2,
           })}
         />

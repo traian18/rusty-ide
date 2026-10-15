@@ -277,3 +277,24 @@
   background: color-mix(in srgb, var(--syntax-string) 10%, transparent) !important;
   border: 1px solid color-mix(in srgb, var(--syntax-string) 24%, transparent) !important;
 }
+
+/* Live git change gutter (FileTab): bars beside the line numbers vs. HEAD. */
+.monaco-editor .git-gutter {
+  margin-left: 3px;
+  width: 3px !important;
+}
+.monaco-editor .git-gutter-added {
+  background: var(--color-status-success-solid);
+}
+.monaco-editor .git-gutter-modified {
+  background: var(--color-status-info-solid);
+}
+.monaco-editor .git-gutter-deleted {
+  height: 0 !important;
+  width: 0 !important;
+  margin-left: 2px;
+  background: transparent;
+  border-left: 5px solid var(--color-status-error-solid);
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+}
