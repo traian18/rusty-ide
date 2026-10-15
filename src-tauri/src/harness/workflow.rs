@@ -800,7 +800,7 @@ mod tests {
             .unwrap();
         let plan = "## Plan\n1. Preserve `\"quotes\"` and {not JSON}.\n2. Test the change.\n";
         let build =
-            "Implemented step 1.\nTests failed: dependency unavailable.\nDo not approve this yet.";
+            "Implemented step 1.\nTests failed: dependency unavailable.\nDo not approve this yet.\nStatus: done";
         let summary = "## Verification\nAll checks passed.";
         let review = json!({"verdict": "pass", "summary": summary}).to_string();
         let replies = [plan, build, review.as_str()];
@@ -1020,9 +1020,9 @@ mod tests {
         // Every step is a tool call then a text answer: plan, build, verify (fails), build again, verify (passes).
         let replies = [
             "The plan",
-            "Built it",
+            "Built it\nStatus: done",
             failing.as_str(),
-            "Fixed it",
+            "Fixed it\nStatus: done",
             passing.as_str(),
         ];
         let mut turn = 0;
@@ -1120,6 +1120,121 @@ mod tests {
         state.close_session(session).await.unwrap();
     }
 
+    #[tokio::test]
+    async fn build_that_reports_work_left_is_sent_back_to_finish_it() {
+        let state = HarnessState::new();
+        let directory = tempfile::tempdir().unwrap();
+        let mut document = one_slice(starter(STARTER_WORKFLOW));
+        for node in document["nodes"].as_array_mut().unwrap() {
+            if let Some(id) = node["config"]["profile"]["id"].as_str() {
+                node["config"]["profile"]["id"] = json!(format!("rusty-ide.builtin.{id}"));
+            }
+        }
+        let recipe = json!({
+            "workspace": { "root": directory.path(), "binding": "host" },
+            "integration": "host", "workflow": document,
+            "host_tools": [
+                { "name": "list_files", "description": "List workspace files" },
+                { "name": "read_file", "description": "Read a file" },
+            ],
+        });
+        let session = state
+            .create_session(serde_json::from_value(recipe).unwrap())
+            .await
+            .unwrap();
+        let mut inbox = state.take_inbox(session).unwrap();
+        state
+            .start_workflow(
+                session,
+                json!({"request": "Implement the requested feature"}),
+            )
+            .await
+            .unwrap();
+
+        let passing =
+            json!({"verdict": "pass", "summary": "## Verified\nAll checks passed."}).to_string();
+        // Every request is a tool call then a text answer: plan, build (stops
+        // early), build continued by its completion gate, verify.
+        let replies = [
+            "The plan",
+            "Added the types.\n\n**Status:** Not done — the scanner remains.",
+            "Added the scanner too.\n\nStatus: done",
+            passing.as_str(),
+        ];
+        let mut turn = 0;
+        loop {
+            let event = tokio::time::timeout(Duration::from_secs(10), inbox.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            match event {
+                BridgeEvent::HostExecuteCall { call_id, input, .. } => {
+                    let prompt = input["messages"].to_string();
+                    if turn == 4 {
+                        assert!(
+                            prompt.contains("[work-finished]"),
+                            "Build is told to keep going in the same step: {prompt}"
+                        );
+                    }
+                    let request_id = RequestId::new();
+                    let event = if turn % 2 == 0 {
+                        ExecutionEvent::ToolCallRequested {
+                            request_id,
+                            call: ToolCall {
+                                id: ToolCallId::new(),
+                                name: "read_file".into(),
+                                arguments: json!({"path": "."}),
+                            },
+                        }
+                    } else {
+                        ExecutionEvent::TextDelta {
+                            request_id,
+                            delta: replies[turn / 2].into(),
+                        }
+                    };
+                    state.host_execute_event(session, &call_id, event).unwrap();
+                    state
+                        .host_execute_result(
+                            session,
+                            &call_id,
+                            Ok(ExecutionResult {
+                                request_id,
+                                usage: ModelUsage::default(),
+                                cost: Cost::default(),
+                                finish_reason: if turn % 2 == 0 {
+                                    "tool_use".into()
+                                } else {
+                                    "end_turn".into()
+                                },
+                            }),
+                        )
+                        .unwrap();
+                    turn += 1;
+                }
+                BridgeEvent::HostToolCall { call_id, .. } => {
+                    state
+                        .host_tool_result(session, &call_id, Ok(json!({"files": []})))
+                        .unwrap();
+                }
+                BridgeEvent::WorkflowFinished { state: checkpoint } => {
+                    assert_eq!(checkpoint["status"], "completed", "{checkpoint}");
+                    let attempts = |step: &str| {
+                        checkpoint["steps"][step]["attempts"]
+                            .as_array()
+                            .unwrap()
+                            .len()
+                    };
+                    assert_eq!(attempts("build"), 1, "finished within one attempt");
+                    assert_eq!(attempts("verify"), 1);
+                    assert_eq!(turn, 8);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        state.close_session(session).await.unwrap();
+    }
+
     /// The work is built in two slices, each verified before the next starts: a
     /// failure in the second slice sends only the second Build back, with the
     /// first slice's handoff still in front of it, and the result is the second
@@ -1165,11 +1280,11 @@ mod tests {
         // build 2 again, verify 2 (passes).
         let replies = [
             "## Slice 1\n1. a.ts\n## Slice 2\n2. b.ts",
-            "Built slice one",
+            "Built slice one\nStatus: done",
             pass.as_str(),
-            "Built slice two",
+            "Built slice two\nStatus: done",
             failing.as_str(),
-            "Fixed slice two",
+            "Fixed slice two\nStatus: done",
             done.as_str(),
         ];
         let mut turn = 0;

@@ -812,7 +812,7 @@ export class CoreHarness implements AgentHarness {
         const gate = event.CompletionGateEvaluated;
         const checks = gate.failed_checks.join(", ");
         const message = gate.passed
-          ? "Completion gate passed."
+          ? checks ? `Completion gate passed; out of attempts, so these were waived: ${checks}.` : "Completion gate passed."
           : gate.continuing
             ? `Completion gate rejected the answer (${checks}); the agent continues.`
             : `Completion gate not passed (${checks}).`;

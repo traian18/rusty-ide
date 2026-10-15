@@ -98,14 +98,15 @@ const buildText=({focus})=>lines(
   'Add or update the tests the plan calls for.',
   'Run the project\'s checks (run_check for tests, type check, lint and build when you have it). When one fails, read the output, fix what your change broke and run it again. If a check cannot run here (a missing tool, no network), say so and give the command for the user to run.',
   'Where the code contradicts the plan (a file moved, an API differs), do the smallest thing that meets the requirement and say what you did differently and why.',
-  'Do not stop with the work half done because a command failed: make every change the plan needs first.',
+  'Implement the whole plan in this step: every task, in order, with its tests. Do not stop after the first tasks or a skeleton, and do not leave planned work as "follow-ups" or "limitations": a large plan means more work, not a partial hand-off. Do not stop because a command failed either: make every change the plan needs first.',
  ]),
  inThisWorkflow(focus),
  '','When the work comes back to you',
  '- After a failed verification or final review, the rejection lists each failed criterion with its evidence. That is your repair checklist: fix each one in the code, rerun the relevant checks, and say how each is now met. Criteria left for manual checks are for the user; do not change code for them.',
  '- After the user tried the result and asked for changes, make those changes, keep everything else as it is, and list them in your report under the heading "Changes you asked for" so Verify checks them too.',
  '','What happens next',
- 'Verify checks the workspace against every acceptance criterion itself: your report is not evidence, it tells Verify where to look. So report, task by task, what you changed and in which files, the tests you added, each check you ran with its result, what you did differently from the plan and why, and what is left for the user.',
+ 'Verify checks the workspace against every acceptance criterion itself: your report is not evidence, it tells Verify where to look. So report, task by task, what you changed and in which files, the tests you added, each check you ran with its result, what you did differently from the plan and why, and what the user must check by hand.',
+ 'End the report with `Status: done` once every task is implemented and checked, or `Status: blocked — <what only the user can provide>` when a real blocker stops you. A report that leaves planned work undone is not accepted: you are sent back to continue it.',
 );
 const queueBuildText=({focus})=>lines(
  'Implement one step (task) of the approved plan. The task queue hands out the plan\'s steps one at a time; a step planner plans each one in detail, then a fresh builder implements it.',
@@ -113,7 +114,7 @@ const queueBuildText=({focus})=>lines(
  list([
   'Read your task, the criteria it names, step_plan and plan_notes. Follow step_plan in order, within the order of precedence above; where the code proves it wrong, do the smallest thing that meets the criteria and say what you did differently.',
   'Look at completed_tasks so your change fits what is already there; do not undo or redo their work.',
-  'Read the code before changing it, make the change your task describes, and add the tests it calls for. Stay within your task.',
+  'Read the code before changing it, make the change your task describes, and add the tests it calls for. Stay within your task, and finish all of it before you report: status complete is accepted only when every criterion it names is implemented, and an unfinished report sends you back to continue.',
   'Run focused checks for what you changed (run_check, with a test name or file when that is enough). Fix what your change broke.',
   'On a retry, address every point in previous_attempt first.',
   'The task final-repair comes after the planned tasks: it fixes what the final verification found, or makes the changes the user asked for after trying the result. Its instructions say which; make those changes and keep everything else.',

@@ -11,13 +11,13 @@ const kinds = [
   ["result_contains", "Tool result contains text"], ["turn", "Turn number"],
   ["calls", "Tool call count"], ["turns_since_call", "Turns since a tool ran"],
   ["since_last_call", "Tools run after another tool"], ["tool_offered", "A tool is available to the agent"], ["repeated_call", "Repeated identical calls"],
-  ["profile_entered_from", "Previous profile"], ["all", "All conditions"], ["any", "Any condition"], ["not", "Condition is not met"],
+  ["profile_entered_from", "Previous profile"], ["final_status", "Final answer's status line"], ["all", "All conditions"], ["any", "Any condition"], ["not", "Condition is not met"],
 ];
 const defaults: Record<string, Json> = {
   always: {}, tool: ["read_file"], arg: { pointer: "/path", contains: "" }, result_contains: "",
   turn: { gte: 1 }, calls: { tool: ["read_file"], gte: 1 }, turns_since_call: { tool: ["read_file"], gte: 1 },
   since_last_call: { of: ["write_file"], called: ["run_command"], gte: 1 }, tool_offered: ["run_check"], repeated_call: { gte: 3 },
-  profile_entered_from: "", all: [{ tool: ["read_file"] }], any: [{ tool: ["read_file"] }], not: { tool: ["read_file"] },
+  profile_entered_from: "", final_status: ["done"], all: [{ tool: ["read_file"] }], any: [{ tool: ["read_file"] }], not: { tool: ["read_file"] },
 };
 export const names = (value: Json | undefined): string[] => typeof value === "string" ? [value] : Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : [];
 
@@ -35,6 +35,7 @@ export function ConditionEditor({ value, onChange, profileIds, label = "Conditio
       onChange={(event) => onChange(event.target.value === "always" ? undefined : { [event.target.value]: defaults[event.target.value] })} />
     {kind === "tool" || kind === "tool_offered" ? <ToolSelector value={names(body)} onChange={set} /> : null}
     {kind === "profile_entered_from" ? <div role="group" aria-label="Previous profiles">{[...new Set([...profileIds, ...names(body)])].map((id) => <label key={id} className={styles.toolOption}><input type="checkbox" checked={names(body).includes(id)} onChange={(event) => set(event.target.checked ? [...names(body), id] : names(body).filter((name) => name !== id))} />{id}</label>)}</div> : null}
+    {kind === "final_status" ? <label>Statuses (comma-separated, * allowed)<Input aria-label="Final statuses" placeholder="done, blocked*" value={names(body).join(", ")} onChange={(event) => set(event.target.value.toLowerCase().split(",").map((entry, i, all) => i === all.length - 1 ? entry.trimStart() : entry.trim()).filter((entry, i, all) => entry || i === all.length - 1))} /></label> : null}
     {kind === "result_contains" ? <Input aria-label="Result contains" value={String(body ?? "")} onChange={(event) => set(event.target.value)} /> : null}
     {["calls", "turns_since_call"].includes(kind) ? tools("tool", "Count calls of these tools") : null}
     {kind === "since_last_call" ? <>{tools("of", "After these tools")}{tools("called", "Require these tools afterwards")}</> : null}

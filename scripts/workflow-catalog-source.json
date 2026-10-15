@@ -2,7 +2,7 @@
   "analyzed-feature": {
     "schema_version": 1,
     "id": "analyzed-feature",
-    "revision": 4,
+    "revision": 5,
     "name": "Analyze, plan & build",
     "status": "draft",
     "input_schema": null,
@@ -28,7 +28,7 @@
   "implement": {
     "schema_version": 1,
     "id": "implement",
-    "revision": 4,
+    "revision": 5,
     "name": "Build & verify",
     "status": "draft",
     "input_schema": null,
@@ -51,7 +51,7 @@
   "documentation": {
     "schema_version": 1,
     "id": "documentation",
-    "revision": 2,
+    "revision": 3,
     "name": "Write documentation",
     "status": "draft",
     "input_schema": null,
@@ -79,7 +79,7 @@
   "refactor": {
     "schema_version": 1,
     "id": "refactor",
-    "revision": 5,
+    "revision": 6,
     "name": "Refactor safely",
     "status": "draft",
     "input_schema": null,
@@ -138,7 +138,7 @@
   "researched-feature": {
     "schema_version": 1,
     "id": "researched-feature",
-    "revision": 5,
+    "revision": 6,
     "name": "Research, design & build",
     "status": "draft",
     "input_schema": null,
@@ -170,7 +170,7 @@
   "optimize-performance": {
     "schema_version": 1,
     "id": "optimize-performance",
-    "revision": 4,
+    "revision": 5,
     "name": "Optimize performance",
     "status": "draft",
     "input_schema": null,
@@ -198,7 +198,7 @@
   "security-remediation": {
     "schema_version": 1,
     "id": "security-remediation",
-    "revision": 5,
+    "revision": 6,
     "name": "Security remediation",
     "status": "draft",
     "input_schema": null,
@@ -252,7 +252,7 @@
   "careful-change": {
     "schema_version": 1,
     "id": "careful-change",
-    "revision": 5,
+    "revision": 6,
     "name": "High-risk change",
     "status": "draft",
     "input_schema": null,
@@ -280,7 +280,7 @@
   "plan-build-verify": {
     "schema_version": 1,
     "id": "plan-build-verify",
-    "revision": 9,
+    "revision": 10,
     "name": "Plan, build, verify",
     "status": "draft",
     "input_schema": null,
@@ -386,7 +386,7 @@
   "bug-fix": {
     "schema_version": 1,
     "id": "bug-fix",
-    "revision": 4,
+    "revision": 5,
     "name": "Fix a bug",
     "status": "draft",
     "input_schema": null,

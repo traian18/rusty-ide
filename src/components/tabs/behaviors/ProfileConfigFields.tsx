@@ -75,6 +75,7 @@ export function CompletionGateFields({ value, onChange, profileIds }: { value: J
           : <ConditionEditor label={`Check ${index + 1} condition`} value={check.require} profileIds={profileIds} onChange={(require) => update(index, { ...check, require: require ?? {} })} />}
         <label>Feedback when this check fails<Textarea aria-label={`Check ${index + 1} feedback`} rows={3} value={String(check.feedback ?? "")} onChange={(event) => update(index, assign(check, "feedback", event.target.value || undefined))} /></label>
         {evaluator ? <Select aria-label={`Check ${index + 1} error behavior`} value={String(check.error_policy ?? "fail")} options={[{ value: "fail", label: "Fail if the reviewer errors" }, { value: "pass", label: "Pass if the reviewer errors" }]} onChange={(event) => update(index, { ...check, error_policy: event.target.value })} /> : null}
+        <label><input type="checkbox" aria-label={`Check ${index + 1} waive when exhausted`} checked={check.waive_when_exhausted === true} onChange={(event) => update(index, assign(check, "waive_when_exhausted", event.target.checked || undefined))} />Let the answer through when no attempts are left</label>
         <Button onClick={() => onChange({ ...gate, checks: checks.filter((_, i) => i !== index) })}>Remove check</Button>
       </div>;
     })}
