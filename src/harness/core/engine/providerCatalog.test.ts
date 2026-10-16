@@ -69,6 +69,30 @@ describe("discoverProviderModelsDirect", () => {
     expect(models[0].baseUrl).toBe("https://gateway.example.test/v1");
   });
 
+  it("lists Mistral's chat models for its native protocol and leaves out embedding and OCR models", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({
+      object: "list",
+      data: [
+        { id: "mistral-large-latest", name: "mistral-large-latest", max_context_length: 131072, capabilities: { completion_chat: true, function_calling: true, vision: true } },
+        { id: "mistral-embed", capabilities: { completion_chat: false, function_calling: false } },
+        { id: "mistral-ocr-latest", capabilities: { completion_chat: false, ocr: true } },
+      ],
+    }));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const models = await discoverProviderModelsDirect(provider({
+      id: "mistral",
+      name: "Mistral",
+      baseUrl: "https://api.mistral.ai/v1",
+      apiType: "openai-completions",
+      catalogUrl: undefined,
+    }));
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe("https://api.mistral.ai/v1/models");
+    const large = models.find((model) => model.remoteId === "mistral-large-latest");
+    expect(large).toMatchObject({ supported: true, apiType: "mistral-conversations", contextWindow: 131072, input: ["text", "image"] });
+    expect(models.filter((model) => model.supported).map((model) => model.remoteId)).toEqual(["mistral-large-latest"]);
+  });
+
   it("marks every model supported for an open-catalog provider (OpenCode)", async () => {
     globalThis.fetch = vi.fn(async () => jsonResponse({
       data: [{ id: "big-pickle", name: "Big Pickle" }, { id: "small-pickle", name: "Small Pickle" }],

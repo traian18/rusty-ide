@@ -30,6 +30,7 @@ const API_PROTOCOL_OPTIONS = [
   { id: "openai-completions", name: "OpenAI Chat Completions" },
   { id: "openai-responses", name: "OpenAI Responses" },
   { id: "anthropic-messages", name: "Anthropic Messages" },
+  { id: "mistral-conversations", name: "Mistral Chat" },
   // "google-generative-ai" is explicitly not supported for direct execution currently
 ];
 
@@ -279,7 +280,7 @@ export const LlmSetupTab: React.FC = () => {
   };
 
   const [showAddCustom, setShowAddCustom] = useState(false);
-  const [provPreset, setProvPreset] = useState<'openai' | 'openai-compatible' | 'ollama' | 'vllm' | 'openrouter' | 'opencode-zen'>('openai-compatible');
+  const [provPreset, setProvPreset] = useState<'openai' | 'openai-compatible' | 'ollama' | 'vllm' | 'openrouter' | 'opencode-zen' | 'mistral'>('openai-compatible');
   const [provName, setProvName] = useState("");
   const [provUrl, setProvUrl] = useState("");
   const [provApiKey, setProvApiKey] = useState("");
@@ -363,7 +364,7 @@ export const LlmSetupTab: React.FC = () => {
       models: modelsList,
       profile: preset.profile,
       // Enable tools by default for known presets; custom providers default to disabled
-      capabilities: { tools: ['openai', 'openai-compatible', 'ollama', 'vllm', 'openrouter', 'opencode-zen'].includes(provPreset) ? 'enabled' : 'disabled' },
+      capabilities: { tools: ['openai', 'openai-compatible', 'ollama', 'vllm', 'openrouter', 'opencode-zen', 'mistral'].includes(provPreset) ? 'enabled' : 'disabled' },
     };
 
     addCustomProvider(newProvider);
@@ -448,6 +449,7 @@ export const LlmSetupTab: React.FC = () => {
                       { id: "openrouter", name: "OpenRouter" },
                       { id: "opencode-zen", name: "OpenCode Zen" },
                       { id: "openai", name: "OpenAI" },
+                      { id: "mistral", name: "Mistral" },
                     ]}
                     value={provPreset}
                     onChange={(value) => {

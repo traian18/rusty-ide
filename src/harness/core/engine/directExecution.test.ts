@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CustomProvider } from "../../../store/types";
 import type { ExecutionEvent, ExecutionRequest } from "./ExecutionProtocol";
-import { needsPlainRequestHeaders, PORTED_API_TYPES, resolveDirectRuntime, runDirectExecution } from "./directExecution";
+import { isMistralUrl, PORTED_API_TYPES, resolveDirectRuntime, runDirectExecution } from "./directExecution";
 
 /** Same technique agent-sidecar/src/services/llmRuntime.test.ts uses for
  * `streamExecutionRequest`: pi-ai's own `registerFauxProvider` test utility
@@ -40,8 +40,8 @@ function executionRequest(overrides: Partial<ExecutionRequest> = {}): ExecutionR
 }
 
 describe("PORTED_API_TYPES", () => {
-  it("carries exactly the three apiTypes this app's own default providers use", () => {
-    expect(PORTED_API_TYPES).toEqual(new Set(["openai-completions", "openai-responses", "anthropic-messages"]));
+  it("carries exactly the four apiTypes this app's own default providers use", () => {
+    expect(PORTED_API_TYPES).toEqual(new Set(["openai-completions", "openai-responses", "anthropic-messages", "mistral-conversations"]));
   });
 });
 
@@ -245,6 +245,8 @@ describe("runDirectExecution", () => {
 describe("Mistral requests", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  // Set up the way most people do it: Mistral's OpenAI-looking URL with the
+  // OpenAI Chat Completions protocol.
   const mistral: CustomProvider = {
     id: "mistral",
     name: "Mistral",
@@ -255,35 +257,58 @@ describe("Mistral requests", () => {
     models: [{ id: "mistral/mistral-large-latest", remoteId: "mistral-large-latest", name: "Mistral Large" }],
   };
 
-  it("recognizes the endpoints whose CORS allow-list rejects the SDK's own headers", () => {
-    expect(needsPlainRequestHeaders("https://api.mistral.ai/v1")).toBe(true);
-    expect(needsPlainRequestHeaders("https://codestral.mistral.ai/v1")).toBe(true);
-    expect(needsPlainRequestHeaders("https://api.openai.com/v1")).toBe(false);
-    expect(needsPlainRequestHeaders("https://notmistral.ai.example.com/v1")).toBe(false);
-    expect(needsPlainRequestHeaders("")).toBe(false);
-  });
-
-  it("sends no X-Stainless headers, so the browser's CORS preflight is accepted", async () => {
-    const seen: Headers[] = [];
-    vi.stubGlobal("fetch", async (_url: unknown, init: RequestInit) => {
-      seen.push(new Headers(init.headers));
+  async function capture(provider: CustomProvider, request: ExecutionRequest) {
+    const calls: { url: string; headers: Headers; body: any }[] = [];
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = input instanceof Request ? input : new Request(String(input), init);
+      calls.push({ url: req.url, headers: req.headers, body: await req.clone().json().catch(() => undefined) });
       return new Response("{}", { status: 400, headers: { "content-type": "application/json" } });
     });
-    await runDirectExecution(executionRequest({ params: { model: "mistral/mistral-large-latest" } }), mistral, () => undefined, new AbortController().signal).catch(() => undefined);
-    expect(seen.length).toBeGreaterThan(0);
-    const names = [...seen[0].keys()];
-    expect(names.filter((name) => name.startsWith("x-stainless"))).toEqual([]);
-    expect(seen[0].get("authorization")).toBe("Bearer key");
+    await runDirectExecution(request, provider, () => undefined, new AbortController().signal).catch(() => undefined);
+    expect(calls.length).toBeGreaterThan(0);
+    return calls[0];
+  }
+
+  it("recognizes Mistral's endpoints", () => {
+    expect(isMistralUrl("https://api.mistral.ai/v1")).toBe(true);
+    expect(isMistralUrl("https://codestral.mistral.ai/v1")).toBe(true);
+    expect(isMistralUrl("https://api.openai.com/v1")).toBe(false);
+    expect(isMistralUrl("https://notmistral.ai.example.com/v1")).toBe(false);
+    expect(isMistralUrl("")).toBe(false);
   });
 
-  it("keeps the SDK's headers for other OpenAI-compatible providers", async () => {
-    const seen: Headers[] = [];
-    vi.stubGlobal("fetch", async (_url: unknown, init: RequestInit) => {
-      seen.push(new Headers(init.headers));
-      return new Response("{}", { status: 400, headers: { "content-type": "application/json" } });
-    });
+  it("uses the native Mistral API even for a provider set up as OpenAI-compatible", () => {
+    const runtime = resolveDirectRuntime("mistral/mistral-large-latest", mistral);
+    expect(runtime?.model.api).toBe("mistral-conversations");
+    expect(runtime?.model.baseUrl).toBe("https://api.mistral.ai");
+    expect(PORTED_API_TYPES.has("mistral-conversations")).toBe(true);
+  });
+
+  it("sends a Mistral chat request with only headers Mistral's CORS rules allow", async () => {
+    const call = await capture(mistral, executionRequest({
+      params: { model: "mistral/mistral-large-latest", max_tokens: 1000, temperature: 0.2 },
+      tools: [{ name: "read_file", description: "Read a file", input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }],
+    }));
+    expect(call.url).toBe("https://api.mistral.ai/v1/chat/completions");
+    const allowed = ["authorization", "content-type", "user-agent", "cache-control", "keep-alive", "x-mistral-user-agent", "accept"];
+    // The SDK always sets an empty `cookie`; a browser drops it (a forbidden header), so it never reaches the preflight.
+    expect(call.headers.get("cookie") ?? "").toBe("");
+    expect([...call.headers.keys()].filter((name) => !allowed.includes(name) && name !== "cookie")).toEqual([]);
+    expect(call.headers.get("authorization")).toBe("Bearer key");
+    expect(call.body.model).toBe("mistral-large-latest");
+    expect(call.body.max_tokens).toBe(1000);
+    expect(call.body.messages.map((message: any) => message.role)).toEqual(["system", "user"]);
+    expect(call.body.tools[0].function.name).toBe("read_file");
+    const accepted = ["model", "messages", "stream", "max_tokens", "temperature", "top_p", "stop", "random_seed", "response_format",
+      "tools", "tool_choice", "presence_penalty", "frequency_penalty", "n", "parallel_tool_calls", "prompt_mode", "safe_prompt", "prediction",
+      "reasoning_effort", "prompt_cache_key"];
+    expect(Object.keys(call.body).filter((key) => !accepted.includes(key))).toEqual([]);
+  });
+
+  it("keeps other OpenAI-compatible providers on the OpenAI client", async () => {
     const other = { ...mistral, id: "other", baseUrl: "https://api.example.com/v1", models: [{ id: "other/m", remoteId: "m", name: "M" }] };
-    await runDirectExecution(executionRequest({ params: { model: "other/m" } }), other, () => undefined, new AbortController().signal).catch(() => undefined);
-    expect([...seen[0].keys()].some((name) => name.startsWith("x-stainless"))).toBe(true);
+    expect(resolveDirectRuntime("other/m", other)?.model.api).toBe("openai-completions");
+    const call = await capture(other, executionRequest({ params: { model: "other/m" } }));
+    expect(call.url).toBe("https://api.example.com/v1/chat/completions");
   });
 });

@@ -22,6 +22,7 @@ describe('providerConnectionProfiles', () => {
       expect(PRESETS['openrouter']).toBeDefined();
       expect(PRESETS['opencode-zen']).toBeDefined();
       expect(PRESETS['advanced']).toBeDefined();
+      expect(PRESETS['mistral']).toMatchObject({ apiType: 'mistral-conversations', defaultBaseUrl: 'https://api.mistral.ai/v1', supportsModelDiscovery: true });
     });
 
     it('sets correct defaults for ollama', () => {
@@ -117,7 +118,7 @@ describe('providerConnectionProfiles', () => {
 
     it('getAvailablePresets returns all except advanced by default', () => {
       const presets = getAvailablePresets();
-      expect(presets.length).toBe(6); // all but advanced
+      expect(presets.length).toBe(7); // all but advanced
       expect(presets.some(p => p.id === 'advanced')).toBe(false);
     });
 

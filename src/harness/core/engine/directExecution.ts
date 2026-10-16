@@ -50,7 +50,7 @@ import { recoverOpenRouterUsage } from "./openRouterUsageRecovery";
  * (agent-sidecar/src/services/llmProviders.ts's `PROVIDER_DEFAULTS`).
  * `google-generative-ai` stays sidecar-only; `HybridExecutionAnswerer`
  * reads this set to decide whether a request can go direct at all. */
-export const PORTED_API_TYPES = new Set(["openai-completions", "openai-responses", "anthropic-messages"]);
+export const PORTED_API_TYPES = new Set(["openai-completions", "openai-responses", "anthropic-messages", "mistral-conversations"]);
 
 /** Provider ids whose *execution* endpoint has no CORS support at all --
  * confirmed live, not assumed: `curl -X OPTIONS https://opencode.ai/zen/v1/
@@ -89,7 +89,21 @@ const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   openai: { baseUrl: "https://api.openai.com/v1", authType: "bearer", apiType: "openai-responses" },
   anthropic: { baseUrl: "https://api.anthropic.com/v1", authType: "anthropic", apiType: "anthropic-messages" },
   "github-models": { baseUrl: "https://models.github.ai/inference", authType: "bearer", apiType: "openai-completions" },
+  mistral: { baseUrl: "https://api.mistral.ai/v1", authType: "bearer", apiType: "mistral-conversations" },
 };
+
+/** Mistral's API is not OpenAI Chat Completions: it rejects unknown fields
+ * and the `developer` role, and its CORS allow-list rejects the OpenAI SDK's
+ * own headers. Requests to it always use pi-ai's native Mistral client, even
+ * when the provider was set up as OpenAI-compatible. */
+export function isMistralUrl(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname;
+    return host === "mistral.ai" || host.endsWith(".mistral.ai");
+  } catch {
+    return false;
+  }
+}
 
 export function getProviderDefaults(providerId: string): ProviderDefaults | undefined {
   return PROVIDER_DEFAULTS[providerId];
@@ -129,9 +143,13 @@ function resolveDirectApiKey(provider: CustomProvider): string {
 
 function syntheticModel(provider: CustomProvider, configuredModel: ProviderModel | undefined, modelId: string): any {
   const defaults = getProviderDefaults(provider.id);
-  const api = normalizeApiType(configuredModel?.apiType || provider.apiType || defaults?.apiType);
-  const baseUrl = (configuredModel?.baseUrl || provider.baseUrl || defaults?.baseUrl || "").replace(/\/+$/, "");
-  if (!baseUrl) throw new Error(`No base URL is configured for ${provider.name}.`);
+  const configuredBaseUrl = (configuredModel?.baseUrl || provider.baseUrl || defaults?.baseUrl || "").replace(/\/+$/, "");
+  if (!configuredBaseUrl) throw new Error(`No base URL is configured for ${provider.name}.`);
+  const api = isMistralUrl(configuredBaseUrl)
+    ? "mistral-conversations"
+    : normalizeApiType(configuredModel?.apiType || provider.apiType || defaults?.apiType);
+  // Mistral's SDK takes the server root and adds `/v1/...` itself.
+  const baseUrl = api === "mistral-conversations" ? configuredBaseUrl.replace(/\/v1$/, "") : configuredBaseUrl;
   return {
     id: modelId,
     name: configuredModel?.name || modelId,
@@ -150,27 +168,6 @@ function syntheticModel(provider: CustomProvider, configuredModel: ProviderModel
   };
 }
 
-/** Headers the OpenAI SDK adds to every request. A browser sends a CORS
- * preflight for them, and an API whose `access-control-allow-headers` is a
- * fixed list rejects it (Mistral's allows only Authorization, Content-Type,
- * User-Agent, Cache-Control, Keep-Alive and X-Mistral-User-Agent), which the
- * SDK reports as a bare "Connection error.". The SDK drops a default header
- * whose value is null. */
-const OPENAI_SDK_TELEMETRY_HEADERS = [
-  "X-Stainless-Lang", "X-Stainless-Package-Version", "X-Stainless-OS", "X-Stainless-Arch", "X-Stainless-Runtime",
-  "X-Stainless-Runtime-Version", "X-Stainless-Retry-Count", "X-Stainless-Timeout", "X-Stainless-Async", "X-Stainless-Helper-Method",
-];
-
-/** Providers whose CORS allow-list is too strict for the SDK's own headers. */
-export function needsPlainRequestHeaders(baseUrl: string): boolean {
-  try {
-    const host = new URL(baseUrl).hostname;
-    return host === "mistral.ai" || host.endsWith(".mistral.ai");
-  } catch {
-    return false;
-  }
-}
-
 function runtimeHeaders(
   provider: CustomProvider,
   model: any,
@@ -178,9 +175,6 @@ function runtimeHeaders(
   authType?: CustomProvider["authType"],
 ): Record<string, string> | undefined {
   const headers: Record<string, string> = { ...(model.headers || {}) };
-  if (model.api !== "anthropic-messages" && needsPlainRequestHeaders(String(model.baseUrl || ""))) {
-    for (const name of OPENAI_SDK_TELEMETRY_HEADERS) (headers as Record<string, string | null>)[name] = null;
-  }
   if (provider.id === "github-models") {
     headers.Accept = "application/vnd.github+json";
     headers["X-GitHub-Api-Version"] = "2026-03-10";

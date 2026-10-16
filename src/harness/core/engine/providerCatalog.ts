@@ -26,7 +26,7 @@
 // ============================================================
 
 import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot } from "../../../store/types";
-import { normalizeApiType } from "./directExecution";
+import { isMistralUrl, normalizeApiType } from "./directExecution";
 import { PRESETS } from "../../../integrations/providerConnectionProfiles";
 
 interface CatalogProviderDefaults {
@@ -78,6 +78,12 @@ const PROVIDER_DEFAULTS: Record<string, CatalogProviderDefaults> = {
     catalogUrl: "https://models.github.ai/catalog/models",
     authType: "bearer",
     apiType: "openai-completions",
+  },
+  mistral: {
+    baseUrl: "https://api.mistral.ai/v1",
+    catalogUrl: "https://api.mistral.ai/v1/models",
+    authType: "bearer",
+    apiType: "mistral-conversations",
   },
 };
 
@@ -268,6 +274,7 @@ export async function discoverProviderModelsDirect(provider: CustomProvider): Pr
   const providerBaseUrl = trimTrailingSlash(provider.baseUrl?.trim() || defaults?.baseUrl || "");
   const isGitHub = provider.id === "github-models";
   const isOpenCatalog = OPEN_CATALOG_PROVIDERS.has(provider.id);
+  const isMistral = isMistralUrl(providerBaseUrl);
 
   return rawModels
     .map((raw: any): ProviderModel | null => {
@@ -282,6 +289,9 @@ export async function discoverProviderModelsDirect(provider: CustomProvider): Pr
             ? openRouterModelSupported(raw)
             : provider.id === "anthropic"
               ? true
+              : isMistral
+                // Mistral lists embedding, OCR and moderation models too.
+                ? raw?.capabilities?.completion_chat === true && raw?.capabilities?.function_calling !== false
               : isOpenCatalog ? true : true;
       const inferredReasoning = provider.id === "openai"
         ? /^(gpt-5|o\d(?:-|$))/.test(remoteId.toLowerCase())
@@ -289,7 +299,7 @@ export async function discoverProviderModelsDirect(provider: CustomProvider): Pr
           || (Array.isArray(raw?.supported_parameters) && (raw.supported_parameters.includes("reasoning") || raw.supported_parameters.includes("include_reasoning")));
       const inferredInput: Array<"text" | "image"> = provider.id === "openai" && supported
         ? ["text", "image"]
-        : raw?.capabilities?.image_input?.supported === true
+        : raw?.capabilities?.image_input?.supported === true || (isMistral && raw?.capabilities?.vision === true)
           ? ["text", "image"]
           : (raw?.architecture?.input_modalities || raw?.supported_input_modalities || ["text"]).filter((item: string) => item === "text" || item === "image");
       const outputModalities = provider.id === "openrouter"
@@ -299,14 +309,14 @@ export async function discoverProviderModelsDirect(provider: CustomProvider): Pr
         id: providerModelId(provider.id, remoteId),
         remoteId,
         name: modelDisplayName(raw, remoteId),
-        apiType: normalizeApiType(providerApiType),
+        apiType: isMistral ? "mistral-conversations" : normalizeApiType(providerApiType),
         baseUrl: providerBaseUrl,
         supported,
         capabilities,
         outputModalities,
         reasoning: inferredReasoning,
         input: inferredInput,
-        contextWindow: raw?.context_length || raw?.limits?.max_input_tokens || raw?.max_input_tokens,
+        contextWindow: raw?.context_length || raw?.limits?.max_input_tokens || raw?.max_input_tokens || raw?.max_context_length,
         maxTokens: raw?.top_provider?.max_completion_tokens || raw?.limits?.max_output_tokens || raw?.max_tokens,
       };
     })

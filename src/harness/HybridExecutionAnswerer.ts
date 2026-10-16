@@ -48,7 +48,7 @@ function explainWhyNotDirect(request: ExecutionRequest, customProvider: unknown)
   if (NO_CORS_EXECUTION_PROVIDER_IDS.has(provider.id)) return `provider '${provider.id}' has no CORS support on its completions endpoint (confirmed live) and cannot be called directly from the browser. There is no fallback for this any more -- the Node sidecar that used to proxy around it has been removed.`;
   const runtime = resolveDirectRuntime(request.params?.model || "", provider);
   if (!runtime) return `could not resolve a runtime for model '${request.params?.model || "(none)"}' on provider '${provider.id}' -- check the provider's apiKey/baseUrl/model configuration.`;
-  return `apiType '${runtime.model.api}' isn't one of the three ported types (${[...PORTED_API_TYPES].join(", ")}). There is no fallback for this any more -- the Node sidecar that used to handle every other apiType has been removed.`;
+  return `apiType '${runtime.model.api}' isn't one of the ported types (${[...PORTED_API_TYPES].join(", ")}). There is no fallback for this any more -- the Node sidecar that used to handle every other apiType has been removed.`;
 }
 
 export class HybridExecutionAnswerer implements ExecutionAnswerer {

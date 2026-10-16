@@ -6,7 +6,8 @@
 export type ProfileId = 
   | 'openai-compatible'
   | 'openai-responses'
-  | 'anthropic-messages';
+  | 'anthropic-messages'
+  | 'mistral';
 
 export type PresetId = 
   | 'openai'
@@ -15,9 +16,10 @@ export type PresetId =
   | 'vllm'
   | 'openrouter'
   | 'opencode-zen'
+  | 'mistral'
   | 'advanced';
 
-export type ApiType = 'openai-completions' | 'openai-responses' | 'anthropic-messages';
+export type ApiType = 'openai-completions' | 'openai-responses' | 'anthropic-messages' | 'mistral-conversations';
 export type AuthType = 'bearer' | 'anthropic' | 'none';
 
 /**
@@ -129,6 +131,19 @@ export const PRESETS: Record<PresetId, PresetMetadata> = {
     directExecutionAvailable: false,
     directExecutionUnavailableReason: 'OpenCode Zen endpoints do not authorize the Rusty browser origin due to CORS restrictions. Use catalog discovery to fetch available models, or configure a proxy/sidecar.',
   },
+  'mistral': {
+    id: 'mistral',
+    label: 'Mistral',
+    description: 'Mistral AI API (Mistral Large, Medium, Small, Codestral, Magistral) through its own chat protocol',
+    defaultDisplayName: 'Mistral',
+    defaultBaseUrl: 'https://api.mistral.ai/v1',
+    apiType: 'mistral-conversations',
+    authType: 'bearer',
+    profile: 'mistral',
+    supportsModelDiscovery: true,
+    directExecutionAvailable: true,
+    preset: { catalogUrl: 'https://api.mistral.ai/v1/models' },
+  },
   'advanced': {
     id: 'advanced',
     label: 'Advanced Profile',
@@ -168,6 +183,13 @@ export const PROFILES: Record<ProfileId, ProfileMetadata> = {
     authType: 'anthropic',
     requiresApiKey: true,
   },
+  'mistral': {
+    id: 'mistral',
+    label: 'Mistral Chat',
+    apiType: 'mistral-conversations',
+    authType: 'bearer',
+    requiresApiKey: true,
+  },
 };
 
 /**
@@ -184,6 +206,9 @@ export function inferProfileFromApiType(apiType?: string): ProfileId {
   }
   if (normalized === 'anthropic-messages' || normalized === 'anthropic') {
     return 'anthropic-messages';
+  }
+  if (normalized === 'mistral-conversations' || normalized === 'mistral') {
+    return 'mistral';
   }
   // Default to openai-compatible for unknown values
   return 'openai-compatible';
