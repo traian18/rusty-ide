@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { analyzeProject, focusProjects, formatProjectBrief, formatProjectInfo, selectChecks, type Check, type Project, type ProjectFs } from "./projectInfo";
+import { analyzeProject, focusProjects, formatProjectBrief, formatProjectInfo, narrowToMember, selectChecks, type Check, type Project, type ProjectFs } from "./projectInfo";
 
 /** A fake workspace: `tree` maps relative file paths to their contents. */
 function fakeFs(tree: Record<string, string>, options: { exists?: string[]; incomplete?: boolean } = {}): ProjectFs {

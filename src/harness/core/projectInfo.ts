@@ -753,6 +753,27 @@ export type CheckSelection =
 const projectLabel = (project: Project) => (project.path === "." ? "the workspace root" : project.path);
 
 /**
+ * A path that names one crate inside a Cargo workspace means that crate, not
+ * the whole workspace: `--workspace` becomes `-p <crate>` for cargo check,
+ * clippy, test and build. A path that is not a workspace member (no
+ * Cargo.toml with a package name at that folder) leaves the commands alone.
+ */
+export async function narrowToMember(fs: ProjectFs, project: Project, checks: Check[], path: string): Promise<{ checks: Check[]; member?: string }> {
+  const requested = path.trim().replace(/^\.\/+|\/+$/g, "");
+  if (requested === "" || requested === "." || requested === project.path) return { checks };
+  if (project.path !== "." && !requested.startsWith(`${project.path}/`)) return { checks };
+  const text = await fs.read(`${requested}/Cargo.toml`).catch(() => undefined);
+  const name = text === undefined ? undefined : /^\s*name\s*=\s*"([^"]+)"/m.exec(tomlSection(text, "package") ?? "")?.[1];
+  if (!name || !checks.some((check) => check.program === "cargo" && check.args.includes("--workspace"))) return { checks };
+  return {
+    member: name,
+    checks: checks.map((check) => check.program === "cargo" && check.args.includes("--workspace")
+      ? { ...check, args: check.args.flatMap((arg) => arg === "--workspace" ? ["-p", name] : [arg]) }
+      : check),
+  };
+}
+
+/**
  * Which detected command(s) a request for the `id` check means. Exactly one
  * project must have it: with several candidates the caller has to say which,
  * rather than this guessing and running the wrong project's build.

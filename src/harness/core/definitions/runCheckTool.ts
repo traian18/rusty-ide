@@ -27,7 +27,7 @@ import { normalizeCommand, formatCommand, runWithApproval, type GatedRunCommandO
 import type { NormalizedCommand } from "../../commandPolicy";
 import type { HostToolHandler } from "../CoreHarness";
 import { formatCheckReport, judgeRun, reportPassed, settleNarrowed, type CheckReport, type CommandOutcome } from "../checkReport";
-import { analyzeProject, selectChecks, type Check, type CheckId } from "../projectInfo";
+import { analyzeProject, narrowToMember, selectChecks, type Check, type CheckId } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import type { HostToolSpec } from "../SessionRecipe";
 import { describeSelector, narrowTestCheck, parseSelector, type TestSelector } from "../testFilter";
@@ -119,8 +119,14 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
 
   let selection: ReturnType<typeof selectChecks>;
   try {
-    const info = await analyzeProject(await scanProject(workspaceRoot, host, signal));
-    selection = selectChecks(info, id, typeof input.path === "string" ? input.path : "");
+    const fs = await scanProject(workspaceRoot, host, signal);
+    const info = await analyzeProject(fs);
+    const requestedPath = typeof input.path === "string" ? input.path : "";
+    selection = selectChecks(info, id, requestedPath);
+    if (selection.ok) {
+      const narrowed = await narrowToMember(fs, selection.project, selection.checks, requestedPath);
+      selection = { ...selection, checks: narrowed.checks };
+    }
   } catch (error: unknown) {
     return { ok: false, error: message(error) };
   }

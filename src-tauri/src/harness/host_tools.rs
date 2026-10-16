@@ -6,12 +6,13 @@
 //! `web.fetch`).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use harness_tools::{
     CancellationToken, ToolDescriptor, ToolError, ToolExecutor, ToolInput, ToolResult,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::host_bridge::HostBridge;
 
@@ -30,6 +31,14 @@ impl HostToolExecutor {
 impl ToolExecutor for HostToolExecutor {
     fn descriptor(&self) -> ToolDescriptor {
         self.descriptor.clone()
+    }
+
+    /// Host tools outrun the scheduler's default limit for ordinary tools: a
+    /// question waits for a person, and a check or command is bounded by the
+    /// timeout the tool itself enforces (plus room for the approval prompt
+    /// it opens first).
+    fn call_timeout(&self, arguments: &Value, default: Duration) -> Option<Duration> {
+        host_call_timeout(self.descriptor.id.as_str(), arguments, default)
     }
 
     /// Never returns `Err(ToolError)` for a host-side failure -- only for
@@ -57,6 +66,30 @@ impl ToolExecutor for HostToolExecutor {
                 is_error: true,
             }),
         }
+    }
+}
+
+/// How long the runtime may let a host tool call run. The tools below keep
+/// their own timeouts; this only stops the generic limit from cutting them off.
+fn host_call_timeout(tool: &str, arguments: &Value, default: Duration) -> Option<Duration> {
+    // Time spent waiting for the user to answer an approval or a question.
+    const WAIT_FOR_USER: Duration = Duration::from_secs(30 * 60);
+    let own = |key: &str, scale: f64| {
+        arguments
+            .get(key)
+            .and_then(Value::as_f64)
+            .filter(|value| *value > 0.0)
+            .map(|value| Duration::from_secs_f64((value * scale).min(30.0 * 60.0)))
+    };
+    match tool {
+        "ask_user_question" => None,
+        "run_check" | "install_dependencies" => Some(
+            own("timeout_seconds", 1.0).unwrap_or(Duration::from_secs(10 * 60)) + WAIT_FOR_USER,
+        ),
+        "run_command" => {
+            Some(own("timeoutMs", 0.001).unwrap_or(Duration::from_secs(2 * 60)) + WAIT_FOR_USER)
+        }
+        _ => Some(default),
     }
 }
 
@@ -206,5 +239,26 @@ mod tests {
 
         bridge.complete(&call_id, Ok(json!("contents")));
         assert!(!execute_future.await.unwrap().is_error);
+    }
+
+    #[test]
+    fn host_tools_get_limits_that_fit_what_they_do() {
+        let default = Duration::from_secs(300);
+        let none = json!({});
+        assert_eq!(
+            host_call_timeout("read_file", &none, default),
+            Some(default)
+        );
+        assert_eq!(host_call_timeout("ask_user_question", &none, default), None);
+        let check =
+            host_call_timeout("run_check", &json!({"timeout_seconds": 1800}), default).unwrap();
+        assert!(check > Duration::from_secs(1800), "{check:?}");
+        let command =
+            host_call_timeout("run_command", &json!({"timeoutMs": 120000}), default).unwrap();
+        assert!(
+            command > Duration::from_secs(120) && command < Duration::from_secs(3600),
+            "{command:?}"
+        );
+        assert!(host_call_timeout("run_check", &none, default).unwrap() > default);
     }
 }
