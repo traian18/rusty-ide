@@ -1,8 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CustomProvider } from "../../../store/types";
 import type { ExecutionEvent, ExecutionRequest } from "./ExecutionProtocol";
-import { PORTED_API_TYPES, resolveDirectRuntime, runDirectExecution } from "./directExecution";
+import { needsPlainRequestHeaders, PORTED_API_TYPES, resolveDirectRuntime, runDirectExecution } from "./directExecution";
 
 /** Same technique agent-sidecar/src/services/llmRuntime.test.ts uses for
  * `streamExecutionRequest`: pi-ai's own `registerFauxProvider` test utility
@@ -239,5 +239,51 @@ describe("runDirectExecution", () => {
     await expect(
       runDirectExecution(executionRequest({ params: { model: "anthropic/claude" } }), provider, () => {}, new AbortController().signal),
     ).rejects.toThrow(/No API key is configured/);
+  });
+});
+
+describe("Mistral requests", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const mistral: CustomProvider = {
+    id: "mistral",
+    name: "Mistral",
+    baseUrl: "https://api.mistral.ai/v1",
+    apiKey: "key",
+    apiType: "openai-completions",
+    authType: "bearer",
+    models: [{ id: "mistral/mistral-large-latest", remoteId: "mistral-large-latest", name: "Mistral Large" }],
+  };
+
+  it("recognizes the endpoints whose CORS allow-list rejects the SDK's own headers", () => {
+    expect(needsPlainRequestHeaders("https://api.mistral.ai/v1")).toBe(true);
+    expect(needsPlainRequestHeaders("https://codestral.mistral.ai/v1")).toBe(true);
+    expect(needsPlainRequestHeaders("https://api.openai.com/v1")).toBe(false);
+    expect(needsPlainRequestHeaders("https://notmistral.ai.example.com/v1")).toBe(false);
+    expect(needsPlainRequestHeaders("")).toBe(false);
+  });
+
+  it("sends no X-Stainless headers, so the browser's CORS preflight is accepted", async () => {
+    const seen: Headers[] = [];
+    vi.stubGlobal("fetch", async (_url: unknown, init: RequestInit) => {
+      seen.push(new Headers(init.headers));
+      return new Response("{}", { status: 400, headers: { "content-type": "application/json" } });
+    });
+    await runDirectExecution(executionRequest({ params: { model: "mistral/mistral-large-latest" } }), mistral, () => undefined, new AbortController().signal).catch(() => undefined);
+    expect(seen.length).toBeGreaterThan(0);
+    const names = [...seen[0].keys()];
+    expect(names.filter((name) => name.startsWith("x-stainless"))).toEqual([]);
+    expect(seen[0].get("authorization")).toBe("Bearer key");
+  });
+
+  it("keeps the SDK's headers for other OpenAI-compatible providers", async () => {
+    const seen: Headers[] = [];
+    vi.stubGlobal("fetch", async (_url: unknown, init: RequestInit) => {
+      seen.push(new Headers(init.headers));
+      return new Response("{}", { status: 400, headers: { "content-type": "application/json" } });
+    });
+    const other = { ...mistral, id: "other", baseUrl: "https://api.example.com/v1", models: [{ id: "other/m", remoteId: "m", name: "M" }] };
+    await runDirectExecution(executionRequest({ params: { model: "other/m" } }), other, () => undefined, new AbortController().signal).catch(() => undefined);
+    expect([...seen[0].keys()].some((name) => name.startsWith("x-stainless"))).toBe(true);
   });
 });
