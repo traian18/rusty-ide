@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CustomProvider } from "../../../store/types";
 import type { ExecutionEvent, ExecutionRequest } from "./ExecutionProtocol";
-import { isMistralUrl, PORTED_API_TYPES, resolveDirectRuntime, runDirectExecution } from "./directExecution";
+import { isMistralUrl, PORTED_API_TYPES, setMistralRetryDelaysForTests, resolveDirectRuntime, runDirectExecution } from "./directExecution";
 
 /** Same technique agent-sidecar/src/services/llmRuntime.test.ts uses for
  * `streamExecutionRequest`: pi-ai's own `registerFauxProvider` test utility
@@ -310,5 +310,60 @@ describe("Mistral requests", () => {
     expect(resolveDirectRuntime("other/m", other)?.model.api).toBe("openai-completions");
     const call = await capture(other, executionRequest({ params: { model: "other/m" } }));
     expect(call.url).toBe("https://api.example.com/v1/chat/completions");
+  });
+
+  function sse(chunks: object[]): Response {
+    const body = chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") + "data: [DONE]\n\n";
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
+  const failedStream = () => sse([{ id: "c1", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: "error" }] }]);
+  const goodStream = () => sse([
+    { id: "c2", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { role: "assistant", content: "Hello" }, finish_reason: null }] },
+    { id: "c2", object: "chat.completion.chunk", created: 1, model: "m", choices: [{ index: 0, delta: { content: "" }, finish_reason: "stop" }], usage: { prompt_tokens: 3, completion_tokens: 1, total_tokens: 4 } },
+  ]);
+
+  it("retries when Mistral ends a stream with finish_reason error before sending anything", async () => {
+    setMistralRetryDelaysForTests([1, 1, 1]);
+    const responses = [failedStream(), failedStream(), goodStream()];
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => responses[calls++]);
+    const events: ExecutionEvent[] = [];
+    const result = await runDirectExecution(executionRequest({ params: { model: "mistral/mistral-large-latest" } }), mistral, (event) => events.push(event), new AbortController().signal);
+    expect(calls).toBe(3);
+    expect(result.finish_reason).toBe("stop");
+    expect(events.filter((event) => "TextDelta" in event).map((event: any) => event.TextDelta.delta)).toEqual(["Hello"]);
+  });
+
+  it("gives up after a few retries with an error that says what happened", async () => {
+    setMistralRetryDelaysForTests([1, 1]);
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => { calls++; return failedStream(); });
+    await expect(runDirectExecution(executionRequest({ params: { model: "mistral/mistral-large-latest" } }), mistral, () => undefined, new AbortController().signal))
+      .rejects.toThrow(/Mistral ended the response with an error on its side \(after 2 retries\)/);
+    expect(calls).toBe(3);
+  });
+
+  it("does not retry a request Mistral rejected", async () => {
+    setMistralRetryDelaysForTests([1, 1]);
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => { calls++; return new Response(JSON.stringify({ message: "bad request" }), { status: 400, headers: { "content-type": "application/json" } }); });
+    await expect(runDirectExecution(executionRequest({ params: { model: "mistral/mistral-large-latest" } }), mistral, () => undefined, new AbortController().signal)).rejects.toThrow(/400/);
+    expect(calls).toBe(1);
+  });
+
+  it("retries when the connection drops before Mistral answers (WebKit's \"Load failed\")", async () => {
+    setMistralRetryDelaysForTests([1, 1, 1]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    let calls = 0;
+    vi.stubGlobal("fetch", async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("Load failed");
+      return goodStream();
+    });
+    const result = await runDirectExecution(executionRequest({ params: { model: "mistral/mistral-large-latest" } }), mistral, () => undefined, new AbortController().signal);
+    expect(calls).toBe(2);
+    expect(result.finish_reason).toBe("stop");
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Load failed"));
+    warn.mockRestore();
   });
 });

@@ -1,3 +1,5 @@
+import { categoricalCssVariables } from "./styles/categoricalColors";
+
 export type ThemeAppearance = "light" | "dark";
 
 interface ThemeSeed {
@@ -484,6 +486,8 @@ const cssVariables = (themeDefinition: AppTheme): Record<string, string> => ({
   "--syntax-function": themeDefinition.syntax.functions,
   "--syntax-variable": themeDefinition.syntax.variables,
   "--syntax-type": themeDefinition.syntax.types,
+
+  ...categoricalCssVariables(themeDefinition.appearance),
 
   // Compatibility aliases while existing components move to semantic tokens.
   "--bg-app": themeDefinition.workspace.app,

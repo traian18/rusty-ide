@@ -378,32 +378,54 @@ export async function runDirectExecution(
   signal.addEventListener("abort", abortListener);
 
   try {
-    const stream = (streamSimple as any)(runtime.model, {
-      systemPrompt: request.system_prompt,
-      messages,
-      tools,
-    }, {
-      apiKey: runtime.apiKey || undefined,
-      headers: runtime.headers,
-      signal: controller.signal,
-      maxTokens: request.params?.max_tokens,
-      temperature: request.params?.temperature,
-      reasoning: request.params?.reasoning_effort || runtime.reasoningEffort,
-    });
-
+    const mistral = runtime.model.api === "mistral-conversations";
     let result: any;
-    for await (const event of stream) {
-      if (event.type === "text_delta") {
-        onEvent({ TextDelta: { request_id: requestId, delta: event.delta } });
-      } else if (event.type === "thinking_delta") {
-        onEvent({ ReasoningDelta: { request_id: requestId, delta: event.delta } });
-      } else if (event.type === "error") {
-        throw new Error(event.error?.errorMessage || "The model request failed.");
-      } else if (event.type === "done") {
-        result = event.message;
+    for (let attempt = 0; ; attempt++) {
+      // Whether anything reached the agent yet: a retry after that would repeat it.
+      let emitted = false;
+      try {
+        const stream = (streamSimple as any)(runtime.model, {
+          systemPrompt: request.system_prompt,
+          messages,
+          tools,
+        }, {
+          apiKey: runtime.apiKey || undefined,
+          headers: runtime.headers,
+          signal: controller.signal,
+          maxTokens: request.params?.max_tokens,
+          temperature: request.params?.temperature,
+          reasoning: request.params?.reasoning_effort || runtime.reasoningEffort,
+        });
+        result = undefined;
+        for await (const event of stream) {
+          // An empty delta (Mistral sends one with its error chunk) is not output.
+          if (event.type === "text_delta") {
+            if (!event.delta) continue;
+            emitted = true;
+            onEvent({ TextDelta: { request_id: requestId, delta: event.delta } });
+          } else if (event.type === "thinking_delta") {
+            if (!event.delta) continue;
+            emitted = true;
+            onEvent({ ReasoningDelta: { request_id: requestId, delta: event.delta } });
+          } else if (event.type === "error") {
+            throw new Error(event.error?.errorMessage || "The model request failed.");
+          } else if (event.type === "done") {
+            result = event.message;
+          }
+        }
+        result ||= await stream.result();
+        break;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (signal.aborted || !mistral) throw error;
+        if (!emitted && attempt < MISTRAL_RETRY_DELAYS_MS.length && isTransientMistralError(message)) {
+          console.warn(`Mistral request failed (${message}); retrying in ${MISTRAL_RETRY_DELAYS_MS[attempt]} ms (retry ${attempt + 1} of ${MISTRAL_RETRY_DELAYS_MS.length}).`);
+          await delay(MISTRAL_RETRY_DELAYS_MS[attempt], signal);
+          continue;
+        }
+        throw new Error(describeMistralError(message, attempt));
       }
     }
-    result ||= await stream.result();
 
     let usage = toExecutionUsage(result?.usage);
     const recoveredUsage = await recoverOpenRouterUsage(
@@ -443,6 +465,43 @@ export async function runDirectExecution(
   } finally {
     signal.removeEventListener("abort", abortListener);
   }
+}
+
+/** Mistral's client is created without retries, and Mistral sometimes ends
+ * a stream with `finish_reason: "error"` (a failure on its side, which pi-ai
+ * reports as "An unknown error occurred"). Those, rate limits, 5xx responses
+ * and dropped connections are retried a few times while nothing has been
+ * streamed yet. */
+let MISTRAL_RETRY_DELAYS_MS = [1_000, 3_000, 8_000];
+
+/** Tests only: shorten the waits between Mistral retries. */
+export function setMistralRetryDelaysForTests(delays: number[]): void {
+  MISTRAL_RETRY_DELAYS_MS = delays;
+}
+
+function isTransientMistralError(message: string): boolean {
+  return message === "An unknown error occurred"
+    || /Mistral API error \((429|5\d\d)\)/.test(message)
+    // Network failures, as each engine words them: WebKit (the macOS app)
+    // says "Load failed", Chromium "Failed to fetch", Firefox "NetworkError";
+    // Mistral's SDK wraps them as "Unexpected HTTP client error".
+    || /Load failed|Failed to fetch|NetworkError|Unexpected HTTP client error|fetch failed|network|connection|ECONNRESET|socket hang up|timed? ?out/i.test(message);
+}
+
+function describeMistralError(message: string, retries: number): string {
+  const tried = retries > 0 ? ` (after ${retries} ${retries === 1 ? "retry" : "retries"})` : "";
+  if (message === "An unknown error occurred") {
+    return `Mistral ended the response with an error on its side${tried}; it gave no details. Trying again usually works.`;
+  }
+  return `${message}${tried}`;
+}
+
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    const onAbort = () => { clearTimeout(timer); reject(signal.reason ?? new Error("aborted")); };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export function toDirectExecutionError(error: unknown): ExecutionError {

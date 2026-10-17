@@ -30,6 +30,16 @@ core-harness = [
   "dep:harness-context",
   "dep:harness-tools",
   "dep:harness-workspace",
+  "dep:harness-git-analysis",
+  "dep:harness-findings",
+  "dep:harness-repository-imports",
+  "dep:harness-repository-frameworks",
+  "dep:harness-repository-imports-python",
+  "dep:harness-repository-imports-go",
+  "dep:harness-repository-imports-java",
+  "dep:harness-repository-imports-csharp",
+  "dep:harness-repository-imports-php",
+  "dep:harness-repository-imports-native",
   "dep:harness-runtime",
   "dep:harness-integration-anthropic",
   "dep:harness-integration-openai",
@@ -86,6 +96,17 @@ harness-context = { path = "../../rusty-core/crates/harness-context", optional =
 harness-tools = { path = "../../rusty-core/crates/harness-tools", optional = true }
 harness-workspace = { path = "../../rusty-core/crates/harness-workspace", optional = true }
 harness-runtime = { path = "../../rusty-core/crates/harness-runtime", optional = true }
+# Repository intelligence (architecture canvas): import graph, dependency groups, Git history, findings.
+harness-git-analysis = { path = "../../rusty-core/crates/harness-git-analysis", optional = true }
+harness-findings = { path = "../../rusty-core/crates/harness-findings", optional = true }
+harness-repository-imports = { path = "../../rusty-core/crates/harness-repository-imports", optional = true }
+harness-repository-frameworks = { path = "../../rusty-core/crates/harness-repository-frameworks", optional = true }
+harness-repository-imports-python = { path = "../../rusty-core/crates/harness-repository-imports-python", optional = true }
+harness-repository-imports-go = { path = "../../rusty-core/crates/harness-repository-imports-go", optional = true }
+harness-repository-imports-java = { path = "../../rusty-core/crates/harness-repository-imports-java", optional = true }
+harness-repository-imports-csharp = { path = "../../rusty-core/crates/harness-repository-imports-csharp", optional = true }
+harness-repository-imports-php = { path = "../../rusty-core/crates/harness-repository-imports-php", optional = true }
+harness-repository-imports-native = { path = "../../rusty-core/crates/harness-repository-imports-native", optional = true }
 harness-integration-anthropic = { path = "../../rusty-core/crates/integrations/anthropic", optional = true }
 harness-integration-openai = { path = "../../rusty-core/crates/integrations/openai", optional = true }
 harness-integration-openai-responses = { path = "../../rusty-core/crates/integrations/openai-responses", optional = true }

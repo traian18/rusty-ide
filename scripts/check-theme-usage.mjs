@@ -7,6 +7,7 @@ const allowedFixedColorFiles = new Set([
   "services/fileTypeService.tsx", // Official language and tool artwork.
   "components/nodes/sticky/StickyNode.tsx", // User-selectable sticky-note ink.
   "components/nodes/sticky/stickyColors.ts", // User-selectable sticky-note paper.
+  "styles/categoricalColors.ts", // The shared palette for telling categories apart.
 ]);
 const forbidden = [
   { pattern: /\bbg-black(?:\/\d+)?\b/, message: "use a semantic surface token" },
@@ -24,6 +25,7 @@ const semanticCssModules = [
   /^components\/settings\/.*\.module\.css$/,
   /^components\/tabs\/SettingsTab\.module\.css$/,
   /^components\/tabs\/behaviors\/.*\.module\.css$/,
+  /^architecture\/.*\.module\.css$/,
   /^components\/ui\/(?:Button|FormControls|NumberStepper|Modal|IconButton|Callout|Tooltip)\//,
   /^components\/ui\/(?:Chat|ChatInput|MarkdownRenderer|SubagentActivityPanel)\.module\.css$/,
   /^components\/ui\/DiffViewToggle\.module\.css$/,

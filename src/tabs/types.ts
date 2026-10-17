@@ -28,6 +28,7 @@ export type TabType =
   | "behaviors"
   | "mcp-integration"
   | "metrics"
+  | "architecture"
   | "agent"
   | "file"
   | "canvas"
@@ -45,6 +46,7 @@ export type SingletonTabType =
   | "behaviors"
   | "mcp-integration"
   | "metrics"
+  | "architecture"
   | "agent";
 
 export type TabStatus = "idle" | "busy" | "error";

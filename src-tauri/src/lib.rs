@@ -7,6 +7,8 @@ mod git;
 mod harness;
 mod notifications;
 mod observability_store;
+#[cfg(feature = "core-harness")]
+mod repository;
 mod secure_key;
 mod shell_exec;
 mod startup_window;
@@ -1131,8 +1133,7 @@ mod file_open_safety_tests {
     }
 }
 
-
-// This is the search tool 
+// This is the search tool
 #[tauri::command]
 async fn search_project(
     root_dir: String,
@@ -1379,7 +1380,9 @@ pub fn run() {
     // Milestone B0's `touch()` proof-of-linkage call, which used to live
     // in `.setup()` below.
     #[cfg(feature = "core-harness")]
-    let builder = builder.manage(harness::HarnessState::new());
+    let builder = builder
+        .manage(harness::HarnessState::new())
+        .manage(repository::RepositoryState::new());
 
     let builder = builder
         .setup(move |app| {
@@ -1482,6 +1485,46 @@ pub fn run() {
             git::git_submodule_sync,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_hello,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_open,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_refresh,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_cancel,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_close,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_overview,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_architecture,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_framework_relations,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_group_members,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_group_graph,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_neighbourhood,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_edges,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_groups_of,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_findings,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_finding_explain,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_finding_badges,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_git_file,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_freshness,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_nodes_exist,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_state_load,
+            #[cfg(feature = "core-harness")]
+            repository::commands::repository_state_save,
             #[cfg(feature = "core-harness")]
             harness::commands::behavior_validate_profile,
             #[cfg(feature = "core-harness")]

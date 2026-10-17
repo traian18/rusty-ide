@@ -446,8 +446,8 @@ pub fn workflow_catalog_request(request: WorkflowCatalogRequest) -> Result<Value
     });
     let id = document_id(&entry.document).unwrap_or_default();
     // `save_workflow` updates `.rusty/workflows/<id>.json` only.
-    let saved_as_id = Path::new(&entry.path)
-        == root.join(".rusty/workflows").join(format!("{id}.json"));
+    let saved_as_id =
+        Path::new(&entry.path) == root.join(".rusty/workflows").join(format!("{id}.json"));
     if entry.source != Source::Workspace {
         out["note"] = Value::String(
             "Built-in workflows cannot be updated. To change one, save a copy under a new id with intent \"create\".".into(),

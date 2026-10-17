@@ -1,7 +1,8 @@
 import React from "react";
 import { GitBranch, GitCommit, RotateCcw, ChevronDown, Boxes, Download, RefreshCw, FolderGit2, Loader2 } from "lucide-react";
 import type { GitRepository, GitStatusResult } from "../../store/types";
-import { CustomSelect } from "../CustomSelect";
+import { CompactSelect } from "../CompactSelect";
+import { repositoryOptions } from "../git/repositoryOptions";
 import { GitBranchManager } from "../git/GitBranchManager";
 
 // ─────────────────────────────────────────────────────────────
@@ -105,26 +106,16 @@ const RepoSelector: React.FC<RepoSelectorProps> = ({
       <label htmlFor="source-control-repository" className="font-bold text-[var(--text-light)] uppercase tracking-wider text-[10px] font-mono flex-shrink-0">
         Repository
       </label>
-      <CustomSelect
+      <CompactSelect
         id="source-control-repository"
         value={activeRepo}
         onChange={onRepoChange}
         placeholder="Select repository"
-        className="min-w-0"
-        buttonClassName="flex items-center space-x-1 bg-[var(--accent-bg)]/35 text-[var(--accent-color)] px-2 py-1 rounded font-mono text-[10px] border border-[var(--accent-color)]/25 hover:border-[var(--accent-color)]/50 transition-all cursor-pointer font-bold max-w-[160px]"
-        dropdownClassName="font-mono text-[10px] min-w-[160px]"
         icon={<FolderGit2 size={10} className="flex-shrink-0 mr-1" />}
-        chevronClassName="!w-2.5 !h-2.5 !ml-0.5 opacity-60"
-        options={subprojects.map((repo) => {
-          const normalized = repo.replace(/\\/g, "/");
-          const root = rootPath.replace(/\\/g, "/").replace(/\/$/, "");
-          const name = normalized === root
-            ? `${root.split("/").pop()} (workspace)`
-            : normalized.startsWith(`${root}/`) ? normalized.slice(root.length + 1) : normalized;
-          const kind = repositories.find((candidate) => candidate.worktreePath === repo)?.kind;
-          const suffix = kind === "worktree" || kind === "submodule" ? ` (${kind})` : "";
-          return { id: repo, name: `${name}${suffix}` };
-        })}
+        options={repositoryOptions(
+          subprojects.map((repo) => repositories.find((candidate) => candidate.worktreePath === repo) ?? ({ worktreePath: repo, kind: "workspace" } as GitRepository)),
+          rootPath,
+        )}
       />
     </div>
   );
