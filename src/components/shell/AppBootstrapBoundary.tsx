@@ -6,6 +6,7 @@ import { buildRetryStepList } from "../../startup/buildRetryStepList";
 import type { StartupResult, StartupState, StartupStep, StepOutcome } from "../../startup/types";
 import { STARTUP_STEPS } from "./startupSteps";
 import { startProviderCoordinator } from "./providerCoordinator";
+import { startRepositoryIndexing } from "./repositoryIndexingCoordinator";
 import { startWorkspaceFsWatch } from "./workspaceFsWatchCoordinator";
 import { AppBootstrapBoundaryView } from "./AppBootstrapBoundary.view";
 
@@ -105,6 +106,8 @@ function beginRun(steps: readonly StartupStep[]): Promise<StartupResult> {
       // rootPath change from here on regardless of when this particular
       // run settled.
       startWorkspaceFsWatch();
+      // Structure only (no model, no spend): the repository index chats read their documentation from.
+      startRepositoryIndexing();
       // Deliberately not a StartupStep: checkForUpdates() never throws (see
       // createUpdateSlice.ts) and its result doesn't gate anything the user
       // is waiting on, so making it compete for the splash's global time

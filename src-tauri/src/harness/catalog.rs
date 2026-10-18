@@ -271,6 +271,23 @@ mod tests {
     }
 
     #[test]
+    fn every_built_in_profile_that_may_read_files_may_use_repo_context() {
+        // repo_context is admitted by the read_file grant (rusty-core `tool_alias`), so a profile
+        // is covered when it lists read_file or names repo_context itself.
+        for profile in Catalog::load(None).profiles_from(Source::Builtin) {
+            let tools = &profile["tools"]["tools"];
+            let names = tools.as_array().expect("built-in profiles use allow-lists");
+            assert!(
+                names
+                    .iter()
+                    .any(|name| name == "read_file" || name == "repo_context"),
+                "{} cannot read files, so repo_context would be hidden",
+                profile["id"]
+            );
+        }
+    }
+
+    #[test]
     fn each_built_in_workflow_is_listed_at_builtin_and_its_short_id() {
         for entry in Catalog::load(None).workflows {
             let id = entry.document["id"].as_str().unwrap();

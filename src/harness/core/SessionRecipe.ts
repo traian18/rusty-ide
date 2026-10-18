@@ -90,6 +90,8 @@ export interface SessionRecipe {
   };
   /** Behavior profile for the root agent (`.rusty/profiles/`); absent → workspace default. */
   behavior_profile?: { id: string; revision?: number };
+  /** Repository documentation as context; the host attaches the workspace's repository services. */
+  repository_context?: { enabled?: boolean; active_file?: string; active_repository?: string; touched?: string[]; task?: string; max_chars?: number };
   /** An orchestration definition to run with `startWorkflow` instead of a
    * prompt (see src-tauri/src/harness/workflow.rs). */
   workflow?: unknown;

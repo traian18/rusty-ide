@@ -38,8 +38,13 @@ pub fn harness_hello() -> HarnessHello {
 pub async fn harness_create_session(
     app: tauri::AppHandle,
     state: State<'_, HarnessState>,
+    repositories: State<'_, crate::repository::RepositoryState>,
     mut recipe: SessionRecipe,
 ) -> Result<String, String> {
+    // Repository documentation reads the published index of each repository a request is about.
+    if recipe.repository_context.is_some() {
+        recipe.repository_state = Some((*repositories).clone());
+    }
     if recipe.integration == "github-copilot" {
         super::copilot_oauth::configure_recipe(
             super::copilot_oauth::credential_path(&app)?,

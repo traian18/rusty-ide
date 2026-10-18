@@ -6,6 +6,7 @@ export type ExecutionSurface =
   | "inline-chat"
   | "reconciliation"
   | "skill-generation"
+  | "documentation"
   | "test-build"
   | "other";
 

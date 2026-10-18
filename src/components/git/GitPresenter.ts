@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useWorkspaceStore } from "../../store";
 import { notify } from "../../notificationStore";
+import { offerDocumentationUpdate } from "../../background/documentationRunner";
 import { GitActions } from "./GitActions";
 import { gitErrorMessage as errorMessage, isUnmergedBranchError, UnmergedBranchError } from "./gitErrors";
 
@@ -11,6 +12,8 @@ export const gitPresenter: GitActions = {
       await invoke("git_commit", { rootDir, message });
       await useWorkspaceStore.getState().loadGitStatus(rootDir);
       notify("Commit Complete", "Successfully committed staged modifications.", "success");
+      // Pages written from what this commit changed can be brought up to date in the background.
+      void offerDocumentationUpdate(rootDir).catch(() => undefined);
     } catch (err: any) {
       console.error("Failed to commit git modifications:", err);
       notify("Commit Failed", errorMessage(err), "error");

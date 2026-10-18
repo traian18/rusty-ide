@@ -1,3 +1,4 @@
+import { repositoryContextInput } from "../../services/repositoryContextInput";
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { snapshotSmartToolSettings } from "../../store/smartToolSettingsSnapshot";
 import { historyTurnsOf, readHistorySummary, refreshHistorySummary, type HistorySummary } from "../../services/historySummary";
@@ -993,6 +994,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           customProvider: prov,
           skill: skillData,
           skillId: skillData?.skillId,
+          repositoryContext: repositoryContextInput(useWorkspaceStore.getState(), wsRootPath, skillData?.skillId),
           mcpServers,
           webSearchApiKeys: useWorkspaceStore.getState().webSearchApiKeys,
           planOnly: false,

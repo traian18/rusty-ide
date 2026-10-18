@@ -93,7 +93,7 @@ impl Entry {
             .groups
             .group(&group_id)
             .cloned()
-            .or_else(|| super::levels::derived_group(&snapshot, &group_id.0))
+            .or_else(|| harness_workspace::folder_tree::derived_group(&snapshot, &group_id.0))
             .ok_or_else(|| {
                 RepositoryError::new("unknown_group", format!("unknown group: {}", group_id.0))
             })?;
@@ -306,7 +306,7 @@ impl Entry {
                 .into_iter()
                 .filter(|id| {
                     snapshot.groups.group(&GroupId(id.clone())).is_some()
-                        || super::levels::derived_group(&snapshot, id).is_some()
+                        || harness_workspace::folder_tree::derived_group(&snapshot, id).is_some()
                 })
                 .collect(),
             files: request

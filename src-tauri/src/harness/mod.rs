@@ -28,6 +28,7 @@ mod managed_binaries;
 mod managed_models;
 mod managed_quota;
 mod recipe;
+pub mod repository_context;
 mod session;
 pub(crate) mod user_path;
 mod workflow;

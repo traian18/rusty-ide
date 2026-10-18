@@ -74,14 +74,33 @@ pub struct Entry {
     pub(super) findings: Arc<dyn FindingsAnalysis>,
     built_at_ms: Mutex<Option<u64>>,
     cancel: Mutex<CancellationToken>,
+    /// Limits how many repositories are indexed at once, across the whole registry.
+    pub(super) indexing: Arc<tokio::sync::Semaphore>,
+    /// Line counts for the dashboard, by content hash.
+    pub(super) line_counts: super::dashboard::LineCounts,
+    /// Code health measurements and the last report.
+    pub(super) health: super::health::HealthCache,
+    /// Where this repository's work is kept between runs; `None` keeps everything in memory.
+    pub(super) storage: Option<super::storage::Storage>,
+    /// Bumped by each scheduled analysis, so only the last of a burst of changes runs.
+    pub(super) schedule: std::sync::atomic::AtomicU64,
 }
 
 impl Entry {
-    /// Builds the services for `root` (an existing directory). Nothing is scanned until refresh.
+    /// Builds the services for `root` (an existing directory), in memory only. Nothing is scanned
+    /// until refresh.
     pub fn new(root: &Path) -> Result<Self, RepositoryError> {
+        Self::open(root, None)
+    }
+
+    /// Builds the services for `root`, keeping what they build under `storage` (the repository's
+    /// folder in the app data directory) and loading what an earlier run kept there, so a
+    /// repository analysed before opens without being scanned again.
+    pub fn open(root: &Path, storage: Option<&Path>) -> Result<Self, RepositoryError> {
         let root = std::fs::canonicalize(root).map_err(|error| {
             RepositoryError::invalid(format!("workspace root is not usable: {error}"))
         })?;
+        let storage = storage.map(|dir| super::storage::Storage::new(dir.to_path_buf()));
         let (manifests, extensions, languages) = language_support();
         let mut builder = RepositoryGraphBuilder::new(&root)?
             .manifest_adapters(manifests)
@@ -95,6 +114,11 @@ impl Entry {
                 resolver: Arc::new(TypeScriptImportResolver),
             })?
             .dependency_groups(Arc::new(DefaultGroupAnalyzer::standard()));
+        if let Some(storage) = &storage {
+            builder = builder.snapshot_repository(Arc::new(super::storage::DiskSnapshots::open(
+                storage.snapshot_path(),
+            )?));
+        }
         for support in languages {
             builder = builder.import_support(support)?;
         }
@@ -102,8 +126,20 @@ impl Entry {
             builder = builder.framework_adapter(adapter);
         }
         let graph: Arc<dyn RepositoryGraph> = Arc::new(builder.build());
-        let git: Arc<dyn GitAnalysis> =
-            Arc::new(GitAnalysisBuilder::for_repository(&root).build()?);
+        let mut git_builder = GitAnalysisBuilder::for_repository(&root);
+        if let Some(storage) = &storage {
+            git_builder = git_builder.snapshot_repository(Arc::new(
+                super::storage::DiskGitSnapshots::open(storage.git_path())?,
+            ));
+        }
+        let git: Arc<dyn GitAnalysis> = Arc::new(git_builder.build()?);
+        let built_at_ms = storage
+            .as_ref()
+            .and_then(|s| super::storage::written_at_ms(&s.snapshot_path()));
+        let health = super::health::HealthCache::default();
+        if let Some(storage) = &storage {
+            health.load(&storage.health_path());
+        }
         let findings: Arc<dyn FindingsAnalysis> = Arc::new(FindingsService::new(
             graph.clone(),
             Some(git.clone()),
@@ -115,9 +151,31 @@ impl Entry {
             graph,
             git,
             findings,
-            built_at_ms: Mutex::new(None),
+            built_at_ms: Mutex::new(built_at_ms),
             cancel: Mutex::new(CancellationToken::new()),
+            indexing: Arc::new(tokio::sync::Semaphore::new(super::registry::MAX_INDEXING)),
+            line_counts: Default::default(),
+            health,
+            storage,
+            schedule: Default::default(),
         })
+    }
+
+    /// Shares one indexing limit between repositories.
+    pub fn with_indexing_limit(mut self, limit: Arc<tokio::sync::Semaphore>) -> Self {
+        self.indexing = limit;
+        self
+    }
+
+    /// The repository graph, Git analysis and findings of this repository.
+    pub fn services(
+        &self,
+    ) -> (
+        Arc<dyn RepositoryGraph>,
+        Arc<dyn GitAnalysis>,
+        Arc<dyn FindingsAnalysis>,
+    ) {
+        (self.graph.clone(), self.git.clone(), self.findings.clone())
     }
 
     pub fn root(&self) -> &Path {

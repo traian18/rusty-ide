@@ -42,6 +42,8 @@ export interface ArchitectureClient {
   saveState(root: string, document: unknown): Promise<void>;
   /** Calls `callback` whenever files in the workspace change; returns the unsubscribe function. */
   onWorkspaceChanged(callback: () => void): Promise<() => void>;
+  /** A background analysis finished and replaced a repository's saved analysis (its root). */
+  onAnalysisUpdated(callback: (root: string) => void): Promise<() => void>;
 }
 
 /** Normalises whatever a rejected command carries into a [`RepositoryError`]. */
@@ -81,4 +83,5 @@ export const tauriClient: ArchitectureClient = {
   loadState: (root) => call("repository_state_load", { root }),
   saveState: (root, document) => call("repository_state_save", { root, document }),
   onWorkspaceChanged: async (callback) => listen("workspace-fs-changed", () => callback()),
+  onAnalysisUpdated: async (callback) => listen<string>("repository-analysis-updated", (event) => callback(event.payload)),
 };

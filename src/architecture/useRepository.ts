@@ -99,6 +99,31 @@ export function useRepository(root: string, client: ArchitectureClient): Reposit
     };
   }, [client, checkFreshness]);
 
+  // A background analysis finished: show what it built without asking the user to refresh.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    client
+      .onAnalysisUpdated(() => {
+        client.open(root).then(
+          async (response) => {
+            if (!live.current || !response.snapshot) return;
+            setOpen(response);
+            setStatus("ready");
+            setRevision((value) => value + 1);
+            await Promise.all([loadBadges(), checkFreshness()]);
+          },
+          () => undefined,
+        );
+      })
+      .then((stop) => (disposed ? stop() : (unlisten = stop)))
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [client, root, loadBadges, checkFreshness]);
+
   const refresh = useCallback(async () => {
     setRefreshing(true);
     setRefreshError(null);

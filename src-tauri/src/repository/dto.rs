@@ -340,3 +340,18 @@ pub struct GroupGraphFrameworkEdge {
     pub framework: String,
     pub label: String,
 }
+
+/// One repository of a workspace folder, as the Docs tab lists it.
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceRepository {
+    pub id: String,
+    pub name: String,
+    /// Relative to the workspace folder; `.` when the repository is the folder itself.
+    pub path: String,
+    pub kind: String,
+    pub branch: Option<String>,
+    /// An index is loaded for it now.
+    pub indexed: bool,
+    pub built_at_ms: Option<u64>,
+    pub files: usize,
+}

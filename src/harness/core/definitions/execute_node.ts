@@ -48,6 +48,8 @@ import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import { mcpIntegrationsSection } from "../mcpPrompt";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
+import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
+import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
 
@@ -92,6 +94,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   search_codebase: "- 'search_codebase': Find specific code patterns.",
   open_document: "- 'open_document': Open, read, and extract readable content from documents including Excel (.xlsx, .xls), PDF (.pdf), Word (.docx), or CSV files.",
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the task references external documentation or a webpage.",
+  repo_context: REPO_CONTEXT_GUIDE,
+  repo_wiki: REPO_WIKI_GUIDE,
 };
 
 /** Matches the sidecar's own `skill?.enabledTools || [defaults]` -- an
@@ -103,7 +107,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 function toolSpecsFor(skill: SkillLike | undefined): HostToolSpec[] {
   const requested = skill?.enabledTools;
   const names = Array.isArray(requested) ? requested : SUPPORTED_TOOL_NAMES;
-  return SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name))).map((name) => TOOL_SPECS[name]);
+  // repo_context only reads, so every skill has it, like the other always-available tools.
+  return [...SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name))).map((name) => TOOL_SPECS[name]), REPO_CONTEXT_TOOL, REPO_WIKI_TOOL];
 }
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {
@@ -245,6 +250,8 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     if (names.has("list_files")) handlers.list_files = listFilesTool(input.workspaceRoot);
     if (names.has("search_codebase")) handlers.search_codebase = searchCodebaseTool(input.workspaceRoot);
     if (names.has("open_document")) handlers.open_document = openDocumentTool(input.workspaceRoot, input.inputFiles);
+    handlers.repo_context = repoContextTool(input.workspaceRoot);
+    handlers.repo_wiki = repoWikiTool(input.workspaceRoot);
     return handlers;
   },
 

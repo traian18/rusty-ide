@@ -72,8 +72,23 @@ pub async fn watch_workspace(
 
     let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
         Ok(event) => {
-            if event.paths.iter().any(|p| !path_is_ignored(p)) {
+            let changed: Vec<PathBuf> = event
+                .paths
+                .iter()
+                .filter(|p| !path_is_ignored(p))
+                .cloned()
+                .collect();
+            if !changed.is_empty() {
                 let _ = app.emit("workspace-fs-changed", ());
+                // Repository analysis keeps its own list of changed files and catches up after a
+                // quiet period, in the background.
+                #[cfg(feature = "core-harness")]
+                {
+                    use tauri::Manager;
+                    if let Some(state) = app.try_state::<crate::repository::RepositoryState>() {
+                        state.files_changed(&changed);
+                    }
+                }
             }
         }
         Err(err) => {

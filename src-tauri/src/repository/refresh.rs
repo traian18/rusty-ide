@@ -29,6 +29,12 @@ impl Entry {
     /// Rescans the repository. Git and findings follow; their failures are reported as stage
     /// errors and do not invalidate the repository snapshot.
     pub async fn refresh(&self, include_git: bool) -> Result<RefreshResponse, RepositoryError> {
+        // Waits its turn: only a few repositories are indexed at a time.
+        let _turn = self
+            .indexing
+            .acquire()
+            .await
+            .map_err(|_| RepositoryError::new("cancelled", "indexing was shut down"))?;
         let cancel = self.begin_refresh();
         let snapshot = self.graph.refresh(cancel.clone()).await?;
         let built_at_ms = self.record_built_now();
@@ -57,6 +63,34 @@ impl Entry {
             built_at_ms,
             stage_errors,
         })
+    }
+
+    /// The response a refresh would give, from what is built now (after a background analysis).
+    pub fn current_response(&self) -> Result<RefreshResponse, RepositoryError> {
+        let snapshot = self.snapshot()?;
+        Ok(RefreshResponse {
+            snapshot: snapshot_summary(&snapshot),
+            git: self.git.current().map(|g| git_summary(&g)),
+            findings: self.findings.current().map(|set| findings_status(&set)),
+            built_at_ms: self.built_at_ms().unwrap_or_default(),
+            stage_errors: Vec::new(),
+        })
+    }
+
+    /// Findings are cheap to derive, so they are not stored: recompute them from the snapshots an
+    /// earlier run saved.
+    pub async fn restore_findings(&self) {
+        if self.graph.current().is_none() || self.findings.current().is_some() {
+            return;
+        }
+        let request = AnalyzeRequest {
+            use_git: self.git.current().is_some(),
+            ..AnalyzeRequest::default()
+        };
+        let _ = self
+            .findings
+            .analyze(request, CancellationToken::new())
+            .await;
     }
 
     async fn analyze_findings(

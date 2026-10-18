@@ -42,6 +42,8 @@ export const NavigationRail: React.FC = () => {
         return activeTabId === "behaviors";
       case "architecture":
         return activeTab?.type === "architecture";
+      case "docs":
+        return activeTab?.type === "docs";
       case "mcp":
         return activeTabId === "mcp-integration";
       case "settings":

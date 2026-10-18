@@ -8,20 +8,32 @@
 
 #![allow(dead_code, unused_imports)]
 
+mod agent_context;
+mod background;
 pub mod commands;
+pub mod dashboard;
+pub mod directory;
 mod dto;
 mod entry;
 pub mod error;
 mod freshness;
+pub mod health;
+pub mod jobs;
 mod levels;
+mod overview;
 pub mod persisted_state;
 mod queries;
 mod refresh;
 mod registry;
+pub mod routing;
+pub mod storage;
 mod summaries;
+mod wiki;
+pub mod written;
 
 #[cfg(test)]
 mod tests;
 
+pub use directory::{RepoRef, RepositoryDirectory};
 pub use entry::Entry;
 pub use registry::RepositoryState;

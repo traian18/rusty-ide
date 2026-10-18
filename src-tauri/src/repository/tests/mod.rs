@@ -4,8 +4,14 @@ use std::path::Path;
 use git2::{IndexAddOption, Repository, Signature, Time};
 use harness_workspace::dependency_groups::{GraphDirection, GroupKind, Truncation};
 
+mod agent_context;
+mod background;
+mod dashboard;
+mod documentation;
 mod frameworks;
+mod health;
 mod levels;
+mod workspace;
 
 use super::{
     dto::{

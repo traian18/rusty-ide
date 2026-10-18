@@ -1392,6 +1392,24 @@ pub fn run() {
 
             startup_window::restore_and_show(&main_window, window_state_flags)?;
 
+            // Repository analysis is saved under the app data directory and runs in the
+            // background; jobs and finished analyses are announced to the window.
+            #[cfg(feature = "core-harness")]
+            if let Ok(data_dir) = app.path().app_data_dir() {
+                let handle = app.handle().clone();
+                app.state::<repository::RepositoryState>().configure(
+                    data_dir,
+                    std::sync::Arc::new(move |notice| match notice {
+                        repository::jobs::Notice::Jobs(jobs) => {
+                            let _ = handle.emit("background-jobs", jobs);
+                        }
+                        repository::jobs::Notice::AnalysisUpdated(root) => {
+                            let _ = handle.emit("repository-analysis-updated", root);
+                        }
+                    }),
+                );
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1497,6 +1515,35 @@ pub fn run() {
             repository::commands::repository_overview,
             #[cfg(feature = "core-harness")]
             repository::commands::repository_architecture,
+            repository::commands::repository_context,
+            repository::commands::repository_wiki_tool,
+            repository::commands::repository_workspace_overview,
+            repository::commands::repository_wiki_page,
+            repository::commands::repository_wiki_children,
+            repository::commands::repository_dashboard_map,
+            repository::commands::repository_dashboard_files,
+            repository::commands::repository_dashboard_all_files,
+            repository::commands::repository_dashboard_file,
+            repository::commands::repository_dashboard_prompt,
+            repository::commands::repository_code_health,
+            repository::commands::repository_code_health_file,
+            repository::commands::repository_code_health_prompt,
+            repository::commands::repository_jobs,
+            repository::commands::repository_job_cancel,
+            repository::commands::repository_job_start,
+            repository::commands::repository_job_progress,
+            repository::commands::repository_job_finish,
+            repository::commands::repository_set_background,
+            repository::commands::repository_documentation_after_commit,
+            repository::commands::repository_documentation_pending,
+            repository::commands::repository_documentation_queue,
+            repository::commands::repository_documentation_done,
+            repository::commands::repository_documentation_plan,
+            repository::commands::repository_documentation_brief,
+            repository::commands::repository_documentation_save,
+            repository::commands::repository_documentation_page,
+            repository::commands::repository_documentation_settings,
+            repository::commands::repository_documentation_set_settings,
             #[cfg(feature = "core-harness")]
             repository::commands::repository_framework_relations,
             #[cfg(feature = "core-harness")]

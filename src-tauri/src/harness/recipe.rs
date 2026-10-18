@@ -175,6 +175,13 @@ pub struct SessionRecipe {
     /// built-in neutral profile.
     #[serde(default)]
     pub behavior_profile: Option<harness_engine::ProfileRef>,
+    /// Repository documentation as context: the work in progress, from the IDE. Absent or disabled
+    /// means no repository context.
+    #[serde(default)]
+    pub repository_context: Option<super::repository_context::RepositoryContextSpec>,
+    /// The workspace's repositories, attached by the command that creates the session.
+    #[serde(skip)]
+    pub repository_state: Option<crate::repository::RepositoryState>,
     /// An orchestration definition (a `.rusty/workflows/*.json` document)
     /// to run on this session with `harness_start_workflow` instead of
     /// prompting it. Its agent steps run in isolated sessions that share
@@ -321,10 +328,20 @@ pub async fn build_session_builder(
     if let Some(params) = recipe.execution_params {
         builder = builder.execution_params(params);
     }
-    if let Some(prompt) = recipe.system_prompt {
-        builder = builder.context_provider(Arc::new(
-            harness_context::StaticSystemPromptProvider::new(prompt),
-        ));
+    let mut providers = super::repository_context::providers(
+        recipe.system_prompt,
+        recipe.repository_context.as_ref(),
+        recipe.repository_state.as_ref(),
+        &recipe.workspace.root.to_string_lossy(),
+    );
+    match providers.len() {
+        0 => {}
+        1 => builder = builder.context_provider(providers.remove(0)),
+        _ => {
+            builder = builder.context_provider(Arc::new(
+                harness_context::ChainedContextProvider::new(providers),
+            ))
+        }
     }
     let compaction = recipe.context_compaction.unwrap_or_default();
     builder = builder.context_provider_with_backend(move |backend| {

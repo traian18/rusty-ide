@@ -9,7 +9,8 @@ use std::{
 };
 
 use harness_workspace::{
-    dependency_groups::{Group, GroupBasis, GroupId, GroupKind},
+    dependency_groups::{Group, GroupKind},
+    folder_tree::{self, REST_PREFIX},
     import_graph::ImportKind,
     repository_intelligence::{RepositorySnapshot, RootRelativePath},
 };
@@ -30,217 +31,25 @@ const MAX_CHILD_DOTS: usize = 12;
 /// Most file paths listed on a loose-files node, so findings can be summed for it.
 const MAX_LISTED_FILES: usize = 2_000;
 
-/// The prefix that marks a directory node that is derived from file paths rather than a group.
-pub(super) const DIRECTORY_PREFIX: &str = "dir:";
-
-/// A directory of files, derived from paths. Groups from the core cover declared structure only;
-/// the directories inside a package are not groups, so they are computed here and labelled as such.
-fn directory_group(path: &Path, label: String, members: Vec<RootRelativePath>) -> Group {
-    let shown = path.display();
-    Group {
-        id: GroupId(format!("{DIRECTORY_PREFIX}{shown}")),
-        kind: GroupKind::Directory,
-        label,
-        basis: GroupBasis::Inferred,
-        explanation: format!(
-            "Inferred: the files under `{shown}`. Directories inside a package are read from file \
-             paths; they are not boundaries declared by a manifest."
-        ),
-        evidence: Vec::new(),
-        cycle_sites: Vec::new(),
-        evidence_truncated: false,
-        involves_type_only: false,
-        members,
-    }
-}
-
-/// The prefix of the node that gathers the files of a focus that sit in none of its components.
-pub(super) const REST_PREFIX: &str = "rest:";
-
-/// The files of `rest:<focus>`: the focus's files that are in none of its direct components.
-fn rest_group(snapshot: &RepositorySnapshot, id: &str) -> Option<Group> {
-    let focus_id = id.strip_prefix(REST_PREFIX)?;
-    let focus = snapshot
-        .groups
-        .group(&GroupId(focus_id.to_owned()))
-        .cloned()
-        .or_else(|| directory_group_of(snapshot, focus_id))?;
-    let components = immediate_directories(&focus);
-    let members = focus
-        .members
-        .iter()
-        .filter(|file| !components.iter().any(|component| component.contains(file)))
-        .cloned()
-        .collect::<Vec<_>>();
-    (!members.is_empty()).then(|| Group {
-        id: GroupId(id.to_owned()),
-        label: format!("Files in {}", focus.label),
-        explanation: format!(
-            "Inferred: the files of `{}` that are in none of its folders.",
-            focus.label
-        ),
-        members,
-        ..focus
-    })
-}
-
-/// A group that exists only as a view: a `dir:` directory or the loose files of a focus.
-pub(super) fn derived_group(snapshot: &RepositorySnapshot, id: &str) -> Option<Group> {
-    if id.starts_with(REST_PREFIX) {
-        return rest_group(snapshot, id);
-    }
-    directory_group_of(snapshot, id)
-}
-
-/// The directory node `dir:<path>` as a group, if any indexed file lives under it.
-fn directory_group_of(snapshot: &RepositorySnapshot, id: &str) -> Option<Group> {
-    let path = PathBuf::from(id.strip_prefix(DIRECTORY_PREFIX)?);
-    let members = snapshot
-        .imports
-        .files
-        .iter()
-        .filter(|file| file.path.as_path().starts_with(&path))
-        .map(|file| file.path.clone())
-        .collect::<Vec<_>>();
-    let label = path.display().to_string();
-    (!members.is_empty() && !label.is_empty()).then(|| {
-        let mut members = members;
-        members.sort();
-        directory_group(&path, label, members)
-    })
-}
-
-/// Directories strictly below `base` that hold files, each with all files under it. With
-/// `top_only` only the first level below `base` is produced.
-fn directories_below<'a>(
-    files: impl Iterator<Item = &'a RootRelativePath>,
-    base: &Path,
-    top_only: bool,
-) -> Vec<Group> {
-    let mut buckets: BTreeMap<PathBuf, Vec<RootRelativePath>> = BTreeMap::new();
-    let base_depth = base.components().count();
-    for file in files {
-        let directories = file
-            .as_path()
-            .ancestors()
-            .skip(1)
-            .filter(|dir| dir.starts_with(base) && dir.components().count() > base_depth)
-            .collect::<Vec<_>>();
-        let chosen = if top_only {
-            directories.last().copied().into_iter().collect()
-        } else {
-            directories
-        };
-        for dir in chosen {
-            buckets
-                .entry(dir.to_path_buf())
-                .or_default()
-                .push(file.clone());
-        }
-    }
-    buckets
-        .into_iter()
-        .map(|(dir, mut members)| {
-            members.sort();
-            let label = dir.strip_prefix(base).unwrap_or(&dir).display().to_string();
-            directory_group(&dir, label, members)
-        })
-        .collect()
-}
-
-/// The directory that holds every member of the group.
-fn common_directory(group: &Group) -> PathBuf {
-    let mut common: Option<Vec<_>> = None;
-    for file in &group.members {
-        let dir = file
-            .as_path()
-            .parent()
-            .map(|p| p.components().collect::<Vec<_>>())
-            .unwrap_or_default();
-        common = Some(match common {
-            None => dir,
-            Some(current) => current
-                .into_iter()
-                .zip(dir)
-                .take_while(|(a, b)| a == b)
-                .map(|(a, _)| a)
-                .collect(),
-        });
-    }
-    common.unwrap_or_default().into_iter().collect()
-}
-
-/// The kind of group that stands for "a package" in this repository, if the core declares any.
-fn declared_unit(snapshot: &RepositorySnapshot) -> Option<GroupKind> {
-    [GroupKind::DeclaredPackage, GroupKind::SourceRoot]
-        .into_iter()
-        .find(|kind| {
-            snapshot
-                .groups
-                .groups
-                .iter()
-                .any(|group| group.kind == *kind)
-        })
-}
-
-fn package_candidates(snapshot: &RepositorySnapshot) -> (GroupKind, Vec<Group>) {
-    match declared_unit(snapshot) {
-        Some(kind) => (
-            kind,
-            snapshot
-                .groups
-                .groups
-                .iter()
-                .filter(|group| group.kind == kind)
-                .cloned()
-                .collect(),
-        ),
-        None => (
-            GroupKind::Directory,
-            directories_below(
-                snapshot.imports.files.iter().map(|file| &file.path),
-                Path::new(""),
-                true,
-            ),
-        ),
-    }
-}
-
-/// Directory path of a derived `dir:` group.
-fn directory_path(group: &Group) -> Option<&str> {
-    group.id.0.strip_prefix(DIRECTORY_PREFIX)
-}
-
 /// Small circles drawn inside a node: its direct components, the biggest first. Only these are
 /// shown at once; opening the node shows the same components as nodes of their own.
 fn children_of(group: &Group) -> (Vec<LevelChild>, usize) {
-    let top = immediate_directories(group);
-    // Files that sit in none of the folders are one more circle, so a mixed folder reads as
-    // "these folders, and the rest of its files" rather than as every file at once.
-    let loose = group
-        .members
-        .iter()
-        .filter(|file| !top.iter().any(|folder| folder.contains(file)))
-        .count();
-    let mut children = top
+    let listing = folder_tree::list(group);
+    let loose = listing.loose.len();
+    let has_folders = !listing.folders.is_empty();
+    let mut children = listing
+        .folders
         .into_iter()
-        .map(|child| {
-            // A folder holds more folders when some file sits deeper than the folder itself.
-            let has_children = directory_path(&child).is_some_and(|path| {
-                child
-                    .members
-                    .iter()
-                    .any(|file| file.as_path().parent() != Some(Path::new(path)))
-            });
-            LevelChild {
-                id: child.id.0,
-                label: child.label,
-                file_count: child.members.len(),
-                has_children,
-            }
+        .map(|folder| LevelChild {
+            id: folder.group.id.0,
+            label: folder.group.label,
+            file_count: folder.group.members.len(),
+            has_children: folder.has_folders,
         })
         .collect::<Vec<_>>();
-    if !children.is_empty() && loose > 0 {
+    // Files that sit in none of the folders are one more circle, so a mixed folder reads as
+    // "these folders, and the rest of its files" rather than as every file at once.
+    if has_folders && loose > 0 {
         children.push(LevelChild {
             id: format!("{REST_PREFIX}{}", group.id.0),
             label: "files".into(),
@@ -252,43 +61,6 @@ fn children_of(group: &Group) -> (Vec<LevelChild>, usize) {
     let more = children.len().saturating_sub(MAX_CHILD_DOTS);
     children.truncate(MAX_CHILD_DOTS);
     (children, more)
-}
-
-/// The folder a group is read from: the folder a `dir:` node names, otherwise the deepest folder
-/// that holds all of its files.
-fn base_directory(group: &Group) -> PathBuf {
-    directory_path(group).map_or_else(|| common_directory(group), PathBuf::from)
-}
-
-/// The folders directly inside the group's folder, each with every file under it. Files that sit
-/// in the folder itself belong to none of them. One level only: opening a folder shows the next.
-fn immediate_directories(focus: &Group) -> Vec<Group> {
-    let base = base_directory(focus);
-    let mut buckets: BTreeMap<PathBuf, Vec<RootRelativePath>> = BTreeMap::new();
-    for file in &focus.members {
-        let Ok(below) = file.as_path().strip_prefix(&base) else {
-            continue;
-        };
-        let mut parts = below.components();
-        if let (Some(first), Some(_file_name)) = (parts.next(), parts.next()) {
-            buckets
-                .entry(base.join(first.as_os_str()))
-                .or_default()
-                .push(file.clone());
-        }
-    }
-    buckets
-        .into_iter()
-        .map(|(dir, mut members)| {
-            members.sort();
-            let label = dir
-                .strip_prefix(&base)
-                .unwrap_or(&dir)
-                .display()
-                .to_string();
-            directory_group(&dir, label, members)
-        })
-        .collect()
 }
 
 struct Builder<'a> {
@@ -386,22 +158,17 @@ impl Entry {
                     .focus
                     .as_deref()
                     .ok_or_else(|| RepositoryError::invalid("components need a focus package"))?;
-                let group = snapshot
-                    .groups
-                    .group(&GroupId(id.to_owned()))
-                    .cloned()
-                    .or_else(|| derived_group(&snapshot, id))
-                    .ok_or_else(|| {
-                        RepositoryError::new("unknown_group", format!("unknown group: {id}"))
-                    })?;
+                let group = folder_tree::group_of(&snapshot, id).ok_or_else(|| {
+                    RepositoryError::new("unknown_group", format!("unknown group: {id}"))
+                })?;
                 Some(group)
             }
         };
         let (unit, candidates) = match &focus_group {
-            None => package_candidates(&snapshot),
+            None => folder_tree::top_level(&snapshot),
             Some(focus) => (
-                declared_unit(&snapshot).unwrap_or(GroupKind::Directory),
-                immediate_directories(focus),
+                folder_tree::declared_unit(&snapshot).unwrap_or(GroupKind::Directory),
+                folder_tree::immediate_directories(focus),
             ),
         };
         let focus_group = focus_group.as_ref();

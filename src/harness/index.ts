@@ -20,6 +20,7 @@ import { HybridExecutionAnswerer } from "./HybridExecutionAnswerer";
 import { CoreHarness } from "./core/CoreHarness";
 import { inlineChatDefinition } from "./core/definitions/inline_chat";
 import { generateSkillDefinition } from "./core/definitions/generate_skill";
+import { wikiPageDefinition } from "./core/definitions/wiki_page";
 import { generateTaskNodesDefinition } from "./core/definitions/generate_task_nodes";
 import { globalExploreDefinition } from "./core/definitions/global_explore";
 import { smartExecuteNodeDefinition } from "./core/definitions/smart_execute_node";
@@ -35,6 +36,7 @@ export const harness: AgentHarness = new CoreHarness({
   definitions: {
     inline_chat: inlineChatDefinition,
     generate_skill: generateSkillDefinition,
+    wiki_page: wikiPageDefinition,
     generate_task_nodes: generateTaskNodesDefinition,
     global_explore: globalExploreDefinition,
     execute_node: smartExecuteNodeDefinition,

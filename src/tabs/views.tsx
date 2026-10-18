@@ -13,8 +13,9 @@
  */
 
 import React from "react";
-import { Bot, BookOpen, Cpu, FolderOpen, Gauge, GitCommit, Network, Plug, Settings, Wand2, Workflow } from "lucide-react";
+import { Bot, BookOpen, BookText, Cpu, FolderOpen, Gauge, GitCommit, Network, Plug, Settings, Wand2, Workflow } from "lucide-react";
 import { ArchitectureTab } from "../architecture";
+import { DocumentationTab } from "../dashboard";
 import { FileIcon } from "../services/fileTypeService";
 import { RustyIcon } from "../components/RustyIcon";
 import { RustyTab } from "../components/tabs/canvas/RustyTab";
@@ -137,6 +138,11 @@ export const TAB_VIEWS: TabViewTable = {
   architecture: {
     Component: () => <ArchitectureTab />,
     Icon: Network,
+    surface: "canvas",
+  },
+  docs: {
+    Component: () => <DocumentationTab />,
+    Icon: BookText,
     surface: "canvas",
   },
 };

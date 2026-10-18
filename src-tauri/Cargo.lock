@@ -1784,6 +1784,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-code-health"
+version = "0.1.0"
+dependencies = [
+ "harness-code-analysis",
+ "harness-git-analysis",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "harness-context"
 version = "0.3.0"
 dependencies = [
@@ -1794,6 +1805,20 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "harness-context-repository"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "harness-context",
+ "harness-findings",
+ "harness-git-analysis",
+ "harness-protocol",
+ "harness-repository-wiki",
+ "harness-runtime",
+ "harness-workspace",
 ]
 
 [[package]]
@@ -2140,6 +2165,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-repository-wiki"
+version = "0.1.0"
+dependencies = [
+ "harness-code-analysis",
+ "harness-code-health",
+ "harness-findings",
+ "harness-git-analysis",
+ "harness-workspace",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+]
+
+[[package]]
 name = "harness-runtime"
 version = "0.3.0"
 dependencies = [
@@ -2253,6 +2292,7 @@ dependencies = [
  "base64 0.22.1",
  "harness-findings",
  "harness-git-analysis",
+ "harness-repository-wiki",
  "harness-tools",
  "harness-workspace",
  "serde",
@@ -4545,7 +4585,10 @@ dependencies = [
  "flate2",
  "fuzzy-matcher",
  "git2",
+ "harness-code-analysis",
+ "harness-code-health",
  "harness-context",
+ "harness-context-repository",
  "harness-engine",
  "harness-findings",
  "harness-git-analysis",
@@ -4565,8 +4608,10 @@ dependencies = [
  "harness-repository-imports-native",
  "harness-repository-imports-php",
  "harness-repository-imports-python",
+ "harness-repository-wiki",
  "harness-runtime",
  "harness-tool-mcp",
+ "harness-tool-repository-intelligence",
  "harness-tool-web",
  "harness-tools",
  "harness-workspace",

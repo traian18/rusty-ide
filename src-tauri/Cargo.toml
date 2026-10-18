@@ -32,6 +32,11 @@ core-harness = [
   "dep:harness-workspace",
   "dep:harness-git-analysis",
   "dep:harness-findings",
+  "dep:harness-tool-repository-intelligence",
+  "dep:harness-repository-wiki",
+  "dep:harness-code-analysis",
+  "dep:harness-code-health",
+  "dep:harness-context-repository",
   "dep:harness-repository-imports",
   "dep:harness-repository-frameworks",
   "dep:harness-repository-imports-python",
@@ -99,6 +104,11 @@ harness-runtime = { path = "../../rusty-core/crates/harness-runtime", optional =
 # Repository intelligence (architecture canvas): import graph, dependency groups, Git history, findings.
 harness-git-analysis = { path = "../../rusty-core/crates/harness-git-analysis", optional = true }
 harness-findings = { path = "../../rusty-core/crates/harness-findings", optional = true }
+harness-context-repository = { path = "../../rusty-core/crates/harness-context-repository", optional = true }
+harness-repository-wiki = { path = "../../rusty-core/crates/harness-repository-wiki", optional = true }
+harness-code-analysis = { path = "../../rusty-core/crates/harness-code-analysis", optional = true }
+harness-code-health = { path = "../../rusty-core/crates/harness-code-health", optional = true }
+harness-tool-repository-intelligence = { path = "../../rusty-core/crates/tools/repository-intelligence", optional = true }
 harness-repository-imports = { path = "../../rusty-core/crates/harness-repository-imports", optional = true }
 harness-repository-frameworks = { path = "../../rusty-core/crates/harness-repository-frameworks", optional = true }
 harness-repository-imports-python = { path = "../../rusty-core/crates/harness-repository-imports-python", optional = true }

@@ -9,6 +9,15 @@ use tauri::{AppHandle, Manager, State};
 
 use super::{dto::*, error::RepositoryError, persisted_state, registry::RepositoryState};
 
+/// Runs `work` on a blocking thread, so a long computation never stalls the window.
+async fn off_ui<T: Send + 'static>(
+    work: impl FnOnce() -> Result<T, RepositoryError> + Send + 'static,
+) -> Result<T, RepositoryError> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| RepositoryError::new("internal", error.to_string()))?
+}
+
 #[tauri::command]
 pub async fn repository_open(
     state: State<'_, RepositoryState>,
@@ -23,7 +32,14 @@ pub async fn repository_refresh(
     root: String,
     include_git: bool,
 ) -> Result<RefreshResponse, RepositoryError> {
-    state.entry(&root)?.refresh(include_git).await
+    let entry = state.entry(&root)?;
+    // Without saved storage (tests) a refresh is a plain rebuild; with it, a refresh is an analysis
+    // job: it shows in the bubble, can be stopped there, and saves what it builds.
+    if entry.storage.is_none() {
+        return entry.refresh(include_git).await;
+    }
+    state.run_analysis(entry.clone()).await?;
+    entry.current_response()
 }
 
 #[tauri::command]
@@ -49,13 +65,81 @@ pub fn repository_overview(
     state.entry(&root)?.overview(request)
 }
 
+/// `repo_context` for an agent, for the repository the call is about: refreshes first when nothing
+/// has been built, and once more when the answer says the target changed since the snapshot,
+/// because an agent cannot refresh by itself.
 #[tauri::command]
-pub fn repository_architecture(
+pub async fn repository_context(
+    state: State<'_, RepositoryState>,
+    root: String,
+    active_repository: Option<String>,
+    arguments: serde_json::Value,
+) -> Result<serde_json::Value, RepositoryError> {
+    super::routing::run_tool(
+        &state,
+        &root,
+        active_repository.as_deref(),
+        "repo_context",
+        arguments,
+    )
+    .await
+}
+
+/// `repo_wiki` for an agent (the same tool the engine exposes).
+#[tauri::command]
+pub async fn repository_wiki_tool(
+    state: State<'_, RepositoryState>,
+    root: String,
+    active_repository: Option<String>,
+    arguments: serde_json::Value,
+) -> Result<serde_json::Value, RepositoryError> {
+    super::routing::run_tool(
+        &state,
+        &root,
+        active_repository.as_deref(),
+        "repo_wiki",
+        arguments,
+    )
+    .await
+}
+
+/// The repositories of a workspace folder with whether each has an index loaded. Never loads one.
+#[tauri::command]
+pub fn repository_workspace_overview(
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<Vec<super::dto::WorkspaceRepository>, RepositoryError> {
+    super::overview::workspace_overview(&state, &root)
+}
+
+#[tauri::command]
+pub async fn repository_wiki_page(
+    state: State<'_, RepositoryState>,
+    root: String,
+    id: String,
+) -> Result<harness_repository_wiki::Page, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.wiki_page(&id)).await
+}
+
+#[tauri::command]
+pub async fn repository_wiki_children(
+    state: State<'_, RepositoryState>,
+    root: String,
+    id: String,
+) -> Result<Vec<harness_repository_wiki::TreeEntry>, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.wiki_children(&id)).await
+}
+
+#[tauri::command]
+pub async fn repository_architecture(
     state: State<'_, RepositoryState>,
     root: String,
     request: LevelRequest,
 ) -> Result<LevelView, RepositoryError> {
-    state.entry(&root)?.architecture_level(request)
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.architecture_level(request)).await
 }
 
 #[tauri::command]
@@ -194,4 +278,312 @@ pub fn repository_state_save(
     document: serde_json::Value,
 ) -> Result<(), RepositoryError> {
     persisted_state::save(&state_file(&app, &state, &root)?, &document)
+}
+
+fn documentation_file(
+    app: &AppHandle,
+    state: &RepositoryState,
+    root: &str,
+) -> Result<std::path::PathBuf, RepositoryError> {
+    let entry = state.entry(root)?;
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| RepositoryError::new("io_error", error.to_string()))?;
+    Ok(super::written::store_path(&data_dir, entry.root()))
+}
+
+/// The pages that can be written for a repository, what writing them would cost, and how current
+/// the written ones are. Spends nothing.
+#[tauri::command]
+pub async fn repository_documentation_plan(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::written::DocumentationPlan, RepositoryError> {
+    let store = documentation_file(&app, &state, &root)?;
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.documentation_plan(&store)).await
+}
+
+/// What a model is asked to write one page from.
+#[tauri::command]
+pub async fn repository_documentation_brief(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+    id: String,
+) -> Result<super::written::BriefView, RepositoryError> {
+    let store = documentation_file(&app, &state, &root)?;
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.documentation_brief(&store, &id)).await
+}
+
+/// Checks a model's answer against the sources it was given and stores what holds up.
+#[tauri::command]
+pub async fn repository_documentation_save(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+    id: String,
+    markdown: String,
+    model: String,
+) -> Result<super::written::WrittenView, RepositoryError> {
+    let store = documentation_file(&app, &state, &root)?;
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.documentation_save(&store, &id, &markdown, &model)).await
+}
+
+#[tauri::command]
+pub async fn repository_documentation_page(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+    id: String,
+) -> Result<Option<super::written::WrittenView>, RepositoryError> {
+    let store = documentation_file(&app, &state, &root)?;
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.documentation_page(&store, &id)).await
+}
+
+#[tauri::command]
+pub fn repository_documentation_settings(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::written::DocumentationSettings, RepositoryError> {
+    super::written::documentation_settings(&documentation_file(&app, &state, &root)?)
+}
+
+#[tauri::command]
+pub fn repository_documentation_set_settings(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+    settings: super::written::DocumentationSettings,
+) -> Result<(), RepositoryError> {
+    super::written::set_documentation_settings(&documentation_file(&app, &state, &root)?, settings)
+}
+
+/// One level of the files map.
+#[tauri::command]
+pub async fn repository_dashboard_map(
+    state: State<'_, RepositoryState>,
+    root: String,
+    path: String,
+) -> Result<super::dashboard::model::MapLevel, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.dashboard_map(&path)).await
+}
+
+/// Every file at once, for the whole-project map.
+#[tauri::command]
+pub async fn repository_dashboard_all_files(
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::dashboard::model::MapFiles, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.dashboard_all_files()).await
+}
+
+/// The files table: filtered, sorted, paged.
+#[tauri::command]
+pub async fn repository_dashboard_files(
+    state: State<'_, RepositoryState>,
+    root: String,
+    query: super::dashboard::model::FilesQuery,
+) -> Result<super::dashboard::model::FilesPage, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.dashboard_files(&query)).await
+}
+
+/// One file for the shared drawer.
+#[tauri::command]
+pub async fn repository_dashboard_file(
+    state: State<'_, RepositoryState>,
+    root: String,
+    file: String,
+) -> Result<super::dashboard::model::FileDetail, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.dashboard_file(&file)).await
+}
+
+/// The text "Copy fix prompt" copies: for a file, or one of its findings.
+#[tauri::command]
+pub async fn repository_dashboard_prompt(
+    state: State<'_, RepositoryState>,
+    root: String,
+    file: String,
+    finding: Option<String>,
+) -> Result<String, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.dashboard_prompt(&file, finding.as_deref())).await
+}
+
+/// The Code Health page: repository numbers, files worst first, detectors, folders, self-check.
+#[tauri::command]
+pub async fn repository_code_health(
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::health::model::HealthReport, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.code_health()).await
+}
+
+/// One file's code health for the drawer.
+#[tauri::command]
+pub async fn repository_code_health_file(
+    state: State<'_, RepositoryState>,
+    root: String,
+    path: String,
+) -> Result<super::health::model::HealthFileDetail, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.code_health_file(&path)).await
+}
+
+/// "Copy fix prompt" for a file's code health issues, or one of them.
+#[tauri::command]
+pub async fn repository_code_health_prompt(
+    state: State<'_, RepositoryState>,
+    root: String,
+    path: String,
+    finding: Option<String>,
+) -> Result<String, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.code_health_prompt(&path, finding.as_deref())).await
+}
+
+/// Everything running in the background, for the process bubble.
+#[tauri::command]
+pub fn repository_jobs(state: State<'_, RepositoryState>) -> Vec<super::jobs::Job> {
+    state.jobs().list()
+}
+
+/// The bubble's ×: stops a running job, or removes a finished one.
+#[tauri::command]
+pub fn repository_job_cancel(state: State<'_, RepositoryState>, id: u64) {
+    if !state.jobs().cancel(id) {
+        state.jobs().dismiss(id);
+    }
+}
+
+/// A job the frontend runs (documentation), registered so it shows in the bubble and can be
+/// stopped from there; the frontend watches the job list for its cancellation.
+#[tauri::command]
+pub fn repository_job_start(state: State<'_, RepositoryState>, root: String, label: String) -> u64 {
+    state
+        .jobs()
+        .start(super::jobs::JobKind::Documentation, &root, &label)
+        .0
+}
+
+#[tauri::command]
+pub fn repository_job_progress(
+    state: State<'_, RepositoryState>,
+    id: u64,
+    done: Option<u32>,
+    total: Option<u32>,
+    detail: Option<String>,
+) {
+    state.jobs().progress(id, done, total, detail.as_deref());
+}
+
+#[tauri::command]
+pub fn repository_job_finish(
+    state: State<'_, RepositoryState>,
+    id: u64,
+    failed: bool,
+    message: Option<String>,
+) {
+    let outcome = if failed {
+        super::jobs::JobState::Failed
+    } else {
+        super::jobs::JobState::Finished
+    };
+    state.jobs().finish(id, outcome, message.as_deref());
+}
+
+/// Whether analysis runs by itself after changes (the "Index in background" switch).
+#[tauri::command]
+pub fn repository_set_background(state: State<'_, RepositoryState>, enabled: bool) {
+    state.set_background(enabled);
+}
+
+/// After a commit: the files it changed and the written pages built from them.
+#[tauri::command]
+pub async fn repository_documentation_after_commit(
+    app: AppHandle,
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::written::CommitPages, RepositoryError> {
+    let store = documentation_file(&app, &state, &root)?;
+    let entry = state.entry(&root)?;
+    off_ui(move || {
+        let (commit, files) = super::written::files_in_head(entry.root())?;
+        let pages = super::written::pages_touching(&store, &files)?
+            .into_iter()
+            .map(|(id, title)| super::written::PageRef { id, title })
+            .collect();
+        Ok(super::written::CommitPages {
+            commit,
+            files,
+            pages,
+        })
+    })
+    .await
+}
+
+/// Documentation pages the user agreed to update and not yet written, with the model to use;
+/// kept on disk so a restart picks them up.
+#[tauri::command]
+pub fn repository_documentation_pending(
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::written::PendingDocumentation, RepositoryError> {
+    let entry = state.entry(&root)?;
+    let pending = entry
+        .storage
+        .as_ref()
+        .map(|s| s.pending())
+        .unwrap_or_default();
+    Ok(super::written::PendingDocumentation {
+        pages: pending.documentation,
+        model: pending.documentation_model,
+    })
+}
+
+#[tauri::command]
+pub fn repository_documentation_queue(
+    state: State<'_, RepositoryState>,
+    root: String,
+    pages: Vec<String>,
+    model: Option<String>,
+) -> Result<(), RepositoryError> {
+    let entry = state.entry(&root)?;
+    if let Some(storage) = &entry.storage {
+        storage.update_pending(|p| {
+            for page in pages {
+                if !p.documentation.contains(&page) {
+                    p.documentation.push(page);
+                }
+            }
+            if model.is_some() {
+                p.documentation_model = model;
+            }
+        });
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn repository_documentation_done(
+    state: State<'_, RepositoryState>,
+    root: String,
+    page: String,
+) -> Result<(), RepositoryError> {
+    let entry = state.entry(&root)?;
+    if let Some(storage) = &entry.storage {
+        storage.update_pending(|p| p.documentation.retain(|id| *id != page));
+    }
+    Ok(())
 }

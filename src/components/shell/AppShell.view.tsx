@@ -6,6 +6,7 @@ import { MainWorkspace } from "../workspace/MainWorkspace";
 import { SearchPalette } from "../SearchPalette";
 import { ToolExecutionPanel } from "../observability/ToolExecutionPanel";
 import { RuntimeDownloadProgress } from "../integrations/RuntimeDownloadProgress";
+import { ProcessBubble } from "../../background/ProcessBubble";
 import styles from "./AppShell.module.css";
 
 interface AppShellViewProps {
@@ -65,6 +66,7 @@ export const AppShellView: React.FC<AppShellViewProps> = ({
     </div>
 
     <RuntimeDownloadProgress />
+    <ProcessBubble />
     {searchOpen && <SearchPalette onClose={onSearchClose} />}
     {toolExecutionOpen && <ToolExecutionPanel onClose={onToolExecutionClose} />}
   </>

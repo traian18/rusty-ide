@@ -135,6 +135,8 @@ describe("agentChatDefinition", () => {
       "open_document",
       "project_info",
       "read_file",
+      "repo_context",
+      "repo_wiki",
       "report_progress",
       "run_check",
       "run_command",
@@ -196,7 +198,7 @@ describe("agentChatDefinition", () => {
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
     // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_wiki", "report_progress"]);
   });
 
   it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
@@ -211,7 +213,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_wiki", "report_progress"]);
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
@@ -258,7 +260,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "report_progress", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_wiki", "report_progress", "web_search"]);
   });
 
   it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
@@ -355,6 +357,8 @@ describe("agentChatDefinition", () => {
       "open_document",
       "project_info",
       "read_file",
+      "repo_context",
+      "repo_wiki",
       "report_progress",
       "run_check",
       "run_command",
@@ -592,5 +596,39 @@ describe("agentChatDefinition: running one test", () => {
     const prompt = agentChatDefinition.recipe!(input()).system_prompt ?? "";
     expect(prompt).toContain('"test_name"?: "name or part of one"');
     expect(prompt).toContain("run just that test with 'test_name' or 'test_file', but run the whole test check before you finish");
+  });
+});
+
+
+describe("repo_context is available in every mode and under every skill", () => {
+  it.each([
+    ["by default", {}],
+    ["with an empty tool list", { skill: { enabledTools: [] } }],
+    ["with one tool", { skill: { enabledTools: ["read_file"] } }],
+    ["in plan mode", { planOnly: true }],
+    ["in virtual-file mode", { vfsOnly: true }],
+  ])("%s", (_name, overrides) => {
+    const recipe = agentChatDefinition.recipe!(input(overrides as never));
+    expect(recipe.host_tools?.some((tool) => tool.name === "repo_context")).toBe(true);
+    expect(recipe.system_prompt).toContain("'repo_context'");
+  });
+
+  it("is also wired to a handler in a workflow step", () => {
+    const tools = agentChatDefinition.hostTools?.(input({ workflow: { input: { conversation: [], context: {} } } } as never), {} as never, { scratch: {} } as never, () => {});
+    expect(Object.keys(tools ?? {})).toContain("repo_context");
+  });
+});
+
+describe("repository documentation in the recipe", () => {
+  it("is absent unless the call site turns it on", () => {
+    expect(agentChatDefinition.recipe!(input()).repository_context).toBeUndefined();
+    expect(agentChatDefinition.recipe!(input({ repositoryContext: { enabled: false } } as never)).repository_context).toBeUndefined();
+  });
+
+  it("carries the work in progress and a size taken from the model's window", () => {
+    const recipe = agentChatDefinition.recipe!(input({ repositoryContext: { enabled: true, activeFile: "src/a.ts", touched: ["src/b.ts"], task: "refactor" } } as never));
+    expect(recipe.repository_context).toMatchObject({ enabled: true, active_file: "src/a.ts", touched: ["src/b.ts"], task: "refactor" });
+    const max = recipe.repository_context?.max_chars;
+    expect(max === undefined || (max >= 1_500 && max <= 6_000)).toBe(true);
   });
 });

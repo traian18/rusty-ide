@@ -71,6 +71,8 @@ export interface AgentChatInput {
   skillId?: string;
   planOnly: boolean;
   vfsOnly: boolean;
+  /** What repository documentation should anchor on, resolved by the call site. Omitted means none. */
+  repositoryContext?: { enabled: boolean; activeFile?: string; activeRepository?: string; touched?: string[]; task?: string };
   lspSettings: unknown;
   /** Web-search provider API keys (store.webSearchApiKeys), threaded in by
    * the call site rather than read from the store directly inside
@@ -136,6 +138,17 @@ export interface GenerateSkillInput {
   model: string;
   customProvider: unknown;
   workspaceRoot?: string;
+}
+
+/** One documentation page written in a single model turn from a brief the host built. */
+export interface WikiPageInput {
+  model: string;
+  customProvider: unknown;
+  workspaceRoot: string;
+  /** The writing rules and the page's outline requirements. */
+  system: string;
+  /** The facts and numbered sources the page is written from. */
+  prompt: string;
 }
 
 export interface ReconciliateEdgeInput {
@@ -231,6 +244,11 @@ export interface CapabilityMap {
     event: CommonEvent;
     result: { spec: unknown };
   };
+  wiki_page: {
+    input: WikiPageInput;
+    event: CommonEvent;
+    result: { markdown: string };
+  };
   reconciliate_edge: {
     input: ReconciliateEdgeInput;
     event: CommonEvent;
@@ -260,6 +278,7 @@ export const CAPABILITY_NAMES: readonly CapabilityName[] = [
   "global_explore",
   "generate_task_nodes",
   "generate_skill",
+  "wiki_page",
   "reconciliate_edge",
   "reconciliate_graph",
   "test_build",

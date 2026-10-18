@@ -41,6 +41,8 @@ import { mapMcpServerConfigs } from "../mcpServerMapping";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
+import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
+import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { EXPLORE_TOOLS, listFilesTool, openDocumentTool, readTool, searchCodebaseTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
 
@@ -73,6 +75,8 @@ You have access to tools:
 - 'open_document': Open, read, and extract readable content from documents including Excel spreadsheets (.xlsx, .xls), PDF documents (.pdf), Word (.docx), or CSV files (input: {{"path": "document/path", "sheet"?: "Sheet1", "page"?: 1}}).
 - 'list_files': Explore the workspace. No input gives an overview; {{"path": "dir", "depth"?: 2}} lists a directory; {{"glob": "**/package.json"}} finds files by name.
 - 'search_codebase': Search for text patterns across the codebase (input: {{"pattern": "search text"}}).
+${REPO_CONTEXT_GUIDE}
+${REPO_WIKI_GUIDE}
 - 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.
 
 If any MCP integration tools appear in your tool list, call them for external data your other tools can't reach.
@@ -111,7 +115,7 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
       integration_config: mapped.integration_config,
       execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(input.workspaceRoot),
-      host_tools: EXPLORE_TOOLS,
+      host_tools: [...EXPLORE_TOOLS, REPO_CONTEXT_TOOL, REPO_WIKI_TOOL],
       mcp_servers: mcpServers,
       enable_web_fetch: true,
     };
@@ -128,6 +132,8 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
     open_document: openDocumentTool(input.workspaceRoot),
     list_files: listFilesTool(input.workspaceRoot),
     search_codebase: searchCodebaseTool(input.workspaceRoot),
+    repo_context: repoContextTool(input.workspaceRoot),
+    repo_wiki: repoWikiTool(input.workspaceRoot),
   }),
 
   toResult: (transcript: Transcript, _input): CapabilityResult<"global_explore"> => {

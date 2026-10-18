@@ -7,7 +7,7 @@ import { CAPABILITY_NAMES } from "./capabilities";
 // all, and only inside a test (layering.test.ts's "keeps the sidecar's
 // wire protocol out of the contract" check globs *.ts, not *.test.ts).
 describe("CapabilityMap / AGENT_CAPABILITIES parity", () => {
-  it("names exactly the sidecar's nine capabilities today", () => {
-    expect([...CAPABILITY_NAMES].sort()).toEqual([...AGENT_CAPABILITIES].sort());
+  it("names the sidecar's nine capabilities plus the ones that never ran on it", () => {
+    expect([...CAPABILITY_NAMES].sort()).toEqual([...AGENT_CAPABILITIES, "wiki_page"].sort());
   });
 });

@@ -29,6 +29,7 @@ export type TabType =
   | "mcp-integration"
   | "metrics"
   | "architecture"
+  | "docs"
   | "agent"
   | "file"
   | "canvas"
@@ -47,6 +48,7 @@ export type SingletonTabType =
   | "mcp-integration"
   | "metrics"
   | "architecture"
+  | "docs"
   | "agent";
 
 export type TabStatus = "idle" | "busy" | "error";

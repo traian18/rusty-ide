@@ -53,6 +53,7 @@ describe("openTab: global singletons", () => {
     "mcp-integration",
     "metrics",
     "architecture",
+    "docs",
     "agent",
   ] as const)("opens only one %s tab across repeated calls", (type) => {
     const store = createTabTestStore();

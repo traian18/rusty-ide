@@ -96,6 +96,8 @@ import type { Transcript } from "../transcript";
 import { analyzeProject, formatProjectBrief } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
+import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_GUIDELINE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
+import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
@@ -273,6 +275,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   web_search: '- \'web_search\': Search the public web for current information and cited sources (input: {"query": "search query"}).',
   run_command: '- \'run_command\': Last-resort execution for an essential build, test, typecheck, lint, generator, or explicitly requested executable. Never use it for file inspection, search, or modification (input: {"program": "npm", "args": ["test"], "cwd": "."}).',
   workflow_catalog: "- 'workflow_catalog': List the workflows and profiles this workspace can use, or read one in full (input: {} | {\"path\": \"<workflow path or id>\"} | {\"profile\": \"<profile id>\"}). Reading a saved workflow also gives the content_token an update needs.",
+  repo_context: REPO_CONTEXT_GUIDE,
+  repo_wiki: REPO_WIKI_GUIDE,
   report_progress: "- 'report_progress': Publish a brief progress update and the next action.",
   ask_user_question: "- 'ask_user_question': Pause for a focused user decision, optionally with selectable suggestions.",
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.",
@@ -287,8 +291,8 @@ interface ChatMode {
 /** Matches the sidecar's own `skill?.enabledTools || [defaults]` semantics
  * (see execute_node.ts's identical helper) -- an explicitly empty array is
  * NOT replaced by the default. report_progress/ask_user_question are
- * always available regardless of skill, matching the sidecar's own
- * "Observability is always available" comment -- they're pushed after
+ * always available regardless of skill, and so is the read-only repo_context,
+ * matching the sidecar's own "Observability is always available" comment -- they're pushed after
  * the skill-filtered set, not filtered themselves.
  *
  * `mode` applies `resolveAgentChatToolNames`'s exact rules on top of the
@@ -308,7 +312,7 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   if (workflowAuthorAuthorized(skill, mode)) structuralNames.push("save_workflow");
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
-  return [...structural, ...planTool, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
+  return [...structural, ...planTool, REPO_CONTEXT_TOOL, REPO_WIKI_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
 }
 
 /** The chat shows about CHAT_RENDER_CHARS of one response; anything longer
@@ -361,6 +365,8 @@ ${longResponseGuideline(toolNames)}${mcpSection}${skillGuidance}${taskDependency
     ? "\n- Before you build, test or verify, call 'project_info' to learn what kind of project this is and which commands check it; do not guess commands. If a check fails because a dependency or tool is missing, that is an environment problem: install it first instead of editing code."
     : "";
 
+  const repoContextGuideline = toolNames.includes("repo_context") ? REPO_CONTEXT_GUIDELINE : "";
+
   const checkGuideline = toolNames.includes("run_check")
     ? "\n- To verify a build, call 'run_check' (typecheck, lint, test, build) instead of guessing commands with 'run_command'. Its result starts with PASSED or FAILED. Do not say something builds, passes or is fixed unless a check in this conversation reported PASSED after your last change; if one fails, fix the errors it lists and run it again. While you work on one failing test you can run just that test with 'test_name' or 'test_file', but run the whole test check before you finish. If it says the cause is the environment (a missing tool or uninstalled dependencies), call 'install_dependencies' and run the check again instead of editing code."
     : "";
@@ -372,7 +378,7 @@ You have access to tools:
 ${toolListText}${mcpSection}
 
 Guidelines:
-${fileGuidelines}${projectGuideline}${checkGuideline}
+${fileGuidelines}${projectGuideline}${repoContextGuideline}${checkGuideline}
 - Be concise and focused. Only modify what is requested.
 - Output clean code without placeholder comments.
 - Once done, summarize the changes you made.
@@ -390,6 +396,21 @@ User-visible progress updates:
 
 Questions:
 - When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.`;
+}
+
+/** Characters of repository documentation: about 8% of the model's window, between 1,500 and 6,000. */
+function repositoryContextSpec(input: AgentChatInput): NonNullable<SessionRecipe["repository_context"]> {
+  const context = input.repositoryContext;
+  const historyBudget = historyBudgetChars(input.customProvider, input.model);
+  const maxChars = historyBudget ? Math.min(6_000, Math.max(1_500, Math.round(historyBudget * 0.2))) : undefined;
+  return {
+    enabled: true,
+    ...(context?.activeFile ? { active_file: context.activeFile } : {}),
+    ...(context?.activeRepository ? { active_repository: context.activeRepository } : {}),
+    ...(context?.touched?.length ? { touched: context.touched } : {}),
+    ...(context?.task ? { task: context.task } : {}),
+    ...(maxChars ? { max_chars: maxChars } : {}),
+  };
 }
 
 function isLspEnabled(lspSettings: unknown): boolean {
@@ -535,6 +556,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
         mcpIntegrationsSection(mcpServers, mcpConfigs, executionPolicy),
       ),
       host_tools: toolSpecs,
+      ...(input.repositoryContext?.enabled ? { repository_context: repositoryContextSpec(input) } : {}),
       mcp_servers: mcpServers,
       enable_web_fetch: true,
       enable_agent_spawn: true,
@@ -588,6 +610,8 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       const data = input.workflow.input as { conversation?: unknown; context?: unknown };
       handlers.read_workflow_context = workflowContextTool(data.conversation ?? input.chatHistory, data.context, () => ctx.scratch.trimmedHandoffs);
     }
+    handlers.repo_context = repoContextTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
+    handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.report_progress = reportProgressTool(onEvent);
     handlers.ask_user_question = askUserQuestionTool(host);
     for (const name of ["write_file", "edit_file", "run_command", "install_dependencies"]) {

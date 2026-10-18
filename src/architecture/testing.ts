@@ -90,6 +90,7 @@ export function fakeClient(overrides: Partial<ArchitectureClient> = {}): FakeCli
     loadState: vi.fn(async () => null),
     saveState: vi.fn(async () => undefined),
     onWorkspaceChanged: vi.fn(async () => () => undefined),
+    onAnalysisUpdated: vi.fn(async () => () => undefined),
   };
   return { ...base, ...overrides } as FakeClient;
 }

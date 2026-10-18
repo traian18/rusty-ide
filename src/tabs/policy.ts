@@ -275,6 +275,7 @@ export const TAB_POLICIES: TabPolicyTable = {
   "mcp-integration": singleton("mcp-integration", "MCP Integration"),
   metrics: singleton("metrics", "Token Metrics"),
   architecture: singleton("architecture", "Architecture"),
+  docs: singleton("docs", "Documentation"),
   agent,
   file,
   canvas,

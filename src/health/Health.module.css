@@ -1,0 +1,269 @@
+.lede {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 9rem;
+}
+
+.scoreValue {
+  font-size: 2.5rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-fg-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.scoreOf {
+  font-size: var(--font-size-ui-sm);
+  color: var(--color-fg-muted);
+}
+
+.reads {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: var(--space-2);
+}
+
+.read {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-panel);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--font-size-ui-sm);
+  color: inherit;
+  text-align: left;
+}
+
+button.read {
+  cursor: pointer;
+}
+
+.readValue {
+  display: block;
+  font-size: var(--font-size-ui-lg);
+  font-weight: 600;
+  color: var(--color-fg-strong);
+}
+
+.readLabel {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-xs);
+}
+
+.band {
+  display: inline-block;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-ui-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.excellent,
+.good {
+  background: var(--color-status-success-bg);
+  color: var(--color-status-success);
+}
+
+.fair {
+  background: var(--color-status-warning-bg);
+  color: var(--color-status-warning);
+}
+
+.needs_work {
+  background: color-mix(in srgb, var(--color-status-warning-solid) 30%, var(--color-status-danger-bg));
+  color: var(--color-status-danger);
+}
+
+.at_risk {
+  background: var(--color-status-danger-bg);
+  color: var(--color-status-danger);
+}
+
+.fill_excellent,
+.fill_good {
+  background: var(--color-status-success-solid);
+}
+
+.fill_fair {
+  background: var(--color-status-warning-solid);
+}
+
+.fill_needs_work {
+  background: color-mix(in srgb, var(--color-status-warning-solid) 50%, var(--color-status-danger-solid));
+}
+
+.fill_at_risk {
+  background: var(--color-status-danger-solid);
+}
+
+.note {
+  margin: var(--space-2) 0 var(--space-4);
+  border-left: 3px solid var(--color-border-strong);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-ui-sm);
+  color: var(--color-fg-muted);
+}
+
+.tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-sm);
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--color-primary);
+  color: var(--color-fg-strong);
+}
+
+.issue {
+  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--space-2) 0;
+  font-size: var(--font-size-ui-sm);
+}
+
+.issueHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.impact {
+  margin-left: auto;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.measured {
+  font-size: var(--font-size-ui-xs);
+  color: var(--color-fg-muted);
+}
+
+.healthMap {
+  position: relative;
+  height: 36rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-panel);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.healthMap:active {
+  cursor: grabbing;
+}
+
+.mapSvg {
+  display: block;
+}
+
+.mapFolder {
+  fill: color-mix(in srgb, var(--color-fg-muted) 5%, transparent);
+  stroke: var(--color-border-subtle);
+  stroke-width: 1;
+  cursor: zoom-in;
+}
+
+.mapFolder[data-depth="1"] {
+  fill: color-mix(in srgb, var(--color-fg-muted) 8%, transparent);
+  stroke: var(--color-border-default);
+}
+
+.mapFolder:hover {
+  stroke: var(--color-primary);
+}
+
+.mapFile {
+  stroke: var(--color-surface-panel);
+  stroke-width: 0.5;
+  cursor: pointer;
+}
+
+.mapFile:hover,
+.mapFile[data-selected] {
+  stroke: var(--color-fg-strong);
+  stroke-width: 2;
+}
+
+.mapLabels text {
+  fill: var(--color-fg-muted);
+  font-size: 11px;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--color-surface-panel);
+  stroke-width: 3px;
+}
+
+.mapLabels text[data-depth="1"] {
+  fill: var(--color-fg-strong);
+  font-weight: 600;
+}
+
+.mapLabels text[data-file] {
+  fill: var(--color-fg-strong);
+  font-size: 10px;
+}
+
+.mapZoom {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.mapZoom button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  color: var(--color-fg-strong);
+  cursor: pointer;
+}
+
+.mapZoom button:hover {
+  border-color: var(--color-primary);
+}
+
+.mapTip {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  max-width: 22rem;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-elevated);
+  box-shadow: var(--shadow-elevated);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-ui-xs);
+  pointer-events: none;
+}

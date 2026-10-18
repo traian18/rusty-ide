@@ -35,6 +35,7 @@ export function inferExecutionOrigin<K extends CapabilityName>(
     if (capability === "reconciliate_edge" || capability === "reconciliate_graph") {
       return { surface: "reconciliation", workspaceId, tabId, canvasId: tabId, nodeId: edgeId, displayLabel: "Reconciliation" };
     }
+    if (capability === "wiki_page") return { surface: "documentation", workspaceId, displayLabel: "Documentation" };
     if (capability === "generate_skill") return { surface: "skill-generation", workspaceId, displayLabel: "Skill generation" };
     if (capability === "test_build") return { surface: "test-build", workspaceId, tabId, canvasId: tabId, displayLabel: "Test & build" };
     return { surface: "other", workspaceId, displayLabel: capability };
