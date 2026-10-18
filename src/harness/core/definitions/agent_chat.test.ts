@@ -136,6 +136,10 @@ describe("agentChatDefinition", () => {
       "project_info",
       "read_file",
       "repo_context",
+      "repo_health",
+      "repo_overview",
+      "repo_risk",
+      "repo_symbol",
       "repo_wiki",
       "report_progress",
       "run_check",
@@ -198,7 +202,7 @@ describe("agentChatDefinition", () => {
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
     // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_wiki", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress"]);
   });
 
   it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
@@ -213,7 +217,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_wiki", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress"]);
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
@@ -260,7 +264,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_wiki", "report_progress", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "web_search"]);
   });
 
   it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
@@ -358,6 +362,10 @@ describe("agentChatDefinition", () => {
       "project_info",
       "read_file",
       "repo_context",
+      "repo_health",
+      "repo_overview",
+      "repo_risk",
+      "repo_symbol",
       "repo_wiki",
       "report_progress",
       "run_check",
@@ -630,5 +638,40 @@ describe("repository documentation in the recipe", () => {
     expect(recipe.repository_context).toMatchObject({ enabled: true, active_file: "src/a.ts", touched: ["src/b.ts"], task: "refactor" });
     const max = recipe.repository_context?.max_chars;
     expect(max === undefined || (max >= 1_500 && max <= 6_000)).toBe(true);
+  });
+});
+
+describe("question-shaped repository tools in the plain loop", () => {
+  const names = (overrides: Partial<AgentChatInput> = {}) => agentChatDefinition.recipe!(input(overrides)).host_tools?.map((tool) => tool.name) ?? [];
+
+  it("offers overview, health, risk and symbol, and tells the model when to use each", () => {
+    expect(names()).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]));
+    const prompt = agentChatDefinition.recipe!(input()).system_prompt ?? "";
+    expect(prompt).toContain("Repository tools (read-only");
+    expect(prompt).toContain("'repo_overview', once per conversation");
+    expect(prompt).toContain("Before your first edit to a file: 'repo_risk'");
+    expect(prompt).toContain("After your last edit to a file: 'repo_health' with the edited files as targets; if a score dropped, fix what it lists, then verify with 'run_check'");
+    expect(prompt).toContain("'complete' means the code was served whole from disk");
+  });
+
+  it("offers all of them whatever the model's context window", () => {
+    const small = { customProvider: { ...(input().customProvider as object), models: [{ id: "claude-opus-4-20250514", contextWindow: 16_000 }] } as never };
+    expect(names(small)).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]));
+  });
+
+  it.each([
+    ["a workflow step", { workflow: { input: { conversation: [], context: {} } } }],
+    ["an empty skill tool list", { skill: { enabledTools: [] } }],
+    ["plan mode", { planOnly: true }],
+    ["virtual-file mode", { vfsOnly: true }],
+  ])("are offered and wired in %s", (_name, overrides) => {
+    expect(names(overrides as never)).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]));
+    const tools = agentChatDefinition.hostTools?.(input(overrides as never), {} as never, { scratch: {} } as never, () => {});
+    for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol"]) expect(Object.keys(tools ?? {})).toContain(name);
+  });
+
+  it("wires a handler for each offered tool", () => {
+    const tools = agentChatDefinition.hostTools?.(input(), {} as never, { scratch: {} } as never, () => {});
+    for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol"]) expect(Object.keys(tools ?? {})).toContain(name);
   });
 });

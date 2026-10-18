@@ -42,6 +42,7 @@ import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
+import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool } from "./repoAgentTools";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { EXPLORE_TOOLS, listFilesTool, openDocumentTool, readTool, searchCodebaseTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
@@ -77,11 +78,12 @@ You have access to tools:
 - 'search_codebase': Search for text patterns across the codebase (input: {{"pattern": "search text"}}).
 ${REPO_CONTEXT_GUIDE}
 ${REPO_WIKI_GUIDE}
+${Object.values(REPO_AGENT_GUIDES).join("\n")}
 - 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.
 
 If any MCP integration tools appear in your tool list, call them for external data your other tools can't reach.
 
-IMPORTANT: Always use tools to explore the codebase before answering. Start by listing files, then read relevant ones.
+IMPORTANT: Always use tools to explore the codebase before answering. Start with 'repo_overview' for the shape of the repository, then 'repo_context' on the parts that matter, and read files where you need the detail.
 
 After exploring, provide:
 1. A clear architectural summary of the codebase structure.
@@ -115,7 +117,7 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
       integration_config: mapped.integration_config,
       execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(input.workspaceRoot),
-      host_tools: [...EXPLORE_TOOLS, REPO_CONTEXT_TOOL, REPO_WIKI_TOOL],
+      host_tools: [...EXPLORE_TOOLS, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL],
       mcp_servers: mcpServers,
       enable_web_fetch: true,
     };
@@ -134,6 +136,7 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
     search_codebase: searchCodebaseTool(input.workspaceRoot),
     repo_context: repoContextTool(input.workspaceRoot),
     repo_wiki: repoWikiTool(input.workspaceRoot),
+    ...Object.fromEntries(REPO_AGENT_TOOLS.map((spec) => [spec.name, repoAgentTool(spec.name, input.workspaceRoot)])),
   }),
 
   toResult: (transcript: Transcript, _input): CapabilityResult<"global_explore"> => {

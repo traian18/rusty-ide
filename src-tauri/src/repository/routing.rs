@@ -20,6 +20,21 @@ fn is_path(target: &str) -> bool {
             .any(|prefix| target.starts_with(prefix))
 }
 
+/// `src/a.rs::Type.method` and `src/a.rs:10-40` name a place in a file: the path, and the rest.
+fn split_anchor(target: &str) -> (&str, &str) {
+    if let Some(at) = target.find("::") {
+        return target.split_at(at);
+    }
+    match target.rsplit_once(':') {
+        Some((path, range))
+            if !range.is_empty() && range.chars().all(|c| c.is_ascii_digit() || c == '-') =>
+        {
+            target.split_at(path.len())
+        }
+        _ => (target, ""),
+    }
+}
+
 /// `repoA#file:src/a.rs` names a page in `repoA`.
 fn split_qualified(target: &str) -> (Option<&str>, &str) {
     match target.split_once('#') {
@@ -62,19 +77,28 @@ pub fn route(
             map.insert("target".into(), json!(rest));
         }
         if is_path(rest) {
-            paths.push(rest.to_owned());
+            paths.push(split_anchor(rest).0.to_owned());
         }
     }
-    let targets: Vec<String> = map
-        .get("targets")
-        .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter_map(|t| t.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
-    paths.extend(targets.iter().filter(|t| is_path(t)).cloned());
+    let list = |key: &str| -> Vec<String> {
+        map.get(key)
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|t| t.as_str().map(str::to_owned))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let targets = list("targets");
+    let changed = list("changed_files");
+    paths.extend(
+        targets
+            .iter()
+            .chain(&changed)
+            .filter(|t| is_path(t))
+            .map(|t| split_anchor(t).0.to_owned()),
+    );
 
     let mut resolved: Option<Resolution> = None;
     for path in &paths {
@@ -104,9 +128,10 @@ pub fn route(
     };
     let repository = resolved.repository.clone();
 
-    // Rewrite every path relative to the repository.
-    let relative = |path: &str| -> String {
-        resolve(
+    // Rewrite every path relative to the repository, keeping a symbol or range after it.
+    let relative = |target: &str| -> String {
+        let (path, anchor) = split_anchor(target);
+        let path = resolve(
             &repos,
             &workspace_path,
             Some(&repository.id),
@@ -115,7 +140,8 @@ pub fn route(
         )
         .ok()
         .and_then(|r| r.path)
-        .unwrap_or_else(|| path.to_owned())
+        .unwrap_or_else(|| path.to_owned());
+        format!("{path}{anchor}")
     };
     if let Some(target) = map
         .get("target")
@@ -125,14 +151,16 @@ pub fn route(
     {
         map.insert("target".into(), json!(relative(&target)));
     }
-    if !targets.is_empty() {
-        map.insert(
-            "targets".into(),
-            json!(targets
-                .iter()
-                .map(|t| if is_path(t) { relative(t) } else { t.clone() })
-                .collect::<Vec<_>>()),
-        );
+    for (key, values) in [("targets", &targets), ("changed_files", &changed)] {
+        if !values.is_empty() {
+            map.insert(
+                key.into(),
+                json!(values
+                    .iter()
+                    .map(|t| if is_path(t) { relative(t) } else { t.clone() })
+                    .collect::<Vec<_>>()),
+            );
+        }
     }
     Ok((repository, arguments))
 }
@@ -180,6 +208,6 @@ pub async fn run_tool(
 ) -> Result<Value, RepositoryError> {
     let (repository, arguments) = route(state, workspace, active, arguments)?;
     let entry = state.entry(&repository.root.to_string_lossy())?;
-    let output = entry.agent_tool(tool, arguments).await?;
+    let output = super::agent_tools::run(entry, tool, arguments).await?;
     Ok(stamp(output, &repository))
 }

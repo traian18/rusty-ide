@@ -1523,6 +1523,7 @@ pub fn run() {
             repository::commands::repository_dashboard_map,
             repository::commands::repository_dashboard_files,
             repository::commands::repository_dashboard_all_files,
+            repository::commands::repository_agent_tool,
             repository::commands::repository_dashboard_file,
             repository::commands::repository_dashboard_prompt,
             repository::commands::repository_code_health,

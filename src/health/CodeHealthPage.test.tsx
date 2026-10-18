@@ -41,9 +41,21 @@ describe("CodeHealthPage", () => {
   it("leads with the score, its band and what it rests on", async () => {
     await mount();
     const text = container.textContent!;
-    for (const part of ["6.4", "of 10", "Fair", "7.3", "maintainability", "5.1", "hotspot health", "lowest: src/tangled.rs", "75%", "rust, typescript", "1 in other languages", "not from a linter", "Self-check unavailable"]) {
+    for (const part of ["6.4", "of 10", "Fair", "7.3", "maintainability", "5.1", "hotspot health", "lowest: src/tangled.rs", "75%", "rust, typescript", "1 in other languages"]) {
       expect(text).toContain(part);
     }
+    // The two explanations stay folded behind buttons until asked for.
+    expect(text).not.toContain("not from a linter");
+    await click(byText("How scores work"));
+    expect(container.querySelector('[role="dialog"][aria-label="How scores work"]')!.textContent).toContain("not from a linter");
+    // A press anywhere else closes it, as a real click does (it starts with mousedown).
+    const other = byText("Self-check")!;
+    await act(async () => other.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    await click(other);
+    expect(container.querySelector('[role="dialog"][aria-label="How scores work"]')).toBeNull();
+    expect(container.querySelector('[role="dialog"][aria-label="Self-check"]')!.textContent).toContain("Self-check unavailable");
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(container.querySelector('[aria-label="Distribution"]')!.textContent).toContain("At risk: 1 files, 50% of the code");
   });
 
@@ -77,7 +89,8 @@ describe("CodeHealthPage", () => {
   it("shows the self-check when there is enough history", async () => {
     const withCheck = { ...report(), selfCheck: { examined: 20, fixed_among_worst: 5, files: 30, fixed_files: 6, precision_per_mille: 250, base_rate_per_mille: 200, lift: 1.25, recall_per_mille: 833, window_days: 180, worst: [], note: "An association, not a prediction." } };
     await mount(fakeHealthClient({ report: vi.fn(async () => withCheck) as never }));
-    expect(container.querySelector('[aria-label="Self-check"]')!.textContent).toContain("5 of the 20 lowest-scoring files were bug-fixed in the last 180 days, against 20% of all files (1.25× the base rate)");
+    await click(byText("Self-check"));
+    expect(container.querySelector('[role="dialog"][aria-label="Self-check"]')!.textContent).toContain("5 of the 20 lowest-scoring files were bug-fixed in the last 180 days, against 20% of all files (1.25× the base rate)");
   });
 
   it("reports a failure instead of an empty page", async () => {

@@ -1,5 +1,6 @@
 import React from "react";
 import { FlaskConical } from "lucide-react";
+import { BackgroundIndicator } from "../../background/BackgroundIndicator";
 import { Tooltip } from "../ui";
 import { preloadDrawerContent } from "../drawer/drawerContents";
 import type {
@@ -76,6 +77,7 @@ export const NavigationRailView: React.FC<NavigationRailViewProps> = ({
 
       {/* Bottom General Settings Icon */}
       <div className={`${styles.railGroup} ${styles.railBottom}`}>
+        <BackgroundIndicator />
         {[helpIcon, settingsIcon].filter((item): item is NavigationRailIconItem => !!item).map((item) => {
           const Icon = item.icon;
           const active = isItemActive(item.id);

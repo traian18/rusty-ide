@@ -323,7 +323,7 @@ function CanvasArea({ session, data, graph, view, snapshotFiles }: { session: Re
     return (
       <div className={styles.centered}>
         <p>No supported source files were found.</p>
-        <p className={styles.muted}>Rust, TypeScript, Java, Python, C#, C, C++, PHP, GO and JavaScript files are analyzed.</p>
+        <p className={styles.muted}>Rust, TypeScript, Java, Kotlin, Python, C#, C, C++, PHP, Go and JavaScript files are analyzed.</p>
       </div>
     );
   }

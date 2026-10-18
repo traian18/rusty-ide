@@ -57,6 +57,7 @@ pub fn language_name(profile: LanguageProfile) -> String {
         LanguageProfile::Python => "python",
         LanguageProfile::Go => "go",
         LanguageProfile::Java => "java",
+        LanguageProfile::Kotlin => "kotlin",
         LanguageProfile::CSharp => "csharp",
         LanguageProfile::Php => "php",
         LanguageProfile::C => "c",

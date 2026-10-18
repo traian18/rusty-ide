@@ -167,6 +167,11 @@ impl Storage {
         Self { dir }
     }
 
+    /// The app data directory this repository's folder sits in (`<app data>/repositories/<hash>`).
+    pub fn app_data_dir(&self) -> Option<&Path> {
+        self.dir.parent()?.parent()
+    }
+
     pub fn snapshot_path(&self) -> PathBuf {
         self.dir.join("snapshot.json")
     }

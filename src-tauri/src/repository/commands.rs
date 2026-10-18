@@ -85,6 +85,30 @@ pub async fn repository_context(
     .await
 }
 
+/// One of the host's agent tools (`repo_overview`, `repo_health`, `repo_risk`, `repo_symbol`).
+#[tauri::command]
+pub async fn repository_agent_tool(
+    state: State<'_, RepositoryState>,
+    root: String,
+    active_repository: Option<String>,
+    tool: String,
+    arguments: serde_json::Value,
+) -> Result<serde_json::Value, RepositoryError> {
+    if !super::agent_tools::HOST_TOOLS.contains(&tool.as_str()) {
+        return Err(RepositoryError::invalid(format!(
+            "{tool} is not a repository agent tool"
+        )));
+    }
+    super::routing::run_tool(
+        &state,
+        &root,
+        active_repository.as_deref(),
+        &tool,
+        arguments,
+    )
+    .await
+}
+
 /// `repo_wiki` for an agent (the same tool the engine exposes).
 #[tauri::command]
 pub async fn repository_wiki_tool(

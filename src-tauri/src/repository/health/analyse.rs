@@ -48,7 +48,8 @@ fn language(profile: LanguageProfile, path: &str) -> (Option<LanguageId>, &'stat
         LanguageProfile::JavaScript => (Some(LanguageId::JavaScript), "javascript"),
         LanguageProfile::Python => (Some(LanguageId::Python), "python"),
         LanguageProfile::Go => (None, "go"),
-        LanguageProfile::Java => (None, "java"),
+        LanguageProfile::Java => (Some(LanguageId::Java), "java"),
+        LanguageProfile::Kotlin => (Some(LanguageId::Kotlin), "kotlin"),
         LanguageProfile::CSharp => (None, "csharp"),
         LanguageProfile::Php => (None, "php"),
         LanguageProfile::C => (None, "c"),
@@ -143,6 +144,60 @@ pub fn analyse(entry: &Entry, snapshot: &RepositorySnapshot, cache: &HealthCache
         scoring,
         metric_keys,
     }
+}
+
+/// The measured language for a language name as [`FileAnalysis::language`] holds it, or for a
+/// file extension when the file is not in the index.
+pub(in crate::repository) fn language_id(name_or_path: &str) -> Option<LanguageId> {
+    let extension = name_or_path.rsplit('.').next().unwrap_or(name_or_path);
+    match (name_or_path, extension) {
+        ("rust", _) | (_, "rs") => Some(LanguageId::Rust),
+        ("typescript", _) | (_, "ts" | "tsx" | "mts" | "cts") => Some(LanguageId::TypeScript),
+        ("javascript", _) | (_, "js" | "jsx" | "mjs" | "cjs") => Some(LanguageId::JavaScript),
+        ("python", _) | (_, "py") => Some(LanguageId::Python),
+        ("java", _) | (_, "java") => Some(LanguageId::Java),
+        ("kotlin", _) | (_, "kt" | "kts") => Some(LanguageId::Kotlin),
+        _ => None,
+    }
+}
+
+/// One file measured from the disk as it is now, scored with the importers and history that
+/// `analysis` holds for it, so an agent can see whether an edit made it better or worse before
+/// anything is re-indexed. `None` when the file cannot be read or its language is not measured.
+pub(in crate::repository) fn analyse_live(
+    entry: &Entry,
+    analysis: &Analysis,
+    path: &str,
+) -> Option<FileAnalysis> {
+    let known = analysis.files.iter().find(|f| f.path == path);
+    let id = language_id(known.map_or(path, |f| f.language.as_str()))?;
+    let bytes = std::fs::read(entry.root().join(path)).ok()?;
+    if bytes.len() as u64 > MAX_BYTES {
+        return None;
+    }
+    let metrics = Arc::new(measure_file(&id, path, &bytes).ok()?);
+    let importers = known.map_or(0, |f| f.importers);
+    let repo_p80 = p80(analysis.files.iter().map(|f| f.importers).collect());
+    let test = known.map_or_else(|| is_test_file(std::path::Path::new(path)), |f| f.test);
+    let signals = known.and_then(|f| f.signals.clone());
+    let mut context = FileContext::new(path, &metrics)
+        .with_importers(importers, repo_p80)
+        .with_test(test);
+    if let (Some(s), Some(summary)) = (signals.as_ref(), analysis.summary.as_ref()) {
+        context = context.with_history(s, summary);
+    }
+    let findings = detect_file(&context, &analysis.detectors);
+    let score = score_file(&findings, &analysis.scoring);
+    Some(FileAnalysis {
+        path: path.to_owned(),
+        language: known.map_or_else(|| format!("{id:?}").to_lowercase(), |f| f.language.clone()),
+        metrics: Some(metrics),
+        findings,
+        score: Some(score),
+        signals,
+        test,
+        importers,
+    })
 }
 
 impl Entry {

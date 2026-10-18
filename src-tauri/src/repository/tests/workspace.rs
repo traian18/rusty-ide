@@ -115,6 +115,32 @@ async fn a_path_sends_the_call_to_the_repository_that_holds_it_and_the_answer_sa
 }
 
 #[tokio::test]
+async fn a_symbol_or_line_range_after_a_path_routes_by_the_path_and_keeps_the_anchor() {
+    let world = world(&["api", "web"]);
+    let symbol = world
+        .call(None, "repo_symbol", json!({"target": "web/src/a.rs::nope"}))
+        .await
+        .unwrap();
+    assert_eq!(symbol["repository"]["name"], "web");
+    assert_eq!(symbol["result"]["status"], "not_found", "{symbol}");
+    let range = world
+        .call(None, "repo_symbol", json!({"target": "web/src/a.rs:1-2"}))
+        .await
+        .unwrap();
+    assert_eq!(range["result"]["status"], "ok", "{range}");
+    let risk = world
+        .call(
+            None,
+            "repo_risk",
+            json!({"changed_files": ["api/src/a.rs"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(risk["repository"]["name"], "api");
+    assert_eq!(risk["result"]["sections"]["files"][0]["path"], "src/a.rs");
+}
+
+#[tokio::test]
 async fn an_explicit_repository_wins_and_a_qualified_page_id_names_one() {
     let world = world(&["api", "web"]);
     let output = world

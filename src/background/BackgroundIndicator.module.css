@@ -1,0 +1,68 @@
+.indicator {
+  position: relative;
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-fg-strong);
+  cursor: pointer;
+  transition: background-color var(--motion-fast);
+}
+
+.indicator:hover,
+.indicator[aria-pressed="true"] {
+  background: var(--color-interaction-hover);
+}
+
+.indicator:focus-visible {
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.ring {
+  position: absolute;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--color-border-subtle);
+  border-radius: 50%;
+  border-top-color: var(--color-primary);
+}
+
+.indicator[data-state="idle"] .ring {
+  border-color: var(--color-primary);
+}
+
+.indicator[data-state="question"] .ring {
+  border-top-color: var(--color-status-warning-solid);
+}
+
+.indicator[data-state="failed"] .ring {
+  border-color: var(--color-status-danger-solid);
+}
+
+.ring[data-spinning] {
+  animation: spin 0.9s linear infinite;
+}
+
+.count {
+  position: relative;
+  font-size: var(--font-size-ui-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ring[data-spinning] {
+    animation-duration: 3s;
+  }
+}

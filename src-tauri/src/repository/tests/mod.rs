@@ -5,11 +5,13 @@ use git2::{IndexAddOption, Repository, Signature, Time};
 use harness_workspace::dependency_groups::{GraphDirection, GroupKind, Truncation};
 
 mod agent_context;
+mod agent_tools;
 mod background;
 mod dashboard;
 mod documentation;
 mod frameworks;
 mod health;
+mod kotlin;
 mod levels;
 mod workspace;
 

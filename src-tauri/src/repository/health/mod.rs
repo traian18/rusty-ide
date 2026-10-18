@@ -3,12 +3,12 @@
 //!
 //! Parsing is the expensive part, so measurements are cached by content hash and survive
 //! refreshes; the whole report is cached per (repository snapshot, Git snapshot) pair.
-mod analyse;
+pub(in crate::repository) mod analyse;
 mod cache;
 mod detail;
 pub mod model;
 pub(super) mod prompt;
 mod remedy;
-mod report;
+pub(in crate::repository) mod report;
 
 pub use cache::HealthCache;

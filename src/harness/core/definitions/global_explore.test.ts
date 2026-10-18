@@ -76,7 +76,7 @@ describe("globalExploreDefinition", () => {
   it("recipe() routes to the host-routed backend with the explore toolset and the system prompt", () => {
     const recipe = globalExploreDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
-    expect(recipe.host_tools).toEqual([...EXPLORE_TOOLS, expect.objectContaining({ name: "repo_context" }), expect.objectContaining({ name: "repo_wiki" })]);
+    expect(recipe.host_tools).toEqual([...EXPLORE_TOOLS, expect.objectContaining({ name: "repo_context" }), ...["repo_overview", "repo_health", "repo_risk", "repo_symbol"].map((name) => expect.objectContaining({ name })), expect.objectContaining({ name: "repo_wiki" })]);
     expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("codebase exploration assistant");
     expect(recipe.system_prompt).toContain("Workspace root: /workspace");
@@ -132,7 +132,7 @@ describe("globalExploreDefinition", () => {
   it("hostTools() wires read/list_files/search_codebase/open_document from exploreTools using the run's workspaceRoot and host", () => {
     const anInput = input({ workspaceRoot: "/ws" });
     const tools = globalExploreDefinition.hostTools?.(anInput, fakeHost, { scratch: {} }, () => {});
-    expect(Object.keys(tools ?? {}).sort()).toEqual(["list_files", "open_document", "read", "repo_context", "repo_wiki", "search_codebase"]);
+    expect(Object.keys(tools ?? {}).sort()).toEqual(["list_files", "open_document", "read", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "search_codebase"]);
     expect(exploreTools.readTool).toHaveBeenCalledWith("/ws", fakeHost);
     expect(exploreTools.listFilesTool).toHaveBeenCalledWith("/ws");
     expect(exploreTools.searchCodebaseTool).toHaveBeenCalledWith("/ws");

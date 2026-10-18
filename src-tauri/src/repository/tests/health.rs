@@ -22,7 +22,7 @@ const TANGLED: &str = r#"pub fn route(a: u32, b: u32, c: bool, d: bool) -> u32 {
 }
 "#;
 
-async fn entry() -> (tempfile::TempDir, Entry) {
+pub(super) async fn entry() -> (tempfile::TempDir, Entry) {
     let dir = tempfile::tempdir().unwrap();
     write_fixture(dir.path());
     write(

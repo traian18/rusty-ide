@@ -14,7 +14,7 @@ const buttons = () => [...container.querySelectorAll("button")] as HTMLButtonEle
 
 beforeEach(() => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  useBackground.setState({ jobs: [], questions: [] });
+  useBackground.setState({ jobs: [], questions: [], open: true });
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -63,5 +63,20 @@ describe("ProcessBubble", () => {
     await act(async () => buttons().find((b) => b.textContent === "Update")!.click());
     expect(onAccept).toHaveBeenCalled();
     expect(useBackground.getState().questions).toEqual([]);
+  });
+
+  it("stays hidden until the rail indicator opens it", async () => {
+    useBackground.setState({ jobs: [job({})], open: false });
+    await act(async () => root.render(<ProcessBubble client={{ cancel: vi.fn() }} />));
+    expect(container.textContent).toBe("");
+    await act(async () => useBackground.getState().toggle());
+    expect(container.textContent).toContain("Reading the code");
+  });
+
+  it("opens by itself when a question arrives", async () => {
+    useBackground.setState({ open: false });
+    await act(async () => root.render(<ProcessBubble client={{ cancel: vi.fn() }} />));
+    await act(async () => useBackground.getState().ask({ id: "q", title: "Update documentation?", message: "2 pages", accept: "Update", onAccept: vi.fn() }));
+    expect(container.textContent).toContain("Update documentation?");
   });
 });

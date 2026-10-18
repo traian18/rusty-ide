@@ -1,7 +1,8 @@
 .container {
   position: fixed;
-  bottom: 1.5rem;
-  left: 1.5rem;
+  bottom: 0.75rem;
+  /* Beside the navigation rail, next to the indicator that toggles it. */
+  left: calc(3rem + 0.5rem);
   z-index: 1000;
   display: grid;
   gap: 0.5rem;

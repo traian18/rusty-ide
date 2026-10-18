@@ -96,7 +96,8 @@ import type { Transcript } from "../transcript";
 import { analyzeProject, formatProjectBrief } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
-import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_GUIDELINE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
+import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSection } from "./repoAgentTools";
+import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -277,6 +278,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   workflow_catalog: "- 'workflow_catalog': List the workflows and profiles this workspace can use, or read one in full (input: {} | {\"path\": \"<workflow path or id>\"} | {\"profile\": \"<profile id>\"}). Reading a saved workflow also gives the content_token an update needs.",
   repo_context: REPO_CONTEXT_GUIDE,
   repo_wiki: REPO_WIKI_GUIDE,
+  ...REPO_AGENT_GUIDES,
   report_progress: "- 'report_progress': Publish a brief progress update and the next action.",
   ask_user_question: "- 'ask_user_question': Pause for a focused user decision, optionally with selectable suggestions.",
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.",
@@ -291,7 +293,8 @@ interface ChatMode {
 /** Matches the sidecar's own `skill?.enabledTools || [defaults]` semantics
  * (see execute_node.ts's identical helper) -- an explicitly empty array is
  * NOT replaced by the default. report_progress/ask_user_question are
- * always available regardless of skill, and so is the read-only repo_context,
+ * always available regardless of skill, and so are the read-only repository tools (repo_context,
+ * repo_overview, repo_health, repo_risk, repo_symbol, repo_wiki),
  * matching the sidecar's own "Observability is always available" comment -- they're pushed after
  * the skill-filtered set, not filtered themselves.
  *
@@ -312,7 +315,7 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   if (workflowAuthorAuthorized(skill, mode)) structuralNames.push("save_workflow");
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
-  return [...structural, ...planTool, REPO_CONTEXT_TOOL, REPO_WIKI_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
+  return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
 }
 
 /** The chat shows about CHAT_RENDER_CHARS of one response; anything longer
@@ -365,7 +368,6 @@ ${longResponseGuideline(toolNames)}${mcpSection}${skillGuidance}${taskDependency
     ? "\n- Before you build, test or verify, call 'project_info' to learn what kind of project this is and which commands check it; do not guess commands. If a check fails because a dependency or tool is missing, that is an environment problem: install it first instead of editing code."
     : "";
 
-  const repoContextGuideline = toolNames.includes("repo_context") ? REPO_CONTEXT_GUIDELINE : "";
 
   const checkGuideline = toolNames.includes("run_check")
     ? "\n- To verify a build, call 'run_check' (typecheck, lint, test, build) instead of guessing commands with 'run_command'. Its result starts with PASSED or FAILED. Do not say something builds, passes or is fixed unless a check in this conversation reported PASSED after your last change; if one fails, fix the errors it lists and run it again. While you work on one failing test you can run just that test with 'test_name' or 'test_file', but run the whole test check before you finish. If it says the cause is the environment (a missing tool or uninstalled dependencies), call 'install_dependencies' and run the check again instead of editing code."
@@ -378,13 +380,13 @@ You have access to tools:
 ${toolListText}${mcpSection}
 
 Guidelines:
-${fileGuidelines}${projectGuideline}${repoContextGuideline}${checkGuideline}
+${fileGuidelines}${projectGuideline}${checkGuideline}
 - Be concise and focused. Only modify what is requested.
 - Output clean code without placeholder comments.
 - Once done, summarize the changes you made.
 - For an analysis or overview request, deliver the findings directly in chat. Only create a document file if requested or if the response is too long for the chat (below). A progress update or promise to provide an answer is not a final answer.
 ${longResponseGuideline(toolNames)}
-- When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.
+- When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.${repositoryToolsSection(toolNames)}
 `;
 
   return `${defaultSystemPrompt}${skillGuidance}${taskDependencySection}
@@ -612,6 +614,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     }
     handlers.repo_context = repoContextTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
+    for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.report_progress = reportProgressTool(onEvent);
     handlers.ask_user_question = askUserQuestionTool(host);
     for (const name of ["write_file", "edit_file", "run_command", "install_dependencies"]) {

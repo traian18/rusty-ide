@@ -9,6 +9,7 @@
 #![allow(dead_code, unused_imports)]
 
 mod agent_context;
+pub mod agent_tools;
 mod background;
 pub mod commands;
 pub mod dashboard;

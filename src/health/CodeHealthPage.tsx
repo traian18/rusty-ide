@@ -7,6 +7,7 @@ import d from "../dashboard/Dashboard.module.css";
 import type { HealthClient } from "./client";
 import { HealthDrawer } from "./HealthDrawer";
 import { HealthMap } from "./HealthMap";
+import { InfoPopover } from "./InfoPopover";
 import { BAND_LABEL, bandOf, detectorLabel, totalFindings, type Band, type HealthReport, type SeverityCounts } from "./model";
 import s from "./Health.module.css";
 
@@ -134,19 +135,21 @@ function Lede({ report, onOpen }: { report: HealthReport; onOpen(path: string): 
           </div>
         </div>
       </div>
-      <p className={s.note}>
-        Scores come from measured complexity, structure and change history, not from a linter: each file starts at 10 and loses points for what the detectors find, capped per kind so no single issue dominates. No model is used.
-        {!report.history ? " Git history was not available, so change-history issues are not included." : ""}
-      </p>
-      {report.selfCheck ? (
-        <p className={s.note} aria-label="Self-check">
-          Self-check: {report.selfCheck.fixed_among_worst} of the {report.selfCheck.examined} lowest-scoring files were bug-fixed in the last {report.selfCheck.window_days} days, against {percent(report.selfCheck.base_rate_per_mille / 1000)} of all files ({report.selfCheck.lift.toFixed(2)}× the base rate). {report.selfCheck.note}
-        </p>
-      ) : (
-        <p className={s.note} aria-label="Self-check">
-          Self-check unavailable: it needs at least 25 scored files with history and 5 of them bug-fixed.
-        </p>
-      )}
+      <div className={s.infoRow}>
+        <InfoPopover label="How scores work">
+          Scores come from measured complexity, structure and change history, not from a linter: each file starts at 10 and loses points for what the detectors find, capped per kind so no single issue dominates. No model is used.
+          {!report.history ? " Git history was not available, so change-history issues are not included." : ""}
+        </InfoPopover>
+        <InfoPopover label="Self-check">
+          {report.selfCheck ? (
+            <>
+              {report.selfCheck.fixed_among_worst} of the {report.selfCheck.examined} lowest-scoring files were bug-fixed in the last {report.selfCheck.window_days} days, against {percent(report.selfCheck.base_rate_per_mille / 1000)} of all files ({report.selfCheck.lift.toFixed(2)}× the base rate). {report.selfCheck.note}
+            </>
+          ) : (
+            "Self-check unavailable: it needs at least 25 scored files with history and 5 of them bug-fixed."
+          )}
+        </InfoPopover>
+      </div>
     </>
   );
 }

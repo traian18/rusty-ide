@@ -40,13 +40,14 @@ function JobCard({ job, onClose }: { job: Job; onClose(): void }) {
 }
 
 /**
- * Bottom-left list of what runs in the background (analysis, documentation updates) and questions
+ * Bottom-left list, beside the rail indicator that shows and hides it, of what runs in the background (analysis, documentation updates) and questions
  * waiting for an answer. Each job has its own ×: on a running job it stops it.
  */
 export function ProcessBubble({ client = backgroundClient }: { client?: Pick<BackgroundClient, "cancel"> }) {
   const jobs = useBackground((state) => state.jobs);
   const questions = useBackground((state) => state.questions);
   const answer = useBackground((state) => state.answer);
+  const open = useBackground((state) => state.open);
 
   // Finished jobs leave by themselves after a moment; failures wait to be read.
   useEffect(() => {
@@ -56,7 +57,7 @@ export function ProcessBubble({ client = backgroundClient }: { client?: Pick<Bac
     return () => clearTimeout(timer);
   }, [jobs, client]);
 
-  if (!jobs.length && !questions.length) return null;
+  if (!open || (!jobs.length && !questions.length)) return null;
   return (
     <div className={styles.container} aria-label="Background processes">
       {questions.map((question) => (

@@ -28,7 +28,7 @@ pub(super) fn count(counts: &mut SeverityCounts, severity: Severity) {
     }
 }
 
-pub(super) fn row(file: &FileAnalysis) -> HealthFileRow {
+pub(in crate::repository) fn row(file: &FileAnalysis) -> HealthFileRow {
     let mut findings = SeverityCounts::default();
     for finding in &file.findings {
         count(&mut findings, finding.severity);
