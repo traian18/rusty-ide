@@ -340,8 +340,10 @@ button.figure:hover {
   white-space: nowrap;
 }
 
+/* Grows with the window so large monitors get a larger map, leaving room
+   for the toolbar and legend; the floor keeps small windows usable. */
 .projectMap {
-  height: 36rem;
+  height: clamp(24rem, 70vh, 96rem);
 }
 
 .frame {

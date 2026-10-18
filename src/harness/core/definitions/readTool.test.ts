@@ -11,8 +11,8 @@ function recordingObserver() {
   return observer;
 }
 
-function semanticTool(invoker: SelectorModelInvoker) {
-  const host = { readFile: vi.fn(async () => SOURCE) } as unknown as RunHost;
+function semanticTool(invoker: SelectorModelInvoker, source = SOURCE) {
+  const host = { readFile: vi.fn(async () => source) } as unknown as RunHost;
   return resolveReadFileTool(
     {
       mode: "semantic",
@@ -70,5 +70,47 @@ describe("resolveReadFileTool observability", () => {
 
     expect(outcome.ok).toBe(false);
     expect(observer.executedBy).not.toHaveBeenCalled();
+  });
+});
+
+describe("resolveReadFileTool large reads", () => {
+  const BIG = Array.from({ length: 3_000 }, (_, index) => `line ${index + 1}`).join("\n");
+
+  it("trims a selection over the excerpt limit instead of refusing it, and says what was left out", async () => {
+    const invoker: SelectorModelInvoker = {
+      invoke: vi.fn(async () => JSON.stringify({ ranges: [{ startLine: 1, endLine: 2_500 }] })),
+    };
+
+    const outcome = await semanticTool(invoker, BIG).handler({ path: "big.ts", request: "everything" }, new AbortController().signal);
+
+    expect(outcome.ok).toBe(true);
+    const output = String(outcome.ok && outcome.output);
+    expect(output).toContain("[lines 1-1000]");
+    expect(output).toContain("line 1000");
+    expect(output).not.toContain("line 1001\n");
+    expect(output).toContain("not returned: lines 1001-2500");
+  });
+
+  it("returns exact lines without the selector when start_line/end_line are given", async () => {
+    const invoker: SelectorModelInvoker = { invoke: vi.fn() };
+
+    const outcome = await semanticTool(invoker, BIG).handler({ path: "big.ts", start_line: 10, end_line: 12 }, new AbortController().signal);
+
+    expect(invoker.invoke).not.toHaveBeenCalled();
+    expect(outcome).toEqual({ ok: true, output: "File: big.ts (3000 lines)\n[lines 10-12]\nline 10\nline 11\nline 12" });
+  });
+
+  it("pages a long exact range and says where to continue", async () => {
+    const outcome = await semanticTool({ invoke: vi.fn() }, BIG).handler({ path: "big.ts", start_line: 1 }, new AbortController().signal);
+
+    const output = String(outcome.ok && outcome.output);
+    expect(output).toContain("[lines 1-2000]");
+    expect(output).toContain("Continue with start_line 2001.");
+  });
+
+  it("refuses a malformed line range", async () => {
+    const outcome = await semanticTool({ invoke: vi.fn() }).handler({ path: "a.ts", start_line: 5, end_line: 2 }, new AbortController().signal);
+
+    expect(outcome.ok).toBe(false);
   });
 });

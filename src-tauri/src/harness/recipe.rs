@@ -175,6 +175,11 @@ pub struct SessionRecipe {
     /// built-in neutral profile.
     #[serde(default)]
     pub behavior_profile: Option<harness_engine::ProfileRef>,
+    /// A profile document the IDE supplies for this kind of session (the
+    /// single agent's completion gate). Used only when `behavior_profile` is
+    /// unset and the workspace names no default of its own.
+    #[serde(default)]
+    pub default_profile: Option<serde_json::Value>,
     /// Repository documentation as context: the work in progress, from the IDE. Absent or disabled
     /// means no repository context.
     #[serde(default)]
@@ -366,6 +371,17 @@ pub async fn build_session_builder(
     builder = builder.workspace_profiles(recipe.workspace.root.clone());
     if let Some(profile) = recipe.behavior_profile {
         builder = builder.profile(profile);
+    } else if let Some(document) = recipe.default_profile {
+        if !workspace_names_default_profile(&recipe.workspace.root) {
+            let profiles = harness_engine::ProfilesConfig::default();
+            match profiles.register_json(document) {
+                Ok(reference) => builder = builder.profiles(profiles).profile(reference),
+                // A bad built-in document must not stop the chat: run without it.
+                Err(error) => {
+                    eprintln!("[harness] ignoring the session's default profile: {error}")
+                }
+            }
+        }
     }
 
     // `.tools()`, not `.toolset()`: registering only what this recipe asks
@@ -410,6 +426,12 @@ pub async fn build_session_builder(
     builder = builder.tools(Arc::new(registry));
 
     Ok(builder)
+}
+
+/// Whether `<root>/.rusty/profiles/config.json` exists: that file is how a
+/// workspace names its default profile, which then wins over the IDE's.
+fn workspace_names_default_profile(root: &std::path::Path) -> bool {
+    root.join(".rusty/profiles/config.json").is_file()
 }
 
 /// Registers optional built-ins. The harness applies the execution policy
@@ -514,6 +536,44 @@ fn skills_config_from_spec(spec: SkillsSpec, workspace_root: &std::path::Path) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_single_agent_profile_is_a_valid_profile_with_a_todo_gate() {
+        let document: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../src/harness/core/definitions/singleAgentProfile.json"
+        ))
+        .unwrap();
+        let reference = harness_engine::ProfilesConfig::default()
+            .register_json(document.clone())
+            .expect("rusty-core accepts the single-agent profile");
+        assert_eq!(reference.id.as_str(), "ide.single-agent");
+        let check = &document["completion_gate"]["checks"][0];
+        assert_eq!(check["evaluator"]["tool"], "update_todos");
+        assert_eq!(check["error_policy"], "pass");
+    }
+
+    #[test]
+    fn default_profile_is_optional_and_parses_a_document() {
+        let base = serde_json::json!({ "workspace": { "root": "/tmp" }, "integration": "host" });
+        let recipe: SessionRecipe = serde_json::from_value(base.clone()).unwrap();
+        assert!(recipe.default_profile.is_none());
+        let mut with = base;
+        with["default_profile"] = serde_json::json!({ "id": "x" });
+        let recipe: SessionRecipe = serde_json::from_value(with).unwrap();
+        assert_eq!(
+            recipe.default_profile,
+            Some(serde_json::json!({ "id": "x" }))
+        );
+    }
+
+    #[test]
+    fn a_workspace_default_profile_is_found_by_its_config_file() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!workspace_names_default_profile(root.path()));
+        std::fs::create_dir_all(root.path().join(".rusty/profiles")).unwrap();
+        std::fs::write(root.path().join(".rusty/profiles/config.json"), "{}").unwrap();
+        assert!(workspace_names_default_profile(root.path()));
+    }
 
     #[test]
     fn context_compaction_defaults_to_standard_and_parses_smart() {

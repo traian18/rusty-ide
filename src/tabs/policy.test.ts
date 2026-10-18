@@ -178,6 +178,10 @@ describe("keepAlive", () => {
     expect(shouldKeepMounted(tab("agent"), domain())).toBe(true);
   });
 
+  it("keeps the Documentation tab mounted so it resumes where the user left it", () => {
+    expect(shouldKeepMounted(tab("docs", "docs"), domain())).toBe(true);
+  });
+
   it("unmounts git diffs and git history when inactive", () => {
     expect(shouldKeepMounted(tab("git-diff"), domain())).toBe(false);
     expect(shouldKeepMounted(tab("git-history"), domain())).toBe(false);

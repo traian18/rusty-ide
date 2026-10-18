@@ -105,6 +105,8 @@ import { flattenHistory } from "./promptHistory";
 import { historyBudgetChars } from "../contextCompaction";
 import { GATED_RUN_COMMAND_TOOL, gatedRunCommandTool } from "./runCommandTool";
 import { runWebSearch, type WebSearchApiKeys, type WebSearchOptions } from "./webSearch";
+import { SINGLE_AGENT_PROFILE } from "./singleAgentProfile";
+import { UPDATE_TODOS_GUIDE, UPDATE_TODOS_TOOL, chatTodoScope, openTodosReminder, stepTodoScope, updateTodosTool, type TodoLists } from "./todoTool";
 
 function asMcpServerConfigs(value: unknown): McpServerConfig[] {
   return Array.isArray(value)
@@ -232,7 +234,7 @@ const REPORT_PROGRESS_TOOL: HostToolSpec = {
     type: "object",
     properties: {
       summary: { type: "string", description: "Brief evidence-based summary of what you know and why the next step is useful." },
-      nextAction: { type: "string", description: "The next action you intend to take." },
+      nextAction: { type: "string", description: "The action you are taking right after this update, in this same turn." },
     },
     required: ["summary", "nextAction"],
   },
@@ -279,7 +281,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   repo_context: REPO_CONTEXT_GUIDE,
   repo_wiki: REPO_WIKI_GUIDE,
   ...REPO_AGENT_GUIDES,
-  report_progress: "- 'report_progress': Publish a brief progress update and the next action.",
+  report_progress: "- 'report_progress': Publish a brief progress update and the action you take next; then take it.",
+  update_todos: UPDATE_TODOS_GUIDE,
   ask_user_question: "- 'ask_user_question': Pause for a focused user decision, optionally with selectable suggestions.",
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.",
   agent_spawn: "- 'agent_spawn': Delegate a bounded, read-only investigation or review to an independent subagent; multiple calls in one turn run concurrently.",
@@ -288,6 +291,8 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
 interface ChatMode {
   planOnly: boolean;
   vfsOnly: boolean;
+  /** A workflow run: each agent step whose profile allows it keeps its own task list. */
+  workflow?: boolean;
 }
 
 /** Matches the sidecar's own `skill?.enabledTools || [defaults]` semantics
@@ -315,7 +320,8 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   if (workflowAuthorAuthorized(skill, mode)) structuralNames.push("save_workflow");
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
-  return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL];
+  const todoTool = mode.planOnly ? [] : [UPDATE_TODOS_TOOL];
+  return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
 }
 
 /** The chat shows about CHAT_RENDER_CHARS of one response; anything longer
@@ -381,7 +387,7 @@ ${toolListText}${mcpSection}
 
 Guidelines:
 ${fileGuidelines}${projectGuideline}${checkGuideline}
-- Be concise and focused. Only modify what is requested.
+- Keep changes to what the request needs; do not make unrelated changes.
 - Output clean code without placeholder comments.
 - Once done, summarize the changes you made.
 - For an analysis or overview request, deliver the findings directly in chat. Only create a document file if requested or if the response is too long for the chat (below). A progress update or promise to provide an answer is not a final answer.
@@ -390,14 +396,34 @@ ${longResponseGuideline(toolNames)}
 `;
 
   return `${defaultSystemPrompt}${skillGuidance}${taskDependencySection}
-
+${finishingSection(input, toolNames)}
 User-visible progress updates:
 - Before the first substantive action, call 'report_progress' with a concise summary of your approach and the next action.
 - Call it again whenever the evidence changes your plan or before a distinct new phase.
+- A progress update is not a stopping point: take the action it names in the same turn.
 - Base updates on concrete context and tool results. Do not reveal private chain-of-thought or hidden reasoning; keep each update to 1-3 clear sentences.
 
 Questions:
 - When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.`;
+}
+
+/** Persistence rules: a run ends at the first reply without a tool call, so
+ * the model must not stop with work left. Not for plan-only chats, which
+ * end with a plan, or workflow steps, which their workflow bounds. */
+function finishingSection(input: AgentChatInput, toolNames: string[]): string {
+  if (input.planOnly || input.workflow) return "";
+  const todos = toolNames.includes("update_todos")
+    ? `
+- When the request has two or more distinct requirements or steps, list each one with 'update_todos' before you start, including open items from earlier messages. Keep exactly one item in_progress, and mark it completed only once it is actually done (and verified, when there is a check for it). Send the whole updated list after each item.
+- Your turn cannot end while items are pending or in_progress: finish them, or cancel the ones that are no longer needed.`
+    : "";
+  return `
+Finishing the request:
+- Your turn ends as soon as you reply without calling a tool. Keep working until every part of the request is done; do not stop after the first part.
+- Never end with what you are about to do ("Next I will…"). If there is a next step, call the tool for it now.${todos}
+- Stop before everything is done only when you are blocked on a decision only the user can make (ask with 'ask_user_question'), or when the user asked only for an answer or a plan.
+- In your final message, say what was done for each requirement, and name anything not done and why.
+`;
 }
 
 /** Characters of repository documentation: about 8% of the model's window, between 1,500 and 6,000. */
@@ -536,7 +562,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (!mapped.supported) {
       throw new Error(`CoreHarness: agent_chat cannot run on core -- ${mapped.reason}`);
     }
-    const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly) };
+    const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly), workflow: Boolean(input.workflow) };
     const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : [])];
     const mcpConfigs = asMcpServerConfigs(input.mcpServers);
     const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
@@ -562,6 +588,9 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       mcp_servers: mcpServers,
       enable_web_fetch: true,
       enable_agent_spawn: true,
+      // The workspace's own default profile, when it names one, wins (see recipe.rs).
+      // Workflow steps run under their own profiles.
+      ...(!input.workflow && toolSpecs.some((spec) => spec.name === UPDATE_TODOS_TOOL.name) ? { default_profile: SINGLE_AGENT_PROFILE } : {}),
     };
   },
 
@@ -574,12 +603,12 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     return brief ? { ...recipe, system_prompt: `${recipe.system_prompt ?? ""}\n\n${brief}` } : undefined;
   },
 
-  promptText: (input) => `${flattenHistory(input.chatHistory, { budgetChars: historyBudgetChars(input.customProvider, input.model), summary: input.historySummary })}${input.message}`,
+  promptText: (input) => `${flattenHistory(input.chatHistory, { budgetChars: historyBudgetChars(input.customProvider, input.model), summary: input.historySummary })}${input.planOnly || input.workflow ? "" : openTodosReminder(input.tabId)}${input.message}`,
 
   hostTools: (input, host: RunHost, ctx, onEvent): Record<string, HostToolHandler> => {
     const modifiedFiles = (ctx.scratch.modifiedFiles ??= new Set<string>()) as Set<string>;
     const evidence = (ctx.scratch.checkEvidence ??= new CheckEvidenceLedger(() => invoke<string>("check_workspace_fingerprint", { root: input.workspaceRoot }))) as CheckEvidenceLedger;
-    const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly) };
+    const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly), workflow: Boolean(input.workflow) };
     const names = new Set(toolSpecsFor(asSkill(input.skill), mode).map((spec) => spec.name));
     const handlers: Record<string, HostToolHandler> = {};
     if (names.has("read_file")) handlers.read_file = readTool(input.workspaceRoot, host);
@@ -616,6 +645,10 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.report_progress = reportProgressTool(onEvent);
+    if (names.has(UPDATE_TODOS_TOOL.name)) {
+      const scope = input.workflow ? stepTodoScope((ctx.scratch.stepTodos ??= new Map()) as TodoLists, input.tabId) : chatTodoScope(input.tabId);
+      handlers.update_todos = updateTodosTool(scope, onEvent);
+    }
     handlers.ask_user_question = askUserQuestionTool(host);
     for (const name of ["write_file", "edit_file", "run_command", "install_dependencies"]) {
       const handler = handlers[name];

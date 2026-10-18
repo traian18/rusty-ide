@@ -275,7 +275,9 @@ export const TAB_POLICIES: TabPolicyTable = {
   "mcp-integration": singleton("mcp-integration", "MCP Integration"),
   metrics: singleton("metrics", "Token Metrics"),
   architecture: singleton("architecture", "Architecture"),
-  docs: singleton("docs", "Documentation"),
+  // Keeps the open page, its loaded repository and scroll position while the
+  // user works in another tab; reopening used to start it from scratch.
+  docs: singleton("docs", "Documentation", "always"),
   agent,
   file,
   canvas,

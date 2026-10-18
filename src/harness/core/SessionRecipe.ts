@@ -90,6 +90,9 @@ export interface SessionRecipe {
   };
   /** Behavior profile for the root agent (`.rusty/profiles/`); absent → workspace default. */
   behavior_profile?: { id: string; revision?: number };
+  /** A profile document for this kind of session, used when `behavior_profile` is
+   * absent and the workspace's `.rusty/profiles/config.json` names no default. */
+  default_profile?: Record<string, unknown>;
   /** Repository documentation as context; the host attaches the workspace's repository services. */
   repository_context?: { enabled?: boolean; active_file?: string; active_repository?: string; touched?: string[]; task?: string; max_chars?: number };
   /** An orchestration definition to run with `startWorkflow` instead of a

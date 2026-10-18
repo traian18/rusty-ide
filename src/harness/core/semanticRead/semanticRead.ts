@@ -25,7 +25,7 @@ export interface SemanticReadOptions {
 }
 
 const MAX_RANGE_COUNT = 16;
-const MAX_EXCERPT_LINES = 400;
+const MAX_EXCERPT_LINES = 1_000;
 const MAX_FILE_CHARS_FOR_SELECTOR = 180_000;
 
 const SYSTEM_PROMPT = `You select exact source-code line ranges relevant to a user request.
@@ -74,11 +74,10 @@ export interface RangeLimits {
   maxLines: number;
 }
 
-export function validateRanges(
-  value: unknown,
-  totalLines: number,
-  limits: RangeLimits = { maxRanges: MAX_RANGE_COUNT, maxLines: MAX_EXCERPT_LINES },
-): SelectedRange[] {
+/** Checks the selector's ranges, sorts them and merges overlapping or adjacent
+ * ones. With `clampToFile`, an endLine past the end of the file is pulled back
+ * instead of failing. */
+function normalizeRanges(value: unknown, totalLines: number, clampToFile: boolean): SelectedRange[] {
   if (!value || typeof value !== "object" || !Array.isArray((value as { ranges?: unknown }).ranges)) {
     throw new Error("Selector response must contain a ranges array.");
   }
@@ -95,10 +94,11 @@ export function validateRanges(
     }
     if ((startLine as number) < 1) throw new Error("Selector range startLine must be at least 1.");
     if ((endLine as number) < (startLine as number)) throw new Error("Selector range endLine must be greater than or equal to startLine.");
-    if ((endLine as number) > totalLines) throw new Error(`Selector range endLine ${endLine} exceeds file length ${totalLines}.`);
+    if ((startLine as number) > totalLines) throw new Error(`Selector range startLine ${startLine} exceeds file length ${totalLines}.`);
+    if ((endLine as number) > totalLines && !clampToFile) throw new Error(`Selector range endLine ${endLine} exceeds file length ${totalLines}.`);
     return {
       startLine: startLine as number,
-      endLine: endLine as number,
+      endLine: Math.min(endLine as number, totalLines),
       reason: typeof record.reason === "string" ? record.reason : undefined,
     };
   });
@@ -114,6 +114,15 @@ export function validateRanges(
       normalized.push({ ...range });
     }
   }
+  return normalized;
+}
+
+export function validateRanges(
+  value: unknown,
+  totalLines: number,
+  limits: RangeLimits = { maxRanges: MAX_RANGE_COUNT, maxLines: MAX_EXCERPT_LINES },
+): SelectedRange[] {
+  const normalized = normalizeRanges(value, totalLines, false);
   if (normalized.length > limits.maxRanges) {
     throw new Error(`Selector returned too many disjoint ranges after normalization; maximum is ${limits.maxRanges}.`);
   }
@@ -122,6 +131,45 @@ export function validateRanges(
     throw new Error(`Selector ranges exceed the maximum excerpt size of ${limits.maxLines} lines.`);
   }
   return normalized;
+}
+
+export interface FittedRanges {
+  ranges: SelectedRange[];
+  /** Selected lines left out to stay within the limits, in file order. */
+  omitted: SelectedRange[];
+}
+
+/**
+ * Like `validateRanges`, but a selection over the limits is trimmed rather
+ * than refused: ranges are kept in file order until the range count or line
+ * budget runs out, and what did not fit is reported in `omitted` so the caller
+ * can say where to continue.
+ */
+export function fitRanges(
+  value: unknown,
+  totalLines: number,
+  limits: RangeLimits = { maxRanges: MAX_RANGE_COUNT, maxLines: MAX_EXCERPT_LINES },
+): FittedRanges {
+  const ranges: SelectedRange[] = [];
+  const omitted: SelectedRange[] = [];
+  let budget = limits.maxLines;
+  for (const range of normalizeRanges(value, totalLines, true)) {
+    if (budget <= 0 || ranges.length >= limits.maxRanges) {
+      omitted.push(range);
+      continue;
+    }
+    const size = range.endLine - range.startLine + 1;
+    if (size <= budget) {
+      ranges.push(range);
+      budget -= size;
+      continue;
+    }
+    const cut = range.startLine + budget - 1;
+    ranges.push({ ...range, endLine: cut });
+    omitted.push({ ...range, startLine: cut + 1 });
+    budget = 0;
+  }
+  return { ranges, omitted };
 }
 
 function numberedContent(lines: string[]): string {
@@ -136,7 +184,7 @@ function buildUserPrompt(path: string, request: string, lines: string[]): string
   return `File path: ${path}\nTotal lines: ${lines.length}\nRequest: ${request}\n\nSource with line numbers:\n${truncated}`;
 }
 
-function formatExcerpts(path: string, request: string, content: string, ranges: SelectedRange[]): string {
+function formatExcerpts(path: string, request: string, content: string, ranges: SelectedRange[], omitted: SelectedRange[]): string {
   const lines = content.split(/\r?\n/);
   const parts = [
     `File: ${path}`,
@@ -146,6 +194,13 @@ function formatExcerpts(path: string, request: string, content: string, ranges: 
   for (const range of ranges) {
     const excerpt = lines.slice(range.startLine - 1, range.endLine).join("\n");
     parts.push("", `[lines ${range.startLine}-${range.endLine}]${range.reason ? ` ${range.reason}` : ""}`, excerpt);
+  }
+  if (omitted.length > 0) {
+    const spans = omitted.map((range) => `${range.startLine}-${range.endLine}`).join(", ");
+    parts.push(
+      "",
+      `[Excerpt limit of ${MAX_EXCERPT_LINES} lines reached. Also relevant but not returned: lines ${spans}. Call read_file again with start_line and end_line to read them.]`,
+    );
   }
   return parts.join("\n");
 }
@@ -190,9 +245,9 @@ export async function semanticRead(options: SemanticReadOptions): Promise<string
     });
     throw error;
   }
-  let ranges: SelectedRange[];
+  let fitted: FittedRanges;
   try {
-    ranges = validateRanges(parsed, lines.length);
+    fitted = fitRanges(parsed, lines.length);
   } catch (error: unknown) {
     trace.warn("selector range validation failed", {
       path: options.path,
@@ -204,7 +259,8 @@ export async function semanticRead(options: SemanticReadOptions): Promise<string
   }
   trace.info("selector ranges accepted", {
     path: options.path,
-    ranges: ranges.map((range) => ({ startLine: range.startLine, endLine: range.endLine, reason: range.reason })),
+    ranges: fitted.ranges.map((range) => ({ startLine: range.startLine, endLine: range.endLine, reason: range.reason })),
+    omitted: fitted.omitted.map((range) => ({ startLine: range.startLine, endLine: range.endLine })),
   });
-  return formatExcerpts(options.path, options.request, options.content, ranges);
+  return formatExcerpts(options.path, options.request, options.content, fitted.ranges, fitted.omitted);
 }

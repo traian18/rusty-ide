@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "id": "ide.single-agent",
+  "revision": 1,
+  "name": "Single agent",
+  "description": "Holds the run open while the chat's task list has unfinished items.",
+  "completion_gate": {
+    "max_continuations": 3,
+    "on_exhausted": "accept",
+    "checks": [
+      {
+        "id": "todos_done",
+        "evaluator": { "type": "tool", "tool": "update_todos" },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
+      }
+    ]
+  }
+}

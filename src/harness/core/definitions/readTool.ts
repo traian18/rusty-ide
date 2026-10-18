@@ -4,20 +4,23 @@ import type { HostToolSpec } from "../SessionRecipe";
 import type { ReadToolRunConfig } from "../readToolConfig";
 import { RoutedSelectorModelInvoker, type SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { semanticRead, smartReadTracer } from "../semanticRead/semanticRead";
+import { parseLineRange, readLineRange } from "../semanticRead/lineRange";
 import { NOOP_TOOL_EXECUTION_OBSERVER } from "../../contract/observability";
 import { READ_FILE_TOOL, readTool } from "./exploreTools";
 
 export const SEMANTIC_READ_FILE_TOOL: HostToolSpec = {
   name: "read_file",
   description:
-    "Read the relevant portions of a file needed to answer a specific question. Provide a precise request describing the symbols, behavior, dependencies, or implementation details you need. The result may be an excerpt rather than the complete file. If the result is insufficient, make another read_file request with a more specific description.",
+    "Read the relevant portions of a file needed to answer a specific question. Provide a precise request describing the symbols, behavior, dependencies, or implementation details you need. The result may be an excerpt rather than the complete file. If the result is insufficient, make another read_file request with a more specific description. To read exact lines instead (for example lines named in an earlier result, or a whole large file page by page), pass start_line and/or end_line; request is then optional.",
   input_schema: {
     type: "object",
     properties: {
       path: { type: "string", description: "The file path to inspect." },
-      request: { type: "string", description: "Precisely describe the code or information needed from this file." },
+      request: { type: "string", description: "Precisely describe the code or information needed from this file. Optional when start_line or end_line is given." },
+      start_line: { type: "integer", minimum: 1, description: "First line to return (1-based). Returns exact lines without selection." },
+      end_line: { type: "integer", minimum: 1, description: "Last line to return (inclusive). Returns exact lines without selection." },
     },
-    required: ["path", "request"],
+    required: ["path"],
     additionalProperties: false,
   },
 };
@@ -63,12 +66,18 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
   return {
     spec: SEMANTIC_READ_FILE_TOOL,
     description:
-      "Read relevant excerpts from a file. Include path and a precise request describing the symbols, behavior, dependencies, or implementation details needed. The result may be partial; ask again with a more specific request if needed.",
+      "Read relevant excerpts from a file. Include path and a precise request describing the symbols, behavior, dependencies, or implementation details needed. The result may be partial; ask again with a more specific request, or pass start_line/end_line to read exact lines.",
     handler: async (args, signal, observer = NOOP_TOOL_EXECUTION_OBSERVER) => {
       const trace = smartReadTracer(dependencies.workspaceRoot, observer);
       const parsed = args as { path?: unknown; request?: unknown } | undefined;
       const path = typeof parsed?.path === "string" ? parsed.path : "";
       const request = typeof parsed?.request === "string" ? parsed.request.trim() : "";
+      let lineRange: ReturnType<typeof parseLineRange>;
+      try {
+        lineRange = parseLineRange(args);
+      } catch (error: unknown) {
+        return { ok: false, error: formatError(error) };
+      }
       const selector = {
         providerId: selectorModel.providerId,
         modelId: selectorModel.modelId,
@@ -77,9 +86,16 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
         trace.warn("read_file rejected: missing path", { args });
         return { ok: false, error: "read_file requires a path." };
       }
+      if (path && lineRange) {
+        const fullRead = await completeHandler({ path }, signal);
+        if (!fullRead.ok) return fullRead;
+        const content = typeof fullRead.output === "string" ? fullRead.output : String(fullRead.output ?? "");
+        trace.info("read_file exact line range", { path, ...lineRange });
+        return { ok: true, output: readLineRange(path, content, lineRange) };
+      }
       if (!request) {
         trace.warn("read_file rejected: missing request", { path });
-        return { ok: false, error: "Smart read_file requires a precise request." };
+        return { ok: false, error: "Smart read_file requires a precise request, or start_line/end_line to read exact lines." };
       }
       observer.executedBy({
         kind: "model",

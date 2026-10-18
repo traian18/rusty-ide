@@ -19,6 +19,7 @@ export const PROFILE_TOOLS = [
   { id: "web_extract", label: "Extract from Web Page" },
   { id: "web_fetch", label: "Fetch Web Page" },
   { id: "report_progress", label: "Report Progress" },
+  { id: "update_todos", label: "Task List (held open until done)" },
   { id: "ask_user_question", label: "Ask User a Question" },
   { id: "agent_spawn", label: "Delegate to an Agent" },
   { id: "write_plan", label: "Write Plan (plan mode)" },

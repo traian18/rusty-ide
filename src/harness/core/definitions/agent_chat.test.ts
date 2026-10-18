@@ -145,6 +145,7 @@ describe("agentChatDefinition", () => {
       "run_check",
       "run_command",
       "search_codebase",
+      "update_todos",
       "web_search",
       "write_file",
     ]);
@@ -202,7 +203,7 @@ describe("agentChatDefinition", () => {
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
     // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "update_todos"]);
   });
 
   it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
@@ -217,7 +218,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "update_todos"]);
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
@@ -264,7 +265,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "update_todos", "web_search"]);
   });
 
   it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
@@ -371,6 +372,7 @@ describe("agentChatDefinition", () => {
       "run_check",
       "run_command",
       "search_codebase",
+      "update_todos",
       "web_search",
       "write_file",
     ]);
@@ -673,5 +675,60 @@ describe("question-shaped repository tools in the plain loop", () => {
   it("wires a handler for each offered tool", () => {
     const tools = agentChatDefinition.hostTools?.(input(), {} as never, { scratch: {} } as never, () => {});
     for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol"]) expect(Object.keys(tools ?? {})).toContain(name);
+  });
+});
+
+describe("agentChatDefinition finishing the request", () => {
+  it("offers update_todos, tells the model to keep going, and asks for the single-agent profile", () => {
+    const recipe = agentChatDefinition.recipe!(input());
+    expect(recipe.host_tools?.map((t) => t.name)).toContain("update_todos");
+    expect(recipe.system_prompt).toContain("Finishing the request:");
+    expect(recipe.system_prompt).toContain("'update_todos'");
+    expect(recipe.system_prompt).toContain("A progress update is not a stopping point");
+    expect(recipe.system_prompt).not.toContain("Only modify what is requested");
+    expect(recipe.default_profile).toMatchObject({
+      id: "ide.single-agent",
+      completion_gate: { checks: [{ evaluator: { type: "tool", tool: "update_todos" } }] },
+    });
+  });
+
+  it("leaves plan-only chats without the task list, the rules or the profile", () => {
+    const recipe = agentChatDefinition.recipe!(input({ planOnly: true }));
+    expect(recipe.host_tools?.map((t) => t.name)).not.toContain("update_todos");
+    expect(recipe.system_prompt).not.toContain("Finishing the request:");
+    expect(recipe.default_profile).toBeUndefined();
+  });
+
+  it("offers workflow steps the task list but leaves the rules and the gate to their profiles", () => {
+    const recipe = agentChatDefinition.recipe!(input({ workflow: { definition: {}, input: {} } }));
+    expect(recipe.host_tools?.map((t) => t.name)).toContain("update_todos");
+    expect(recipe.system_prompt).not.toContain("Finishing the request:");
+    expect(recipe.default_profile).toBeUndefined();
+  });
+
+  it("keeps a workflow step's list in the run, apart from the chat's", async () => {
+    const workflowInput = input({ tabId: "wf-chat", workflow: { definition: {}, input: {} } });
+    const runContext = { scratch: {} } as never;
+    const tools = agentChatDefinition.hostTools?.(workflowInput, {} as never, runContext, () => {});
+    const call = { runId: "run", sessionId: "step-session", configureExecution: async () => {} };
+    await tools!.update_todos({ todos: [{ content: "Task 1", status: "pending" }] }, new AbortController().signal, undefined, call);
+    expect(await tools!.update_todos({}, new AbortController().signal, undefined, call)).toMatchObject({ ok: false });
+    expect(agentChatDefinition.promptText!(input({ tabId: "wf-chat" }))).not.toContain("Task 1");
+  });
+
+  it("keeps the persistence rules without the task list when the skill offers no tools", () => {
+    const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
+    expect(recipe.system_prompt).toContain("Finishing the request:");
+    expect(recipe.default_profile).toBeDefined();
+  });
+
+  it("puts the chat's open items in front of the next message", async () => {
+    const tools = agentChatDefinition.hostTools?.(input({ tabId: "todo-chat" }), {} as never, { scratch: {} } as never, () => {});
+    await tools!.update_todos({ todos: [{ content: "Write tests", status: "pending" }] }, new AbortController().signal);
+    const text = agentChatDefinition.promptText!(input({ tabId: "todo-chat" }));
+    expect(text).toContain("☐ Write tests");
+    expect(text.endsWith("Add a health-check endpoint.")).toBe(true);
+    expect(agentChatDefinition.promptText!(input({ tabId: "todo-chat", planOnly: true }))).not.toContain("Write tests");
+    await tools!.update_todos({ todos: [] }, new AbortController().signal);
   });
 });
