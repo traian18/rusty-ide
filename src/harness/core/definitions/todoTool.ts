@@ -124,6 +124,7 @@ export function updateTodosTool(scope: TodoScope, onEvent: (event: CapabilityEve
     if (typeof todos === "string") return { ok: false, error: todos };
     scope.lists.set(key, todos);
     if (todos.length > 0) onEvent({ kind: "progress", content: renderTodos(todos) });
+    onEvent({ kind: "plan", todos });
     const open = todos.filter(isOpen).length;
     return { ok: true, output: open ? `Task list saved: ${open} of ${todos.length} still open.` : `Task list saved: all ${todos.length} done.` };
   };

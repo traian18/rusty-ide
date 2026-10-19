@@ -23,6 +23,8 @@ export type CommonEvent =
   | { kind: "log"; message: string }
   | { kind: "token"; content: string; messageId?: string }
   | { kind: "progress"; content: string }
+  /** The model's task list after an `update_todos` call: the whole list, in order. */
+  | { kind: "plan"; todos: { content: string; status: "pending" | "in_progress" | "completed" | "cancelled" }[] }
   | { kind: "usage"; usage: TokenUsage }
   | { kind: "subagent"; subagent: unknown }
   | { kind: "files_changed"; paths: string[] }

@@ -147,6 +147,7 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
     expect(points.map((point) => point.id)).toEqual(["chat-query-c0", "chat-query-c3"]);
     expect(points[1].getAttribute("aria-label")).toContain("Query 2");
 
+    await act(async () => container.querySelector<HTMLButtonElement>("#agent-chat-search-open")!.click());
     const search = container.querySelector<HTMLInputElement>("#agent-chat-search");
     expect(search).not.toBeNull();
     await act(async () => {
@@ -176,6 +177,7 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
     await act(async () => points[0].click());
     expect(points[0].getAttribute("aria-current")).toBe("true");
 
+    await act(async () => container.querySelector<HTMLButtonElement>("#agent-chat-search-open")!.click());
     const search = container.querySelector<HTMLInputElement>("#agent-chat-search")!;
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;

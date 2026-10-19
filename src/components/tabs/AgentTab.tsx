@@ -6,7 +6,9 @@ import { historyBudgetChars } from "../../harness/core/contextCompaction";
 import type { ContextCompactionRunConfig } from "../../harness/core/decideToolConfig";
 import { snapshotContextCompaction, snapshotFlowRouter, snapshotJevDecisionTool, snapshotJevRiskReview, snapshotStepModels } from "../../services/jevDecisionToolSnapshot";
 import { chooseFlow, type FlowCandidate, type FlowChoice } from "../../services/autoFlowSelection";
-import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, FolderGit2, FileText } from "lucide-react";
+import { PlanPanel } from "../agent/PlanPanel";
+import { clearTodos, todosFor, type Todo } from "../../harness/core/definitions/todoTool";
+import { History, Trash2, Plus, RefreshCw, PanelLeftClose, PanelLeft, CheckCircle2, Search, X, FolderGit2, FileText } from "lucide-react";
 import { useWorkspaceStore, AgentMessage, type AgentActivityEntry, type CustomProvider } from "../../store";
 import { resolveSkill, toSkillData, DEFAULT_SKILL_ID, BUILT_IN_SKILL_IDS } from "../../config/skillDefinitions";
 import { CustomSelect } from "../CustomSelect";
@@ -135,6 +137,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const [streamingLabel, setStreamingLabel] = useState("Model is thinking…");
   const [agentQuestions, setAgentQuestions] = useState<AgentQuestion[]>([]);
   const [chatSearch, setChatSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [plan, setPlan] = useState<Todo[]>(() => todosFor(tab.id));
   const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [activeQueryId, setActiveQueryId] = useState<string>();
   const [scrollTarget, setScrollTarget] = useState<{ messageId: string; token: number }>();
@@ -431,6 +435,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     resetHistorySummary();
     setActiveChatPath(null);
     setModifiedFiles([]);
+    clearTodos(tab.id);
+    setPlan([]);
     setChatWorkflow(undefined, { persist: false });
     setFlowSwitching(false, { persist: false });
     setWorkflowCheckpoint(undefined);
@@ -530,6 +536,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     chatSaveQueueRef.current = new AgentChatSaveQueue();
     resetHistorySummary();
     setModifiedFiles([]);
+    clearTodos(tab.id);
+    setPlan([]);
     setChatWorkflow(undefined, { persist: false });
     setFlowSwitching(false, { persist: false });
     lastWorkflowRunRef.current = undefined;
@@ -1064,6 +1072,9 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
               scheduleStreamingResponseFlush();
               break;
             }
+            case "plan":
+              setPlan(event.todos);
+              break;
             case "progress": {
               appendConsoleActivity(event.content, "update");
               flushConsoleBuffer();
@@ -1531,7 +1542,8 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       )}
 
       {/* Main chat column */}
-      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+      <div className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden">
+        <PlanPanel plan={plan} />
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)]/50 flex-shrink-0">
           <div className="flex items-center space-x-3">
@@ -1584,46 +1596,75 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
             {modifiedFiles.length > 0 && (
               <span className="flex items-center space-x-1.5 px-2.5 py-1 bg-[var(--color-status-success-bg)] border border-[var(--color-status-success-border)] rounded-lg text-[10px] font-mono text-[var(--color-status-success)]">
                 <CheckCircle2 size={11} />
-                <span>{modifiedFiles.length} file{modifiedFiles.length !== 1 ? "s" : ""} modified</span>
+                <span title={`${modifiedFiles.length} file${modifiedFiles.length !== 1 ? "s" : ""} modified`}>{modifiedFiles.length}</span>
               </span>
             )}
           </div>
           <div className="flex items-center space-x-2 text-[var(--text-muted)] font-mono text-[10px]">
-            <label htmlFor="agent-chat-search" className="sr-only">Search chat messages</label>
-            <input
-              id="agent-chat-search"
-              value={chatSearch}
-              onChange={(event) => setChatSearch(event.target.value)}
-              placeholder="Search chat"
-              className="w-40 rounded border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] px-2 py-1 text-xs text-[var(--color-fg-default)]"
-            />
-            <button
-              type="button"
-              id="agent-chat-search-previous"
-              aria-label="Previous chat match"
-              title="Previous chat match"
-              disabled={!chatSearch.trim() || searchMatches.length === 0}
-              onClick={() => {
-                const next = searchMatches.length ? (activeSearchIndex - 1 + searchMatches.length) % searchMatches.length : 0;
-                setActiveSearchIndex(next);
-                if (searchMatches[next]) navigateToMessage(searchMatches[next].messageId);
-              }}
-            >Prev</button>
-            <button
-              type="button"
-              id="agent-chat-search-next"
-              aria-label="Next chat match"
-              title="Next chat match"
-              disabled={!chatSearch.trim() || searchMatches.length === 0}
-              onClick={() => {
-                const next = searchMatches.length ? (activeSearchIndex + 1) % searchMatches.length : 0;
-                setActiveSearchIndex(next);
-                if (searchMatches[next]) navigateToMessage(searchMatches[next].messageId);
-              }}
-            >Next</button>
-            <span id="agent-chat-search-status" aria-live="polite">
-              {searchMatches.length} {searchMatches.length === 1 ? "match" : "matches"}
-            </span>
+            {searchOpen ? (
+              <>
+                <label htmlFor="agent-chat-search" className="sr-only">Search chat messages</label>
+                <input
+                  id="agent-chat-search"
+                  autoFocus
+                  value={chatSearch}
+                  onChange={(event) => setChatSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      setChatSearch("");
+                      setSearchOpen(false);
+                    }
+                  }}
+                  placeholder="Search chat"
+                  className="w-40 rounded border border-[var(--color-border-subtle)] bg-[var(--color-surface-app)] px-2 py-1 text-xs text-[var(--color-fg-default)]"
+                />
+                <button
+                  type="button"
+                  id="agent-chat-search-previous"
+                  aria-label="Previous chat match"
+                  title="Previous chat match"
+                  disabled={!chatSearch.trim() || searchMatches.length === 0}
+                  onClick={() => {
+                    const next = searchMatches.length ? (activeSearchIndex - 1 + searchMatches.length) % searchMatches.length : 0;
+                    setActiveSearchIndex(next);
+                    if (searchMatches[next]) navigateToMessage(searchMatches[next].messageId);
+                  }}
+                >Prev</button>
+                <button
+                  type="button"
+                  id="agent-chat-search-next"
+                  aria-label="Next chat match"
+                  title="Next chat match"
+                  disabled={!chatSearch.trim() || searchMatches.length === 0}
+                  onClick={() => {
+                    const next = searchMatches.length ? (activeSearchIndex + 1) % searchMatches.length : 0;
+                    setActiveSearchIndex(next);
+                    if (searchMatches[next]) navigateToMessage(searchMatches[next].messageId);
+                  }}
+                >Next</button>
+                <span id="agent-chat-search-status" aria-live="polite">
+                  {searchMatches.length} {searchMatches.length === 1 ? "match" : "matches"}
+                </span>
+                <button
+                  type="button"
+                  id="agent-chat-search-close"
+                  aria-label="Close chat search"
+                  title="Close search"
+                  onClick={() => {
+                    setChatSearch("");
+                    setSearchOpen(false);
+                  }}
+                ><X size={12} /></button>
+              </>
+            ) : (
+              <button
+                type="button"
+                id="agent-chat-search-open"
+                aria-label="Search chat"
+                title="Search chat"
+                onClick={() => setSearchOpen(true)}
+              ><Search size={12} /></button>
+            )}
             {runUsage && <TokenBadge usage={runUsage} live={isStreaming} />}
             {isAgentBusy && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-color)] animate-ping" />}
             <span>{isStreaming ? "Thinking" : hasActiveSubagents ? "Subagents working" : "Ready"}</span>

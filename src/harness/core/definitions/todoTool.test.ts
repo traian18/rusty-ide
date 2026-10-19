@@ -21,6 +21,7 @@ describe("update_todos", () => {
     expect(todosFor("chat-1")).toHaveLength(2);
     expect(todosFor("chat-2")).toEqual([]);
     expect(onEvent).toHaveBeenCalledWith({ kind: "progress", content: "▶ Add endpoint\n☐ Write tests" });
+    expect(onEvent).toHaveBeenCalledWith({ kind: "plan", todos: todosFor("chat-1") });
   });
 
   it("rejects malformed lists and more than one in_progress item", async () => {

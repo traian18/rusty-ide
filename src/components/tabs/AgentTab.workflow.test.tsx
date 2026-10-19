@@ -299,6 +299,7 @@ describe("Agent chat workflows", () => {
     ] } });
     await flush();
 
+    await act(async () => container.querySelector<HTMLButtonElement>("#agent-chat-search-open")!.click());
     const search = container.querySelector<HTMLInputElement>("#agent-chat-search")!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "shared");
