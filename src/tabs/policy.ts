@@ -246,6 +246,7 @@ const gitDiff: TabPolicy<"git-diff"> = {
   label: (request) => {
     const name = basename(request.path);
     if (request.diffType === "commit") return `${name} (${(request.commitHash ?? "").slice(0, 7)})`;
+    if (request.diffType === "revision") return `${name} (vs ${request.commitHash ?? ""})`;
     return `${name} (${request.diffType === "staged" ? "Index" : "Workspace"})`;
   },
   create: (request, id, ctx) => ({

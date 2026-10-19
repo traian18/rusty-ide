@@ -53,7 +53,11 @@ export type SingletonTabType =
 
 export type TabStatus = "idle" | "busy" | "error";
 
-export type DiffKind = "staged" | "unstaged" | "commit";
+/**
+ * "revision" compares the working-tree file against an arbitrary ref (branch,
+ * tag or commit) carried in `commitHash`; "commit" compares a commit to its parent.
+ */
+export type DiffKind = "staged" | "unstaged" | "commit" | "revision";
 
 interface TabBase {
   /**

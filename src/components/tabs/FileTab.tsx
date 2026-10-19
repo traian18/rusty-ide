@@ -18,6 +18,7 @@ import { UnsupportedFilePreview, formatFileSize } from "./UnsupportedFilePreview
 import { ImageFilePreview } from "./ImageFilePreview";
 import { isImageFile, getImageMimeType } from "../../services/imageFile";
 import type { TabOfType } from "../../tabs/types";
+import { CompareRevisionPicker } from "../git/CompareRevisionPicker";
 import { computeLineChanges, toGutterDecorations } from "./fileTabGitChanges";
 
 const DEFINITION_MENU_WIDTH = 360;
@@ -657,6 +658,23 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
             <History size={10} />
             <span>History</span>
           </button>
+        )}
+
+        {/* Compare with another branch/revision - only for physical disk files */}
+        {!tab.vfsTabId && fileRepoPath && (
+          <CompareRevisionPicker
+            repoPath={fileRepoPath}
+            filePath={tab.path}
+            onCompare={(revision) =>
+              openTab({
+                type: "git-diff",
+                repoPath: fileRepoPath,
+                path: tab.path,
+                diffType: "revision",
+                commitHash: revision,
+              })
+            }
+          />
         )}
 
         {/* Floating Git Blame Toggle Pill - only for physical disk files */}

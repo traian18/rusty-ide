@@ -18,8 +18,8 @@ export function buildGitDiffRequest({
   if (!repoPath.trim()) throw new Error("repoPath is required");
   if (!path.trim()) throw new Error("path is required");
 
-  if (diffType === "commit") {
-    if (!commitHash?.trim()) throw new Error("commitHash is required for commit diffs");
+  if (diffType === "commit" || diffType === "revision") {
+    if (!commitHash?.trim()) throw new Error(`commitHash is required for ${diffType} diffs`);
   } else if (commitHash !== undefined) {
     throw new Error("commitHash is only valid for commit diffs");
   }

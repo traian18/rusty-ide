@@ -8,6 +8,7 @@ import { DiffViewToggle } from "../ui/DiffViewToggle";
 import { createMonacoDiffOptions } from "../../editor/monacoOptions";
 import { gitErrorMessage } from "../git/gitErrors";
 import type { TabOfType } from "../../tabs/types";
+import { CompareRevisionPicker } from "../git/CompareRevisionPicker";
 import { loadGitDiffContent } from "./GitDiffContent";
 
 interface GitDiffTabProps {
@@ -18,6 +19,7 @@ interface GitDiffTabProps {
 export const GitDiffTab: React.FC<GitDiffTabProps> = ({ tab, isActive }) => {
   const editorFontSize = useWorkspaceStore((state) => state.typographyPreferences.editorFontSize);
   const revealFileInTree = useWorkspaceStore((state) => state.revealFileInTree);
+  const openTab = useWorkspaceStore((state) => state.openTab);
 
   const [gitOriginalCode, setGitOriginalCode] = useState("");
   const [gitModifiedCode, setGitModifiedCode] = useState("");
@@ -83,6 +85,19 @@ export const GitDiffTab: React.FC<GitDiffTabProps> = ({ tab, isActive }) => {
           </span>
         </div>
         <div className="flex items-center space-x-2">
+          <CompareRevisionPicker
+            repoPath={tab.repoPath}
+            filePath={tab.path}
+            onCompare={(revision) =>
+              openTab({
+                type: "git-diff",
+                repoPath: tab.repoPath,
+                path: tab.path,
+                diffType: "revision",
+                commitHash: revision,
+              })
+            }
+          />
           <button
             onClick={() => revealFileInTree(tab.path)}
             className="bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)] p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1"

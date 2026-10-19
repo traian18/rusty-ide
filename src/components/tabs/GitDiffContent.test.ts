@@ -16,6 +16,21 @@ function mockedInvoke(values: Record<string, string>) {
 describe("loadGitDiffContent", () => {
   const tab = { repoPath: "/repo", path: "/repo/src/file.ts" };
 
+  it("loads a revision diff as the file at that ref versus the working tree", async () => {
+    const { calls, invokeCommand } = mockedInvoke({
+      git_get_file_content_at_rev: "at ref",
+      read_file_disk: "working tree version",
+    });
+
+    await expect(
+      loadGitDiffContent({ ...tab, diffType: "revision", commitHash: "origin/main" }, invokeCommand),
+    ).resolves.toEqual({ original: "at ref", modified: "working tree version" });
+    expect(calls).toEqual([
+      ["git_get_file_content_at_rev", { rootDir: "/repo", revision: "origin/main", filePath: "/repo/src/file.ts" }],
+      ["read_file_disk", { path: "/repo/src/file.ts" }],
+    ]);
+  });
+
   it("loads tracked unstaged content from the index and working tree disk", async () => {
     const { calls, invokeCommand } = mockedInvoke({
       git_get_index_content: "indexed version",

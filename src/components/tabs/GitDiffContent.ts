@@ -37,6 +37,22 @@ export async function loadGitDiffContent(
     };
   }
 
+  if (tab.diffType === "revision") {
+    const revision = tab.commitHash;
+    if (!revision?.trim()) {
+      throw new Error("commitHash is required for revision diffs");
+    }
+
+    return {
+      original: await invokeCommand<string>("git_get_file_content_at_rev", {
+        rootDir: tab.repoPath,
+        revision,
+        filePath: tab.path,
+      }),
+      modified: await invokeCommand<string>("read_file_disk", { path: tab.path }),
+    };
+  }
+
   if (tab.diffType === "staged") {
     return {
       original: await invokeCommand<string>("git_get_head_content", {
