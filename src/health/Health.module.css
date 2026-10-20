@@ -307,3 +307,43 @@ button.read {
   font-size: var(--font-size-ui-sm);
   line-height: 1.45;
 }
+
+.trend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-radius: 8px;
+}
+
+.trendHead,
+.trendReads,
+.trendMovers,
+.trendBuild {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+}
+
+.trendHead {
+  justify-content: space-between;
+}
+
+.sparkline {
+  width: 100%;
+  max-width: 320px;
+  height: 48px;
+  color: var(--accent, currentColor);
+}
+
+.mover {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

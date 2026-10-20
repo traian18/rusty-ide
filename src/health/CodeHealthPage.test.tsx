@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CodeHealthPage } from "./CodeHealthPage";
-import { fakeHealthClient, report } from "./health.testing";
+import { fakeHealthClient, report, trend } from "./health.testing";
 import { bandOf } from "./model";
 
 let container: HTMLDivElement;
@@ -116,5 +116,27 @@ describe("CodeHealthPage", () => {
     await act(async () => files[0].dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await settle();
     expect(container.querySelector("aside")).not.toBeNull();
+  });
+
+  it("shows the trend, names what fell, and offers to build history when there is little", async () => {
+    await mount();
+    const card = container.querySelector('[aria-label="Trend"]') as HTMLElement;
+    expect(card.textContent).toContain("3 points");
+    expect(card.textContent).toContain("maintainability 7.3 (improving)");
+    expect(card.textContent).toContain("since last: +0.9");
+    expect(card.querySelector("polyline")).toBeTruthy();
+    expect(card.textContent).toContain("src/tangled.rs 6.1 → 4.9");
+    // Two rebuilt points is still little history, so the card offers to build more.
+    expect(byText("Build history")).toBeTruthy();
+    const rich = fakeHealthClient({ trend: vi.fn(async () => ({ ...trend(), backfilled: 5 })) });
+    await act(async () => root.render(<CodeHealthPage client={rich} root="/r1" revision={1} openFile={vi.fn()} />));
+    await settle();
+    expect(byText("Build history")).toBeUndefined();
+    const sparse = { ...trend(), points: trend().points.slice(2), backfilled: 0 };
+    const client = fakeHealthClient({ trend: vi.fn(async () => sparse) });
+    await act(async () => root.render(<CodeHealthPage client={client} root="/r2" revision={1} openFile={vi.fn()} />));
+    await settle();
+    await click(byText("Build history"));
+    expect(client.buildHistory).toHaveBeenCalledWith("/r2");
   });
 });

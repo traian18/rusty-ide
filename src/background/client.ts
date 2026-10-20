@@ -1,7 +1,7 @@
 /** The host's background jobs: the list, progress and cancel, plus the documentation work queue. */
 import { invoke } from "@tauri-apps/api/core";
 
-export type JobKind = "analysis" | "documentation";
+export type JobKind = "analysis" | "documentation" | "history";
 export type JobState = "running" | "finished" | "failed" | "cancelled";
 
 export interface Job {

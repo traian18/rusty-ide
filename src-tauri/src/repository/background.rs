@@ -103,6 +103,48 @@ impl RepositoryState {
         }
     }
 
+    /// Re-scores past commits for the health trend, as a job the process bubble can stop.
+    /// Returns the job's id; one history job runs per repository at a time.
+    pub fn start_history(&self, entry: Arc<Entry>, points: usize) -> Option<u64> {
+        let root = entry.root().display().to_string();
+        if self.jobs().running(JobKind::History, &root) {
+            return None;
+        }
+        let label = format!("Building health history of {}", name_of(entry.root()));
+        let (id, token) = self.jobs().start(JobKind::History, &root, &label);
+        let state = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let progress = state.clone();
+            let worker = entry.clone();
+            let stop = token.clone();
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                worker.build_history(points, &stop, &|done, total, commit| {
+                    progress.jobs().progress(
+                        id,
+                        Some(done),
+                        Some(total),
+                        Some(&format!("Scoring {commit}")),
+                    );
+                })
+            })
+            .await;
+            match result {
+                _ if token.is_cancelled() => {}
+                Ok(Ok(_)) => {
+                    state.jobs().finish(id, JobState::Finished, None);
+                    state.jobs().tell(Notice::AnalysisUpdated(root));
+                }
+                Ok(Err(error)) => state
+                    .jobs()
+                    .finish(id, JobState::Failed, Some(&error.message)),
+                Err(error) => state
+                    .jobs()
+                    .finish(id, JobState::Failed, Some(&error.to_string())),
+            }
+        });
+        Some(id)
+    }
+
     /// One analysis, as a job: rebuild the index (and Git history and findings), then code health
     /// for the files that changed, then save. Stopping the job stops the rebuild; unfinished work
     /// stays listed for next time.
@@ -160,9 +202,12 @@ impl RepositoryState {
             .progress(id, Some(1), Some(2), Some("Checking code health"));
         entry.health.invalidate();
         let worker = entry.clone();
-        let health =
-            tauri::async_runtime::spawn_blocking(move || worker.health_analysis().map(|_| ()))
-                .await;
+        let health = tauri::async_runtime::spawn_blocking(move || {
+            worker.health_analysis().map(|analysis| {
+                worker.record_trend(&analysis, &worker.trend_key());
+            })
+        })
+        .await;
         stopper.abort();
         if token.is_cancelled() {
             return Ok(());

@@ -1,7 +1,7 @@
 import { vi } from "vitest";
 
 import type { HealthClient } from "./client";
-import type { HealthFileDetail, HealthReport } from "./model";
+import type { HealthFileDetail, HealthReport, TrendView } from "./model";
 
 const counts = (medium = 0, high = 0) => ({ critical: 0, high, medium, low: 0 });
 
@@ -90,11 +90,25 @@ export const detail = (): HealthFileDetail => ({
   target: 8,
 });
 
+export const trend = (): TrendView => ({
+  points: [
+    { at_ms: 1_000, commit: "a1", backfilled: true, digest: "d", score: 6, structure_score: 6.5, maintainability: 7.0, findings: 20, severities: { critical: 0, high: 2, medium: 8, low: 10 }, scored_files: 30, nloc: 3000, top_detectors: [["large_method", 6]], regressions: [], improvements: [] },
+    { at_ms: 2_000, commit: "b2", backfilled: true, digest: "d", score: 5.5, structure_score: 6, maintainability: 6.4, findings: 26, severities: { critical: 0, high: 4, medium: 10, low: 12 }, scored_files: 32, nloc: 3400, top_detectors: [["large_method", 9]], regressions: [], improvements: [] },
+    { at_ms: 3_000, commit: "now", backfilled: false, digest: "d", score: 6.4, structure_score: 6.9, maintainability: 7.3, findings: 18, severities: { critical: 0, high: 1, medium: 7, low: 10 }, scored_files: 33, nloc: 3500, top_detectors: [["large_method", 5]], regressions: [{ path: "src/tangled.rs", from: 6.1, to: 4.9 }], improvements: [{ path: "src/ok.rs", from: 6, to: 8 }] },
+  ],
+  direction: "improving",
+  changeSincePrevious: 0.9,
+  change30Days: 0.3,
+  backfilled: 2,
+});
+
 export function fakeHealthClient(overrides: Partial<HealthClient> = {}) {
   return {
     report: vi.fn(async () => report()),
     file: vi.fn(async () => detail()),
     prompt: vi.fn(async (_root: string, path: string, finding?: string) => `## Target\n${path} ${finding ?? "all"}`),
+    trend: vi.fn(async () => trend()),
+    buildHistory: vi.fn(async () => 1 as number | null),
     ...overrides,
-  } as HealthClient & Record<"report" | "file" | "prompt", ReturnType<typeof vi.fn>>;
+  } as HealthClient & Record<"report" | "file" | "prompt" | "trend" | "buildHistory", ReturnType<typeof vi.fn>>;
 }

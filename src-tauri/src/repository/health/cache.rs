@@ -4,6 +4,7 @@ use std::{
 };
 
 use harness_code_analysis::metrics::FileMetrics;
+use harness_code_health::trend::TrendSeries;
 
 use super::analyse::Analysis;
 
@@ -17,6 +18,10 @@ pub struct HealthCache {
     metrics: Mutex<HashMap<String, Arc<FileMetrics>>>,
     /// The last analysis and the snapshots it was computed from.
     analysis: Mutex<Option<(String, Arc<Analysis>)>>,
+    /// The score trend, loaded from disk and added to after each analysis.
+    trend: Mutex<TrendSeries>,
+    /// Key of the analysis last recorded in the trend.
+    recorded: Mutex<String>,
 }
 
 impl HealthCache {
@@ -47,6 +52,37 @@ impl HealthCache {
         if let Err(error) = crate::repository::storage::write_json(path, &kept) {
             eprintln!("Rust [repository storage] could not save code health: {error}");
         }
+    }
+
+    pub fn load_trend(&self, path: &std::path::Path) {
+        if let Some(saved) = crate::repository::storage::read_json::<TrendSeries>(path) {
+            *self.trend.lock().unwrap_or_else(|e| e.into_inner()) = saved;
+        }
+    }
+
+    pub fn save_trend(&self, path: &std::path::Path) {
+        let series = self.trend();
+        if let Err(error) = crate::repository::storage::write_json(path, &series) {
+            eprintln!("Rust [repository storage] could not save the health trend: {error}");
+        }
+    }
+
+    pub fn trend(&self) -> TrendSeries {
+        self.trend.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub(super) fn update_trend(&self, change: impl FnOnce(&mut TrendSeries)) {
+        change(&mut self.trend.lock().unwrap_or_else(|e| e.into_inner()));
+    }
+
+    /// True once per analysis key, so opening the page twice records one point.
+    pub(super) fn should_record(&self, key: &str) -> bool {
+        let mut recorded = self.recorded.lock().unwrap_or_else(|e| e.into_inner());
+        if *recorded == key {
+            return false;
+        }
+        *recorded = key.to_owned();
+        true
     }
 
     /// Forgets the last analysis so the next request rebuilds it.

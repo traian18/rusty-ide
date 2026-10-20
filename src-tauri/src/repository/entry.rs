@@ -139,6 +139,7 @@ impl Entry {
         let health = super::health::HealthCache::default();
         if let Some(storage) = &storage {
             health.load(&storage.health_path());
+            health.load_trend(&storage.trend_path());
         }
         let findings: Arc<dyn FindingsAnalysis> = Arc::new(FindingsService::new(
             graph.clone(),

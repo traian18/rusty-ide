@@ -6,9 +6,12 @@
 pub(in crate::repository) mod analyse;
 mod cache;
 mod detail;
+mod infra;
 pub mod model;
 pub(super) mod prompt;
 mod remedy;
 pub(in crate::repository) mod report;
+mod tests_link;
+pub mod trend;
 
 pub use cache::HealthCache;

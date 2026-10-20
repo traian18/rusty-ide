@@ -18,6 +18,8 @@ const KEEP_FINISHED: usize = 8;
 pub enum JobKind {
     Analysis,
     Documentation,
+    /// Re-scoring past commits for the health trend.
+    History,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]

@@ -454,6 +454,30 @@ pub async fn repository_code_health(
     off_ui(move || entry.code_health()).await
 }
 
+/// The score trend: points over time, the direction, and what moved.
+#[tauri::command]
+pub async fn repository_health_trend(
+    state: State<'_, RepositoryState>,
+    root: String,
+) -> Result<super::health::trend::TrendView, RepositoryError> {
+    let entry = state.entry(&root)?;
+    off_ui(move || entry.code_health_trend()).await
+}
+
+/// Starts re-scoring past commits for the trend; the job shows in the process bubble. Returns its
+/// id, or nothing when one is already running.
+#[tauri::command]
+pub fn repository_health_build_history(
+    state: State<'_, RepositoryState>,
+    root: String,
+    points: Option<usize>,
+) -> Result<Option<u64>, RepositoryError> {
+    let entry = state.entry(&root)?;
+    Ok(state
+        .inner()
+        .start_history(entry, points.unwrap_or(30).clamp(5, 60)))
+}
+
 /// One file's code health for the drawer.
 #[tauri::command]
 pub async fn repository_code_health_file(

@@ -50,7 +50,7 @@ pub(in crate::repository) fn row(file: &FileAnalysis) -> HealthFileRow {
     HealthFileRow {
         path: file.path.clone(),
         language: file.language.clone(),
-        nloc: file.metrics.as_ref().map_or(0, |m| m.nloc),
+        nloc: file.nloc,
         test: file.test,
         hotspot: file.signals.as_ref().is_some_and(|s| s.hotspot),
         defect: file.score.as_ref().map(|s| s.defect.score),
@@ -63,10 +63,10 @@ pub(in crate::repository) fn row(file: &FileAnalysis) -> HealthFileRow {
     }
 }
 
-pub(super) fn file_health(file: &FileAnalysis) -> FileHealth {
+pub(in crate::repository) fn file_health(file: &FileAnalysis) -> FileHealth {
     FileHealth {
         path: file.path.clone(),
-        nloc: file.metrics.as_ref().map_or(0, |m| m.nloc),
+        nloc: file.nloc,
         test: file.test,
         hotspot: file.signals.as_ref().is_some_and(|s| s.hotspot),
         score: file.score.clone(),
@@ -129,7 +129,7 @@ impl Entry {
         let mut languages: Vec<String> = analysis
             .files
             .iter()
-            .filter(|f| f.metrics.is_some())
+            .filter(|f| f.score.is_some())
             .map(|f| f.language.clone())
             .collect();
         languages.sort();

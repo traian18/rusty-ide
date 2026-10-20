@@ -124,8 +124,7 @@ fn dashboard(
             r.file_count - r.unanalysed_count,
             r.file_count
         ),
-        None => "no file of a measured language (Rust, TypeScript, JavaScript, Python) was scored"
-            .to_owned(),
+        None => "no file of a measured language or infrastructure kind was scored".to_owned(),
     };
     let mut envelope = Envelope::new("ok", summary)
         .section("repository", json!({
@@ -133,6 +132,7 @@ fn dashboard(
             "hotspot_health": r.hotspot_health.map(round), "hotspots": r.hotspot_count,
             "history_included": report.history, "languages": report.languages_measured,
         }))
+        .section("trend", trend(entry))
         .section("fix_first", json!(fix_first))
         .section(
             "change_history",
@@ -165,7 +165,7 @@ fn targets(entry: &Entry, analysis: &Analysis, paths: &[String]) -> Envelope {
         let indexed = analysis.files.iter().find(|f| &f.path == path);
         let Some(live) = analyse_live(entry, analysis, path) else {
             rows.push(json!({"path": path, "status": if std::path::Path::new(&entry.root().join(path)).is_file() { "unsupported" } else { "not_found" },
-                "note": "health is measured for Rust, TypeScript, JavaScript and Python files that exist"}));
+                "note": "health is measured for source files of the supported languages and for infrastructure files (Terraform, Terragrunt, CI pipelines, Dockerfiles, Kubernetes, Compose, Ansible, shell, Makefiles) that exist"}));
             continue;
         };
         let now = row(&live);
@@ -256,6 +256,27 @@ fn finding(entry: &Entry, analysis: &Analysis, id: &str) -> Result<Envelope, Rep
         json!({"targets": [file.path]}),
         "after the edit, check the file is better",
     )))
+}
+
+/// Whether maintainability is rising or falling, and which files moved at the last analysis, so an
+/// agent can tell whether the change it just made helped.
+fn trend(entry: &Entry) -> Value {
+    let Ok(view) = entry.code_health_trend() else {
+        return Value::Null;
+    };
+    if view.points.len() < 2 {
+        return Value::Null;
+    }
+    let recorded = view.points.iter().rev().find(|p| !p.backfilled);
+    json!({
+        "maintainability": view.points.last().and_then(|p| p.maintainability).map(round),
+        "direction": view.direction,
+        "since_previous": view.change_since_previous,
+        "since_30_days": view.change_30_days,
+        "points": view.points.len(),
+        "fell_since_last_analysis": recorded.map(|p| p.regressions.iter().take(5).map(|m| json!({"path": m.path, "from": m.from, "to": m.to})).collect::<Vec<_>>()),
+        "rose_since_last_analysis": recorded.map(|p| p.improvements.iter().take(3).map(|m| json!({"path": m.path, "from": m.from, "to": m.to})).collect::<Vec<_>>()),
+    })
 }
 
 pub fn run(entry: &Entry, arguments: Value) -> Result<Value, RepositoryError> {

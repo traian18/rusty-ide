@@ -1,4 +1,6 @@
 //! Code health through the host: the fixture repository plus one tangled file.
+use std::path::Path;
+
 use super::{commit_history, write, write_fixture, Entry};
 
 const TANGLED: &str = r#"pub fn route(a: u32, b: u32, c: bool, d: bool) -> u32 {
@@ -147,5 +149,86 @@ async fn the_drawer_and_the_fix_prompt() {
             .unwrap_err()
             .code,
         "not_found"
+    );
+}
+
+/// Calibration by hand: scores a real repository and shows what the detectors found, to judge
+/// new detectors and weights against the self-check.
+/// `MEASURE_ROOT=/path cargo test --lib calibrate_on -- --ignored --nocapture`.
+#[tokio::test]
+#[ignore = "measures a real repository; run by hand"]
+async fn calibrate_on_a_real_repository() {
+    let root = std::env::var("MEASURE_ROOT").unwrap_or_else(|_| {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../rusty-core")
+            .display()
+            .to_string()
+    });
+    let entry = Entry::new(&std::path::PathBuf::from(root).canonicalize().unwrap()).unwrap();
+    entry.refresh(true).await.unwrap();
+    let started = std::time::Instant::now();
+    let report = entry.code_health().unwrap();
+    println!("health: {:?}", started.elapsed());
+    let r = &report.repository;
+    println!(
+        "score {:?} maintainability {:?} structure {:?} history {:?} files {} findings {}",
+        r.average,
+        r.maintainability_average,
+        r.structure_average,
+        r.history_average,
+        r.file_count,
+        report.findings
+    );
+    for d in &report.detectors {
+        println!(
+            "{:28} {:4} files  {:?}",
+            d.id,
+            d.files,
+            (
+                d.findings.critical,
+                d.findings.high,
+                d.findings.medium,
+                d.findings.low
+            )
+        );
+    }
+    for id in [
+        "duplicated_code",
+        "test_without_assertions",
+        "swallowed_error",
+        "panic_prone",
+        "untested_code",
+        "skipped_tests",
+    ] {
+        let Some(d) = report.detectors.iter().find(|d| d.id == id) else {
+            continue;
+        };
+        println!("--- {id}");
+        for path in d.examples.iter().take(4) {
+            let detail = entry.code_health_file(path).unwrap();
+            for f in detail
+                .findings
+                .iter()
+                .filter(|f| f.finding.detector == id)
+                .take(2)
+            {
+                println!("  {path}:{} {}", f.finding.start_line, f.finding.reason);
+            }
+        }
+    }
+    match &report.self_check {
+        Some(s) => println!(
+            "self-check: {} of {} worst files were fixed ({:.2}x base rate)",
+            s.fixed_among_worst, s.examined, s.lift
+        ),
+        None => println!("self-check unavailable"),
+    }
+    let started = std::time::Instant::now();
+    let trend = entry.code_health_trend().unwrap();
+    println!(
+        "trend: {} points {:?} in {:?}",
+        trend.points.len(),
+        trend.direction,
+        started.elapsed()
     );
 }

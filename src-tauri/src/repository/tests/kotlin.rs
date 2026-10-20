@@ -99,7 +99,10 @@ async fn a_kotlin_project_indexes_with_resolved_imports_and_its_language() {
         })
         .unwrap();
     assert_eq!(
-        rows.rows.iter().map(|r| r.path.as_str()).collect::<Vec<_>>(),
+        rows.rows
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
         [
             "src/main/kotlin/com/acme/app/Service.kt",
             "src/main/kotlin/com/acme/model/User.kt",

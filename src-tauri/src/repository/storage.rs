@@ -184,6 +184,10 @@ impl Storage {
         self.dir.join("health.json")
     }
 
+    pub fn trend_path(&self) -> PathBuf {
+        self.dir.join("trend.json")
+    }
+
     fn pending_path(&self) -> PathBuf {
         self.dir.join("pending.json")
     }

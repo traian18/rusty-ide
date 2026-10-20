@@ -113,6 +113,38 @@ fn health(entry: &Entry) -> Value {
     })
 }
 
+/// Infrastructure files by kind, what relates them, and where their findings concentrate.
+fn infrastructure(entry: &Entry) -> Value {
+    let Ok(analysis) = entry.health_analysis() else {
+        return Value::Null;
+    };
+    let mut kinds: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    let mut rules: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    let mut security = 0;
+    for file in &analysis.files {
+        if harness_infra_analysis::InfraKind::from_name(&file.language).is_none() {
+            continue;
+        }
+        *kinds.entry(file.language.as_str()).or_default() += 1;
+        for finding in &file.findings {
+            *rules.entry(finding.detector.as_str()).or_default() += 1;
+            security += usize::from(finding.category == harness_code_health::Category::Security);
+        }
+    }
+    if kinds.is_empty() {
+        return Value::Null;
+    }
+    let mut top: Vec<(&str, usize)> = rules.into_iter().collect();
+    top.sort_by_key(|(rule, count)| (std::cmp::Reverse(*count), *rule));
+    json!({
+        "files_by_kind": kinds,
+        "relations": analysis.infra.graph.overview(),
+        "security_findings": security,
+        "most_common_findings": top.iter().take(5).map(|(rule, count)| json!({"rule": rule, "count": count})).collect::<Vec<_>>(),
+        "how": "repo_health lists them; repo_context health on a file gives its findings",
+    })
+}
+
 fn git(entry: &Entry) -> Value {
     let Some(git) = entry.git.current() else {
         return Value::Null;
@@ -204,6 +236,7 @@ pub fn run(
         .section("structure", packages(entry))
         .section("map", map_of(orient))
         .section("code_health", health(entry))
+        .section("infrastructure", infrastructure(entry))
         .section("history", git(entry));
     if let Some(view) = written(entry, GETTING_STARTED) {
         envelope = envelope.section(

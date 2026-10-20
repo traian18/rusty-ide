@@ -8,6 +8,7 @@ import type { HealthClient } from "./client";
 import { HealthDrawer } from "./HealthDrawer";
 import { HealthMap } from "./HealthMap";
 import { InfoPopover } from "./InfoPopover";
+import { TrendCard } from "./TrendCard";
 import { BAND_LABEL, bandOf, detectorLabel, totalFindings, type Band, type HealthReport, type SeverityCounts } from "./model";
 import s from "./Health.module.css";
 
@@ -73,6 +74,7 @@ export function CodeHealthPage({ client, root, revision, openFile }: CodeHealthP
         <article aria-label="Code health">
           <Lede report={report} onOpen={setSelected} />
           <Distribution report={report} />
+          <TrendCard client={client} root={root} revision={revision} onOpen={setSelected} />
           <div className={s.tabs} role="tablist">
             {(["files", "issues", "folders", "map"] as Tab[]).map((t) => (
               <button key={t} type="button" role="tab" aria-selected={tab === t} className={s.tab} onClick={() => setTab(t)}>

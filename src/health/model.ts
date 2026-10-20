@@ -1,7 +1,7 @@
 /** Code health as the host returns it: core types keep snake_case, host rows are camelCase. */
 export type Band = "excellent" | "good" | "fair" | "needs_work" | "at_risk";
 export type Severity = "low" | "medium" | "high" | "critical";
-export type Category = "structural_complexity" | "size_and_complexity" | "duplication" | "test_coverage" | "organizational" | "error_handling" | "test_quality";
+export type Category = "structural_complexity" | "size_and_complexity" | "duplication" | "test_coverage" | "organizational" | "error_handling" | "test_quality" | "infrastructure" | "security";
 
 export interface SeverityCounts {
   critical: number;
@@ -161,6 +161,8 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   organizational: "Change history",
   error_handling: "Error handling",
   test_quality: "Test quality",
+  infrastructure: "Infrastructure",
+  security: "Security",
 };
 
 /** Same cut-offs as the core: absolute, so a score means the same in every repository. */
@@ -174,3 +176,29 @@ export function bandOf(score: number): Band {
 
 export const detectorLabel = (id: string) => id.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 export const totalFindings = (c: SeverityCounts) => c.critical + c.high + c.medium + c.low;
+
+/** One point of the score trend, as the core records it (snake_case). */
+export interface TrendPoint {
+  at_ms: number;
+  commit: string | null;
+  backfilled: boolean;
+  digest: string;
+  score: number | null;
+  structure_score: number | null;
+  maintainability: number | null;
+  findings: number;
+  severities: { critical: number; high: number; medium: number; low: number };
+  scored_files: number;
+  nloc: number;
+  top_detectors: [string, number][];
+  regressions: { path: string; from: number; to: number }[];
+  improvements: { path: string; from: number; to: number }[];
+}
+
+export interface TrendView {
+  points: TrendPoint[];
+  direction: "improving" | "declining" | "steady" | "unknown";
+  changeSincePrevious: number | null;
+  change30Days: number | null;
+  backfilled: number;
+}

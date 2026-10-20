@@ -65,7 +65,7 @@ export const REPO_RISK_TOOL: HostToolSpec = {
 export const REPO_SYMBOL_TOOL: HostToolSpec = {
   name: "repo_symbol",
   description:
-    "The body of one function, method or class, line-numbered, read from the file on disk now: target 'path::Name' or 'path::Type.method'; or a line range 'path:120-180' (at most 200 lines). Use it instead of reading a whole file when you need one symbol; the answer marks it complete, so do not read it again. An ambiguous or unknown name returns the candidates. depth 2 adds the bodies of same-file functions it calls. Symbols are found for Rust, TypeScript, JavaScript and Python; use a line range for other languages.",
+    "The body of one function, method or class, line-numbered, read from the file on disk now: target 'path::Name' or 'path::Type.method'; or a line range 'path:120-180' (at most 200 lines). Use it instead of reading a whole file when you need one symbol; the answer marks it complete, so do not read it again. An ambiguous or unknown name returns the candidates. depth 2 adds the bodies of same-file functions it calls. Symbols are found for Rust, TypeScript, JavaScript, Python, Java, Kotlin, C#, Go, PHP, C++ and Ruby; use a line range for other files.",
   input_schema: {
     type: "object",
     properties: {

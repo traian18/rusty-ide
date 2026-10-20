@@ -1528,6 +1528,8 @@ pub fn run() {
             repository::commands::repository_dashboard_prompt,
             repository::commands::repository_code_health,
             repository::commands::repository_code_health_file,
+            repository::commands::repository_health_trend,
+            repository::commands::repository_health_build_history,
             repository::commands::repository_code_health_prompt,
             repository::commands::repository_jobs,
             repository::commands::repository_job_cancel,
