@@ -250,6 +250,20 @@ export function getAvailablePresets(includeAdvanced = false): PresetMetadata[] {
 }
 
 /**
+ * Presets offered when connecting a new service, in menu order: every preset
+ * except 'advanced'. Adding a preset to PRESETS means adding it here too.
+ */
+export const CONNECT_SERVICE_PRESET_IDS: readonly PresetId[] = [
+  'openai-compatible',
+  'ollama',
+  'vllm',
+  'openrouter',
+  'opencode-zen',
+  'openai',
+  'mistral',
+];
+
+/**
  * Check if a preset allows direct browser execution.
  */
 export function isPresetDirectExecutionAvailable(presetId: PresetId): boolean {

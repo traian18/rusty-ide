@@ -10,7 +10,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use super::managed_quota::{binary_or_error, Framing, RpcChild, RPC_TIMEOUT};
+use super::managed_rpc::{binary_or_error, Framing, RpcChild, RPC_TIMEOUT};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]

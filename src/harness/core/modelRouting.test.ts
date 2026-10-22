@@ -126,6 +126,19 @@ describe("resolveProviderRoute", () => {
     expect(resolveProviderRoute(provider, "some-other-provider/some-model")).toBeUndefined();
   });
 
+  it("passes Custom Headers through as extra_headers, dropping reserved and blank names", () => {
+    const provider = opencodeProvider({
+      headers: [
+        { name: "X-Custom", value: "one" },
+        { name: "Authorization", value: "Bearer nope" },
+        { name: "  ", value: "blank" },
+      ],
+    });
+    for (const model of ["opencode/claude-sonnet-4-5", "opencode/gpt-5.1", "opencode/big-pickle"]) {
+      expect(resolveProviderRoute(provider, model)?.integration_config.extra_headers).toEqual({ "X-Custom": "one" });
+    }
+  });
+
   it("returns undefined when the provider has no API key configured yet", () => {
     const provider = opencodeProvider({ apiKey: "" });
     expect(resolveProviderRoute(provider, "opencode/claude-sonnet-4-5")).toBeUndefined();

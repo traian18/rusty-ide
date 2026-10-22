@@ -1,7 +1,9 @@
 import { useSyncExternalStore } from "react";
 import { defaultPersistence, readRetentionPreference, sinceDayFor, takeLegacyItem, type ObservabilityPersistence } from "./persistence";
 import { sanitizeForObservability } from "./redaction";
+import { TrajectoryMemoryBudget } from "./trajectoryMemory";
 import type { ExecutionContextSnapshot, ExecutionOrigin, ExecutionTokensSnapshot, ModelUsageEntry, RunUsage } from "./types";
+import { addTokens } from "./usageTokens";
 
 export interface TrajectoryEntry {
   id: string;
@@ -34,32 +36,15 @@ interface Snapshot {
   entryErrors: ReadonlyMap<string, string>;
 }
 const LEGACY_KEY = "rusty.run-trajectories.v1";
-// Approximate in-memory guard. JSON string lengths are cached per immutable
-// entry; metadata gets a small fixed allowance per run.
-const MEMORY_BYTES = 2_000_000;
 const MAX_ENTRIES_IN_MEMORY = 1500;
 const MAX_RUNS = 100;
 const NOTIFY_INTERVAL_MS = 120;
-const TOKEN_FIELDS = ["totalTokens", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"] as const;
+/** Streamed text events coalesced into one entry, up to this many characters. */
+const STREAMED_TEXT_SOURCES = new Set(["AssistantTextDelta", "ReasoningDelta"]);
+const MAX_COALESCED_TEXT = 8192;
+/** A model request is redacted whole, then stored in chunks of this many characters. */
+const REQUEST_CHUNK_CHARS = 12000;
 
-const entryBytes = new WeakMap<TrajectoryEntry, number>();
-const runBytes = new WeakMap<RunTrajectory, number>();
-function sizeOfEntry(entry: TrajectoryEntry): number {
-  let size = entryBytes.get(entry);
-  if (size === undefined) {
-    size = JSON.stringify(entry).length;
-    entryBytes.set(entry, size);
-  }
-  return size;
-}
-function sizeOfRun(run: RunTrajectory): number {
-  let size = runBytes.get(run);
-  if (size === undefined) {
-    size = 512 + run.entries.reduce((total, entry) => total + sizeOfEntry(entry), 0);
-    runBytes.set(run, size);
-  }
-  return size;
-}
 type EntryMetadata = Partial<Pick<TrajectoryEntry, "id" | "timestamp" | "agentId" | "sequence" | "eventCount" | "lastSequence">>;
 interface PendingText {
   runId: string;
@@ -72,6 +57,41 @@ type Root = string | undefined;
 
 const rootOf = (run: Pick<RunTrajectory, "context">): Root => run.context?.workspaceRoot || undefined;
 const indexLine = ({ entries: _entries, omittedEntries: _omitted, ...meta }: RunTrajectory) => meta;
+
+/** A run saved while still running was cut off when the IDE closed. */
+function settledStatus(status: RunTrajectory["status"]): RunTrajectory["status"] {
+  return status === "running" ? "interrupted" : status;
+}
+
+/** A saved run the view can show: it carries its origin and context. */
+function isRestorableRun(run: RunTrajectory | null | undefined): run is RunTrajectory {
+  return Boolean(run?.id && run.origin && run.context);
+}
+
+/** The runs in a legacy localStorage value, or undefined when it is not JSON. */
+function parseLegacyRuns(raw: string): RunTrajectory[] | undefined {
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return undefined;
+  }
+}
+
+type TextBlock = { message_id?: string; delta: string };
+
+/** A streamed text delta's block, when the payload carries one. */
+function textDelta(source: string, payload: unknown): TextBlock | undefined {
+  if (!STREAMED_TEXT_SOURCES.has(source)) return undefined;
+  const block = (payload as Record<string, { message_id?: string; delta?: string }> | null)?.[source];
+  return typeof block?.delta === "string" ? (block as TextBlock) : undefined;
+}
+
+/** Whether a delta belongs to the pending text: same run, stream, message and agent. */
+function continuesText(pending: PendingText, next: { runId: string; source: string; messageId?: string; agentId?: string }): boolean {
+  const sameStream = pending.runId === next.runId && pending.source === next.source;
+  return sameStream && pending.messageId === next.messageId && pending.metadata.agentId === next.agentId;
+}
 
 export class TrajectoryStore {
   private snapshot: Snapshot = { runs: [], loadingEntries: new Set(), entryErrors: new Map() };
@@ -91,8 +111,7 @@ export class TrajectoryStore {
   private rootKey?: string;
   private loadToken = 0;
   private migrated = false;
-  private totalBytes = 0;
-  private accountedRuns = new Map<string, RunTrajectory>();
+  private memory = new TrajectoryMemoryBudget();
 
   constructor(private persistence: ObservabilityPersistence = defaultPersistence()) {}
 
@@ -120,14 +139,13 @@ export class TrajectoryStore {
       if (token !== this.loadToken) return;
       const inMemory = new Map(this.snapshot.runs.map((run) => [run.id, run]));
       const loadedRoots = new Set(this.roots);
-      const unsaved = this.snapshot.runs.filter((run) =>
-        this.live.has(run.id) || this.dirtyRuns.has(run.id) || this.pendingEntries.has(run.id) || !loadedRoots.has(rootOf(run)));
+      const unsaved = this.snapshot.runs.filter((run) => this.hasUnsavedWork(run.id) || !loadedRoots.has(rootOf(run)));
       const unsavedIds = new Set(unsaved.map((run) => run.id));
       const loaded: RunTrajectory[] = [];
       for (const raw of results.flatMap((result) => result.trajectories as RunTrajectory[])) {
         if (unsavedIds.has(raw.id) || !raw.origin || !raw.context) continue;
         const kept = inMemory.get(raw.id);
-        loaded.push(kept ?? { ...raw, status: raw.status === "running" ? "interrupted" : raw.status, entries: [], omittedEntries: 0 });
+        loaded.push(kept ?? { ...raw, status: settledStatus(raw.status), entries: [], omittedEntries: 0 });
       }
       this.update([...unsaved, ...loaded].sort((a, b) => b.startedAt.localeCompare(a.startedAt)), false, true);
       this.setError(undefined);
@@ -139,7 +157,7 @@ export class TrajectoryStore {
   /** Demand-loads a historical run once. Concurrent calls share the same in-flight state. */
   async ensureEntries(id: string): Promise<void> {
     const run = this.snapshot.runs.find((item) => item.id === id);
-    if (!run || this.entriesLoaded.has(id) || this.loadingEntries.has(id) || this.live.has(id)) return;
+    if (!run || this.entriesAvailable(id)) return;
     this.loadingEntries.add(id);
     this.entryErrors.delete(id);
     this.publishEntryState();
@@ -157,6 +175,16 @@ export class TrajectoryStore {
     }
   }
 
+  /** A live run, or one with entries still to be written to disk. */
+  private hasUnsavedWork(id: string): boolean {
+    return this.live.has(id) || this.dirtyRuns.has(id) || this.pendingEntries.has(id);
+  }
+
+  /** The run's entries are in memory already, being loaded, or being written live. */
+  private entriesAvailable(id: string): boolean {
+    return this.entriesLoaded.has(id) || this.loadingEntries.has(id) || this.live.has(id);
+  }
+
   private publishEntryState() {
     this.snapshot = { ...this.snapshot, loadingEntries: new Set(this.loadingEntries), entryErrors: new Map(this.entryErrors) };
     this.emit();
@@ -167,25 +195,23 @@ export class TrajectoryStore {
     this.migrated = true;
     const legacy = takeLegacyItem(LEGACY_KEY);
     if (!legacy) return;
-    let runs: RunTrajectory[];
-    try {
-      const parsed = JSON.parse(legacy.raw);
-      runs = Array.isArray(parsed) ? parsed : [];
-    } catch {
+    const runs = parseLegacyRuns(legacy.raw);
+    if (!runs) {
       legacy.remove();
       return;
     }
     try {
-      for (const run of runs) {
-        if (!run?.id || !run.origin || !run.context) continue;
-        const root = rootOf(run);
-        await this.persistence.append(root, "trajectory-index", [{ ...indexLine({ ...run, entries: [], omittedEntries: 0 }), status: run.status === "running" ? "interrupted" : run.status }]);
-        if (Array.isArray(run.entries) && run.entries.length) await this.persistence.append(root, "trajectory-entries", run.entries, run.id);
-      }
+      for (const run of runs.filter(isRestorableRun)) await this.migrateLegacyRun(run);
       legacy.remove();
     } catch (error) {
       this.setError(error);
     }
+  }
+
+  private async migrateLegacyRun(run: RunTrajectory) {
+    const root = rootOf(run);
+    await this.persistence.append(root, "trajectory-index", [{ ...indexLine({ ...run, entries: [], omittedEntries: 0 }), status: settledStatus(run.status) }]);
+    if (Array.isArray(run.entries) && run.entries.length) await this.persistence.append(root, "trajectory-entries", run.entries, run.id);
   }
 
   start(id: string, origin: ExecutionOrigin, context: ExecutionContextSnapshot) {
@@ -199,39 +225,45 @@ export class TrajectoryStore {
     this.update(this.snapshot.runs.map((run) => run.id === id ? { ...run, sessionId } : run));
   }
   append(id: string, source: string, payload: unknown, metadata: EntryMetadata = {}) {
-    if (source === "AssistantTextDelta" || source === "ReasoningDelta") {
-      const block = (payload as Record<string, { message_id?: string; delta?: string }> | null)?.[source];
-      if (typeof block?.delta === "string") {
-        const previous = this.pendingText;
-        if (previous && previous.runId === id && previous.source === source && previous.messageId === block.message_id && previous.metadata.agentId === metadata.agentId && previous.delta.length + block.delta.length <= 8192) {
-          previous.delta += block.delta;
-          previous.metadata.eventCount = (previous.metadata.eventCount ?? 1) + 1;
-          previous.metadata.lastSequence = metadata.sequence;
-        } else {
-          this.drainText();
-          this.pendingText = { runId: id, source, messageId: block.message_id ?? "", delta: block.delta, metadata: { ...metadata, eventCount: 1, lastSequence: metadata.sequence } };
-        }
-        if (!this.streamTimer) this.streamTimer = setTimeout(() => this.drainText(), 250);
-        return;
-      }
+    const block = textDelta(source, payload);
+    if (block) {
+      this.appendTextDelta(id, source, block, metadata);
+      return;
     }
     this.drainText();
     if (source === "ModelRequestPrepared") {
-      // Redact the whole request BEFORE splitting so a credential cannot leak
-      // across chunk boundaries. Ordinary event previews keep their size caps.
-      const sanitized = sanitizeForObservability(payload, true);
-      const serialized = JSON.stringify(sanitized.value);
-      const traceId = crypto.randomUUID();
-      const parts = Math.ceil(serialized.length / 12000);
-      for (let part = 0; part < parts; part++) {
-        this.appendEntry(id, source, {
-          traceId, part: part + 1, parts, encoding: "json", state: sanitized.state,
-          content: serialized.slice(part * 12000, (part + 1) * 12000),
-        }, { ...metadata, id: `${traceId}:${part}` });
-      }
+      this.appendModelRequest(id, payload, metadata);
       return;
     }
     this.appendEntry(id, source, payload, metadata);
+  }
+  /** Coalesces consecutive deltas of one message into a single entry, written on a pause. */
+  private appendTextDelta(id: string, source: string, block: TextBlock, metadata: EntryMetadata) {
+    const previous = this.pendingText;
+    const next = { runId: id, source, messageId: block.message_id, agentId: metadata.agentId };
+    if (previous && continuesText(previous, next) && previous.delta.length + block.delta.length <= MAX_COALESCED_TEXT) {
+      previous.delta += block.delta;
+      previous.metadata.eventCount = (previous.metadata.eventCount ?? 1) + 1;
+      previous.metadata.lastSequence = metadata.sequence;
+    } else {
+      this.drainText();
+      this.pendingText = { runId: id, source, messageId: block.message_id ?? "", delta: block.delta, metadata: { ...metadata, eventCount: 1, lastSequence: metadata.sequence } };
+    }
+    if (!this.streamTimer) this.streamTimer = setTimeout(() => this.drainText(), 250);
+  }
+  private appendModelRequest(id: string, payload: unknown, metadata: EntryMetadata) {
+    // Redact the whole request BEFORE splitting so a credential cannot leak
+    // across chunk boundaries. Ordinary event previews keep their size caps.
+    const sanitized = sanitizeForObservability(payload, true);
+    const serialized = JSON.stringify(sanitized.value);
+    const traceId = crypto.randomUUID();
+    const parts = Math.ceil(serialized.length / REQUEST_CHUNK_CHARS);
+    for (let part = 0; part < parts; part++) {
+      this.appendEntry(id, "ModelRequestPrepared", {
+        traceId, part: part + 1, parts, encoding: "json", state: sanitized.state,
+        content: serialized.slice(part * REQUEST_CHUNK_CHARS, (part + 1) * REQUEST_CHUNK_CHARS),
+      }, { ...metadata, id: `${traceId}:${part}` });
+    }
   }
   private drainText() {
     clearTimeout(this.streamTimer);
@@ -260,11 +292,7 @@ export class TrajectoryStore {
     this.updateUsage(id, (usage) => ({ ...usage, [key]: entry }));
   }
   addUsage(id: string, key: string, entry: Omit<ModelUsageEntry, "tokens">, delta: ExecutionTokensSnapshot) {
-    this.updateUsage(id, (usage) => {
-      const tokens: ExecutionTokensSnapshot = { ...usage[key]?.tokens };
-      for (const field of TOKEN_FIELDS) if (delta[field] !== undefined) tokens[field] = (tokens[field] ?? 0) + delta[field]!;
-      return { ...usage, [key]: { ...usage[key], ...entry, tokens } };
-    });
+    this.updateUsage(id, (usage) => ({ ...usage, [key]: { ...usage[key], ...entry, tokens: addTokens(usage[key]?.tokens, delta) } }));
   }
   private updateUsage(id: string, change: (usage: RunUsage) => RunUsage) {
     const run = this.snapshot.runs.find((item) => item.id === id);
@@ -311,14 +339,7 @@ export class TrajectoryStore {
     this.drainText();
     clearTimeout(this.timer);
     this.timer = undefined;
-    const runs = new Map(this.snapshot.runs.map((run) => [run.id, run]));
-    const index = new Map<Root, unknown[]>();
-    for (const id of this.dirtyRuns) {
-      const run = runs.get(id);
-      if (!run) continue;
-      const root = rootOf(run);
-      index.set(root, [...(index.get(root) ?? []), indexLine(run)]);
-    }
+    const index = this.dirtyIndexLines();
     const dirty = this.dirtyRuns;
     const pending = this.pendingEntries;
     this.dirtyRuns = new Set();
@@ -329,14 +350,30 @@ export class TrajectoryStore {
       for (const [id, { root, entries }] of pending) await this.persistence.append(root, "trajectory-entries", entries, id);
       this.setError(undefined);
     } catch (error) {
-      for (const id of dirty) this.dirtyRuns.add(id);
-      for (const [id, batch] of pending) {
-        const newer = this.pendingEntries.get(id);
-        this.pendingEntries.set(id, { root: batch.root, entries: [...batch.entries, ...(newer?.entries ?? [])] });
-      }
+      this.requeue(dirty, pending);
       this.setError(error);
     }
   };
+  /** The index lines of the changed runs, grouped by workspace. */
+  private dirtyIndexLines(): Map<Root, unknown[]> {
+    const runs = new Map(this.snapshot.runs.map((run) => [run.id, run]));
+    const index = new Map<Root, unknown[]>();
+    for (const id of this.dirtyRuns) {
+      const run = runs.get(id);
+      if (!run) continue;
+      const root = rootOf(run);
+      index.set(root, [...(index.get(root) ?? []), indexLine(run)]);
+    }
+    return index;
+  }
+  /** Puts a failed batch back ahead of anything queued since, for the next flush. */
+  private requeue(dirty: Set<string>, pending: Map<string, { root: Root; entries: TrajectoryEntry[] }>) {
+    for (const id of dirty) this.dirtyRuns.add(id);
+    for (const [id, batch] of pending) {
+      const newer = this.pendingEntries.get(id);
+      this.pendingEntries.set(id, { root: batch.root, entries: [...batch.entries, ...(newer?.entries ?? [])] });
+    }
+  }
   private schedule() {
     if (!this.timer) this.timer = setTimeout(() => void this.flush(), 1000);
   }
@@ -354,31 +391,14 @@ export class TrajectoryStore {
     }, NOTIFY_INTERVAL_MS);
   }
   private update(runs: RunTrajectory[], persist = true, recalculate = false) {
-    const cutoff = this.retentionDays === null ? -Infinity : Date.now() - this.retentionDays * 86_400_000;
-    runs = runs.filter((run) => this.live.has(run.id) || Date.parse(run.startedAt) >= cutoff).slice(0, MAX_RUNS);
-
-    if (recalculate || this.accountedRuns.size === 0) {
-      this.totalBytes = runs.reduce((total, run) => total + sizeOfRun(run), 0);
-    } else {
-      const nextIds = new Set(runs.map((run) => run.id));
-      for (const [id, previous] of this.accountedRuns) if (!nextIds.has(id)) this.totalBytes -= sizeOfRun(previous);
-      for (const run of runs) {
-        const previous = this.accountedRuns.get(run.id);
-        if (previous !== run) this.totalBytes += sizeOfRun(run) - (previous ? sizeOfRun(previous) : 0);
-      }
-    }
-
-    // Only enter eviction work when the tracked total crosses the budget.
-    for (let index = runs.length - 1; this.totalBytes > MEMORY_BYTES && index >= 0; index--) {
-      const run = runs[index];
-      let drop = 0;
-      while (drop < run.entries.length && this.totalBytes > MEMORY_BYTES) this.totalBytes -= sizeOfEntry(run.entries[drop++]);
-      if (drop > 0) runs = runs.map((item, i) => i === index ? { ...item, entries: item.entries.slice(drop), omittedEntries: item.omittedEntries + drop } : item);
-    }
-    this.accountedRuns = new Map(runs.map((run) => [run.id, run]));
-    this.snapshot = { ...this.snapshot, runs };
+    this.snapshot = { ...this.snapshot, runs: this.memory.fit(this.retained(runs), recalculate) };
     this.emit();
     if (persist) this.schedule();
+  }
+  /** Live runs, and the newest saved ones inside the retention window. */
+  private retained(runs: RunTrajectory[]): RunTrajectory[] {
+    const cutoff = this.retentionDays === null ? -Infinity : Date.now() - this.retentionDays * 86_400_000;
+    return runs.filter((run) => this.live.has(run.id) || Date.parse(run.startedAt) >= cutoff).slice(0, MAX_RUNS);
   }
 }
 export const trajectories = new TrajectoryStore();

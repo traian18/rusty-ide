@@ -8,6 +8,8 @@
 //! `workspace.binding` (host-routed vs. real disk) and `host_tools`
 //! (IDE-implemented tools, distinct from rusty-core's own built-in ones).
 
+mod compaction;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -27,6 +29,9 @@ use super::host_bridge::HostBridge;
 use super::host_execution_backend::HostExecutionBackend;
 use super::host_tools::HostToolExecutor;
 use super::host_workspace::HostWorkspace;
+
+use compaction::compaction_provider;
+pub use compaction::{CompactionMode, ContextCompactionRecipe, JevCompactionRecipe};
 
 /// Advertises `agent_spawn` to the model without registering a reachable
 /// executor for it -- rusty-core's own `agent_runner.rs` intercepts calls
@@ -200,103 +205,6 @@ pub struct SessionRecipe {
     pub context_compaction: Option<ContextCompactionRecipe>,
 }
 
-/// Which compaction a session uses.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CompactionMode {
-    /// Local only: trim old tool output, then drop the oldest turns.
-    #[default]
-    Standard,
-    /// Standard, plus a background model summary guided by JEV importance
-    /// ratings. Needs `jev`; without it the session falls back to standard.
-    Smart,
-}
-
-/// JEV (OpenRouter Decisions API) connection for smart compaction.
-#[derive(Debug, Clone, Deserialize)]
-pub struct JevCompactionRecipe {
-    pub api_key: String,
-    pub model_id: String,
-    #[serde(default)]
-    pub confidence: Option<f64>,
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-pub struct ContextCompactionRecipe {
-    #[serde(default)]
-    pub mode: CompactionMode,
-    /// The model's context window in tokens. Unknown windows use a flat
-    /// character cap, and smart mode cannot schedule summaries without one.
-    #[serde(default)]
-    pub context_window: Option<u64>,
-    #[serde(default)]
-    pub jev: Option<JevCompactionRecipe>,
-}
-
-/// Recent messages never summarized or dropped.
-const COMPACTION_KEEP_RECENT: usize = 12;
-/// Character cap used when the model's window is unknown.
-const COMPACTION_FALLBACK_CHARS: usize = 400_000;
-
-/// Standard compaction: local tiers only, sized by the model's window.
-fn standard_compaction(
-    window: Option<u64>,
-) -> Arc<harness_context::PolicyDrivenCompactionProvider> {
-    let passthrough: Arc<dyn harness_context::ContextProvider> =
-        Arc::new(harness_context::ChainedContextProvider::new(vec![]));
-    Arc::new(
-        harness_context::PolicyDrivenCompactionProvider::new(
-            passthrough,
-            harness_context::ContextPolicy::default(),
-            window,
-            COMPACTION_KEEP_RECENT,
-            COMPACTION_FALLBACK_CHARS,
-        )
-        .with_anchor_first_user_message(true),
-    )
-}
-
-/// Builds the compaction provider for a session from its resolved backend.
-///
-/// `summary_model` is the session's own model: a host-routed backend resolves
-/// the provider runtime from `params.model`, so a summary request without it
-/// cannot be answered.
-fn compaction_provider(
-    config: &ContextCompactionRecipe,
-    backend: Arc<dyn harness_runtime::traits::ExecutionBackend>,
-    summary_model: Option<String>,
-) -> Arc<dyn harness_context::ContextProvider> {
-    let window = config.context_window;
-    let standard = standard_compaction(window);
-    let (CompactionMode::Smart, Some(jev)) = (config.mode, config.jev.as_ref()) else {
-        return standard;
-    };
-    let mut judge = harness_context::JevImportanceJudge::new(
-        harness_context::OpenRouterDecisions::new(jev.api_key.clone()),
-        jev.model_id.clone(),
-    );
-    if let Some(confidence) = jev.confidence {
-        judge = judge.with_confidence_threshold(confidence);
-    }
-    let passthrough: Arc<dyn harness_context::ContextProvider> =
-        Arc::new(harness_context::ChainedContextProvider::new(vec![]));
-    Arc::new(
-        harness_context::SummarizingCompactionProvider::new(
-            passthrough,
-            standard,
-            Arc::new(match summary_model {
-                Some(model) => harness_context::BackendSummarizer::new(backend).with_model(model),
-                None => harness_context::BackendSummarizer::new(backend),
-            }),
-            harness_context::ContextPolicy::default(),
-            window,
-            COMPACTION_KEEP_RECENT,
-        )
-        .with_importance_judge(Arc::new(judge))
-        .with_anchor_first_user_message(true),
-    )
-}
-
 /// Converts `recipe` into a ready-to-`.start()` `SessionBuilder`, wiring
 /// `bridge` into whichever pieces need to call back into the IDE
 /// (`HostWorkspace` when `binding: "host"`, every `host_tools` entry).
@@ -311,43 +219,28 @@ pub async fn build_session_builder(
     recipe: SessionRecipe,
     bridge: Arc<HostBridge>,
 ) -> Result<SessionBuilder, HarnessError> {
-    let mut builder = if recipe.integration == HOST_EXECUTION_INTEGRATION {
-        // `.backend()` is infallible (unlike `.integration()`, there is no
-        // registry lookup or provider-config deserialization that could
-        // fail here) and mutually exclusive with `.integration()` --
-        // rusty-core's own pre-existing escape hatch
-        // (`SessionBuilder::backend`), unmodified by this.
-        harness
-            .session()
-            .backend(Arc::new(HostExecutionBackend::new(bridge.clone())))
-    } else {
-        harness
-            .session()
-            .integration(recipe.integration, recipe.integration_config)?
-    };
-
     let summary_model = recipe
         .execution_params
         .as_ref()
         .and_then(|params| params.model.clone());
+    let mut builder = base_builder(
+        harness,
+        recipe.integration,
+        recipe.integration_config,
+        &bridge,
+    )?;
     if let Some(params) = recipe.execution_params {
         builder = builder.execution_params(params);
     }
-    let mut providers = super::repository_context::providers(
-        recipe.system_prompt,
-        recipe.repository_context.as_ref(),
-        recipe.repository_state.as_ref(),
-        &recipe.workspace.root.to_string_lossy(),
+    builder = with_context_providers(
+        builder,
+        super::repository_context::providers(
+            recipe.system_prompt,
+            recipe.repository_context.as_ref(),
+            recipe.repository_state.as_ref(),
+            &recipe.workspace.root.to_string_lossy(),
+        ),
     );
-    match providers.len() {
-        0 => {}
-        1 => builder = builder.context_provider(providers.remove(0)),
-        _ => {
-            builder = builder.context_provider(Arc::new(
-                harness_context::ChainedContextProvider::new(providers),
-            ))
-        }
-    }
     let compaction = recipe.context_compaction.unwrap_or_default();
     builder = builder.context_provider_with_backend(move |backend| {
         compaction_provider(&compaction, backend, summary_model)
@@ -356,60 +249,18 @@ pub async fn build_session_builder(
         builder = builder.skills(skills_config_from_spec(spec, &recipe.workspace.root));
     }
 
-    let workspace: Arc<dyn harness_workspace::Workspace> = match recipe.workspace.binding {
-        WorkspaceBinding::Host => Arc::new(HostWorkspace::new(
-            recipe.workspace.root.clone(),
-            bridge.clone(),
-        )),
-        WorkspaceBinding::Disk => Arc::new(harness_workspace::FsWorkspace::new(
-            recipe.workspace.root.clone(),
-        )),
-    };
-    builder = builder.workspace(workspace);
+    builder = builder.workspace(session_workspace(&recipe.workspace, &bridge));
     // Behavior profiles live with the project. Opening a folder in the IDE is
     // the trust decision for its profiles; shell-command evaluators stay off.
     builder = builder.workspace_profiles(recipe.workspace.root.clone());
-    if let Some(profile) = recipe.behavior_profile {
-        builder = builder.profile(profile);
-    } else if let Some(document) = recipe.default_profile {
-        if !workspace_names_default_profile(&recipe.workspace.root) {
-            let profiles = harness_engine::ProfilesConfig::default();
-            match profiles.register_json(document) {
-                Ok(reference) => builder = builder.profiles(profiles).profile(reference),
-                // A bad built-in document must not stop the chat: run without it.
-                Err(error) => {
-                    eprintln!("[harness] ignoring the session's default profile: {error}")
-                }
-            }
-        }
-    }
+    builder = with_profile(
+        builder,
+        &recipe.workspace.root,
+        recipe.behavior_profile,
+        recipe.default_profile,
+    );
 
-    // `.tools()`, not `.toolset()`: registering only what this recipe asks
-    // for and letting `start()` derive the model-facing `AgentToolset` from
-    // the registry (`SessionBuilder::start`'s own "callers that provide a
-    // registry directly" fallback -- every registered descriptor's `name`
-    // becomes what the model sees, at `PermissionMode::Allow`). No built-in
-    // tools land in the registry this way (see `HostToolSpec`'s doc comment
-    // on U1) except the two Phase 6 opt-ins below, both of which construct
-    // their own executor directly rather than going through the U1-blocked
-    // `build_executor_for` -- see this file's own doc comments on why
-    // neither actually needs it.
-    let registry = SimpleToolRegistry::new();
-    for spec in recipe.host_tools {
-        let descriptor = ToolDescriptor {
-            id: ToolId::new(spec.name.clone()),
-            name: spec.name,
-            description: spec.description,
-            input_schema: spec.input_schema,
-        };
-        let executor = Arc::new(HostToolExecutor::new(descriptor, bridge.clone()));
-        // Only fails on a duplicate id within this same recipe's own
-        // host_tools list -- silently keeping the first registration is
-        // consistent with how `SessionBuilder::toolset` itself ignores a
-        // `register` failure for the same reason.
-        let _ = registry.register_tool(executor);
-    }
-
+    let registry = host_tool_registry(recipe.host_tools, &bridge);
     // Discovery belongs to the harness so disallowed servers are never started.
     for spec in recipe.mcp_servers {
         builder = builder.optional_mcp_server(mcp_config_from_spec(spec));
@@ -423,9 +274,129 @@ pub async fn build_session_builder(
         recipe.enable_agent_spawn,
     );
 
-    builder = builder.tools(Arc::new(registry));
+    Ok(builder.tools(Arc::new(registry)))
+}
 
-    Ok(builder)
+/// A session on the recipe's integration, or on the IDE itself for `"host"`.
+fn base_builder(
+    harness: &Harness,
+    integration: String,
+    integration_config: serde_json::Value,
+    bridge: &Arc<HostBridge>,
+) -> Result<SessionBuilder, HarnessError> {
+    if integration == HOST_EXECUTION_INTEGRATION {
+        // `.backend()` is infallible (unlike `.integration()`, there is no
+        // registry lookup or provider-config deserialization that could
+        // fail here) and mutually exclusive with `.integration()` --
+        // rusty-core's own pre-existing escape hatch
+        // (`SessionBuilder::backend`), unmodified by this.
+        return Ok(harness
+            .session()
+            .backend(Arc::new(HostExecutionBackend::new(bridge.clone()))));
+    }
+    harness
+        .session()
+        .integration(integration, integration_config)
+}
+
+/// One context provider is used as is; several are chained in order.
+fn with_context_providers(
+    builder: SessionBuilder,
+    mut providers: Vec<Arc<dyn harness_context::ContextProvider>>,
+) -> SessionBuilder {
+    match providers.len() {
+        0 => builder,
+        1 => builder.context_provider(providers.remove(0)),
+        _ => builder.context_provider(Arc::new(harness_context::ChainedContextProvider::new(
+            providers,
+        ))),
+    }
+}
+
+/// The IDE's view of the workspace (`binding: "host"`) or the real disk.
+fn session_workspace(
+    workspace: &WorkspaceRecipe,
+    bridge: &Arc<HostBridge>,
+) -> Arc<dyn harness_workspace::Workspace> {
+    match workspace.binding {
+        WorkspaceBinding::Host => {
+            Arc::new(HostWorkspace::new(workspace.root.clone(), bridge.clone()))
+        }
+        WorkspaceBinding::Disk => {
+            Arc::new(harness_workspace::FsWorkspace::new(workspace.root.clone()))
+        }
+    }
+}
+
+/// The recipe's behavior profile, else the IDE's default one unless the
+/// workspace names its own default.
+fn with_profile(
+    builder: SessionBuilder,
+    root: &std::path::Path,
+    behavior_profile: Option<harness_engine::ProfileRef>,
+    default_profile: Option<serde_json::Value>,
+) -> SessionBuilder {
+    if let Some(profile) = behavior_profile {
+        return builder.profile(profile);
+    }
+    match default_profile {
+        Some(document) if !workspace_names_default_profile(root) => {
+            with_default_profile(builder, document)
+        }
+        _ => builder,
+    }
+}
+
+fn with_default_profile(builder: SessionBuilder, document: serde_json::Value) -> SessionBuilder {
+    let profiles = harness_engine::ProfilesConfig::default();
+    match profiles.register_json(document) {
+        Ok(reference) => builder.profiles(profiles).profile(reference),
+        // A bad built-in document must not stop the chat: run without it.
+        Err(error) => {
+            eprintln!("[harness] ignoring the session's default profile: {error}");
+            builder
+        }
+    }
+}
+
+/// `.tools()`, not `.toolset()`: registering only what this recipe asks
+/// for and letting `start()` derive the model-facing `AgentToolset` from
+/// the registry (`SessionBuilder::start`'s own "callers that provide a
+/// registry directly" fallback -- every registered descriptor's `name`
+/// becomes what the model sees, at `PermissionMode::Allow`). No built-in
+/// tools land in the registry this way (see `HostToolSpec`'s doc comment
+/// on U1) except the two Phase 6 opt-ins in `register_optional_builtin_tools`,
+/// both of which construct their own executor directly rather than going
+/// through the U1-blocked `build_executor_for` -- see this file's own doc
+/// comments on why neither actually needs it.
+fn host_tool_registry(
+    host_tools: Vec<HostToolSpec>,
+    bridge: &Arc<HostBridge>,
+) -> SimpleToolRegistry {
+    let registry = SimpleToolRegistry::new();
+    for spec in host_tools {
+        let descriptor = ToolDescriptor {
+            id: ToolId::new(spec.name.clone()),
+            name: spec.name,
+            description: spec.description,
+            input_schema: spec.input_schema,
+        };
+        register_tool(
+            &registry,
+            Arc::new(HostToolExecutor::new(descriptor, bridge.clone())),
+        );
+    }
+    registry
+}
+
+/// Registers a tool, keeping the first one registered under a name. A
+/// duplicate within one recipe is a recipe bug, not a reason to fail the
+/// session (`SessionBuilder::toolset` ignores the same failure), so it is
+/// logged and skipped.
+fn register_tool(registry: &SimpleToolRegistry, tool: Arc<dyn ToolExecutor>) {
+    if let Err(error) = registry.register_tool(tool) {
+        eprintln!("[harness] skipping a tool registration: {error}");
+    }
 }
 
 /// Whether `<root>/.rusty/profiles/config.json` exists: that file is how a
@@ -442,10 +413,10 @@ fn register_optional_builtin_tools(
     enable_agent_spawn: bool,
 ) {
     if enable_web_fetch {
-        let _ = registry.register_tool(Arc::new(harness_tool_web::FetchTool::new()));
+        register_tool(registry, Arc::new(harness_tool_web::FetchTool::new()));
     }
     if enable_agent_spawn {
-        let _ = registry.register_tool(Arc::new(AgentSpawnDescriptorOnly::new()));
+        register_tool(registry, Arc::new(AgentSpawnDescriptorOnly::new()));
     }
 }
 

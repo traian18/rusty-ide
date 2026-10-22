@@ -1,5 +1,11 @@
+// The live view of tool executions: the store turns harness events into
+// records, keeps the newest in memory for the UI, and hands changes to its
+// writer. The parts it builds on live beside it: usageTokens.ts (usage
+// shapes), runContext.ts (which model a call or token belongs to),
+// toolCallRecords.ts (a record's lifecycle) and executionWriter.ts (disk).
+
 import { trajectories, type TrajectoryStore } from "./trajectoryStore";
-import type { AgentEvent, AgentEventEnvelope } from "@rusty/harness-sdk";
+import type { AgentEvent, AgentEventEnvelope, ToolCall } from "@rusty/harness-sdk";
 import type { CapabilityInput, CapabilityName, RunOutcome } from "../harness/contract";
 import {
   NOOP_TOOL_EXECUTION_OBSERVER,
@@ -11,46 +17,46 @@ import {
   defaultPersistence,
   readRetentionPreference,
   sinceDayFor,
-  takeLegacyItem,
   writeRetentionPreference,
   type ObservabilityPersistence,
 } from "./persistence";
 import { sanitizeForObservability } from "./redaction";
 import type {
   ExecutionOrigin,
-  ExecutionTokensSnapshot,
   ObservabilitySnapshot,
   ToolExecutionDetail,
   ToolExecutionRecord,
 } from "./types";
+import { addTokens, definedTokens, parseUsageTokens } from "./usageTokens";
+import {
+  adoptChildAgent,
+  createRunContext,
+  noteAgentModel,
+  noteSpawnRequest,
+  runTokensSnapshot,
+  setModelTokens,
+  type RunContext,
+} from "./runContext";
+import {
+  ACTIVE_STATUSES,
+  endedWithRun,
+  envelopeMetadata,
+  healInterrupted,
+  iso,
+  isActiveInRun,
+  queuedToolCall,
+  toolCallChange,
+  toolCallIdOf,
+  toolCallRecordId,
+} from "./toolCallRecords";
+import { ExecutionRecordWriter, rootOf, type Root } from "./executionWriter";
+
+export { parseUsageTokens } from "./usageTokens";
 
 const LEGACY_KEY = "rusty.execution-observability.v1";
 // In-memory view window only; disk history is unbounded.
 const MAX_RECORDS = 1_000;
-const ACTIVE_STATUSES = new Set<ToolExecutionRecord["status"]>(["queued", "waiting-permission", "running"]);
 const MAX_EXECUTION_STEPS = 100;
-
-type Root = string | undefined;
-const rootOf = (record: ToolExecutionRecord): Root => record.context?.workspaceRoot || undefined;
-
-interface RunContext {
-  capability: CapabilityName;
-  origin: ExecutionOrigin;
-  context: ToolExecutionRecord["context"];
-  sessionId?: string;
-  /** The run's own model(s), summed: what a record captures when requested. */
-  tokens?: ExecutionTokensSnapshot;
-  tokensByModel: Map<string, ExecutionTokensSnapshot>;
-  /** Which model each session and agent runs on, for `requestedBy`. */
-  sessionModels: Map<string, string>;
-  agentModels: Map<string, string>;
-  /** agent_spawn call record id -> the `model` it asked for, if any. */
-  spawnModels: Map<string, string | undefined>;
-  /** Child agent id -> the agent_spawn call record that created it. */
-  childSpawnCalls: Map<string, string>;
-}
-
-const AGENT_SPAWN_TOOL = "agent_spawn";
 
 /** rusty-core names MCP tools `mcp__<server>__<tool>`. */
 function mcpServerOf(toolName: string): string | undefined {
@@ -70,68 +76,8 @@ export interface UsageSource {
 }
 
 const NOTIFY_INTERVAL_MS = 120;
-const TOKEN_FIELDS = ["totalTokens", "inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "reasoningTokens"] as const;
-
-function addTokens(target: ExecutionTokensSnapshot | undefined, delta: ExecutionTokensSnapshot): ExecutionTokensSnapshot {
-  const sum: ExecutionTokensSnapshot = { ...target };
-  for (const field of TOKEN_FIELDS) {
-    if (delta[field] !== undefined) sum[field] = (sum[field] ?? 0) + delta[field]!;
-  }
-  return sum;
-}
 
 type Listener = () => void;
-
-function iso(value?: string): string {
-  return value || new Date().toISOString();
-}
-
-function duration(record: ToolExecutionRecord, finishedAt: string): number | undefined {
-  const start = record.startedAt ?? record.requestedAt;
-  const millis = Date.parse(finishedAt) - Date.parse(start);
-  return Number.isFinite(millis) && millis >= 0 ? millis : undefined;
-}
-
-function parseTokenCount(val: unknown): number | undefined {
-  if (typeof val === "number" && !isNaN(val)) return val;
-  if (Array.isArray(val) && typeof val[0] === "number" && !isNaN(val[0])) return val[0];
-  if (val && typeof val === "object") {
-    const raw = (val as Record<string, unknown>)[0] ?? (val as Record<string, unknown>).value;
-    if (typeof raw === "number" && !isNaN(raw)) return raw;
-  }
-  return undefined;
-}
-
-/** Normalizes any usage shape we receive (rusty-core `UsageUpdated`, with or
- * without its `metrics` wrapper, `ModelUsage`, or the IDE's camelCase
- * `TokenUsage`) into one snapshot. */
-export function parseUsageTokens(usage: unknown): ExecutionTokensSnapshot {
-  const outer = usage && typeof usage === "object" ? usage as Record<string, unknown> : {};
-  const u = outer.metrics && typeof outer.metrics === "object" ? outer.metrics as Record<string, unknown> : outer;
-  return {
-    totalTokens: parseTokenCount(u.total_tokens ?? u.totalTokens ?? u.total),
-    inputTokens: parseTokenCount(u.input_tokens ?? u.inputTokens ?? u.input),
-    outputTokens: parseTokenCount(u.output_tokens ?? u.outputTokens ?? u.output),
-    cacheReadTokens: parseTokenCount(u.cache_read_tokens ?? u.cacheReadTokens ?? u.cacheRead),
-    cacheWriteTokens: parseTokenCount(u.cache_write_tokens ?? u.cacheWriteTokens ?? u.cacheWrite),
-    reasoningTokens: parseTokenCount(u.reasoning_tokens ?? u.reasoningTokens ?? u.reasoning),
-  };
-}
-
-function definedTokens(tokens: ExecutionTokensSnapshot): ExecutionTokensSnapshot {
-  return Object.fromEntries(Object.entries(tokens).filter(([, value]) => value !== undefined));
-}
-
-function healInterrupted(record: ToolExecutionRecord): ToolExecutionRecord {
-  const finishedAt = record.finishedAt ?? new Date().toISOString();
-  return {
-    ...record,
-    status: "failed",
-    finishedAt,
-    durationMs: record.durationMs ?? duration(record, finishedAt),
-    resultPreview: record.resultPreview ?? "Interrupted: session was closed or IDE reloaded while call was active.",
-  };
-}
 
 export class ExecutionObservabilityStore {
   private listeners = new Set<Listener>();
@@ -142,17 +88,17 @@ export class ExecutionObservabilityStore {
   private toolDetails = new Map<string, { runId: string; detail: ToolExecutionDetail }>();
   private notifyTimer?: ReturnType<typeof setTimeout>;
   private snapshot: ObservabilitySnapshot = { records: [], retentionDays: readRetentionPreference(), storageBytes: 0 };
-  private dirty = new Map<string, ToolExecutionRecord>();
-  private timer?: ReturnType<typeof setTimeout>;
+  private writer: ExecutionRecordWriter;
   private roots: Root[] = [undefined];
   private rootKey?: string;
   private loadToken = 0;
-  private migrated = false;
 
   constructor(
     private persistence: ObservabilityPersistence = defaultPersistence(),
     private trajectoryStore: TrajectoryStore = trajectories,
-  ) {}
+  ) {
+    this.writer = new ExecutionRecordWriter(persistence, () => this.flush());
+  }
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -172,7 +118,7 @@ export class ExecutionObservabilityStore {
 
   async load(): Promise<void> {
     const token = ++this.loadToken;
-    await this.migrateLegacy();
+    await this.writer.migrateLegacy(LEGACY_KEY).catch((error) => this.setError(error));
     try {
       const sinceDay = sinceDayFor(this.snapshot.retentionDays);
       const results = await Promise.all(this.roots.map((root) =>
@@ -180,14 +126,14 @@ export class ExecutionObservabilityStore {
       if (token !== this.loadToken) return;
       const loadedRoots = new Set(this.roots);
       const unsaved = this.snapshot.records.filter((record) =>
-        this.runs.has(record.ideRunId) || this.dirty.has(record.id) || !loadedRoots.has(rootOf(record)));
+        this.runs.has(record.ideRunId) || this.writer.has(record.id) || !loadedRoots.has(rootOf(record)));
       const unsavedIds = new Set(unsaved.map((record) => record.id));
       const loaded: ToolExecutionRecord[] = [];
       for (const record of results.flatMap((result) => result.executions as ToolExecutionRecord[])) {
         if (unsavedIds.has(record.id)) continue;
         if (ACTIVE_STATUSES.has(record.status)) {
           const healed = healInterrupted(record);
-          this.dirty.set(healed.id, healed);
+          this.writer.queue(healed);
           loaded.push(healed);
         } else {
           loaded.push(record);
@@ -203,33 +149,7 @@ export class ExecutionObservabilityStore {
         lastError: undefined,
       };
       this.emit();
-      if (this.dirty.size) this.schedule();
-    } catch (error) {
-      this.setError(error);
-    }
-  }
-
-  private async migrateLegacy() {
-    if (this.migrated) return;
-    this.migrated = true;
-    const legacy = takeLegacyItem(LEGACY_KEY);
-    if (!legacy) return;
-    let records: ToolExecutionRecord[];
-    try {
-      const parsed = JSON.parse(legacy.raw);
-      records = Array.isArray(parsed) ? parsed.filter((record) => typeof record?.id === "string") : [];
-    } catch {
-      legacy.remove();
-      return;
-    }
-    try {
-      const byRoot = new Map<Root, ToolExecutionRecord[]>();
-      for (const record of records) {
-        const healed = ACTIVE_STATUSES.has(record.status) ? healInterrupted(record) : record;
-        byRoot.set(rootOf(healed), [...(byRoot.get(rootOf(healed)) ?? []), healed]);
-      }
-      for (const [root, rows] of byRoot) await this.persistence.append(root, "executions", rows);
-      legacy.remove();
+      this.writer.scheduleIfPending();
     } catch (error) {
       this.setError(error);
     }
@@ -237,16 +157,7 @@ export class ExecutionObservabilityStore {
 
   startRun<K extends CapabilityName>(runId: string, capability: K, input: CapabilityInput<K>, origin?: Partial<ExecutionOrigin>): void {
     this.trajectoryStore.start(runId, inferExecutionOrigin(capability, input, origin), createContextSnapshot(capability, input));
-    this.runs.set(runId, {
-      capability,
-      origin: inferExecutionOrigin(capability, input, origin),
-      context: createContextSnapshot(capability, input),
-      tokensByModel: new Map(),
-      sessionModels: new Map(),
-      agentModels: new Map(),
-      spawnModels: new Map(),
-      childSpawnCalls: new Map(),
-    });
+    this.runs.set(runId, createRunContext(capability, inferExecutionOrigin(capability, input, origin), createContextSnapshot(capability, input)));
   }
 
   /** `model` is the model the session runs on (orchestrated runs may use a
@@ -257,14 +168,6 @@ export class ExecutionObservabilityStore {
     if (!run) return;
     run.sessionId ??= sessionId;
     if (model) run.sessionModels.set(sessionId, model);
-  }
-
-  private requestingModel(run: RunContext, envelope: AgentEventEnvelope): ToolExecutionRecord["requestedBy"] {
-    const subagent = Boolean(envelope.parent_agent_id);
-    const model = run.agentModels.get(envelope.agent_id)
-      ?? (envelope.session_id ? run.sessionModels.get(envelope.session_id) : undefined)
-      ?? run.context.model;
-    return { model, provider: run.context.provider, ...(subagent ? { subagent } : {}) };
   }
 
   ingest(runId: string, envelope: AgentEventEnvelope): void {
@@ -278,126 +181,57 @@ export class ExecutionObservabilityStore {
       id: envelope.event_id, timestamp: envelope.timestamp, agentId: envelope.agent_id,
       sequence: envelope.session_sequence ?? envelope.agent_sequence,
     });
-    const metadata = {
-      sessionId: envelope.session_id,
-      coreRunId: envelope.run_id ?? undefined,
-      agentId: envelope.agent_id,
-      parentAgentId: envelope.parent_agent_id ?? undefined,
-      agentSequence: envelope.agent_sequence,
-      sessionSequence: envelope.session_sequence ?? undefined,
-    };
 
-    // Usage arrives through recordUsage(), already accumulated per model by
-    // the harness; a raw UsageUpdated is only one request's snapshot. It does
-    // name the model the agent runs on, which later calls are attributed to.
     if ("UsageUpdated" in event) {
-      const model = (event.UsageUpdated.usage as { model?: unknown }).model;
-      if (typeof model === "string" && model) run.agentModels.set(envelope.agent_id, model);
-      return;
+      // Usage arrives through recordUsage(), already accumulated per model by
+      // the harness; a raw UsageUpdated is only one request's snapshot. It does
+      // name the model the agent runs on, which later calls are attributed to.
+      noteAgentModel(run, envelope.agent_id, event.UsageUpdated.usage);
+    } else if ("ChildAgentSpawned" in event) {
+      this.childAgentSpawned(runId, run, envelope, event.ChildAgentSpawned as { agent_id: string; tool_call_id?: string | null });
+    } else if ("ToolCallRequested" in event) {
+      this.toolCallRequested(runId, run, envelope, event.ToolCallRequested.call);
+    } else {
+      this.toolCallUpdated(runId, run, envelope, event);
     }
+  }
 
-    if ("ChildAgentSpawned" in event) {
-      const spawned = event.ChildAgentSpawned as { agent_id: string; tool_call_id?: string | null };
-      if (!spawned.tool_call_id || !envelope.session_id) return;
-      const spawnId = `${envelope.session_id}:${spawned.tool_call_id}`;
-      const model = run.spawnModels.get(spawnId)
-        ?? run.agentModels.get(envelope.agent_id)
-        ?? run.sessionModels.get(envelope.session_id)
-        ?? run.context.model;
-      run.childSpawnCalls.set(spawned.agent_id, spawnId);
-      if (model && !run.agentModels.has(spawned.agent_id)) run.agentModels.set(spawned.agent_id, model);
-      this.reportToolExecution(runId, spawnId, (detail) => ({
-        ...detail,
-        executor: { kind: "model", purpose: "Subagent", model, provider: run.context.provider },
-      }));
-      return;
+  /** Credits the subagent to the agent_spawn call that created it. */
+  private childAgentSpawned(runId: string, run: RunContext, envelope: AgentEventEnvelope, spawned: { agent_id: string; tool_call_id?: string | null }): void {
+    if (!spawned.tool_call_id || !envelope.session_id) return;
+    const spawnId = toolCallRecordId(envelope.session_id, spawned.tool_call_id);
+    const model = adoptChildAgent(run, envelope, spawned.agent_id, spawnId);
+    this.reportToolExecution(runId, spawnId, (detail) => ({
+      ...detail,
+      executor: { kind: "model", purpose: "Subagent", model, provider: run.context.provider },
+    }));
+  }
+
+  private toolCallRequested(runId: string, run: RunContext, envelope: AgentEventEnvelope, call: ToolCall): void {
+    const record = queuedToolCall(runId, run, envelope, call);
+    noteSpawnRequest(run, record.id, call);
+    const server = mcpServerOf(call.name);
+    if (server) {
+      this.reportToolExecution(runId, record.id, (detail) => ({ ...detail, executor: detail.executor ?? { kind: "service", purpose: "MCP tool", provider: server } }));
     }
+    const sanitized = sanitizeForObservability(call.arguments);
+    this.upsert({ ...record, arguments: sanitized.value, payloadState: sanitized.state });
+  }
 
-    if ("ToolCallRequested" in event) {
-      const call = event.ToolCallRequested.call;
-      const sanitized = sanitizeForObservability(call.arguments);
-      const id = `${envelope.session_id}:${call.id}`;
-      if (call.name === AGENT_SPAWN_TOOL) {
-        const requested = (call.arguments as { model?: unknown } | null)?.model;
-        run.spawnModels.set(id, typeof requested === "string" && requested ? requested : undefined);
-      }
-      const server = mcpServerOf(call.name);
-      if (server) {
-        this.reportToolExecution(runId, id, (detail) => ({ ...detail, executor: detail.executor ?? { kind: "service", purpose: "MCP tool", provider: server } }));
-      }
-      this.upsert({
-        id,
-        callId: call.id,
-        ideRunId: runId,
-        ...metadata,
-        toolName: call.name,
-        requestedBy: this.requestingModel(run, envelope),
-        status: "queued",
-        requestedAt: iso(envelope.timestamp),
-        tokens: run.tokens ? { ...run.tokens } : undefined,
-        arguments: sanitized.value,
-        origin: run.origin,
-        context: run.context,
-        payloadState: sanitized.state,
-      });
-      return;
-    }
-
-    const callId = "ToolCallStarted" in event ? event.ToolCallStarted.call_id
-      : "ToolCallProgress" in event ? event.ToolCallProgress.call_id
-      : "ToolCallCompleted" in event ? event.ToolCallCompleted.call_id
-      : "PermissionRequested" in event ? event.PermissionRequested.request.tool_call.id
-      : undefined;
+  /** Applies a later lifecycle event; its record is created first when the
+   * event arrives before ToolCallRequested. Other events are ignored. */
+  private toolCallUpdated(runId: string, run: RunContext, envelope: AgentEventEnvelope, event: AgentEvent): void {
+    const callId = toolCallIdOf(event);
     if (!callId) return;
-    const id = `${envelope.session_id}:${callId}`;
-    const existing: ToolExecutionRecord = this.snapshot.records.find((record) => record.id === id) ?? {
-      id,
-      callId,
-      ideRunId: runId,
-      ...metadata,
-      toolName: "PermissionRequested" in event ? event.PermissionRequested.request.tool_call.name : "Unknown tool",
-      requestedBy: this.requestingModel(run, envelope),
-      status: "queued" as const,
-      requestedAt: iso(envelope.timestamp),
-      tokens: run.tokens ? { ...run.tokens } : undefined,
-      origin: run.origin,
-      context: run.context,
-      payloadState: "full" as const,
-    };
-
-    if ("ToolCallStarted" in event) {
-      this.upsert({ ...existing, ...metadata, tokens: existing.tokens ?? (run.tokens ? { ...run.tokens } : undefined), status: "running", startedAt: iso(envelope.timestamp) });
-    } else if ("ToolCallProgress" in event) {
-      this.upsert({ ...existing, ...metadata, tokens: existing.tokens ?? (run.tokens ? { ...run.tokens } : undefined), status: "running", progress: event.ToolCallProgress.progress });
-    } else if ("PermissionRequested" in event) {
-      const request = event.PermissionRequested.request;
-      const sanitized = sanitizeForObservability(request.tool_call.arguments);
-      this.upsert({
-        ...existing,
-        ...metadata,
-        toolName: request.tool_call.name,
-        arguments: sanitized.value,
-        tokens: existing.tokens ?? (run.tokens ? { ...run.tokens } : undefined),
-        payloadState: sanitized.state,
-        status: "waiting-permission",
-        permission: { requestId: request.id, state: "waiting" },
-      });
-    } else if ("ToolCallCompleted" in event) {
-      const finishedAt = iso(envelope.timestamp);
-      const failed = event.ToolCallCompleted.result.has_error;
-      const sanitized = sanitizeForObservability(event.ToolCallCompleted.result.output_preview);
-      this.upsert({
-        ...existing,
-        ...metadata,
-        status: failed ? "failed" : "succeeded",
-        finishedAt,
-        durationMs: duration(existing, finishedAt),
-        tokens: existing.tokens ?? (run.tokens ? { ...run.tokens } : undefined),
-        resultPreview: String(sanitized.value ?? ""),
-        payloadState: existing.payloadState === "redacted" || sanitized.state === "redacted" ? "redacted" : sanitized.state,
-        permission: existing.permission ? { ...existing.permission, state: "resolved-by-run" } : undefined,
-      });
-    }
+    const id = toolCallRecordId(envelope.session_id, callId);
+    const existing = this.snapshot.records.find((record) => record.id === id)
+      ?? queuedToolCall(runId, run, envelope, { id: callId, name: "Unknown tool" });
+    this.upsert({
+      ...existing,
+      ...envelopeMetadata(envelope),
+      tokens: existing.tokens ?? runTokensSnapshot(run),
+      ...toolCallChange(existing, event, iso(envelope.timestamp)),
+    });
   }
 
   /** The observer a host tool handler receives for one call. `toolCallId`
@@ -405,7 +239,7 @@ export class ExecutionObservabilityStore {
    * call can't be matched to its record, so reports are dropped. */
   toolObserver(runId: string, sessionId: string, toolCallId: string | undefined): ToolExecutionObserver {
     if (!toolCallId) return NOOP_TOOL_EXECUTION_OBSERVER;
-    const id = `${sessionId}:${toolCallId}`;
+    const id = toolCallRecordId(sessionId, toolCallId);
     const report = (update: (detail: ToolExecutionDetail) => ToolExecutionDetail) => {
       try {
         this.reportToolExecution(runId, id, update);
@@ -460,8 +294,7 @@ export class ExecutionObservabilityStore {
     const model = source.model ?? run.context.model ?? "unknown";
     const role = source.role ?? "run";
     const tokens = definedTokens(parseUsageTokens(usage));
-    run.tokensByModel.set(`${role}:${model}`, tokens);
-    run.tokens = [...run.tokensByModel.values()].reduce<ExecutionTokensSnapshot>((sum, entry) => addTokens(sum, entry), {});
+    setModelTokens(run, `${role}:${model}`, tokens);
     this.trajectoryStore.setUsage(runId, `${role}:${model}`, {
       model,
       provider: source.provider ?? run.context.provider,
@@ -469,13 +302,17 @@ export class ExecutionObservabilityStore {
       ...(role === "subagent" ? { purpose: "Subagent" } : {}),
       tokens,
     });
-    if (source.agentId) {
-      if (source.model) run.agentModels.set(source.agentId, source.model);
-      const spawnId = run.childSpawnCalls.get(source.agentId);
-      const delta = source.delta ? definedTokens(parseUsageTokens(source.delta)) : undefined;
-      if (spawnId && delta && Object.keys(delta).length) {
-        this.reportToolExecution(runId, spawnId, (detail) => ({ ...detail, tokens: addTokens(detail.tokens, delta) }));
-      }
+    if (source.agentId) this.creditSubagent(runId, run, source.agentId, source);
+  }
+
+  /** A subagent's usage increment also counts toward the agent_spawn call
+   * that created it. */
+  private creditSubagent(runId: string, run: RunContext, agentId: string, source: UsageSource): void {
+    if (source.model) run.agentModels.set(agentId, source.model);
+    const spawnId = run.childSpawnCalls.get(agentId);
+    const delta = definedTokens(parseUsageTokens(source.delta));
+    if (spawnId && Object.keys(delta).length) {
+      this.reportToolExecution(runId, spawnId, (detail) => ({ ...detail, tokens: addTokens(detail.tokens, delta) }));
     }
   }
 
@@ -485,18 +322,9 @@ export class ExecutionObservabilityStore {
     let changed = false;
     const run = this.runs.get(runId);
     const records = this.snapshot.records.map((record) => {
-      const matchesRun = record.ideRunId === runId || (run?.sessionId && record.sessionId === run.sessionId);
-      if (!matchesRun || !["queued", "waiting-permission", "running"].includes(record.status)) return record;
+      if (!isActiveInRun(record, runId, run?.sessionId)) return record;
       changed = true;
-      const status: ToolExecutionRecord["status"] = outcome.status === "cancelled" ? "cancelled" : "failed";
-      return {
-        ...record,
-        status,
-        tokens: record.tokens ?? (run?.tokens ? { ...run.tokens } : undefined),
-        finishedAt,
-        durationMs: duration(record, finishedAt),
-        resultPreview: record.resultPreview ?? (outcome.status === "failed" ? String(sanitizeForObservability(outcome.error.message).value) : outcome.status === "completed" ? "Run ended without a terminal tool event; tool success is unknown." : "Run cancelled before a terminal tool event."),
-      };
+      return endedWithRun(record, outcome, finishedAt, runTokensSnapshot(run));
     });
     this.runs.delete(runId);
     for (const [id, entry] of this.toolDetails) if (entry.runId === runId) this.toolDetails.delete(id);
@@ -514,7 +342,7 @@ export class ExecutionObservabilityStore {
 
   async deleteExecution(id: string): Promise<void> {
     const record = this.snapshot.records.find((candidate) => candidate.id === id);
-    this.dirty.delete(id);
+    this.writer.forget(id);
     this.replace(this.snapshot.records.filter((candidate) => candidate.id !== id));
     await this.persist((root) => this.persistence.delete(root, { kind: "execution", id }), [record ? rootOf(record) : undefined]);
   }
@@ -522,14 +350,14 @@ export class ExecutionObservabilityStore {
   async deleteSession(sessionId: string): Promise<void> {
     const roots = this.knownRoots(this.snapshot.records.filter((record) => record.sessionId === sessionId));
     this.trajectoryStore.remove((run) => run.sessionId === sessionId, { persist: false });
-    this.dropDirty((record) => record.sessionId === sessionId);
+    this.writer.forgetWhere((record) => record.sessionId === sessionId);
     this.replace(this.snapshot.records.filter((record) => record.sessionId !== sessionId));
     await this.persist((root) => this.persistence.delete(root, { kind: "session", id: sessionId }), roots);
   }
 
   async deleteWorkspace(workspaceId: string): Promise<void> {
     this.trajectoryStore.remove((run) => run.origin.workspaceId === workspaceId, { persist: false });
-    this.dropDirty((record) => record.origin.workspaceId === workspaceId);
+    this.writer.forgetWhere((record) => record.origin.workspaceId === workspaceId);
     this.replace(this.snapshot.records.filter((record) => record.origin.workspaceId !== workspaceId));
     await this.persist((root) => this.persistence.delete(root, { kind: "all" }), [workspaceId]);
     this.trajectoryStore.repersistLive((run) => run.context?.workspaceRoot === workspaceId);
@@ -539,7 +367,7 @@ export class ExecutionObservabilityStore {
     const roots = this.knownRoots(this.snapshot.records);
     this.trajectoryStore.remove(() => true, { persist: false });
     const kept = this.snapshot.records.filter((record) => this.runs.has(record.ideRunId) && ACTIVE_STATUSES.has(record.status));
-    this.dirty.clear();
+    this.writer.forgetAll();
     this.replace(kept);
     await this.persist((root) => this.persistence.delete(root, { kind: "all" }), roots);
     this.repersistActive();
@@ -548,18 +376,10 @@ export class ExecutionObservabilityStore {
   }
 
   flush = async (): Promise<void> => {
-    clearTimeout(this.timer);
-    this.timer = undefined;
-    if (this.dirty.size === 0) return;
-    const batch = [...this.dirty.values()];
-    this.dirty.clear();
-    const byRoot = new Map<Root, ToolExecutionRecord[]>();
-    for (const record of batch) byRoot.set(rootOf(record), [...(byRoot.get(rootOf(record)) ?? []), record]);
     try {
-      for (const [root, rows] of byRoot) await this.persistence.append(root, "executions", rows);
-      if (this.snapshot.lastError) this.setError(undefined);
+      const wrote = await this.writer.write();
+      if (wrote && this.snapshot.lastError) this.setError(undefined);
     } catch (error) {
-      for (const record of batch) if (!this.dirty.has(record.id)) this.dirty.set(record.id, record);
       this.setError(error);
     }
   };
@@ -576,14 +396,10 @@ export class ExecutionObservabilityStore {
     }
   }
 
-  private dropDirty(matches: (record: ToolExecutionRecord) => boolean) {
-    for (const [id, record] of this.dirty) if (matches(record)) this.dirty.delete(id);
-  }
-
   private repersistActive() {
-    for (const record of this.snapshot.records) this.dirty.set(record.id, record);
+    for (const record of this.snapshot.records) this.writer.queue(record);
     this.trajectoryStore.repersistLive();
-    this.schedule();
+    this.writer.schedule();
   }
 
   private upsert(incoming: ToolExecutionRecord): void {
@@ -599,14 +415,10 @@ export class ExecutionObservabilityStore {
   /** Every mutation builds new record objects, so identity tells which ones need writing. */
   private replace(records: ToolExecutionRecord[]): void {
     const previous = new Set(this.snapshot.records);
-    for (const record of records) if (!previous.has(record)) this.dirty.set(record.id, record);
+    for (const record of records) if (!previous.has(record)) this.writer.queue(record);
     this.snapshot = { ...this.snapshot, records };
     this.emit();
-    if (this.dirty.size) this.schedule();
-  }
-
-  private schedule() {
-    if (!this.timer) this.timer = setTimeout(() => void this.flush(), 1000);
+    this.writer.scheduleIfPending();
   }
 
   private setError(error: unknown) {

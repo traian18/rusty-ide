@@ -212,6 +212,23 @@ describe("CoreHarness workflow runs", () => {
     expect(events.some((event) => event.kind === "token")).toBe(true);
   });
 
+  it("reports research a step asked for, while it runs and once it answers", async () => {
+    const { engine, events } = await start();
+    engine.emit({ kind: "workflow_event", data: { event: { type: "step_started", node_id: "build", attempt: 1 } } });
+    const step = (event: unknown) =>
+      engine.emit({ kind: "workflow_agent_event", data: { node_id: "build", attempt: 1, envelope: stepEnvelope(event as AgentEvent) } });
+    step({ ToolCallRequested: { call: { id: "r1", name: "request_research", arguments: { question: "  Which API?  " } } } });
+    step({ ToolCallCompleted: { call_id: "r1", result: { has_error: false, output_preview: "answer" } } });
+    step({ ToolCallRequested: { call: { id: "r2", name: "request_research", arguments: null } } });
+    step({ ToolCallCompleted: { call_id: "r2", result: { has_error: true, output_preview: "" } } });
+    expect(events.filter((event) => event.kind === "workflow_research")).toEqual([
+      { kind: "workflow_research", workflowId: "plan-build", nodeId: "build", callId: "r1", question: "Which API?", status: "running" },
+      { kind: "workflow_research", workflowId: "plan-build", nodeId: "build", callId: "r1", question: "Which API?", status: "done" },
+      { kind: "workflow_research", workflowId: "plan-build", nodeId: "build", callId: "r2", question: "", status: "running" },
+      { kind: "workflow_research", workflowId: "plan-build", nodeId: "build", callId: "r2", question: "", status: "failed" },
+    ]);
+  });
+
   it("answers step permissions through the workflow", async () => {
     const { engine } = await start("allow");
     engine.emit({

@@ -7,12 +7,15 @@ mod git;
 mod harness;
 mod notifications;
 mod observability_store;
+mod project_search;
 #[cfg(feature = "core-harness")]
 mod repository;
 mod secure_key;
 mod shell_exec;
 mod startup_window;
 mod usage_tracking;
+
+pub use project_search::SearchMatch;
 
 use portable_pty::{CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 use serde::{Deserialize, Serialize};
@@ -561,40 +564,13 @@ async fn write_file_disk(
 }
 
 fn read_dir_recursive(path: &Path) -> Result<Vec<FileEntry>, String> {
-    let mut entries = Vec::new();
-    let read_dir = std::fs::read_dir(path).map_err(|e| e.to_string())?;
-
-    for entry in read_dir {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let entry_path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        if entry_path.is_dir() {
-            if name == "node_modules"
-                || name == ".git"
-                || name == "target"
-                || name == "dist"
-                || name == ".vscode"
-                || name == ".gemini"
-            {
-                continue;
-            }
-            let children = read_dir_recursive(&entry_path)?;
-            entries.push(FileEntry {
-                name,
-                path: entry_path.to_string_lossy().into_owned(),
-                is_dir: true,
-                children: Some(children),
-            });
-        } else {
-            entries.push(FileEntry {
-                name,
-                path: entry_path.to_string_lossy().into_owned(),
-                is_dir: false,
-                children: None,
-            });
-        }
-    }
+    let mut entries = std::fs::read_dir(path)
+        .map_err(|error| error.to_string())?
+        .map(|entry| read_directory_entry(entry.map_err(|error| error.to_string())?))
+        .collect::<Result<Vec<_>, String>>()?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
 
     entries.sort_by(|a, b| {
         if a.is_dir != b.is_dir {
@@ -605,6 +581,36 @@ fn read_dir_recursive(path: &Path) -> Result<Vec<FileEntry>, String> {
     });
 
     Ok(entries)
+}
+
+fn read_directory_entry(entry: std::fs::DirEntry) -> Result<Option<FileEntry>, String> {
+    let path = entry.path();
+    let name = entry.file_name().to_string_lossy().into_owned();
+    let is_dir = path.is_dir();
+
+    if is_dir && is_ignored_directory(&name) {
+        return Ok(None);
+    }
+
+    let children = if is_dir {
+        Some(read_dir_recursive(&path)?)
+    } else {
+        None
+    };
+
+    Ok(Some(FileEntry {
+        name,
+        path: path.to_string_lossy().into_owned(),
+        is_dir,
+        children,
+    }))
+}
+
+fn is_ignored_directory(name: &str) -> bool {
+    matches!(
+        name,
+        "node_modules" | ".git" | "target" | "dist" | ".vscode" | ".gemini"
+    )
 }
 
 #[tauri::command]
@@ -676,42 +682,85 @@ pub struct CacheInfo {
 }
 
 fn calculate_dir_size(path: &Path) -> u64 {
-    let mut total = 0;
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() || p.is_symlink() {
-                if let Ok(meta) = entry.metadata() {
-                    total += meta.len();
-                }
-            } else if p.is_dir() {
-                total += calculate_dir_size(&p);
-            }
-        }
+    let Ok(entries) = std::fs::read_dir(path) else {
+        return 0;
+    };
+
+    entries
+        .flatten()
+        .map(|entry| directory_entry_size(&entry))
+        .sum()
+}
+
+fn directory_entry_size(entry: &std::fs::DirEntry) -> u64 {
+    let path = entry.path();
+    if path.is_file() || path.is_symlink() {
+        return entry.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     }
-    total
+
+    if path.is_dir() {
+        return calculate_dir_size(&path);
+    }
+
+    0
 }
 
 fn clear_directory_contents(path: &Path) -> Result<(), String> {
-    if !path.exists() {
-        return Ok(());
+    let entries = match std::fs::read_dir(path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("Failed to read {}: {}", path.display(), error)),
+    };
+
+    let errors = entries
+        .filter_map(|entry| match entry {
+            Ok(entry) => clear_directory_entry(&entry).err(),
+            Err(error) => Some(format!(
+                "Failed to read entry in {}: {}",
+                path.display(),
+                error
+            )),
+        })
+        .collect::<Vec<_>>();
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
-    if let Ok(entries) = std::fs::read_dir(path) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_file() || p.is_symlink() {
-                if std::fs::remove_file(&p).is_err() {
-                    let _ = std::fs::OpenOptions::new()
-                        .write(true)
-                        .truncate(true)
-                        .open(&p);
-                }
-            } else if p.is_dir() {
-                let _ = std::fs::remove_dir_all(&p);
-            }
-        }
+}
+
+fn clear_directory_entry(entry: &std::fs::DirEntry) -> Result<(), String> {
+    let path = entry.path();
+    if path.is_file() || path.is_symlink() {
+        return remove_file_or_truncate(&path);
     }
+
+    if path.is_dir() {
+        return std::fs::remove_dir_all(&path)
+            .map_err(|error| format!("Failed to remove directory {}: {}", path.display(), error));
+    }
+
     Ok(())
+}
+
+fn remove_file_or_truncate(path: &Path) -> Result<(), String> {
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(remove_error) => std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(path)
+            .map(|_| ())
+            .map_err(|truncate_error| {
+                format!(
+                    "Failed to remove {} ({}), and truncate fallback failed: {}",
+                    path.display(),
+                    remove_error,
+                    truncate_error
+                )
+            }),
+    }
 }
 
 #[tauri::command]
@@ -735,14 +784,23 @@ async fn get_storage_cache_size(app: tauri::AppHandle) -> Result<CacheInfo, Stri
 
 #[tauri::command]
 async fn clear_storage_cache(app: tauri::AppHandle) -> Result<CacheInfo, String> {
-    if let Ok(cache_dir) = app.path().app_cache_dir() {
-        let _ = clear_directory_contents(&cache_dir);
-    }
-    if let Ok(log_dir) = app.path().app_log_dir() {
-        let _ = clear_directory_contents(&log_dir);
-    }
-
+    clear_app_storage_directory(app.path().app_cache_dir(), "cache");
+    clear_app_storage_directory(app.path().app_log_dir(), "log");
     get_storage_cache_size(app).await
+}
+
+fn clear_app_storage_directory(directory: tauri::Result<PathBuf>, description: &str) {
+    match directory {
+        Ok(path) => {
+            if let Err(error) = clear_directory_contents(&path) {
+                eprintln!(
+                    "Failed to clear app {description} directory {}: {error}",
+                    path.display()
+                );
+            }
+        }
+        Err(error) => eprintln!("Failed to resolve app {description} directory: {error}"),
+    }
 }
 
 #[tauri::command]
@@ -771,55 +829,97 @@ async fn create_terminal_session(
         }
     }
 
-    let (shell, shell_args) = terminal_shell_command();
+    let shell = terminal_shell_command();
+    let (master, writer, child, reader) = spawn_terminal(&shell, cols, rows, cwd.as_deref())?;
+    store_terminal_session(&state, session_id.clone(), master, writer, child)?;
+    start_terminal_output_forwarder(app, &session_id, reader);
+    Ok(())
+}
 
+fn spawn_terminal(
+    shell: &(String, Vec<&'static str>),
+    cols: u16,
+    rows: u16,
+    cwd: Option<&str>,
+) -> Result<
+    (
+        Box<dyn MasterPty + Send>,
+        Box<dyn Write + Send>,
+        Box<dyn portable_pty::Child + Send + Sync>,
+        Box<dyn Read + Send>,
+    ),
+    String,
+> {
     let pty_system = NativePtySystem::default();
-    let size = PtySize {
-        rows,
-        cols,
-        pixel_width: 0,
-        pixel_height: 0,
-    };
+    let pair = pty_system
+        .openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|error| error.to_string())?;
 
-    let pair = pty_system.openpty(size).map_err(|e| e.to_string())?;
-
-    let mut cmd = CommandBuilder::new(&shell);
-    cmd.args(shell_args);
+    let mut command = CommandBuilder::new(&shell.0);
+    command.args(shell.1.clone());
     // portable-pty assigns this PTY as the controlling TTY by default, so the
     // login shell is also interactive (the same model used by native terminals).
-    cmd.env("TERM", "xterm-256color");
-    cmd.env("COLORTERM", "truecolor");
-    cmd.env("TERM_PROGRAM", "Rusty");
-    cmd.env("SHELL", &shell);
-    if let Some(ref cwd_dir) = cwd {
-        if !cwd_dir.is_empty() {
-            cmd.cwd(cwd_dir);
-        }
+    command.env("TERM", "xterm-256color");
+    command.env("COLORTERM", "truecolor");
+    command.env("TERM_PROGRAM", "Rusty");
+    command.env("SHELL", &shell.0);
+    if let Some(directory) = cwd.filter(|directory| !directory.is_empty()) {
+        command.cwd(directory);
     }
-    let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
+
+    let child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| error.to_string())?;
     let master = pair.master;
-    let mut reader = master.try_clone_reader().map_err(|e| e.to_string())?;
-    let writer = master.take_writer().map_err(|e| e.to_string())?;
+    let reader = master
+        .try_clone_reader()
+        .map_err(|error| error.to_string())?;
+    let writer = master.take_writer().map_err(|error| error.to_string())?;
+    Ok((master, writer, child, reader))
+}
 
-    {
-        let mut map = state.0.lock().map_err(|e| e.to_string())?;
-        map.insert(
-            session_id.clone(),
-            TerminalSession {
-                master,
-                writer,
-                child,
-            },
-        );
-    }
+fn store_terminal_session(
+    state: &tauri::State<'_, TerminalState>,
+    session_id: String,
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
+) -> Result<(), String> {
+    state.0.lock().map_err(|error| error.to_string())?.insert(
+        session_id,
+        TerminalSession {
+            master,
+            writer,
+            child,
+        },
+    );
+    Ok(())
+}
 
-    let output_event = format!("terminal-output-{}", session_id);
-    let exit_event = format!("terminal-exit-{}", session_id);
+fn start_terminal_output_forwarder(
+    app: tauri::AppHandle,
+    session_id: &str,
+    mut reader: Box<dyn Read + Send>,
+) {
+    let output_event = format!("terminal-output-{session_id}");
+    let exit_event = format!("terminal-exit-{session_id}");
     let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    spawn_terminal_event_thread(app, output_event, exit_event, rx);
+    std::thread::spawn(move || forward_terminal_reader(&mut reader, tx));
+}
 
-    let app_clone = app.clone();
-    let output_event_clone = output_event.clone();
-    let exit_event_clone = exit_event.clone();
+fn spawn_terminal_event_thread(
+    app: tauri::AppHandle,
+    output_event: String,
+    exit_event: String,
+    rx: mpsc::Receiver<Vec<u8>>,
+) {
     std::thread::spawn(move || {
         while let Ok(mut chunk) = rx.recv() {
             while let Ok(next) = rx.recv_timeout(Duration::from_millis(8)) {
@@ -829,31 +929,27 @@ async fn create_terminal_session(
                 }
             }
 
-            // Keep PTY output byte-for-byte intact. xterm accepts Uint8Array,
-            // while converting with from_utf8_lossy corrupts binary/invalid UTF-8
-            // sequences emitted by real terminal programs.
-            let _ = app_clone.emit(&output_event_clone, chunk);
-        }
-
-        let _ = app_clone.emit(&exit_event_clone, ());
-    });
-
-    std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
-        loop {
-            match reader.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    if tx.send(buf[..n].to_vec()).is_err() {
-                        break;
-                    }
-                }
-                Err(_) => break,
+            // Preserve raw terminal bytes; lossy UTF-8 conversion corrupts output.
+            if let Err(error) = app.emit(&output_event, chunk) {
+                eprintln!("Failed to emit terminal output event {output_event}: {error}");
             }
         }
-    });
 
-    Ok(())
+        if let Err(error) = app.emit(&exit_event, ()) {
+            eprintln!("Failed to emit terminal exit event {exit_event}: {error}");
+        }
+    });
+}
+
+fn forward_terminal_reader(reader: &mut dyn Read, tx: mpsc::Sender<Vec<u8>>) {
+    let mut buffer = [0u8; 4096];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(bytes_read) if tx.send(buffer[..bytes_read].to_vec()).is_err() => break,
+            Ok(_) => {}
+        }
+    }
 }
 
 #[tauri::command]
@@ -904,7 +1000,10 @@ async fn close_terminal_session(
 ) -> Result<(), String> {
     let mut map = state.0.lock().map_err(|e| e.to_string())?;
     if let Some(mut session) = map.remove(&session_id) {
-        let _ = session.child.kill();
+        session
+            .child
+            .kill()
+            .map_err(|error| format!("Failed to stop terminal session '{session_id}': {error}"))?;
     }
     Ok(())
 }
@@ -924,20 +1023,6 @@ async fn move_file_or_dir(src: String, dest: String) -> Result<(), String> {
     }
     std::fs::rename(&src_path, &dest_path).map_err(|e| e.to_string())?;
     Ok(())
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct SearchMatch {
-    path: String,
-    name: String,
-    line: usize,
-    content: String,
-    is_content_match: bool,
-}
-
-struct ScoredSearchMatch {
-    match_val: SearchMatch,
-    score: i64,
 }
 
 /// Result of `sniff_text_file`'s cheap safety classification
@@ -984,17 +1069,6 @@ fn sniff_text_file(path: &Path, max_bytes: u64) -> std::io::Result<FileOpenSafet
     Ok(FileOpenSafety::Safe)
 }
 
-/// search_project's own cap -- unchanged from before this was extracted
-/// into the shared `sniff_text_file`.
-const SEARCH_MAX_TEXT_FILE_BYTES: u64 = 2 * 1024 * 1024;
-
-fn read_and_check_text_file(path: &Path) -> Option<String> {
-    match sniff_text_file(path, SEARCH_MAX_TEXT_FILE_BYTES) {
-        Ok(FileOpenSafety::Safe) => std::fs::read_to_string(path).ok(),
-        _ => None,
-    }
-}
-
 /// Cheap pre-open safety check for the Monaco editor path (REFACTOR_PLAN.md
 /// PR 6): a `stat` plus a first-1KB sniff only, no full read -- safe to
 /// call unconditionally before every file-tab open regardless of whether
@@ -1026,35 +1100,33 @@ const MAX_DOCUMENT_BYTES: u64 = 100 * 1024 * 1024;
 
 #[tauri::command]
 async fn read_file_as_base64(path: String) -> Result<String, String> {
-    let path_buf = resolve_path(&path);
-    let metadata =
-        std::fs::metadata(&path_buf).map_err(|e| format!("File not found: {} ({})", path, e))?;
-    if metadata.len() > MAX_IMAGE_PREVIEW_BYTES {
-        return Err(format!(
-            "Image is {} bytes, over the {} byte preview limit",
-            metadata.len(),
-            MAX_IMAGE_PREVIEW_BYTES
-        ));
-    }
-    let bytes = std::fs::read(&path_buf).map_err(|e| e.to_string())?;
-    use base64::Engine;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
+    read_file_base64(&path, MAX_IMAGE_PREVIEW_BYTES, |size, limit| {
+        format!("Image is {size} bytes, over the {limit} byte preview limit")
+    })
 }
 
 #[tauri::command]
 async fn read_binary_file_base64(path: String) -> Result<String, String> {
-    let path_buf = resolve_path(&path);
-    let metadata =
-        std::fs::metadata(&path_buf).map_err(|e| format!("File not found: {} ({})", path, e))?;
-    if metadata.len() > MAX_DOCUMENT_BYTES {
-        return Err(format!(
-            "Document file is {} bytes, over the {} byte limit",
-            metadata.len(),
-            MAX_DOCUMENT_BYTES
-        ));
-    }
-    let bytes = std::fs::read(&path_buf).map_err(|e| e.to_string())?;
+    read_file_base64(&path, MAX_DOCUMENT_BYTES, |size, limit| {
+        format!("Document file is {size} bytes, over the {limit} byte limit")
+    })
+}
+
+fn read_file_base64(
+    path: &str,
+    max_bytes: u64,
+    too_large_message: impl FnOnce(u64, u64) -> String,
+) -> Result<String, String> {
     use base64::Engine;
+
+    let path_buf = resolve_path(path);
+    let metadata = std::fs::metadata(&path_buf)
+        .map_err(|error| format!("File not found: {} ({})", path, error))?;
+    if metadata.len() > max_bytes {
+        return Err(too_large_message(metadata.len(), max_bytes));
+    }
+
+    let bytes = std::fs::read(path_buf).map_err(|error| error.to_string())?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
@@ -1136,179 +1208,9 @@ mod file_open_safety_tests {
 // This is the search tool
 #[tauri::command]
 async fn search_project(
-    root_dir: String,
-    query: String,
-    match_case: bool,
-    whole_word: bool,
-    is_regex: bool,
+    options: project_search::SearchOptions,
 ) -> Result<Vec<SearchMatch>, String> {
-    println!(
-        "Rust [search_project] querying: '{}' (case: {}, word: {}, regex: {}) under: {}",
-        query, match_case, whole_word, is_regex, root_dir
-    );
-
-    if query.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let root_path = Path::new(&root_dir);
-    if !root_path.exists() {
-        return Err("Directory does not exist".into());
-    }
-
-    let results = Arc::new(Mutex::new(Vec::new()));
-    let query_lower = query.to_lowercase();
-    let query_arc = Arc::new(query);
-    let query_lower_arc = Arc::new(query_lower);
-    let root_path_buf = root_path.to_path_buf();
-    let root_path_arc = Arc::new(root_path_buf);
-
-    let regex_matcher = if is_regex {
-        let re = regex::RegexBuilder::new(&query_arc)
-            .case_insensitive(!match_case)
-            .build()
-            .map_err(|e| format!("Invalid regex: {}", e))?;
-        Some(Arc::new(re))
-    } else {
-        None
-    };
-
-    use fuzzy_matcher::FuzzyMatcher;
-    use ignore::WalkBuilder;
-
-    let walker = WalkBuilder::new(&*root_path_arc)
-        .hidden(true) // Skip hidden files and directories (like .git) by default
-        .build_parallel();
-
-    walker.run(|| {
-        let results = results.clone();
-        let query = query_arc.clone();
-        let query_lower = query_lower_arc.clone();
-        let root_path = root_path_arc.clone();
-        let regex_matcher = regex_matcher.clone();
-        let matcher = fuzzy_matcher::skim::SkimMatcherV2::default();
-
-        Box::new(move |entry_result| {
-            let entry = match entry_result {
-                Ok(e) => e,
-                Err(_) => return ignore::WalkState::Continue,
-            };
-
-            let path = entry.path();
-
-            // Guard against massive build/dependency directories if not gitignored
-            if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
-                if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
-                    if dir_name == "node_modules"
-                        || dir_name == ".git"
-                        || dir_name == "target"
-                        || dir_name == "dist"
-                        || dir_name == ".vscode"
-                        || dir_name == ".gemini"
-                    {
-                        return ignore::WalkState::Skip;
-                    }
-                }
-            }
-
-            if entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                let name = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("")
-                    .to_string();
-                let rel_path = path
-                    .strip_prefix(&*root_path)
-                    .unwrap_or(path)
-                    .to_string_lossy()
-                    .into_owned();
-
-                // 1. Fuzzy match filename
-                let filename_score = matcher.fuzzy_match(&rel_path, &query).unwrap_or(0);
-                if filename_score > 0 {
-                    let mut lock = results.lock().unwrap();
-                    lock.push(ScoredSearchMatch {
-                        match_val: SearchMatch {
-                            path: path.to_string_lossy().into_owned(),
-                            name: name.clone(),
-                            line: 0,
-                            content: String::new(),
-                            is_content_match: false,
-                        },
-                        score: filename_score,
-                    });
-                }
-
-                // 2. Scan file content
-                if let Some(content) = read_and_check_text_file(path) {
-                    for (line_index, raw_line) in content.lines().enumerate() {
-                        let is_match = if let Some(ref re) = regex_matcher {
-                            re.is_match(raw_line)
-                        } else if match_case {
-                            if whole_word {
-                                raw_line
-                                    .split(|c: char| !c.is_alphanumeric() && c != '_')
-                                    .any(|w| w == query.as_str())
-                            } else {
-                                raw_line.contains(query.as_str())
-                            }
-                        } else {
-                            if whole_word {
-                                raw_line
-                                    .split(|c: char| !c.is_alphanumeric() && c != '_')
-                                    .any(|w| w.to_lowercase() == query_lower.as_str())
-                            } else {
-                                raw_line.to_lowercase().contains(query_lower.as_str())
-                            }
-                        };
-
-                        if is_match {
-                            let mut lock = results.lock().unwrap();
-                            lock.push(ScoredSearchMatch {
-                                match_val: SearchMatch {
-                                    path: path.to_string_lossy().into_owned(),
-                                    name: name.clone(),
-                                    line: line_index + 1,
-                                    content: raw_line.trim().to_string(),
-                                    is_content_match: true,
-                                },
-                                score: 0,
-                            });
-                        }
-                    }
-                }
-            }
-
-            ignore::WalkState::Continue
-        })
-    });
-
-    // Unwrap results and sort them
-    let mut scored_results = Arc::try_unwrap(results)
-        .map_err(|_| "Failed to resolve search results threads".to_string())?
-        .into_inner()
-        .map_err(|e| e.to_string())?;
-
-    scored_results.sort_by(|a, b| {
-        match (a.match_val.is_content_match, b.match_val.is_content_match) {
-            (false, false) => b.score.cmp(&a.score), // Sort filename matches by fuzzy score desc
-            (false, true) => std::cmp::Ordering::Less, // Filenames always first
-            (true, false) => std::cmp::Ordering::Greater,
-            (true, true) => {
-                // Sort content matches alphabetically by path, then line number
-                a.match_val
-                    .path
-                    .cmp(&b.match_val.path)
-                    .then_with(|| a.match_val.line.cmp(&b.match_val.line))
-            }
-        }
-    });
-
-    let mut final_results: Vec<SearchMatch> =
-        scored_results.into_iter().map(|r| r.match_val).collect();
-
-    final_results.truncate(150);
-    Ok(final_results)
+    project_search::search_project(options)
 }
 
 /// Minimal UTC "YYYY-MM-DDTHH:MM:SSZ" formatter with no external crate
@@ -1345,6 +1247,37 @@ pub(crate) fn chrono_now_iso8601() -> String {
         year, month, day, hour, minute, second
     )
 }
+
+#[cfg(feature = "core-harness")]
+fn configure_repository_notifications(app: &tauri::App) {
+    let data_dir = match app.path().app_data_dir() {
+        Ok(data_dir) => data_dir,
+        Err(error) => {
+            eprintln!("Failed to resolve repository data directory: {error}");
+            return;
+        }
+    };
+
+    let handle = app.handle().clone();
+    app.state::<repository::RepositoryState>().configure(
+        data_dir,
+        std::sync::Arc::new(move |notice| match notice {
+            repository::jobs::Notice::Jobs(jobs) => {
+                if let Err(error) = handle.emit("background-jobs", jobs) {
+                    eprintln!("Failed to emit background-jobs event: {error}");
+                }
+            }
+            repository::jobs::Notice::AnalysisUpdated(root) => {
+                if let Err(error) = handle.emit("repository-analysis-updated", root) {
+                    eprintln!("Failed to emit repository-analysis-updated event: {error}");
+                }
+            }
+        }),
+    );
+}
+
+#[cfg(not(feature = "core-harness"))]
+fn configure_repository_notifications(_app: &tauri::App) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -1392,24 +1325,7 @@ pub fn run() {
 
             startup_window::restore_and_show(&main_window, window_state_flags)?;
 
-            // Repository analysis is saved under the app data directory and runs in the
-            // background; jobs and finished analyses are announced to the window.
-            #[cfg(feature = "core-harness")]
-            if let Ok(data_dir) = app.path().app_data_dir() {
-                let handle = app.handle().clone();
-                app.state::<repository::RepositoryState>().configure(
-                    data_dir,
-                    std::sync::Arc::new(move |notice| match notice {
-                        repository::jobs::Notice::Jobs(jobs) => {
-                            let _ = handle.emit("background-jobs", jobs);
-                        }
-                        repository::jobs::Notice::AnalysisUpdated(root) => {
-                            let _ = handle.emit("repository-analysis-updated", root);
-                        }
-                    }),
-                );
-            }
-
+            configure_repository_notifications(app);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

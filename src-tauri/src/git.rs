@@ -58,6 +58,43 @@ impl std::fmt::Display for GitError {
 
 impl std::error::Error for GitError {}
 
+impl GitError {
+    /// A failure that is not a git process's (a missing directory, a file
+    /// write), so there is no exit code or stderr to report.
+    fn local(operation: &str, repository: &str, message: impl Into<String>) -> Self {
+        GitError {
+            operation: operation.to_string(),
+            repository: repository.to_string(),
+            exit_code: None,
+            stderr: String::new(),
+            message: message.into(),
+        }
+    }
+}
+
+/// Whether `git <args>` exits successfully in `repo`; git failing to start
+/// counts as no.
+fn git_succeeds(repo: &str, args: &[&str]) -> bool {
+    Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+}
+
+fn require_directory(root_dir: &str, operation: &str) -> Result<(), GitError> {
+    if Path::new(root_dir).exists() {
+        Ok(())
+    } else {
+        Err(GitError::local(
+            operation,
+            root_dir,
+            "Directory does not exist",
+        ))
+    }
+}
+
 /// Runs `git <args>` in `repo`, returning `Ok(Output)` only on a zero exit
 /// code (spawn failures and non-zero exits both become `GitError`). This is
 /// the one place every command in this module routes its git invocations
@@ -352,16 +389,8 @@ fn check_is_git_repo(root_dir: &str) -> bool {
 /// staged changes, and unstaged/untracked changes.
 #[tauri::command]
 pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
+    require_directory(&root_dir, "git_status")?;
     let root_path = Path::new(&root_dir);
-    if !root_path.exists() {
-        return Err(GitError {
-            operation: "git_status".to_string(),
-            repository: root_dir.clone(),
-            exit_code: None,
-            stderr: String::new(),
-            message: "Directory does not exist".to_string(),
-        });
-    }
 
     // Return status early if it's not a git repository
     let is_repo = check_is_git_repo(&root_dir);
@@ -375,29 +404,7 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
     }
 
     // 1. Get the current active branch name
-    let branch_output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .current_dir(&root_dir)
-        .output();
-
-    let mut current_branch = String::new();
-    if let Ok(out) = branch_output {
-        if out.status.success() {
-            current_branch = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        } else {
-            // Check if it's a new repo that hasn't made its first commit yet
-            let show_branch = Command::new("git")
-                .args(["branch", "--show-current"])
-                .current_dir(&root_dir)
-                .output();
-            if let Ok(sb_out) = show_branch {
-                current_branch = String::from_utf8_lossy(&sb_out.stdout).trim().to_string();
-            }
-            if current_branch.is_empty() {
-                current_branch = "empty-repo".to_string();
-            }
-        }
-    }
+    let current_branch = status_branch_name(&root_dir);
 
     // 2. Query NUL-delimited porcelain output to parse staged, unstaged, and
     // untracked changes. `-z` guarantees raw, unescaped, unquoted UTF-8
@@ -413,13 +420,7 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
         .args(["status", "--porcelain=v1", "-u", "-z"])
         .current_dir(&root_dir)
         .output()
-        .map_err(|e| GitError {
-            operation: "git_status".to_string(),
-            repository: root_dir.clone(),
-            exit_code: None,
-            stderr: String::new(),
-            message: format!("Failed to run git: {e}"),
-        })?;
+        .map_err(|e| GitError::local("git_status", &root_dir, format!("Failed to run git: {e}")))?;
 
     let raw = String::from_utf8_lossy(&status_output.stdout).into_owned();
     let (staged, unstaged) = parse_status_z(&raw, root_path);
@@ -430,6 +431,66 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
         staged,
         unstaged,
     })
+}
+
+/// The checked-out branch for `git_status`. A repository without a first
+/// commit reports the branch it will create, else `"empty-repo"`; empty
+/// when git cannot run at all.
+fn status_branch_name(root_dir: &str) -> String {
+    let Ok(out) = Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .current_dir(root_dir)
+        .output()
+    else {
+        return String::new();
+    };
+    if out.status.success() {
+        return String::from_utf8_lossy(&out.stdout).trim().to_string();
+    }
+    // Check if it's a new repo that hasn't made its first commit yet
+    let branch = Command::new("git")
+        .args(["branch", "--show-current"])
+        .current_dir(root_dir)
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default();
+    if branch.is_empty() {
+        "empty-repo".to_string()
+    } else {
+        branch
+    }
+}
+
+/// `git status`'s index (X) code as a status type.
+fn index_status_type(code: char) -> &'static str {
+    match code {
+        'A' => "added",
+        'D' => "deleted",
+        'R' => "renamed",
+        'C' => "copied",
+        _ => "modified",
+    }
+}
+
+/// `git status`'s working tree (Y) code as a status type.
+fn worktree_status_type(code: char) -> &'static str {
+    match code {
+        'D' => "deleted",
+        'A' => "added",
+        _ => "modified",
+    }
+}
+
+fn file_status(root_path: &Path, path: &str, status_type: &str) -> GitFileStatus {
+    GitFileStatus {
+        path: root_path.join(path).to_string_lossy().into_owned(),
+        name: Path::new(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(path)
+            .to_string(),
+        status_type: status_type.into(),
+    }
 }
 
 /// Parses `git status --porcelain=v1 -u -z`'s raw NUL-delimited stdout into
@@ -454,63 +515,29 @@ fn parse_status_z(raw: &str, root_path: &Path) -> (Vec<GitFileStatus>, Vec<GitFi
         // X represents index status, Y represents working tree status
         let x = record.chars().next().unwrap_or(' ');
         let y = record.chars().nth(1).unwrap_or(' ');
-        let path = record[3..].to_string();
+        let path = &record[3..];
 
         // GitFileStatus doesn't track "renamed from" today -- this field
         // must still be consumed so the next record isn't misread as this
         // one's continuation.
-        if x == 'R' || x == 'C' {
+        if matches!(x, 'R' | 'C') {
             fields.next();
         }
 
-        let file_name = Path::new(&path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(&path)
-            .to_string();
-
-        let abs_path = root_path.join(&path).to_string_lossy().into_owned();
-
-        if x == '?' && y == '?' {
+        if (x, y) == ('?', '?') {
             // "??" indicates an untracked file
-            unstaged.push(GitFileStatus {
-                path: abs_path,
-                name: file_name,
-                status_type: "untracked".into(),
-            });
+            unstaged.push(file_status(root_path, path, "untracked"));
             continue;
         }
 
         // Process staged changes (X represents the index state)
         if x != ' ' {
-            let status_type = match x {
-                'M' => "modified",
-                'A' => "added",
-                'D' => "deleted",
-                'R' => "renamed",
-                'C' => "copied",
-                _ => "modified",
-            };
-            staged.push(GitFileStatus {
-                path: abs_path.clone(),
-                name: file_name.clone(),
-                status_type: status_type.into(),
-            });
+            staged.push(file_status(root_path, path, index_status_type(x)));
         }
 
         // Process unstaged changes (Y represents the working tree state)
         if y != ' ' {
-            let status_type = match y {
-                'M' => "modified",
-                'D' => "deleted",
-                'A' => "added",
-                _ => "modified",
-            };
-            unstaged.push(GitFileStatus {
-                path: abs_path,
-                name: file_name,
-                status_type: status_type.into(),
-            });
+            unstaged.push(file_status(root_path, path, worktree_status_type(y)));
         }
     }
 
@@ -618,60 +645,33 @@ pub async fn git_add_to_gitignore(root_dir: String, file_path: String) -> Result
 pub async fn git_discard_changes(root_dir: String, file_path: String) -> Result<(), GitError> {
     let relative = relative_to_root(&root_dir, &file_path, "git_discard_changes")?;
 
-    // Try traditional checkout first
-    let output = Command::new("git")
-        .args(["checkout", "--", &relative])
-        .current_dir(&root_dir)
-        .output();
-
-    let success = match output {
-        Ok(out) => out.status.success(),
-        Err(_) => false,
-    };
-
-    if !success {
-        // Fallback to git restore
-        let restore_output = Command::new("git")
-            .args(["restore", &relative])
-            .current_dir(&root_dir)
-            .output();
-
-        let restore_success = match restore_output {
-            Ok(out) => out.status.success(),
-            Err(_) => false,
-        };
-
-        if !restore_success {
-            // Delete untracked files
-            let path_buf = PathBuf::from(&file_path);
-            if path_buf.exists()
-                && !Command::new("git")
-                    .args(["ls-files", "--error-unmatch", &relative])
-                    .current_dir(&root_dir)
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false)
-            {
-                std::fs::remove_file(path_buf).map_err(|e| GitError {
-                    operation: "git_discard_changes".to_string(),
-                    repository: root_dir.clone(),
-                    exit_code: None,
-                    stderr: String::new(),
-                    message: format!("Failed to delete untracked file: {e}"),
-                })?;
-                return Ok(());
-            }
-            return Err(GitError {
-                operation: "git_discard_changes".to_string(),
-                repository: root_dir.clone(),
-                exit_code: None,
-                stderr: String::new(),
-                message: "Failed to discard changes".to_string(),
-            });
-        }
+    // Try traditional checkout first, then git restore
+    if git_succeeds(&root_dir, &["checkout", "--", &relative])
+        || git_succeeds(&root_dir, &["restore", &relative])
+    {
+        return Ok(());
     }
+    delete_untracked_file(&root_dir, &file_path, &relative)
+}
 
-    Ok(())
+/// The last resort for discarding a change: a file git does not track is
+/// deleted. Anything else could not be discarded.
+fn delete_untracked_file(root_dir: &str, file_path: &str, relative: &str) -> Result<(), GitError> {
+    let path = PathBuf::from(file_path);
+    if !path.exists() || git_succeeds(root_dir, &["ls-files", "--error-unmatch", relative]) {
+        return Err(GitError::local(
+            "git_discard_changes",
+            root_dir,
+            "Failed to discard changes",
+        ));
+    }
+    std::fs::remove_file(path).map_err(|e| {
+        GitError::local(
+            "git_discard_changes",
+            root_dir,
+            format!("Failed to delete untracked file: {e}"),
+        )
+    })
 }
 
 /// Commits all currently staged changes with the provided commit message.
@@ -1026,34 +1026,10 @@ pub struct GitCommitInfo {
 /// Retrieves the last 100 commits from all branches and flags commits that are unpushed.
 #[tauri::command]
 pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInfo>, GitError> {
-    if !Path::new(&root_dir).exists() {
-        return Err(GitError {
-            operation: "git_get_commit_history".to_string(),
-            repository: root_dir,
-            exit_code: None,
-            stderr: String::new(),
-            message: "Directory does not exist".to_string(),
-        });
-    }
+    require_directory(&root_dir, "git_get_commit_history")?;
 
     // 1. Find all local commits that are not present in any remote tracking branches (unpushed)
-    let unpushed_output = Command::new("git")
-        .args(["log", "--branches", "--not", "--remotes", "--format=%H"])
-        .current_dir(&root_dir)
-        .output();
-
-    let mut unpushed_hashes = std::collections::HashSet::new();
-    if let Ok(out) = unpushed_output {
-        if out.status.success() {
-            let out_str = String::from_utf8_lossy(&out.stdout);
-            for line in out_str.lines() {
-                let h = line.trim().to_string();
-                if !h.is_empty() {
-                    unpushed_hashes.insert(h);
-                }
-            }
-        }
-    }
+    let unpushed_hashes = unpushed_commits(&root_dir);
 
     // 2. Fetch the commit logs using a structured format split by '|'.
     //
@@ -1068,12 +1044,7 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
     // recorded so this checklist item isn't mistaken for skipped or
     // "fixed" by a redundant flag with no observable effect.
     let log_output = match Command::new("git")
-        .args([
-            "log",
-            "--format=%H|%P|%an|%cr|%s|%d",
-            "--max-count=100",
-            "--all",
-        ])
+        .args(["log", COMMIT_LOG_FORMAT, "--max-count=100", "--all"])
         .current_dir(&root_dir)
         .output()
     {
@@ -1083,42 +1054,59 @@ pub async fn git_get_commit_history(root_dir: String) -> Result<Vec<GitCommitInf
         _ => return Ok(Vec::new()),
     };
 
-    let log_str = String::from_utf8_lossy(&log_output.stdout);
-    let mut history = Vec::new();
-
-    for line in log_str.lines() {
-        let parts: Vec<&str> = line.split('|').collect();
-        if parts.len() < 5 {
-            continue;
-        }
-
-        let hash = parts[0].trim().to_string();
-        let short_hash = if hash.len() >= 7 {
-            hash[0..7].to_string()
-        } else {
-            hash.clone()
-        };
-        let parents: Vec<String> = parts[1].split_whitespace().map(|s| s.to_string()).collect();
-        let author = parts[2].trim().to_string();
-        let date = parts[3].trim().to_string();
-        let subject = parts[4].trim().to_string();
-        let decorations = parts.get(5).cloned().unwrap_or("").trim().to_string();
-
-        let is_unpushed = unpushed_hashes.contains(&hash);
-
-        history.push(GitCommitInfo {
-            hash,
-            short_hash,
-            parents,
-            author,
-            date,
-            subject,
-            decorations,
-            is_unpushed,
-        });
+    let mut history = parse_commit_log(&String::from_utf8_lossy(&log_output.stdout));
+    for commit in &mut history {
+        commit.is_unpushed = unpushed_hashes.contains(&commit.hash);
     }
-
     Ok(history)
+}
+
+/// One commit per line, fields split by `|`: hash, parents, author,
+/// relative date, subject, decorations. What `parse_commit_log` reads.
+const COMMIT_LOG_FORMAT: &str = "--format=%H|%P|%an|%cr|%s|%d";
+
+/// Parses `git log` output in `COMMIT_LOG_FORMAT`, skipping lines with too
+/// few fields. Commits come back not marked unpushed.
+fn parse_commit_log(log: &str) -> Vec<GitCommitInfo> {
+    log.lines().filter_map(parse_commit_line).collect()
+}
+
+fn parse_commit_line(line: &str) -> Option<GitCommitInfo> {
+    let parts: Vec<&str> = line.split('|').collect();
+    if parts.len() < 5 {
+        return None;
+    }
+    let hash = parts[0].trim().to_string();
+    Some(GitCommitInfo {
+        short_hash: hash.get(..7).unwrap_or(&hash).to_string(),
+        parents: parts[1].split_whitespace().map(str::to_string).collect(),
+        author: parts[2].trim().to_string(),
+        date: parts[3].trim().to_string(),
+        subject: parts[4].trim().to_string(),
+        decorations: parts.get(5).copied().unwrap_or("").trim().to_string(),
+        is_unpushed: false,
+        hash,
+    })
+}
+
+/// Local commits on no remote-tracking branch; none when git cannot say.
+fn unpushed_commits(root_dir: &str) -> std::collections::HashSet<String> {
+    let output = Command::new("git")
+        .args(["log", "--branches", "--not", "--remotes", "--format=%H"])
+        .current_dir(root_dir)
+        .output();
+    let Ok(out) = output else {
+        return Default::default();
+    };
+    if !out.status.success() {
+        return Default::default();
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|hash| !hash.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Represents status details of a file changed in a commit.
@@ -1274,15 +1262,7 @@ pub struct GitBlameLine {
 /// Runs git blame on a file to fetch the author and date of the last commit for each line.
 #[tauri::command]
 pub async fn git_blame(root_dir: String, file_path: String) -> Result<Vec<GitBlameLine>, GitError> {
-    if !Path::new(&root_dir).exists() {
-        return Err(GitError {
-            operation: "git_blame".to_string(),
-            repository: root_dir,
-            exit_code: None,
-            stderr: String::new(),
-            message: "Directory does not exist".to_string(),
-        });
-    }
+    require_directory(&root_dir, "git_blame")?;
 
     // Was a plain string starts_with(&root_dir) check -- a real bug fixed
     // in PR 5a commit 10: "/repo" matches starts_with("/repo") against
@@ -1297,36 +1277,32 @@ pub async fn git_blame(root_dir: String, file_path: String) -> Result<Vec<GitBla
         &["blame", "-w", "--date=short", &relative_path],
     )?;
 
-    let out_str = String::from_utf8_lossy(&output.stdout);
-    let mut blame_lines = Vec::new();
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_blame_line)
+        .collect())
+}
 
-    for line in out_str.lines() {
-        if let Some(open_paren_idx) = line.find('(') {
-            let hash = line[..open_paren_idx].trim().to_string();
-            if let Some(close_paren_idx) = line[open_paren_idx..].find(')') {
-                let actual_close_idx = open_paren_idx + close_paren_idx;
-                let inside = &line[open_paren_idx + 1..actual_close_idx];
-
-                let tokens: Vec<&str> = inside.split_whitespace().collect();
-                if tokens.len() >= 2 {
-                    let line_number_str = tokens.last().cloned().unwrap_or("0");
-                    let line_number = line_number_str.parse::<usize>().unwrap_or(0);
-
-                    let date = tokens[tokens.len() - 2].to_string();
-                    let author = tokens[..tokens.len() - 2].join(" ");
-
-                    blame_lines.push(GitBlameLine {
-                        line_number,
-                        commit_hash: hash,
-                        author,
-                        date,
-                    });
-                }
-            }
-        }
+/// One line of `git blame -w --date=short` output:
+/// `<hash> (<author...> <date> <line number>) <content>`.
+fn parse_blame_line(line: &str) -> Option<GitBlameLine> {
+    let open = line.find('(')?;
+    let close = open + line[open..].find(')')?;
+    let tokens: Vec<&str> = line[open + 1..close].split_whitespace().collect();
+    if tokens.len() < 2 {
+        return None;
     }
-
-    Ok(blame_lines)
+    Some(GitBlameLine {
+        line_number: tokens
+            .last()
+            .copied()
+            .unwrap_or("0")
+            .parse::<usize>()
+            .unwrap_or(0),
+        commit_hash: line[..open].trim().to_string(),
+        author: tokens[..tokens.len() - 2].join(" "),
+        date: tokens[tokens.len() - 2].to_string(),
+    })
 }
 
 /// Retrieves the last 100 commits affecting a specific file.
@@ -1335,15 +1311,7 @@ pub async fn git_get_file_commit_history(
     root_dir: String,
     file_path: String,
 ) -> Result<Vec<GitCommitInfo>, GitError> {
-    if !Path::new(&root_dir).exists() {
-        return Err(GitError {
-            operation: "git_get_file_commit_history".to_string(),
-            repository: root_dir,
-            exit_code: None,
-            stderr: String::new(),
-            message: "Directory does not exist".to_string(),
-        });
-    }
+    require_directory(&root_dir, "git_get_file_commit_history")?;
 
     // Was a plain string starts_with(&root_dir) check -- see git_blame's
     // comment above for the exact bug this fixes.
@@ -1354,7 +1322,7 @@ pub async fn git_get_file_commit_history(
         "git_get_file_commit_history",
         &[
             "log",
-            "--format=%H|%P|%an|%cr|%s|%d",
+            COMMIT_LOG_FORMAT,
             "--max-count=100",
             "--follow",
             "--",
@@ -1367,40 +1335,9 @@ pub async fn git_get_file_commit_history(
         Err(_) => return Ok(Vec::new()),
     };
 
-    let log_str = String::from_utf8_lossy(&log_output.stdout);
-    let mut history = Vec::new();
-
-    for line in log_str.lines() {
-        let parts: Vec<&str> = line.split('|').collect();
-        if parts.len() < 5 {
-            continue;
-        }
-
-        let hash = parts[0].trim().to_string();
-        let short_hash = if hash.len() >= 7 {
-            hash[0..7].to_string()
-        } else {
-            hash.clone()
-        };
-        let parents: Vec<String> = parts[1].split_whitespace().map(|s| s.to_string()).collect();
-        let author = parts[2].trim().to_string();
-        let date = parts[3].trim().to_string();
-        let subject = parts[4].trim().to_string();
-        let decorations = parts.get(5).cloned().unwrap_or("").trim().to_string();
-
-        history.push(GitCommitInfo {
-            hash,
-            short_hash,
-            parents,
-            author,
-            date,
-            subject,
-            decorations,
-            is_unpushed: false,
-        });
-    }
-
-    Ok(history)
+    Ok(parse_commit_log(&String::from_utf8_lossy(
+        &log_output.stdout,
+    )))
 }
 
 /// The branch/detached/unborn tri-state of a repository's `HEAD`, replacing
@@ -1656,75 +1593,16 @@ pub async fn git_discover_linked_worktrees(
 /// which are not themselves Git repositories. Git identifies each checkout;
 /// the filesystem walk only locates candidates and never follows symlinks.
 pub fn discover_workspace_repositories(root_dir: &str) -> Result<Vec<GitRepository>, String> {
-    use std::collections::BTreeMap;
     let root = std::fs::canonicalize(root_dir).map_err(|error| error.to_string())?;
     let containing = discover_repository(&root.to_string_lossy()).ok();
     let preferred_id = containing.as_ref().map(|repo| repo.id.clone());
-    let mut candidates = BTreeMap::new();
+    let mut candidates = Repositories::new();
     if let Some(repo) = containing {
         candidates.insert(repo.id.clone(), repo);
     }
-    let mut directories = vec![root.clone()];
-    while let Some(directory) = directories.pop() {
-        if directory.join(".git").exists() {
-            if let Ok(mut repo) = discover_repository(&directory.to_string_lossy()) {
-                if repo.kind == "workspace" && Some(&repo.id) != preferred_id.as_ref() {
-                    repo.kind = "nested".into();
-                }
-                candidates.insert(repo.id.clone(), repo);
-            }
-        }
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            if !entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false) {
-                continue;
-            }
-            let name = entry.file_name();
-            if matches!(
-                name.to_str(),
-                Some(
-                    ".git"
-                        | "node_modules"
-                        | "target"
-                        | "dist"
-                        | "build"
-                        | "vendor"
-                        | ".venv"
-                        | "venv"
-                        | ".cache"
-                        | ".next"
-                        | "__pycache__"
-                        | ".rusty"
-                )
-            ) {
-                continue;
-            }
-            directories.push(entry.path());
-        }
-    }
-    // Preserve linked worktrees, including external ones, and merge by
-    // canonical checkout path so a submodule/worktree appears only once.
-    let mut repositories = candidates.clone();
-    for repo in candidates.values() {
-        for worktree in discover_linked_worktrees(&repo.worktree_path).unwrap_or_default() {
-            repositories.entry(worktree.id.clone()).or_insert(worktree);
-        }
-    }
-    let checkouts: Vec<_> = repositories.values().cloned().collect();
-    for repo in checkouts {
-        for mut submodule in discover_submodules(&repo.worktree_path).unwrap_or_default() {
-            // Store the path relative to its immediate parent, which is
-            // also the repository used by init/update/sync in the UI.
-            if let Some(parent) = &submodule.parent_id {
-                if let Ok(relative) = Path::new(&submodule.worktree_path).strip_prefix(parent) {
-                    submodule.submodule_path = Some(relative.to_string_lossy().replace('\\', "/"));
-                }
-            }
-            repositories.insert(submodule.id.clone(), submodule);
-        }
-    }
+    scan_for_checkouts(&root, preferred_id.as_deref(), &mut candidates);
+    let mut repositories = with_linked_worktrees(candidates);
+    add_submodules(&mut repositories);
     let mut result: Vec<_> = repositories.into_values().collect();
     result.sort_by_key(|repo| {
         (
@@ -1733,6 +1611,103 @@ pub fn discover_workspace_repositories(root_dir: &str) -> Result<Vec<GitReposito
         )
     });
     Ok(result)
+}
+
+/// Checkouts by id; one entry per canonical checkout, so a repository found
+/// several ways (scan, worktree, submodule) appears only once.
+type Repositories = std::collections::BTreeMap<String, GitRepository>;
+
+/// Never searched for repositories: git internals, dependencies, build
+/// output and caches.
+const SKIPPED_DIRECTORIES: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "vendor",
+    ".venv",
+    "venv",
+    ".cache",
+    ".next",
+    "__pycache__",
+    ".rusty",
+];
+
+/// Walks the folder for checkouts without following symlinks.
+fn scan_for_checkouts(root: &Path, preferred_id: Option<&str>, candidates: &mut Repositories) {
+    let mut directories = vec![root.to_path_buf()];
+    while let Some(directory) = directories.pop() {
+        if let Some(repo) = checkout_at(&directory, preferred_id) {
+            candidates.insert(repo.id.clone(), repo);
+        }
+        directories.extend(child_directories(&directory));
+    }
+}
+
+/// The checkout rooted at `directory`, if any. A workspace checkout other
+/// than the preferred (containing) one is nested in it.
+fn checkout_at(directory: &Path, preferred_id: Option<&str>) -> Option<GitRepository> {
+    if !directory.join(".git").exists() {
+        return None;
+    }
+    let mut repo = discover_repository(&directory.to_string_lossy()).ok()?;
+    if repo.kind == "workspace" && Some(repo.id.as_str()) != preferred_id {
+        repo.kind = "nested".into();
+    }
+    Some(repo)
+}
+
+/// Subdirectories worth searching; `file_type` does not follow symlinks.
+fn child_directories(directory: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .filter(|entry| entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false))
+        .filter(|entry| !is_skipped_directory(&entry.file_name()))
+        .map(|entry| entry.path())
+        .collect()
+}
+
+fn is_skipped_directory(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .is_some_and(|name| SKIPPED_DIRECTORIES.contains(&name))
+}
+
+/// Adds every candidate's linked worktrees, including external ones,
+/// keeping a checkout that was already found.
+fn with_linked_worktrees(candidates: Repositories) -> Repositories {
+    let mut repositories = candidates.clone();
+    for repo in candidates.values() {
+        for worktree in discover_linked_worktrees(&repo.worktree_path).unwrap_or_default() {
+            repositories.entry(worktree.id.clone()).or_insert(worktree);
+        }
+    }
+    repositories
+}
+
+fn add_submodules(repositories: &mut Repositories) {
+    let checkouts: Vec<_> = repositories.values().cloned().collect();
+    for repo in checkouts {
+        for mut submodule in discover_submodules(&repo.worktree_path).unwrap_or_default() {
+            if let Some(path) = path_in_parent(&submodule) {
+                submodule.submodule_path = Some(path);
+            }
+            repositories.insert(submodule.id.clone(), submodule);
+        }
+    }
+}
+
+/// The submodule's path relative to its immediate parent, which is also
+/// the repository used by init/update/sync in the UI.
+fn path_in_parent(submodule: &GitRepository) -> Option<String> {
+    let parent = submodule.parent_id.as_ref()?;
+    let relative = Path::new(&submodule.worktree_path)
+        .strip_prefix(parent)
+        .ok()?;
+    Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
 #[tauri::command]
@@ -1897,10 +1872,20 @@ pub async fn git_discover_submodules(root_dir: String) -> Result<Vec<GitReposito
 /// first is optional, not required, before calling that.
 #[tauri::command]
 pub async fn git_submodule_init(root_dir: String, submodule_path: String) -> Result<(), GitError> {
+    run_submodule_command(&root_dir, "git_submodule_init", "init", &submodule_path)
+}
+
+/// `git submodule <action> -- <path>` for one submodule.
+fn run_submodule_command(
+    root_dir: &str,
+    operation: &str,
+    action: &str,
+    submodule_path: &str,
+) -> Result<(), GitError> {
     run_git(
-        &root_dir,
-        "git_submodule_init",
-        &["submodule", "init", "--", &submodule_path],
+        root_dir,
+        operation,
+        &["submodule", action, "--", submodule_path],
     )?;
     Ok(())
 }
@@ -1941,12 +1926,7 @@ pub async fn git_submodule_update(
 /// submodule otherwise keeps using the URL it was originally cloned with.
 #[tauri::command]
 pub async fn git_submodule_sync(root_dir: String, submodule_path: String) -> Result<(), GitError> {
-    run_git(
-        &root_dir,
-        "git_submodule_sync",
-        &["submodule", "sync", "--", &submodule_path],
-    )?;
-    Ok(())
+    run_submodule_command(&root_dir, "git_submodule_sync", "sync", &submodule_path)
 }
 
 // Gitlink staging (recording a submodule's new checked-out commit in the

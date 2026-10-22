@@ -1,13 +1,25 @@
 //! Append-only JSONL execution history under `<workspace>/.rusty/observability/` (last snapshot per id wins).
+//!
+//! This file decides where each stream's lines go and serves the commands;
+//! `jsonl` owns the files themselves and `records` what the lines mean
+//! (ids, days, tombstones). A new day-partitioned stream is a `DayStream`.
 
-use std::collections::{HashMap, HashSet};
+mod jsonl;
+mod records;
+
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::fs;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+
+use jsonl::{append_lines, dir_bytes, ensure_dir, ensure_gitignore, read_jsonl};
+use records::{
+    day_of, fold, id_of, is_tombstone, newest_first, run_entries_path, session_of, today,
+    tombstone, valid_run_id, Tombstones,
+};
 
 const DIR: &str = "observability";
 const TOMBSTONES: &str = "tombstones.jsonl";
@@ -43,191 +55,72 @@ pub struct LoadResult {
     pub bytes: u64,
 }
 
-fn valid_run_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 200
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+/// A stream stored as one JSONL file per day, by a date field of each record.
+struct DayStream {
+    dir: &'static str,
+    day_field: &'static str,
+    missing_id: &'static str,
 }
 
-fn day_of(value: &Value, field: &str) -> Option<String> {
-    let day: String = value.get(field)?.as_str()?.chars().take(10).collect();
-    let bytes = day.as_bytes();
-    let ok = bytes.len() == 10
-        && bytes.iter().enumerate().all(|(i, b)| {
-            if i == 4 || i == 7 {
-                *b == b'-'
-            } else {
-                b.is_ascii_digit()
-            }
-        });
-    ok.then_some(day)
+const EXECUTIONS: DayStream = DayStream {
+    dir: "executions",
+    day_field: "requestedAt",
+    missing_id: "execution record is missing an id",
+};
+
+const DIAGNOSTICS: DayStream = DayStream {
+    dir: "diagnostics",
+    day_field: "timestamp",
+    missing_id: "diagnostic record is missing an id",
+};
+
+/// Runs: an index of run snapshots plus one entries file per run.
+const TRAJECTORIES: &str = "trajectories";
+
+fn to_strings(lines: &[Value]) -> Vec<String> {
+    lines.iter().map(Value::to_string).collect()
 }
 
-fn today() -> String {
-    crate::chrono_now_iso8601().chars().take(10).collect()
-}
-
-async fn ensure_dir(dir: &Path) -> Result<(), String> {
-    fs::create_dir_all(dir)
-        .await
-        .map_err(|e| format!("failed to create {}: {e}", dir.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700)).await;
+async fn append_by_day(base: &Path, stream: &DayStream, lines: Vec<Value>) -> Result<(), String> {
+    let dir = base.join(stream.dir);
+    ensure_dir(&dir).await?;
+    let mut by_day: HashMap<String, Vec<String>> = HashMap::new();
+    for line in lines {
+        if id_of(&line).is_none() {
+            return Err(stream.missing_id.into());
+        }
+        let day = day_of(&line, stream.day_field).unwrap_or_else(today);
+        by_day.entry(day).or_default().push(line.to_string());
+    }
+    for (day, day_lines) in by_day {
+        append_lines(&dir.join(format!("{day}.jsonl")), &day_lines).await?;
     }
     Ok(())
 }
 
-/// Keeps history out of the workspace's git repo without touching its own .gitignore.
-async fn ensure_gitignore(dir: &Path) {
-    let path = dir.join(".gitignore");
-    if fs::metadata(&path).await.is_err() {
-        let _ = fs::write(&path, "*\n").await;
-    }
-}
-
-async fn ends_mid_line(path: &Path) -> bool {
-    let Ok(mut file) = fs::File::open(path).await else {
-        return false;
-    };
-    let Ok(len) = file.metadata().await.map(|m| m.len()) else {
-        return false;
-    };
-    if len == 0 || file.seek(std::io::SeekFrom::Start(len - 1)).await.is_err() {
-        return false;
-    }
-    let mut last = [0u8; 1];
-    file.read_exact(&mut last).await.is_ok() && last[0] != b'\n'
-}
-
-async fn append_lines(path: &Path, lines: &[String]) -> Result<(), String> {
-    if lines.is_empty() {
-        return Ok(());
-    }
-    let mut file = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .await
-        .map_err(|e| format!("failed to open {}: {e}", path.display()))?;
-    let mut buf = String::with_capacity(lines.iter().map(|l| l.len() + 1).sum::<usize>() + 1);
-    if ends_mid_line(path).await {
-        // Isolate a torn line from a crashed write so it can't swallow this one.
-        buf.push('\n');
-    }
-    for line in lines {
-        buf.push_str(line);
-        buf.push('\n');
-    }
-    file.write_all(buf.as_bytes())
-        .await
-        .map_err(|e| format!("failed to append to {}: {e}", path.display()))?;
-    #[cfg(unix)]
+async fn append_trajectory_index(base: &Path, lines: &[Value]) -> Result<(), String> {
+    let dir = base.join(TRAJECTORIES);
+    ensure_dir(&dir).await?;
+    if lines
+        .iter()
+        .any(|l| id_of(l).is_none_or(|id| !valid_run_id(id)))
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).await;
+        return Err("trajectory index line has an invalid id".into());
     }
-    Ok(())
+    append_lines(&dir.join(INDEX), &to_strings(lines)).await
 }
 
-async fn read_jsonl(path: &Path) -> Vec<Value> {
-    match fs::read_to_string(path).await {
-        // A crash mid-append can leave one torn last line; skip anything unparsable.
-        Ok(raw) => raw
-            .lines()
-            .filter_map(|line| serde_json::from_str(line).ok())
-            .collect(),
-        Err(_) => Vec::new(),
-    }
-}
-
-fn tombstone(kind: &str, id: &str) -> String {
-    serde_json::json!({ "$tombstone": { "kind": kind, "id": id }, "ts": crate::chrono_now_iso8601() }).to_string()
-}
-
-struct Tombstones {
-    executions: HashSet<String>,
-    sessions: HashSet<String>,
-    runs: HashSet<String>,
-}
-
-fn collect_tombstones(lines: &[Value]) -> Tombstones {
-    let mut t = Tombstones {
-        executions: HashSet::new(),
-        sessions: HashSet::new(),
-        runs: HashSet::new(),
-    };
-    for line in lines {
-        let Some(ts) = line.get("$tombstone") else {
-            continue;
-        };
-        let (Some(kind), Some(id)) = (
-            ts.get("kind").and_then(Value::as_str),
-            ts.get("id").and_then(Value::as_str),
-        ) else {
-            continue;
-        };
-        match kind {
-            "execution" => {
-                t.executions.insert(id.to_string());
-            }
-            "session" => {
-                t.sessions.insert(id.to_string());
-            }
-            "run" => {
-                t.runs.insert(id.to_string());
-            }
-            _ => {}
-        }
-    }
-    t
-}
-
-fn session_of(value: &Value) -> Option<&str> {
-    value.get("sessionId").and_then(Value::as_str)
-}
-
-/// Folds snapshots last-wins by `id`, preserving first-seen order.
-fn fold(lines: impl IntoIterator<Item = Value>) -> Vec<Value> {
-    let mut order: Vec<String> = Vec::new();
-    let mut latest: HashMap<String, Value> = HashMap::new();
-    for line in lines {
-        let Some(id) = line.get("id").and_then(Value::as_str).map(str::to_string) else {
-            continue;
-        };
-        if !latest.contains_key(&id) {
-            order.push(id.clone());
-        }
-        latest.insert(id, line);
-    }
-    order
-        .into_iter()
-        .filter_map(|id| latest.remove(&id))
-        .collect()
-}
-
-async fn dir_bytes(dir: &Path) -> u64 {
-    let mut total = 0;
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(current) = stack.pop() {
-        let Ok(mut entries) = fs::read_dir(&current).await else {
-            continue;
-        };
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let Ok(meta) = entry.metadata().await else {
-                continue;
-            };
-            if meta.is_dir() {
-                stack.push(entry.path());
-            } else {
-                total += meta.len();
-            }
-        }
-    }
-    total
+async fn append_trajectory_entries(
+    base: &Path,
+    run_id: Option<String>,
+    lines: &[Value],
+) -> Result<(), String> {
+    let dir = base.join(TRAJECTORIES);
+    let path = run_id
+        .and_then(|id| run_entries_path(&dir, &id))
+        .ok_or("invalid or missing run id")?;
+    ensure_dir(&dir).await?;
+    append_lines(&path, &to_strings(lines)).await
 }
 
 pub async fn append_at(
@@ -242,60 +135,82 @@ pub async fn append_at(
     ensure_dir(&base).await?;
     ensure_gitignore(&base).await;
     match stream {
-        Stream::Executions => {
-            let dir = base.join("executions");
-            ensure_dir(&dir).await?;
-            let mut by_day: HashMap<String, Vec<String>> = HashMap::new();
-            for line in lines {
-                if line.get("id").and_then(Value::as_str).is_none() {
-                    return Err("execution record is missing an id".into());
-                }
-                let day = day_of(&line, "requestedAt").unwrap_or_else(today);
-                by_day.entry(day).or_default().push(line.to_string());
-            }
-            for (day, day_lines) in by_day {
-                append_lines(&dir.join(format!("{day}.jsonl")), &day_lines).await?;
-            }
-        }
-        Stream::TrajectoryIndex => {
-            let dir = base.join("trajectories");
-            ensure_dir(&dir).await?;
-            if lines.iter().any(|l| {
-                l.get("id")
-                    .and_then(Value::as_str)
-                    .is_none_or(|id| !valid_run_id(id))
-            }) {
-                return Err("trajectory index line has an invalid id".into());
-            }
-            let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
-            append_lines(&dir.join(INDEX), &lines).await?;
-        }
-        Stream::TrajectoryEntries => {
-            let run_id = run_id
-                .filter(|id| valid_run_id(id))
-                .ok_or("invalid or missing run id")?;
-            let dir = base.join("trajectories");
-            ensure_dir(&dir).await?;
-            let lines: Vec<String> = lines.iter().map(Value::to_string).collect();
-            append_lines(&dir.join(format!("{run_id}.jsonl")), &lines).await?;
-        }
-        Stream::Diagnostics => {
-            let dir = base.join("diagnostics");
-            ensure_dir(&dir).await?;
-            let mut by_day: HashMap<String, Vec<String>> = HashMap::new();
-            for line in lines {
-                if line.get("id").and_then(Value::as_str).is_none() {
-                    return Err("diagnostic record is missing an id".into());
-                }
-                let day = day_of(&line, "timestamp").unwrap_or_else(today);
-                by_day.entry(day).or_default().push(line.to_string());
-            }
-            for (day, day_lines) in by_day {
-                append_lines(&dir.join(format!("{day}.jsonl")), &day_lines).await?;
-            }
+        Stream::Executions => append_by_day(&base, &EXECUTIONS, lines).await,
+        Stream::Diagnostics => append_by_day(&base, &DIAGNOSTICS, lines).await,
+        Stream::TrajectoryIndex => append_trajectory_index(&base, &lines).await,
+        Stream::TrajectoryEntries => append_trajectory_entries(&base, run_id, &lines).await,
+    }
+}
+
+/// A day file's day, when it is one to load: not the tombstones file, and at or after `since`.
+fn wanted_day(file_name: &str, since: Option<&str>) -> Option<String> {
+    let day = file_name.strip_suffix(".jsonl")?;
+    let wanted = day != "tombstones" && since.is_none_or(|since| day >= since);
+    wanted.then(|| day.to_string())
+}
+
+/// The days to load, oldest first; none when nothing is to be loaded.
+async fn day_files(dir: &Path, since: Option<&str>, limit: usize) -> Vec<String> {
+    if limit == 0 {
+        return Vec::new();
+    }
+    let Ok(mut entries) = fs::read_dir(dir).await else {
+        return Vec::new();
+    };
+    let mut days = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        if let Some(day) = wanted_day(&entry.file_name().to_string_lossy(), since) {
+            days.push(day);
         }
     }
-    Ok(())
+    days.sort();
+    days
+}
+
+async fn load_executions(
+    exec_dir: &Path,
+    hidden: &Tombstones,
+    since: Option<&str>,
+    limit: usize,
+) -> Vec<Value> {
+    let mut lines = Vec::new();
+    for day in day_files(exec_dir, since, limit).await {
+        lines.extend(read_jsonl(&exec_dir.join(format!("{day}.jsonl"))).await);
+    }
+    let executions = fold(lines)
+        .into_iter()
+        .filter(|record| !hidden.hides_execution(record))
+        .collect();
+    newest_first(executions, EXECUTIONS.day_field, limit)
+}
+
+fn started_since(run: &Value, since: Option<&str>) -> bool {
+    since.is_none_or(|since| day_of(run, "startedAt").is_none_or(|day| day.as_str() >= since))
+}
+
+/// A run is hidden by its own tombstone in the index, or by its session's
+/// in the executions tombstones (`executions`).
+async fn load_trajectories(
+    traj_dir: &Path,
+    executions: &Tombstones,
+    since: Option<&str>,
+    limit: usize,
+) -> Vec<Value> {
+    let index = if limit > 0 {
+        read_jsonl(&traj_dir.join(INDEX)).await
+    } else {
+        Vec::new()
+    };
+    let index_tombstones = Tombstones::collect(&index);
+    let runs = fold(index.into_iter().filter(|line| !is_tombstone(line)))
+        .into_iter()
+        .filter(|run| {
+            !index_tombstones.hides_run(run)
+                && !executions.hides_session(run)
+                && started_since(run, since)
+        })
+        .collect();
+    newest_first(runs, "startedAt", limit)
 }
 
 pub async fn load_at(
@@ -310,81 +225,18 @@ pub async fn load_at(
     if fs::metadata(&base).await.is_err() {
         return Ok(LoadResult::default());
     }
-    let exec_dir = base.join("executions");
-    let tombstones = collect_tombstones(&read_jsonl(&exec_dir.join(TOMBSTONES)).await);
-
-    let mut days: Vec<String> = Vec::new();
-    let mut entries = if limit > 0 {
-        fs::read_dir(&exec_dir).await.ok()
-    } else {
-        None
-    };
-    if let Some(entries) = entries.as_mut() {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if let Some(day) = name.strip_suffix(".jsonl") {
-                if day != "tombstones" && since_day.as_deref().is_none_or(|since| day >= since) {
-                    days.push(day.to_string());
-                }
-            }
-        }
-    }
-    days.sort();
-    let mut lines = Vec::new();
-    for day in &days {
-        lines.extend(read_jsonl(&exec_dir.join(format!("{day}.jsonl"))).await);
-    }
-    let mut executions: Vec<Value> = fold(lines)
-        .into_iter()
-        .filter(|record| {
-            let id = record.get("id").and_then(Value::as_str).unwrap_or_default();
-            !tombstones.executions.contains(id)
-                && session_of(record).is_none_or(|s| !tombstones.sessions.contains(s))
-        })
-        .collect();
-    executions.sort_by(|a, b| {
-        let key = |v: &Value| {
-            v.get("requestedAt")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string()
-        };
-        key(b).cmp(&key(a))
-    });
-    executions.truncate(limit);
-
-    let index = if trajectory_limit > 0 {
-        read_jsonl(&base.join("trajectories").join(INDEX)).await
-    } else {
-        Vec::new()
-    };
-    let run_tombstones = collect_tombstones(&index);
-    let mut trajectories: Vec<Value> =
-        fold(index.into_iter().filter(|l| l.get("$tombstone").is_none()))
-            .into_iter()
-            .filter(|run| {
-                let id = run.get("id").and_then(Value::as_str).unwrap_or_default();
-                !run_tombstones.runs.contains(id)
-                    && session_of(run).is_none_or(|s| !tombstones.sessions.contains(s))
-                    && since_day.as_deref().is_none_or(|since| {
-                        day_of(run, "startedAt").is_none_or(|d| d.as_str() >= since)
-                    })
-            })
-            .collect();
-    trajectories.sort_by(|a, b| {
-        let key = |v: &Value| {
-            v.get("startedAt")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string()
-        };
-        key(b).cmp(&key(a))
-    });
-    trajectories.truncate(trajectory_limit);
-
+    let exec_dir = base.join(EXECUTIONS.dir);
+    let tombstones = Tombstones::collect(&read_jsonl(&exec_dir.join(TOMBSTONES)).await);
+    let since = since_day.as_deref();
     Ok(LoadResult {
-        executions,
-        trajectories,
+        executions: load_executions(&exec_dir, &tombstones, since, limit).await,
+        trajectories: load_trajectories(
+            &base.join(TRAJECTORIES),
+            &tombstones,
+            since,
+            trajectory_limit,
+        )
+        .await,
         bytes: dir_bytes(&base).await,
     })
 }
@@ -394,17 +246,70 @@ pub async fn load_trajectory_at(
     root: &Path,
     run_id: &str,
 ) -> Result<Vec<Value>, String> {
-    if !valid_run_id(run_id) {
-        return Err("invalid run id".into());
-    }
+    let path =
+        run_entries_path(&root.join(DIR).join(TRAJECTORIES), run_id).ok_or("invalid run id")?;
     let _guard = state.lock.lock().await;
-    Ok(read_jsonl(
-        &root
-            .join(DIR)
-            .join("trajectories")
-            .join(format!("{run_id}.jsonl")),
-    )
-    .await)
+    Ok(read_jsonl(&path).await)
+}
+
+/// Deletes a run's entries file. A run may have none yet, so a missing file
+/// is fine; any other failure is logged, and the tombstone written after it
+/// still hides the run.
+async fn remove_run_entries(path: &Path) {
+    if let Err(error) = fs::remove_file(path).await {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            eprintln!(
+                "Failed to remove trajectory entries {}: {error}",
+                path.display()
+            );
+        }
+    }
+}
+
+/// The entries files of the runs a session started, per the trajectory index.
+async fn session_run_files(traj_dir: &Path, session_id: &str) -> Vec<PathBuf> {
+    let index = read_jsonl(&traj_dir.join(INDEX)).await;
+    fold(index.into_iter().filter(|line| !is_tombstone(line)))
+        .iter()
+        .filter(|run| session_of(run) == Some(session_id))
+        .filter_map(|run| id_of(run).and_then(|run_id| run_entries_path(traj_dir, run_id)))
+        .collect()
+}
+
+async fn clear_all(base: &Path) -> Result<(), String> {
+    if fs::metadata(base).await.is_ok() {
+        fs::remove_dir_all(base)
+            .await
+            .map_err(|e| format!("failed to clear history: {e}"))?;
+    }
+    Ok(())
+}
+
+async fn delete_execution(base: &Path, id: &str) -> Result<(), String> {
+    let dir = base.join(EXECUTIONS.dir);
+    ensure_dir(&dir).await?;
+    append_lines(&dir.join(TOMBSTONES), &[tombstone("execution", id)]).await
+}
+
+/// Hides a session's executions and runs, and deletes its runs' entries.
+async fn delete_session(base: &Path, id: &str) -> Result<(), String> {
+    let exec_dir = base.join(EXECUTIONS.dir);
+    let traj_dir = base.join(TRAJECTORIES);
+    ensure_dir(&exec_dir).await?;
+    ensure_dir(&traj_dir).await?;
+    append_lines(&exec_dir.join(TOMBSTONES), &[tombstone("session", id)]).await?;
+    for path in session_run_files(&traj_dir, id).await {
+        remove_run_entries(&path).await;
+    }
+    append_lines(&traj_dir.join(INDEX), &[tombstone("session", id)]).await
+}
+
+async fn delete_run(base: &Path, id: &str) -> Result<(), String> {
+    let traj_dir = base.join(TRAJECTORIES);
+    let path = run_entries_path(&traj_dir, id).ok_or("invalid run id")?;
+    ensure_dir(&traj_dir).await?;
+    remove_run_entries(&path).await;
+    append_lines(&traj_dir.join(INDEX), &[tombstone("run", id)]).await
 }
 
 pub async fn delete_at(
@@ -415,55 +320,11 @@ pub async fn delete_at(
     let _guard = state.lock.lock().await;
     let base = root.join(DIR);
     match scope {
-        DeleteScope::All => {
-            if fs::metadata(&base).await.is_ok() {
-                fs::remove_dir_all(&base)
-                    .await
-                    .map_err(|e| format!("failed to clear history: {e}"))?;
-            }
-        }
-        DeleteScope::Execution { id } => {
-            let dir = base.join("executions");
-            ensure_dir(&dir).await?;
-            append_lines(&dir.join(TOMBSTONES), &[tombstone("execution", &id)]).await?;
-        }
-        DeleteScope::Session { id } => {
-            let exec_dir = base.join("executions");
-            let traj_dir = base.join("trajectories");
-            ensure_dir(&exec_dir).await?;
-            ensure_dir(&traj_dir).await?;
-            append_lines(&exec_dir.join(TOMBSTONES), &[tombstone("session", &id)]).await?;
-            let runs = fold(
-                read_jsonl(&traj_dir.join(INDEX))
-                    .await
-                    .into_iter()
-                    .filter(|l| l.get("$tombstone").is_none()),
-            );
-            for run in runs
-                .iter()
-                .filter(|run| session_of(run) == Some(id.as_str()))
-            {
-                if let Some(run_id) = run
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .filter(|r| valid_run_id(r))
-                {
-                    let _ = fs::remove_file(traj_dir.join(format!("{run_id}.jsonl"))).await;
-                }
-            }
-            append_lines(&traj_dir.join(INDEX), &[tombstone("session", &id)]).await?;
-        }
-        DeleteScope::Run { id } => {
-            if !valid_run_id(&id) {
-                return Err("invalid run id".into());
-            }
-            let traj_dir = base.join("trajectories");
-            ensure_dir(&traj_dir).await?;
-            let _ = fs::remove_file(traj_dir.join(format!("{id}.jsonl"))).await;
-            append_lines(&traj_dir.join(INDEX), &[tombstone("run", &id)]).await?;
-        }
+        DeleteScope::All => clear_all(&base).await,
+        DeleteScope::Execution { id } => delete_execution(&base, &id).await,
+        DeleteScope::Session { id } => delete_session(&base, &id).await,
+        DeleteScope::Run { id } => delete_run(&base, &id).await,
     }
-    Ok(())
 }
 
 async fn resolve_root(
@@ -818,5 +679,63 @@ mod tests {
             2,
             "append after a torn line must survive"
         );
+    }
+
+    #[tokio::test]
+    async fn sessions_deleted_in_the_executions_tombstones_hide_their_runs() {
+        // The fix in c4f6f0c: runs are judged by the executions file's session
+        // tombstones, not only by the copy in the trajectory index.
+        let dir = tempfile::tempdir().unwrap();
+        let state = ObservabilityState::default();
+        append_at(
+            &state,
+            dir.path(),
+            Stream::TrajectoryIndex,
+            None,
+            vec![
+                json!({ "id": "run-9", "sessionId": "s9", "startedAt": "2026-09-01T10:00:00Z" }),
+                json!({ "id": "run-10", "sessionId": "s10", "startedAt": "2026-09-01T11:00:00Z" }),
+            ],
+        )
+        .await
+        .unwrap();
+        let exec_dir = dir.path().join(DIR).join(EXECUTIONS.dir);
+        ensure_dir(&exec_dir).await.unwrap();
+        append_lines(&exec_dir.join(TOMBSTONES), &[tombstone("session", "s9")])
+            .await
+            .unwrap();
+
+        let loaded = load_at(&state, dir.path(), None, 100, 100).await.unwrap();
+        let ids: Vec<&str> = loaded
+            .trajectories
+            .iter()
+            .map(|r| r["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids, vec!["run-10"]);
+    }
+
+    #[tokio::test]
+    async fn deleting_a_run_without_entries_still_hides_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = ObservabilityState::default();
+        append_at(
+            &state,
+            dir.path(),
+            Stream::TrajectoryIndex,
+            None,
+            vec![json!({ "id": "run-3", "sessionId": "s3", "startedAt": "2026-09-01T10:00:00Z" })],
+        )
+        .await
+        .unwrap();
+
+        delete_at(&state, dir.path(), DeleteScope::Run { id: "run-3".into() })
+            .await
+            .unwrap();
+
+        assert!(load_at(&state, dir.path(), None, 100, 100)
+            .await
+            .unwrap()
+            .trajectories
+            .is_empty());
     }
 }

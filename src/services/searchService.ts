@@ -35,11 +35,10 @@ function errorMessage(error: unknown): string {
 
 function invokeSearch(options: SearchOptions, isRegex: boolean): Promise<SearchMatch[]> {
   return invoke<SearchMatch[]>("search_project", {
-    rootDir: options.rootDir,
-    query: options.query,
-    matchCase: options.matchCase,
-    wholeWord: options.wholeWord,
-    isRegex,
+    options: {
+      ...options,
+      isRegex,
+    },
   });
 }
 

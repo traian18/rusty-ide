@@ -6,6 +6,7 @@ import {
   profileRequiresApiKey,
   getPreset,
   getAvailablePresets,
+  CONNECT_SERVICE_PRESET_IDS,
   isPresetDirectExecutionAvailable,
   getPresetDirectExecutionUnavailableReason,
   PRESETS,
@@ -125,6 +126,11 @@ describe('providerConnectionProfiles', () => {
     it('getAvailablePresets includes advanced when requested', () => {
       const presets = getAvailablePresets(true);
       expect(presets.some(p => p.id === 'advanced')).toBe(true);
+    });
+
+    it('offers every available preset when connecting a service', () => {
+      const offered = [...CONNECT_SERVICE_PRESET_IDS].sort();
+      expect(offered).toEqual(getAvailablePresets().map(p => p.id).sort());
     });
   });
 

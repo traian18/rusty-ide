@@ -1218,3 +1218,83 @@ async fn deleting_a_merged_branch_succeeds_without_force() {
 
     assert_eq!(fx.git_ok(&["branch", "--list", "done"]), "");
 }
+
+// ── Log and blame line parsing, discarding changes ───────────────────────
+
+#[test]
+fn parse_commit_log_reads_each_field_and_skips_short_lines() {
+    let log = "0123456789abcdef|aaa bbb|Ada Lovelace|2 days ago|Fix a|b| (HEAD -> main)\nnot a commit\nfedcba9|  |Bo|now|Init\n";
+
+    let commits = parse_commit_log(log);
+
+    assert_eq!(commits.len(), 2);
+    assert_eq!(commits[0].hash, "0123456789abcdef");
+    assert_eq!(commits[0].short_hash, "0123456");
+    assert_eq!(commits[0].parents, vec!["aaa", "bbb"]);
+    assert_eq!(commits[0].author, "Ada Lovelace");
+    assert_eq!(commits[0].subject, "Fix a", "a `|` in a subject ends it");
+    assert_eq!(commits[0].decorations, "b");
+    assert!(!commits[0].is_unpushed);
+    assert_eq!(commits[1].short_hash, "fedcba9");
+    assert!(commits[1].parents.is_empty());
+    assert_eq!(commits[1].decorations, "");
+}
+
+#[test]
+fn parse_blame_line_reads_multi_word_authors_and_ignores_other_lines() {
+    let line = "^1a2b3c4 (Ada King Lovelace 2026-10-01 12) let x = (1);";
+
+    let parsed = parse_blame_line(line).unwrap();
+
+    assert_eq!(parsed.commit_hash, "^1a2b3c4");
+    assert_eq!(parsed.author, "Ada King Lovelace");
+    assert_eq!(parsed.date, "2026-10-01");
+    assert_eq!(parsed.line_number, 12);
+    assert!(parse_blame_line("no parentheses here").is_none());
+    assert!(parse_blame_line("abc (12) x").is_none());
+}
+
+#[tokio::test]
+async fn git_get_commit_history_flags_commits_no_remote_has() {
+    let remote = GitFixture::init_bare();
+    let fx = GitFixture::init();
+    fx.commit_file("a.txt", "one\n", "pushed");
+    fx.git_ok(&["remote", "add", "origin", &remote.path_str()]);
+    fx.git_ok(&["push", "origin", "HEAD"]);
+    fx.git_ok(&["fetch", "origin"]);
+    fx.commit_file("a.txt", "two\n", "local only");
+
+    let history = git_get_commit_history(fx.path_str()).await.unwrap();
+
+    let flags: Vec<(&str, bool)> = history
+        .iter()
+        .map(|commit| (commit.subject.as_str(), commit.is_unpushed))
+        .collect();
+    assert_eq!(flags, vec![("local only", true), ("pushed", false)]);
+}
+
+#[tokio::test]
+async fn git_discard_changes_reverts_tracked_edits_and_deletes_untracked_files() {
+    let fx = GitFixture::init();
+    fx.commit_file("a.txt", "one\n", "initial commit");
+    fx.write("a.txt", "edited\n").write("new.txt", "scratch\n");
+    let root = fx.path_str();
+    let path = |rel: &str| fx.path().join(rel).to_string_lossy().into_owned();
+
+    git_discard_changes(root.clone(), path("a.txt"))
+        .await
+        .unwrap();
+    git_discard_changes(root.clone(), path("new.txt"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(fx.path().join("a.txt")).unwrap(),
+        "one\n"
+    );
+    assert!(!fx.path().join("new.txt").exists());
+    let error = git_discard_changes(root, path("missing.txt"))
+        .await
+        .unwrap_err();
+    assert_eq!(error.message, "Failed to discard changes");
+}

@@ -49,9 +49,9 @@ function getPresetHeaders(presetId: providerConnectionProfiles.PresetId | undefi
 }
 
 /**
- * Get provider-level extra headers, filtering out reserved names.
+ * Get provider-level extra headers, filtering out reserved and blank names.
  */
-function getProviderHeaders(provider: {
+export function getProviderHeaders(provider: {
   headers?: ProviderHeader[] | Record<string, string>;
 }): Record<string, string> {
   if (!provider.headers) {
@@ -73,16 +73,16 @@ function getProviderHeaders(provider: {
       if (header && typeof header === 'object' && 'name' in header && 'value' in header) {
         const name = (header as any).name;
         const value = (header as any).value;
-        if (typeof name === 'string' && typeof value === 'string' && !reserved.has(name.toLowerCase())) {
-          result[name] = value;
+        if (typeof name === 'string' && typeof value === 'string' && name.trim() && !reserved.has(name.trim().toLowerCase())) {
+          result[name.trim()] = value;
         }
       }
     }
   } else if (typeof provider.headers === 'object') {
     // Legacy Record<string, string> format
     for (const [name, value] of Object.entries(provider.headers)) {
-      if (typeof value === 'string' && !reserved.has(name.toLowerCase())) {
-        result[name] = value;
+      if (typeof value === 'string' && name.trim() && !reserved.has(name.trim().toLowerCase())) {
+        result[name.trim()] = value;
       }
     }
   }

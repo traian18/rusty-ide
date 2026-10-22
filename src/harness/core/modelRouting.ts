@@ -29,6 +29,7 @@
 
 import type { CustomProvider } from "../../store/types";
 import { resolveDirectRuntime } from "./engine/directExecution";
+import { getProviderHeaders } from "../../integrations/providerConnectionHeaders";
 
 export interface ModelRoute {
   /** Tried in registration order; first match wins. */
@@ -190,9 +191,16 @@ export function resolveProviderRoute(
   const route = profile.routes.find((candidate) => candidate.matches(runtime.modelId));
   if (!route) return undefined;
 
+  // Custom Headers from the LLM tab ride along to every rusty-core client
+  // (`anthropic`/`openai-responses`/`openai-compatible` all read
+  // `extra_headers`); auth headers are filtered out and stay the client's own.
+  const extraHeaders = getProviderHeaders(provider);
+  const integrationConfig = route.buildConfig(runtime.apiKey, runtime.modelId);
   return {
     integration: route.integration,
-    integration_config: route.buildConfig(runtime.apiKey, runtime.modelId),
+    integration_config: Object.keys(extraHeaders).length
+      ? { ...integrationConfig, extra_headers: extraHeaders }
+      : integrationConfig,
     resolvedModelId: runtime.modelId,
   };
 }

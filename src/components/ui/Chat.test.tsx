@@ -6,10 +6,10 @@ import { Chat, groupChatMessages, type Message } from "./Chat";
 import { ChatMessageContent } from "./ChatMessageContent";
 
 
-vi.mock("../../store", () => {
-  const state = { rootPath: "/ws", openTab: vi.fn() };
-  return { useWorkspaceStore: (selector: (value: typeof state) => unknown) => selector(state) };
-});
+const workspace = vi.hoisted(() => ({ rootPath: "/ws/" as string | null, openTab: vi.fn() }));
+vi.mock("../../store", () => ({
+  useWorkspaceStore: (selector: (value: typeof workspace) => unknown) => selector(workspace),
+}));
 
 describe("groupChatMessages helper", () => {
   it("groups consecutive agent messages into a single group", () => {
@@ -477,5 +477,109 @@ describe("Chat pins", () => {
 
     await act(async () => root.unmount());
     container.remove();
+  });
+});
+
+describe("Chat message groups", () => {
+  async function mountChat(element: React.ReactElement) {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => root.render(element));
+    const unmount = async () => {
+      await act(async () => root.unmount());
+      container.remove();
+    };
+    return { container, root, unmount };
+  }
+
+  it("labels each group by who wrote it and its phase", async () => {
+    const messages: Message[] = [
+      { id: "u", role: "user", content: "question", timestamp: "" },
+      { id: "r", role: "assistant", content: "answer", timestamp: "", phase: "response" },
+      { id: "s", role: "assistant", content: "summary", timestamp: "", phase: "summary" },
+      { id: "a", role: "assistant", content: "working", timestamp: "" },
+    ];
+    const { container, unmount } = await mountChat(<Chat messages={messages} />);
+    const groups = [...container.querySelectorAll("[class*='messageHeader']")].map((header) => header.parentElement!);
+    expect(groups.map((group) => group.querySelector("[class*='messageType']")?.textContent?.trim())).toEqual([
+      "Input Query", "Response", "Input Query", "Activity Update",
+    ]);
+    expect(groups.map((group) => group.querySelector("[class*='Title']")?.textContent)).toEqual(["[USER]", "[AGENT]", "[AGENT]", "[AGENT]"]);
+    expect(groups[1].className).toContain("responseMessage");
+    expect(groups[2].className).not.toMatch(/responseMessage|activityMessage/);
+    expect(groups[3].className).toContain("activityMessage");
+    await unmount();
+  });
+
+  it("lists a message's attached files and folders", async () => {
+    const messages: Message[] = [{
+      id: "u", role: "user", content: "look", timestamp: "",
+      attachments: [{ path: "/ws/src", name: "src", isDir: true }, { path: "/ws/a.ts", name: "a.ts" }],
+    }];
+    const { container, unmount } = await mountChat(<Chat messages={messages} />);
+    expect(container.textContent).toContain("Context Documents:");
+    expect([...container.querySelectorAll("[class*='attachmentName']")].map((name) => name.getAttribute("title"))).toEqual(["src", "a.ts"]);
+    expect(container.querySelector("[class*='attachment'] svg.lucide-folder")).not.toBeNull();
+    expect(container.querySelector("[class*='attachment'] svg.lucide-file-text")).not.toBeNull();
+    await unmount();
+  });
+
+  it("hides empty console messages unless they carry activity or are streaming", async () => {
+    const messages: Message[] = [
+      { id: "empty", role: "console", content: "  ", timestamp: "" },
+      { id: "busy", role: "console", content: "", timestamp: "", activityEntries: [{ content: "ran tests", kind: "tool" }] },
+    ];
+    const first = await mountChat(<Chat messages={[messages[0]]} />);
+    expect(first.container.textContent).toContain("Ready to receive commands");
+    await first.unmount();
+
+    const second = await mountChat(<Chat messages={messages} />);
+    expect(second.container.textContent).not.toContain("Ready to receive commands");
+    expect(second.container.textContent).toContain("ran tests");
+    await second.unmount();
+
+    const streaming = await mountChat(<Chat messages={[messages[0]]} isStreaming streamingMessageId="empty" streamingLabel="Thinking hard" />);
+    expect(streaming.container.textContent).not.toContain("Ready to receive commands");
+    expect(streaming.container.textContent).toContain("Thinking hard");
+    await streaming.unmount();
+  });
+
+  it("opens workspace links as file tabs and leaves web links to the browser", async () => {
+    workspace.openTab.mockClear();
+    const messages: Message[] = [{ id: "a", role: "assistant", content: "[app](./src/app.ts) [abs](/etc/hosts) [web](https://rusty.dev) [top](#top)", timestamp: "" }];
+    const { container, unmount } = await mountChat(<Chat messages={messages} />);
+    const links = [...container.querySelectorAll<HTMLAnchorElement>("a")];
+    const clicks = links.map((link) => {
+      const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+      link.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(clicks).toEqual([true, true, false, false]);
+    expect(workspace.openTab.mock.calls.map(([tab]) => tab)).toEqual([
+      { type: "file", path: "/ws/src/app.ts", title: "app.ts" },
+      { type: "file", path: "/etc/hosts", title: "hosts" },
+    ]);
+    await unmount();
+  });
+
+  it("restores and saves the scroll position under its key", async () => {
+    vi.useFakeTimers();
+    localStorage.setItem("chat_scroll_saved", "120");
+    const messages: Message[] = [{ id: "a", role: "assistant", content: "reply", timestamp: "" }];
+    const { container, unmount } = await mountChat(<Chat messages={messages} scrollKey="saved" />);
+    const scroller = container.querySelector<HTMLElement>(".overflow-y-auto")!;
+    expect(scroller.scrollTop).toBe(120);
+
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 300 });
+    scroller.dispatchEvent(new Event("scroll"));
+    scroller.dispatchEvent(new Event("scroll"));
+    expect(localStorage.getItem("chat_scroll_saved")).toBe("120");
+    await act(async () => vi.advanceTimersByTime(100));
+    expect(localStorage.getItem("chat_scroll_saved")).toBe("300");
+    await unmount();
+    vi.useRealTimers();
+    localStorage.removeItem("chat_scroll_saved");
   });
 });

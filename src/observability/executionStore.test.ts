@@ -102,6 +102,24 @@ describe("executionObservability", () => {
     expect(executionObservability.getSnapshot().records[0].status).toBe("cancelled");
   });
 
+  it("fails a call still waiting for permission when its run fails, and keeps finished calls", () => {
+    executionObservability.startRun("ide-run", "agent_chat", INPUT);
+    executionObservability.ingest("ide-run", envelope({
+      PermissionRequested: { request: { id: "permission-1", agent_id: "agent-1", tool_call: { id: "call-1", name: "bash.exec", arguments: { command: "ls" } } } },
+    }, 1));
+    executionObservability.ingest("ide-run", envelope({
+      ToolCallRequested: { call: { id: "call-2", name: "workspace.read", arguments: { path: "README.md" } } },
+    }, 2));
+    executionObservability.ingest("ide-run", envelope({
+      ToolCallCompleted: { call_id: "call-2", result: { has_error: false, output_preview: "ok" } },
+    }, 3));
+    executionObservability.finishRun("ide-run", { status: "failed", error: { code: "internal", message: "boom" } });
+
+    const byCall = new Map(executionObservability.getSnapshot().records.map((record) => [record.callId, record]));
+    expect(byCall.get("call-1")).toMatchObject({ toolName: "bash.exec", status: "failed", resultPreview: "boom" });
+    expect(byCall.get("call-2")).toMatchObject({ status: "succeeded", resultPreview: "ok" });
+  });
+
   it("keeps parallel calls distinct and treats replayed requests idempotently", () => {
     executionObservability.startRun("ide-run", "agent_chat", INPUT);
     const first = envelope({ ToolCallRequested: { call: { id: "call-1", name: "first", arguments: {} } } }, 1);

@@ -10,28 +10,21 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronUp, Check, Loader2, Workflow as WorkflowIcon, X } from "lucide-react";
 import { IconButton } from "../../ui";
 import { Select } from "./ChoiceSelect";
-import { type WorkflowStepStatus } from "../../../harness/core/workflowRun";
-import { type JsonObject, layoutSteps, stepsOf } from "./behaviorModel";
-import type { WorkflowResearchProgress, WorkflowRunView } from "./workflowRunStore";
+import { type JsonObject } from "./behaviorModel";
+import type { WorkflowRunView } from "./workflowRunStore";
 import styles from "./AgentWorkflowBar.module.css";
-import { AUTO_FLOW, workflowSwitchTargets } from "./flowCatalog";
-import type { BuiltinWorkflowKind } from "./starterFlow";
+import { WorkflowStepList } from "./WorkflowStepList";
+import {
+  IDLE_NOTICE_MS,
+  SINGLE,
+  type WorkflowBarView,
+  type WorkflowChoice,
+  formatQuiet,
+  orderedSteps,
+  workflowBarView,
+} from "./workflowBarModel";
 
-export interface WorkflowChoice {
-  path: string;
-  name: string;
-  /** A stage is a short run that stops at a handoff to review; the rest run a whole pipeline. */
-  kind?: BuiltinWorkflowKind;
-  description?: string;
-  /** Short id (without the built-in namespace), what the router and `switch_to` refer to. */
-  id?: string;
-  /** When the router should pick it (`metadata.route.when`); absent means it is never auto-picked. */
-  route?: string;
-  /** Whether any step can change files. */
-  edits?: boolean;
-  /** Ids it may hand over to mid-run (`metadata.switch_to`). */
-  switchTo?: string[];
-}
+export { IDLE_NOTICE_MS, formatQuiet, type WorkflowChoice } from "./workflowBarModel";
 
 export interface AgentWorkflowBarProps {
   workflows: WorkflowChoice[];
@@ -58,11 +51,6 @@ export interface AgentWorkflowBarProps {
   onSelect: (path: string | undefined) => void;
 }
 
-const SINGLE = "";
-
-/** Quiet time before the bar says a step has gone silent. */
-export const IDLE_NOTICE_MS = 60_000;
-
 /** Current time, ticking once a second while `active`. */
 function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
@@ -75,104 +63,32 @@ function useNow(active: boolean): number {
   return now;
 }
 
-export function formatQuiet(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`;
+const COLLAPSED_KEY = "rusty_workflow_bar_collapsed";
+
+/** Remembers the collapsed state across reloads. It is only a preference:
+ * without storage the bar still toggles, it just starts expanded. */
+function rememberCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, String(collapsed));
+  } catch (error) {
+    console.debug("Could not remember whether the workflow bar is collapsed:", error);
+  }
 }
 
-const STATUS_CLASS: Record<WorkflowStepStatus, string> = {
-  running: styles.running,
-  waiting: styles.waiting,
-  asking: styles.waiting,
-  retry: styles.waiting,
-  succeeded: styles.succeeded,
-  failed: styles.failed,
-};
-
-const RESEARCH_CLASS: Record<WorkflowResearchProgress["status"], string> = {
-  running: styles.running,
-  done: styles.succeeded,
-  failed: styles.failed,
-};
-
-const STATUS_LABEL: Record<WorkflowStepStatus, string> = {
-  running: "running",
-  waiting: "waiting for permission",
-  asking: "waiting for your answer",
-  retry: "retrying",
-  succeeded: "done",
-  failed: "failed",
-};
-
-export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
-  workflows,
-  selected,
-  definition,
-  run,
-  running,
-  disabled,
-  autoAvailable = false,
-  flowSwitching = false,
-  onFlowSwitchingChange,
-  autoApprove = false,
-  onAutoApproveChange,
-  onStop,
-  onSelect,
-}) => {
-  const now = useNow(running);
+function useCollapsedPreference(): [boolean, () => void] {
   const [collapsed, setCollapsed] = useState(() => {
-    try { return localStorage.getItem("rusty_workflow_bar_collapsed") === "true"; } catch { return false; }
+    try { return localStorage.getItem(COLLAPSED_KEY) === "true"; } catch { return false; }
   });
-  const toggleCollapsed = () => {
+  const toggle = () => {
     setCollapsed(!collapsed);
-    try { localStorage.setItem("rusty_workflow_bar_collapsed", String(!collapsed)); } catch { /* optional preference */ }
+    rememberCollapsed(!collapsed);
   };
-  const auto = selected === AUTO_FLOW;
-  // With Auto, `definition` is the workflow Rusty chose for the latest message.
-  const chosen = typeof definition?.name === "string" ? definition.name : undefined;
-  const current = auto ? undefined : workflows.find((workflow) => workflow.path === selected);
-  const name = auto
-    ? chosen ? `Auto · ${chosen}` : "Auto"
-    : current?.name ?? (selected ? selected.split("/").pop() ?? selected : "");
+  return [collapsed, toggle];
+}
 
-  // Steps in the order they run (left to right on the canvas).
-  const steps = useMemo(() => {
-    if (!definition) return [];
-    const positions = layoutSteps(definition);
-    return stepsOf(definition)
-      .map((step) => ({ id: String(step.id), name: String(step.name ?? step.id), position: positions.get(String(step.id)) }))
-      .sort((a, b) => (a.position?.x ?? 0) - (b.position?.x ?? 0) || (a.position?.y ?? 0) - (b.position?.y ?? 0));
-  }, [definition]);
-
-  const options = [
-    { value: SINGLE, label: "Single agent" },
-    ...(autoAvailable || auto ? [{ value: AUTO_FLOW, label: autoAvailable ? "Auto: choose a workflow for each message" : "Auto (needs OpenRouter and a JEV model)" }] : []),
-    ...workflows.map((workflow) => ({ value: workflow.path, label: `${workflow.kind === "stage" ? "Stage" : "Workflow"}: ${workflow.name}` })),
-    ...(selected && !current ? [{ value: selected, label: `Workflow: ${name} (missing)` }] : []),
-  ];
-
-  const handsOver = auto || workflowSwitchTargets(definition).length > 0;
-  // With Auto the workflow is chosen per message, so any of them may ask.
-  const hasApprovals = auto || stepsOf(definition ?? {}).some((step) => step.type === "approval");
-  const showRun = Boolean(selected && run && (running || run.status !== "running"));
-  const currentIndex = running && run?.current ? steps.findIndex((step) => step.id === run.current) : -1;
-  const activeStep = currentIndex >= 0 ? steps[currentIndex] : undefined;
-  const currentProgress = activeStep ? run?.steps[activeStep.id] : undefined;
-  const summary = running
-    ? activeStep
-      ? `Running step ${currentIndex + 1} of ${steps.length}: ${activeStep.name}${
-          currentProgress?.status === "waiting" ? " (waiting for permission)"
-            : currentProgress?.status === "asking" ? " (waiting for your answer)"
-            : currentProgress && currentProgress.attempt > 1 ? ` (attempt ${currentProgress.attempt})` : ""
-        }`
-      : "Starting the workflow…"
-    : "";
-
-  // A step that is only waiting on the user is not stuck, and a paused-for-permission step has nothing to report.
-  const quietMs = running && run && currentProgress?.status !== "waiting" && currentProgress?.status !== "asking" ? now - run.lastActivityAt : 0;
-  const stallLimit = (definition?.policies as { stall_timeout_ms?: unknown } | undefined)?.stall_timeout_ms;
-  const stallMs = typeof stallLimit === "number" && stallLimit > 0 ? stallLimit : undefined;
-  const idleNotice = quietMs >= IDLE_NOTICE_MS ? (
+const IdleNotice: React.FC<{ quietMs: number; stallMs?: number; onStop?: () => void }> = ({ quietMs, stallMs, onStop }) => {
+  if (quietMs < IDLE_NOTICE_MS) return null;
+  return (
     <div className={`${styles.idle} ${stallMs && quietMs >= stallMs * 0.6 ? styles.idleWarn : ""}`} role="status" data-testid="workflow-idle">
       <span>
         No activity for {formatQuiet(quietMs)}. It may be a long tool call or a slow model.
@@ -180,11 +96,79 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
       </span>
       {onStop ? <button type="button" className={styles.idleStop} onClick={onStop}>Stop workflow</button> : null}
     </div>
-  ) : null;
+  );
+};
+
+const WorkflowChip: React.FC<{ name: string; running: boolean; disabled: boolean; onClear: () => void }> = ({ name, running, disabled, onClear }) => (
+  <span className={styles.chip} data-testid="workflow-chip">
+    {running ? <Loader2 size={12} className={styles.spin} aria-hidden /> : <Check size={12} aria-hidden />}
+    {name}
+    {!disabled ? (
+      <IconButton icon={<X size={12} />} label="Stop following this workflow" size="sm" onClick={onClear} />
+    ) : null}
+  </span>
+);
+
+const HANDS_OVER_TITLE = "After each step Rusty checks whether what it found means another workflow is the right one, and hands over with the work so far. Switching to a workflow that edits files asks you first.";
+const NO_HANDOVER_TITLE = "This workflow does not declare any workflow to hand over to.";
+const AUTO_APPROVE_TITLE = "Approval steps (such as reviewing the plan) pass without asking you. Steps that must always be seen by a person still ask, and so do questions about failures.";
+
+interface ToggleProps {
+  title: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+  children: React.ReactNode;
+}
+
+const Toggle: React.FC<ToggleProps> = ({ title, checked, disabled, onChange, children }) => (
+  <label className={styles.toggle} title={title}>
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+    {children}
+  </label>
+);
+
+type WorkflowTogglesProps = Pick<AgentWorkflowBarProps, "disabled" | "flowSwitching" | "onFlowSwitchingChange" | "autoApprove" | "onAutoApproveChange"> & {
+  view: WorkflowBarView;
+};
+
+const WorkflowToggles: React.FC<WorkflowTogglesProps> = ({
+  view,
+  disabled,
+  flowSwitching = false,
+  onFlowSwitchingChange,
+  autoApprove = false,
+  onAutoApproveChange,
+}) => (
+  <>
+    {onFlowSwitchingChange ? (
+      <Toggle title={view.handsOver ? HANDS_OVER_TITLE : NO_HANDOVER_TITLE} checked={flowSwitching} disabled={disabled} onChange={onFlowSwitchingChange}>
+        Allow flow switching
+      </Toggle>
+    ) : null}
+    {onAutoApproveChange && view.hasApprovals ? (
+      <Toggle title={AUTO_APPROVE_TITLE} checked={autoApprove} disabled={disabled} onChange={onAutoApproveChange}>
+        Auto-approve
+      </Toggle>
+    ) : null}
+  </>
+);
+
+export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = (props) => {
+  const { workflows, selected, definition, run, running, disabled, onSelect } = props;
+  const now = useNow(running);
+  const [collapsed, toggleCollapsed] = useCollapsedPreference();
+  const steps = useMemo(() => orderedSteps(definition), [definition]);
+  const view = workflowBarView({ workflows, selected, definition, run, running, autoAvailable: props.autoAvailable ?? false, steps, now });
 
   if (collapsed) return (
     <div className={styles.collapsed}>
-      <span className={styles.summary}>{running ? activeStep ? `Running: ${activeStep.name}` : "Workflow running…" : name || "Single agent"}</span>
+      <span className={styles.summary}>{view.collapsedSummary}</span>
       <IconButton icon={<ChevronDown size={14} />} label="Show workflow bar" aria-expanded={false} onClick={toggleCollapsed} />
     </div>
   );
@@ -203,94 +187,24 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = ({
           value={selected ?? SINGLE}
           disabled={disabled}
           onChange={(event) => onSelect(event.target.value || undefined)}
-          options={options}
+          options={view.options}
         />
-        {selected ? (
-          <span className={styles.chip} data-testid="workflow-chip">
-            {running ? <Loader2 size={12} className={styles.spin} aria-hidden /> : <Check size={12} aria-hidden />}
-            {name}
-            {!disabled ? (
-              <IconButton icon={<X size={12} />} label="Stop following this workflow" size="sm" onClick={() => onSelect(undefined)} />
-            ) : null}
-          </span>
-        ) : null}
-        {selected && steps.length ? (
-          <ol className={styles.steps} aria-label="Workflow steps">
-            {steps.map((step, index) => {
-              const progress = showRun ? run?.steps[step.id] : undefined;
-              const label = progress ? STATUS_LABEL[progress.status] : "not run";
-              const item = (
-                <li
-                  key={step.id}
-                  className={`${styles.step} ${progress ? STATUS_CLASS[progress.status] : ""} ${step.id === activeStep?.id ? styles.current : ""}`}
-                  aria-current={step.id === activeStep?.id ? "step" : undefined}
-                  title={progress?.message ?? `${step.name}: ${label}`}
-                  aria-label={`${step.name}: ${label}`}
-                >
-                  {index > 0 ? <span className={styles.arrow} aria-hidden>→</span> : null}
-                  {progress?.status === "running" ? <Loader2 size={11} className={styles.spin} aria-hidden /> : null}
-                  <span>{step.name}</span>
-                  {progress && progress.attempt > 1 ? <span className={styles.attempt}>×{progress.attempt}</span> : null}
-                </li>
-              );
-              // Research the step asked for on the way, inserted right after it.
-              const research = showRun ? (run?.research ?? []).filter((item) => item.nodeId === step.id) : [];
-              return research.length === 0 ? item : (
-                <React.Fragment key={step.id}>
-                  {item}
-                  {research.map((entry) => (
-                    <li
-                      key={entry.callId}
-                      className={`${styles.step} ${styles.research} ${RESEARCH_CLASS[entry.status]}`}
-                      title={`Research asked by ${step.name}: ${entry.question}`}
-                      aria-label={`Research for ${step.name}: ${entry.status === "running" ? "running" : entry.status === "done" ? "answered" : "failed"}`}
-                      data-testid="workflow-research-step"
-                    >
-                      <span className={styles.arrow} aria-hidden>↳</span>
-                      {entry.status === "running" ? <Loader2 size={11} className={styles.spin} aria-hidden /> : null}
-                      <span>Research</span>
-                    </li>
-                  ))}
-                </React.Fragment>
-              );
-            })}
-            {showRun && run?.status === "failed" && run.error ? <li className={styles.error}>{run.error}</li> : null}
-          </ol>
-        ) : null}
+        {selected ? <WorkflowChip name={view.name} running={running} disabled={disabled} onClear={() => onSelect(undefined)} /> : null}
+        {selected && steps.length ? <WorkflowStepList steps={steps} run={view.shownRun} activeStepId={view.activeStep?.id} /> : null}
         <span className={styles.summary}>
-          {summary}
+          {view.summary}
         </span>
       </div>
-      {idleNotice}
-      {selected && onFlowSwitchingChange ? (
-        <label
-          className={styles.toggle}
-          title={handsOver
-            ? "After each step Rusty checks whether what it found means another workflow is the right one, and hands over with the work so far. Switching to a workflow that edits files asks you first."
-            : "This workflow does not declare any workflow to hand over to."}
-        >
-          <input
-            type="checkbox"
-            checked={flowSwitching}
-            disabled={disabled}
-            onChange={(event) => onFlowSwitchingChange(event.target.checked)}
-          />
-          Allow flow switching
-        </label>
-      ) : null}
-      {selected && onAutoApproveChange && hasApprovals ? (
-        <label
-          className={styles.toggle}
-          title="Approval steps (such as reviewing the plan) pass without asking you. Steps that must always be seen by a person still ask, and so do questions about failures."
-        >
-          <input
-            type="checkbox"
-            checked={autoApprove}
-            disabled={disabled}
-            onChange={(event) => onAutoApproveChange(event.target.checked)}
-          />
-          Auto-approve
-        </label>
+      <IdleNotice quietMs={view.quietMs} stallMs={view.stallMs} onStop={props.onStop} />
+      {selected ? (
+        <WorkflowToggles
+          view={view}
+          disabled={disabled}
+          flowSwitching={props.flowSwitching}
+          onFlowSwitchingChange={props.onFlowSwitchingChange}
+          autoApprove={props.autoApprove}
+          onAutoApproveChange={props.onAutoApproveChange}
+        />
       ) : null}
     </div>
   );

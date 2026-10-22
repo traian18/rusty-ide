@@ -27,6 +27,7 @@ mod managed_auth;
 mod managed_binaries;
 mod managed_models;
 mod managed_quota;
+mod managed_rpc;
 mod recipe;
 pub mod repository_context;
 mod session;

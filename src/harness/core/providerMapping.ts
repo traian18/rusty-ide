@@ -74,6 +74,48 @@ const MANAGED_TRANSPORT_INTEGRATIONS: Record<string, string> = {
   "openai-codex-app-server": "codex",
 };
 
+function managedIntegrationOf(provider: CustomProvider): string | undefined {
+  return provider.transport ? MANAGED_TRANSPORT_INTEGRATIONS[provider.transport] : undefined;
+}
+
+/** Why the provider's transport cannot run on core, if it cannot: a managed
+ * transport with no rusty-core integration yet. */
+function unsupportedTransport(provider: CustomProvider, managedIntegration: string | undefined): string | undefined {
+  const transport = provider.transport;
+  if (!transport || transport === "http" || managedIntegration) return undefined;
+  return `managed transport "${transport}" is not supported on core yet`;
+}
+
+const isRemoteModel = (provider: CustomProvider, base: string) => provider.models.some((model) => model.remoteId === base);
+
+/** A model id namespaced by another provider that this one does not list. */
+function belongsToOtherProvider(provider: CustomProvider, base: string): boolean {
+  const foreignPrefix = base.includes("/") && !base.startsWith(`${provider.id}/`);
+  return foreignPrefix && !isRemoteModel(provider, base);
+}
+
+/** GitHub Copilot's own "auto" model choice, which its list never contains. */
+function isCopilotAuto(provider: CustomProvider, integration: string, base: string): boolean {
+  return integration === "github-copilot" && (base === "auto" || base === `${provider.id}/auto`);
+}
+
+function isListedModel(provider: CustomProvider, modelReference: string, base: string, integration: string): boolean {
+  return providerHasModelReference(provider, modelReference) || isRemoteModel(provider, base) || isCopilotAuto(provider, integration, base);
+}
+
+/** Why a managed CLI cannot run this model, if it cannot. A provider whose
+ * models were never listed accepts any model of its own. */
+function managedModelProblem(provider: CustomProvider, modelReference: string, integration: string): string | undefined {
+  const base = baseModelReference(modelReference);
+  if (belongsToOtherProvider(provider, base)) {
+    return `Model "${modelReference}" belongs to a different provider. Choose a model from ${provider.name}.`;
+  }
+  if (provider.models.length > 0 && !isListedModel(provider, modelReference, base, integration)) {
+    return `Model "${modelReference}" is not listed for ${provider.name}. Refresh its models and select one from the current list.`;
+  }
+  return undefined;
+}
+
 export function mapProviderToIntegration(provider: CustomProvider, modelReference: string): ProviderMappingResult {
   const { reasoningEffort } = parseModelReference(modelReference);
   // The UI and rusty-core's `ExecutionParams.reasoning_effort` share one
@@ -96,31 +138,10 @@ export function mapProviderToIntegration(provider: CustomProvider, modelReferenc
     };
   }
 
-  const managedIntegration = provider.transport ? MANAGED_TRANSPORT_INTEGRATIONS[provider.transport] : undefined;
-  if (provider.transport && provider.transport !== "http" && !managedIntegration) {
-    return {
-      supported: false,
-      reason: `managed transport "${provider.transport}" is not supported on core yet`,
-    };
-  }
-
-  if (managedIntegration) {
-    const base = baseModelReference(modelReference);
-    if (base.includes("/") && !base.startsWith(`${provider.id}/`)
-      && !provider.models.some((model) => model.remoteId === base)) {
-      return { supported: false, reason: `Model "${modelReference}" belongs to a different provider. Choose a model from ${provider.name}.` };
-    }
-  }
-
-  if (managedIntegration && provider.models.length > 0) {
-    const base = baseModelReference(modelReference);
-    const listed = providerHasModelReference(provider, modelReference)
-      || provider.models.some((model) => model.remoteId === base)
-      || (managedIntegration === "github-copilot" && (base === "auto" || base === `${provider.id}/auto`));
-    if (!listed) {
-      return { supported: false, reason: `Model "${modelReference}" is not listed for ${provider.name}. Refresh its models and select one from the current list.` };
-    }
-  }
+  const managedIntegration = managedIntegrationOf(provider);
+  const problem = unsupportedTransport(provider, managedIntegration)
+    ?? (managedIntegration ? managedModelProblem(provider, modelReference, managedIntegration) : undefined);
+  if (problem) return { supported: false, reason: problem };
 
   return {
     supported: true,

@@ -32,21 +32,15 @@
 //! the raw GitHub token inside `authInfo`; only `login`/plan/reset date
 //! are copied out of it.
 
-use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::Duration;
+//!
+//! The JSON-RPC client both CLIs are driven with lives in `managed_rpc.rs`
+//! (`managed_models.rs` uses it too); this file is only the quota flows.
 
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Manager};
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, ChildStdin, ChildStdout, Command};
+use tauri::AppHandle;
 
-use super::managed_binaries::resolve_managed_binary;
-
-/// Per-request ceiling for one JSON-RPC round trip or HTTP call. The
-/// sidecar used 20s for the same calls.
-pub(super) const RPC_TIMEOUT: Duration = Duration::from_secs(20);
+use super::managed_rpc::{binary_or_error, Framing, RpcChild};
 
 #[derive(Debug, Serialize, Default, PartialEq)]
 pub struct ManagedQuota {
@@ -65,11 +59,6 @@ pub struct ManagedQuota {
     pub data: Option<Value>,
 }
 
-pub(super) fn binary_or_error(app: &AppHandle, provider: &str) -> Result<PathBuf, String> {
-    resolve_managed_binary(app, provider)
-        .ok_or_else(|| format!("The {provider} runtime is not installed. Sign in to download it."))
-}
-
 fn string_field(value: Option<&Value>, key: &str) -> Option<String> {
     value?
         .get(key)?
@@ -77,181 +66,6 @@ fn string_field(value: Option<&Value>, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
-}
-
-// ------------------------------------------------------------
-// A minimal JSON-RPC client over a child process's stdio.
-// ------------------------------------------------------------
-
-#[derive(Clone, Copy)]
-pub(super) enum Framing {
-    /// `Content-Length: N\r\n\r\n<body>` (vscode-jsonrpc; Copilot CLI).
-    ContentLength,
-    /// One JSON object per line (Codex app-server).
-    NewlineDelimited,
-}
-
-pub(super) struct RpcChild {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: BufReader<ChildStdout>,
-    framing: Framing,
-    next_id: i64,
-}
-
-impl RpcChild {
-    pub(super) async fn spawn(
-        binary: &Path,
-        args: &[&str],
-        framing: Framing,
-    ) -> Result<Self, String> {
-        let mut child = Command::new(binary)
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            // The CLIs log to stderr; nothing here reads it, and an
-            // unread pipe could block a chatty child, so let it flow to
-            // the parent's stderr instead.
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(|error| format!("failed to start {}: {error}", binary.display()))?;
-        let stdin = child.stdin.take().ok_or("child stdin was not piped")?;
-        let stdout = child.stdout.take().ok_or("child stdout was not piped")?;
-        Ok(Self {
-            child,
-            stdin,
-            stdout: BufReader::new(stdout),
-            framing,
-            next_id: 1,
-        })
-    }
-
-    async fn write(&mut self, message: &Value) -> Result<(), String> {
-        let body = serde_json::to_string(message).map_err(|e| e.to_string())?;
-        let frame = match self.framing {
-            Framing::ContentLength => format!("Content-Length: {}\r\n\r\n{body}", body.len()),
-            Framing::NewlineDelimited => format!("{body}\n"),
-        };
-        self.stdin
-            .write_all(frame.as_bytes())
-            .await
-            .map_err(|e| format!("failed to write to the CLI: {e}"))?;
-        self.stdin
-            .flush()
-            .await
-            .map_err(|e| format!("failed to write to the CLI: {e}"))
-    }
-
-    /// Reads one framed message, skipping anything that isn't JSON (a
-    /// stray log line on stdout, an empty line).
-    async fn read_message(&mut self) -> Result<Value, String> {
-        loop {
-            match self.framing {
-                Framing::ContentLength => {
-                    let mut length: Option<usize> = None;
-                    loop {
-                        let mut line = String::new();
-                        let read = self
-                            .stdout
-                            .read_line(&mut line)
-                            .await
-                            .map_err(|e| e.to_string())?;
-                        if read == 0 {
-                            return Err("the CLI closed its output before answering".to_string());
-                        }
-                        let trimmed = line.trim_end_matches(['\r', '\n']);
-                        if trimmed.is_empty() {
-                            if length.is_some() {
-                                break;
-                            }
-                            continue;
-                        }
-                        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-                            length = value.trim().parse().ok();
-                        }
-                    }
-                    let length =
-                        length.ok_or("the CLI sent a frame without a Content-Length header")?;
-                    let mut body = vec![0u8; length];
-                    self.stdout
-                        .read_exact(&mut body)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    if let Ok(value) = serde_json::from_slice::<Value>(&body) {
-                        return Ok(value);
-                    }
-                }
-                Framing::NewlineDelimited => {
-                    let mut line = String::new();
-                    let read = self
-                        .stdout
-                        .read_line(&mut line)
-                        .await
-                        .map_err(|e| e.to_string())?;
-                    if read == 0 {
-                        return Err("the CLI closed its output before answering".to_string());
-                    }
-                    if let Ok(value) = serde_json::from_str::<Value>(line.trim()) {
-                        return Ok(value);
-                    }
-                }
-            }
-        }
-    }
-
-    pub(super) async fn notify(&mut self, method: &str, params: Value) -> Result<(), String> {
-        self.write(&json!({ "jsonrpc": "2.0", "method": method, "params": params }))
-            .await
-    }
-
-    /// Sends `method` and waits for its response, answering any
-    /// server-to-client request that arrives in between with
-    /// MethodNotFound (nothing here implements a client-side API) and
-    /// dropping notifications. Bounded by `RPC_TIMEOUT`.
-    pub(super) async fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        let id = self.next_id;
-        self.next_id += 1;
-        self.write(&json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }))
-            .await?;
-        let wait = async {
-            loop {
-                let message = self.read_message().await?;
-                let message_id = message.get("id").filter(|v| !v.is_null());
-                let is_request = message.get("method").is_some();
-                match (message_id, is_request) {
-                    (Some(mid), false) if mid == &json!(id) => {
-                        if let Some(error) = message.get("error") {
-                            let text = error
-                                .get("message")
-                                .and_then(Value::as_str)
-                                .map(str::to_string)
-                                .unwrap_or_else(|| error.to_string());
-                            return Err(format!("{method} failed: {text}"));
-                        }
-                        return Ok(message.get("result").cloned().unwrap_or(Value::Null));
-                    }
-                    (Some(mid), true) => {
-                        let reply = json!({
-                            "jsonrpc": "2.0",
-                            "id": mid,
-                            "error": { "code": -32601, "message": "not supported by this client" },
-                        });
-                        self.write(&reply).await?;
-                    }
-                    _ => {}
-                }
-            }
-        };
-        tokio::time::timeout(RPC_TIMEOUT, wait)
-            .await
-            .map_err(|_| format!("{method} timed out after {}s", RPC_TIMEOUT.as_secs()))?
-    }
-
-    pub(super) async fn shutdown(mut self) {
-        let _ = self.child.start_kill();
-        let _ = self.child.wait().await;
-    }
 }
 
 // ------------------------------------------------------------
@@ -399,6 +213,7 @@ pub async fn fetch_quota(app: &AppHandle, provider: &str) -> Result<ManagedQuota
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
 
     /// A stand-in JSON-RPC server: `sh` reading framed requests is
     /// awkward, so these drive the client against a tiny Node script that

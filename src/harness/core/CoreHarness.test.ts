@@ -1418,7 +1418,7 @@ describe("Agent task continuation", () => {
     expect(await handle.done).toMatchObject({ status: "completed", result: { response: "Here are the findings." } });
   });
   const agentInput = { tabId: "agent", message: "fix this", workspaceRoot: "/ws", model: "model", chatHistory: [], customProvider: INPUT.customProvider, skill: null, mcpServers: [], planOnly: false, vfsOnly: false, lspSettings: {} };
-  function setup() {
+  function setup(overrides: Partial<CoreCapabilityDefinition<"agent_chat">> = {}) {
     const engine = new FakeCoreEngine();
     const events: unknown[] = [];
     const definition: CoreCapabilityDefinition<"agent_chat"> = {
@@ -1431,6 +1431,7 @@ describe("Agent task continuation", () => {
         subagents: [],
       }),
       usageContext: () => ({ workspaceRoot: "/ws", model: "model" }),
+      ...overrides,
     };
     const harness = new CoreHarness({ engine, controlPlane: fakeControlPlane(), executionAnswerer: new FakeExecutionAnswerer(), definitions: { agent_chat: definition } });
     const handle = harness.run("agent_chat", agentInput, createRecordingHost().host, (event) => events.push(event));
@@ -1488,5 +1489,81 @@ describe("Agent task continuation", () => {
     emit({ AssistantTextDelta: { message_id: "final", delta: "Blocked." } });
     emit({ Completed: { outcome: "Success" } });
     expect(await handle.done).toMatchObject({ status: "completed", result: { modifiedFiles: [] } });
+  });
+  it("fails a run whose definition can produce no result", async () => {
+    const { handle, emit } = setup({ toResult: undefined }); await handle.started;
+    emit({ AssistantTextDelta: { message_id: "final", delta: "Done." } });
+    emit({ Completed: { outcome: "Success" } });
+    expect(await handle.done).toEqual({
+      status: "failed",
+      error: { code: "CORE_NO_RESULT_HANDLER", message: "This capability defines neither toResult nor onCompleted." },
+    });
+  });
+});
+
+describe("Agent progress logs", () => {
+  const agentInput = { tabId: "agent", message: "fix this", workspaceRoot: "/ws", model: "model", chatHistory: [], customProvider: INPUT.customProvider, skill: null, mcpServers: [], planOnly: false, vfsOnly: false, lspSettings: {} };
+  async function setup() {
+    const engine = new FakeCoreEngine();
+    const events: Array<{ kind: string; message?: string }> = [];
+    const definition: CoreCapabilityDefinition<"agent_chat"> = {
+      capability: "agent_chat",
+      recipe: () => ({ workspace: { root: "/ws" }, integration: "codex" }),
+      promptText: () => "fix this",
+      toResult: () => ({ response: "", modifiedFiles: [], subagents: [] }),
+      usageContext: () => ({ workspaceRoot: "/ws", model: "model" }),
+    };
+    const harness = new CoreHarness({ engine, controlPlane: fakeControlPlane(), executionAnswerer: new FakeExecutionAnswerer(), definitions: { agent_chat: definition } });
+    const handle = harness.run("agent_chat", agentInput, createRecordingHost().host, (event) => events.push(event as { kind: string }));
+    await handle.started;
+    const emit = (event: AgentEvent) => engine.emit(engine.lastSessionId(), { kind: "event", data: envelope(event) });
+    const logs = () => events.filter((event) => event.kind === "log").map((event) => event.message);
+    return { emit, logs };
+  }
+
+  it("logs what the behavior layer did", async () => {
+    const { emit, logs } = await setup();
+    emit({ ProfileChanged: { from: "default", to: "careful" } });
+    emit({ BehaviorRuleFired: { profile: "careful", rule_id: "r1", event: "tool_call", action: "inject" } });
+    emit({ ToolCallDenied: { call_id: "c1", rule_id: "r2", reason: "writes outside the workspace" } });
+    expect(logs()).toEqual([
+      "Behavior profile: default → careful",
+      "Rule r1 (tool_call): inject",
+      "Denied by behavior profile: writes outside the workspace",
+    ]);
+  });
+
+  it("logs each completion gate verdict", async () => {
+    const { emit, logs } = await setup();
+    const gate = (passed: boolean, continuing: boolean, failed_checks: string[]) =>
+      emit({ CompletionGateEvaluated: { attempt: 1, passed, continuing, failed_checks } });
+    gate(true, false, []);
+    gate(true, false, ["tests"]);
+    gate(false, true, ["tests", "build"]);
+    gate(false, false, ["build"]);
+    expect(logs()).toEqual([
+      "Completion gate passed.",
+      "Completion gate passed; out of attempts, so these were waived: tests.",
+      "Completion gate rejected the answer (tests, build); the agent continues.",
+      "Completion gate not passed (build).",
+    ]);
+  });
+
+  it("names a tool call's command or path, and a failed call's output", async () => {
+    const { emit, logs } = await setup();
+    emit({ ToolCallRequested: { call: { id: "a", name: "shell", arguments: { command: `  ${"x".repeat(70)} `, path: "ignored" } } } });
+    emit({ ToolCallRequested: { call: { id: "b", name: "read", arguments: { cmd: " ", file_path: " src/a.ts " } } } });
+    emit({ ToolCallRequested: { call: { id: "c", name: "list", arguments: null } } });
+    emit({ ToolCallCompleted: { call_id: "a", result: { has_error: true, output_preview: ` ${"e".repeat(90)}` } } });
+    emit({ ToolCallCompleted: { call_id: "b", result: { has_error: true, output_preview: "" } } });
+    emit({ ToolCallCompleted: { call_id: "c", result: { has_error: false, output_preview: "listing" } } });
+    expect(logs()).toEqual([
+      `Calling shell: ${"x".repeat(60)}...`,
+      "Calling read: src/a.ts...",
+      "Calling list...",
+      `Tool call failed: ${"e".repeat(80)}`,
+      "Tool call failed.",
+      "Tool call completed.",
+    ]);
   });
 });

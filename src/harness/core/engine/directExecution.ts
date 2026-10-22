@@ -33,10 +33,8 @@
 // the sidecar fallback instead -- see its own doc comment.
 // ============================================================
 
-import type { CustomProvider, ProviderModel } from "../../../store/types";
-import { parseModelReference } from "../../../store/providerHelpers";
+import type { CustomProvider } from "../../../store/types";
 import type {
-  AgentMessage,
   ExecutionError,
   ExecutionEvent,
   ExecutionRequest,
@@ -44,6 +42,14 @@ import type {
   ModelUsage,
 } from "./ExecutionProtocol";
 import { recoverOpenRouterUsage } from "./openRouterUsageRecovery";
+import { resolveDirectRuntime, type ResolvedDirectRuntime } from "./directRuntime";
+import { withMistralRetries, type StreamProgress } from "./mistralRetries";
+import { piMessagesFromAgentMessages, textFromPiMessage, toExecutionUsage } from "./piMessages";
+
+// Which runtime a provider resolves to, and how Mistral failures are
+// retried, live in their own modules; re-exported for this module's callers.
+export { getProviderDefaults, isMistralUrl, normalizeApiType, resolveDirectRuntime } from "./directRuntime";
+export { setMistralRetryDelaysForTests } from "./mistralRetries";
 
 /** The `LlmApiType` values `directExecution.ts` ports pi-ai's own request
  * module for -- the three this app's own default providers actually use
@@ -70,164 +76,6 @@ export const PORTED_API_TYPES = new Set(["openai-completions", "openai-responses
  * `HybridExecutionAnswerer` reads this set. */
 export const NO_CORS_EXECUTION_PROVIDER_IDS = new Set(["opencode", "opencode-go"]);
 
-interface ProviderDefaults {
-  baseUrl: string;
-  authType: "bearer" | "anthropic" | "none" | "environment";
-  apiType: string;
-}
-
-/** Mirrors agent-sidecar/src/services/llmProviders.ts's own
- * `PROVIDER_DEFAULTS` -- only the fields this module actually reads
- * (`baseUrl`/`authType`/`apiType`; the sidecar's own `catalogUrl`/`envVar`/
- * `piProvider` fields belong to catalog discovery and the env-var fallback,
- * neither of which this module does). Kept as a separate literal rather
- * than imported: same reasoning as the rest of this file's port. */
-const PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
-  opencode: { baseUrl: "https://opencode.ai/zen/v1", authType: "bearer", apiType: "openai-completions" },
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1", authType: "bearer", apiType: "openai-completions" },
-  "opencode-go": { baseUrl: "https://opencode.ai/zen/go/v1", authType: "bearer", apiType: "openai-completions" },
-  openai: { baseUrl: "https://api.openai.com/v1", authType: "bearer", apiType: "openai-responses" },
-  anthropic: { baseUrl: "https://api.anthropic.com/v1", authType: "anthropic", apiType: "anthropic-messages" },
-  "github-models": { baseUrl: "https://models.github.ai/inference", authType: "bearer", apiType: "openai-completions" },
-  mistral: { baseUrl: "https://api.mistral.ai/v1", authType: "bearer", apiType: "mistral-conversations" },
-};
-
-/** Mistral's API is not OpenAI Chat Completions: it rejects unknown fields
- * and the `developer` role, and its CORS allow-list rejects the OpenAI SDK's
- * own headers. Requests to it always use pi-ai's native Mistral client, even
- * when the provider was set up as OpenAI-compatible. */
-export function isMistralUrl(baseUrl: string): boolean {
-  try {
-    const host = new URL(baseUrl).hostname;
-    return host === "mistral.ai" || host.endsWith(".mistral.ai");
-  } catch {
-    return false;
-  }
-}
-
-export function getProviderDefaults(providerId: string): ProviderDefaults | undefined {
-  return PROVIDER_DEFAULTS[providerId];
-}
-
-export function normalizeApiType(apiType?: string): string {
-  if (apiType === "anthropic") return "anthropic-messages";
-  return apiType || "openai-completions";
-}
-
-function remoteModelId(modelId: string, providerId: string): string {
-  const prefix = `${providerId}/`;
-  return modelId.startsWith(prefix) ? modelId.slice(prefix.length) : modelId;
-}
-
-function resolveProviderModelSelection(
-  provider: CustomProvider,
-  modelReference: string,
-): { model?: ProviderModel; modelId: string; reasoningEffort?: string } {
-  const parsed = parseModelReference(modelReference);
-  const target = remoteModelId(parsed.baseReference, provider.id);
-  const model = provider.models.find((candidate) => candidate.id === parsed.baseReference)
-    || provider.models.find((candidate) => (candidate.remoteId || remoteModelId(candidate.id, provider.id)) === target);
-  return {
-    model,
-    modelId: model?.remoteId || target,
-    reasoningEffort: parsed.reasoningEffort || model?.reasoningEffort,
-  };
-}
-
-/** Only the explicit-key half of the sidecar's own `resolveProviderApiKey`
- * -- see this file's own top doc comment for why the `process.env` fallback
- * is intentionally dropped rather than ported. */
-function resolveDirectApiKey(provider: CustomProvider): string {
-  return provider.apiKey?.trim() || "";
-}
-
-function syntheticModel(provider: CustomProvider, configuredModel: ProviderModel | undefined, modelId: string): any {
-  const defaults = getProviderDefaults(provider.id);
-  const configuredBaseUrl = (configuredModel?.baseUrl || provider.baseUrl || defaults?.baseUrl || "").replace(/\/+$/, "");
-  if (!configuredBaseUrl) throw new Error(`No base URL is configured for ${provider.name}.`);
-  const api = isMistralUrl(configuredBaseUrl)
-    ? "mistral-conversations"
-    : normalizeApiType(configuredModel?.apiType || provider.apiType || defaults?.apiType);
-  // Mistral's SDK takes the server root and adds `/v1/...` itself.
-  const baseUrl = api === "mistral-conversations" ? configuredBaseUrl.replace(/\/v1$/, "") : configuredBaseUrl;
-  return {
-    id: modelId,
-    name: configuredModel?.name || modelId,
-    api,
-    provider: provider.id,
-    baseUrl,
-    reasoning: configuredModel?.reasoning ?? false,
-    thinkingLevelMap: configuredModel?.thinkingLevelMap,
-    thinkingBudgets: configuredModel?.thinkingBudgets,
-    input: configuredModel?.input || ["text"],
-    cost: configuredModel?.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: configuredModel?.contextWindow || 200_000,
-    maxTokens: configuredModel?.maxTokens || 16_384,
-    compat: configuredModel?.compat,
-    headers: configuredModel?.headers,
-  };
-}
-
-function runtimeHeaders(
-  provider: CustomProvider,
-  model: any,
-  apiKey: string,
-  authType?: CustomProvider["authType"],
-): Record<string, string> | undefined {
-  const headers: Record<string, string> = { ...(model.headers || {}) };
-  if (provider.id === "github-models") {
-    headers.Accept = "application/vnd.github+json";
-    headers["X-GitHub-Api-Version"] = "2026-03-10";
-  } else if (provider.id === "openrouter") {
-    headers["HTTP-Referer"] = "https://rusty.dev";
-    headers["X-Title"] = "Rusty";
-  }
-  if (model.api === "anthropic-messages" && authType === "bearer" && apiKey) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-  return Object.keys(headers).length ? headers : undefined;
-}
-
-interface ResolvedDirectRuntime {
-  providerId: string;
-  modelId: string;
-  apiKey: string;
-  model: any;
-  headers?: Record<string, string>;
-  reasoningEffort?: string;
-}
-
-/** Twin of `resolveLlmRuntime`'s `customProvider` branch (llmRuntime.ts:
- * 122-170) -- the only branch this app's own call pattern ever takes (see
- * this file's top doc comment). Returns `undefined` rather than throwing
- * when no API key resolves, so `HybridExecutionAnswerer` can fall back to
- * the sidecar instead of surfacing a hard error for a provider that relies
- * on the sidecar's own env-var fallback. */
-export function resolveDirectRuntime(modelReference: string, provider: CustomProvider): ResolvedDirectRuntime | undefined {
-  const fallbackModel = provider.models[0];
-  const fallbackReference = modelReference || fallbackModel?.id || fallbackModel?.remoteId || "";
-  const selection = resolveProviderModelSelection(provider, fallbackReference);
-  const modelId = selection.modelId;
-  if (!modelId) return undefined;
-
-  const model = syntheticModel(provider, selection.model || fallbackModel, modelId);
-
-  const authType = provider.authType
-    || getProviderDefaults(provider.id)?.authType
-    || (provider.apiKey ? "bearer" : "none");
-  const apiKey = resolveDirectApiKey(provider) || (authType === "none" ? "not-needed" : "");
-  if (!apiKey) return undefined;
-
-  return {
-    providerId: provider.id,
-    modelId,
-    apiKey,
-    model,
-    headers: runtimeHeaders(provider, model, apiKey, authType),
-    reasoningEffort: selection.reasoningEffort,
-  };
-}
-
 class EmptyLlmResponseError extends Error {
   constructor(message: any) {
     const stopReason = typeof message?.stopReason === "string" ? message.stopReason : "unknown";
@@ -237,107 +85,6 @@ class EmptyLlmResponseError extends Error {
     super(`${reason} (stop reason: ${stopReason})`);
     this.name = "EmptyLlmResponseError";
   }
-}
-
-function textFromPiMessage(message: any): string {
-  return Array.isArray(message?.content)
-    ? message.content
-      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
-      .map((part: any) => part.text)
-      .join("")
-    : "";
-}
-
-function toolOutputText(outputPreview: string): string {
-  try {
-    const parsed = JSON.parse(outputPreview);
-    return typeof parsed === "string" ? parsed : outputPreview;
-  } catch {
-    return outputPreview;
-  }
-}
-
-function toExecutionUsage(sample: any): ModelUsage {
-  return {
-    input_tokens: sample?.input ?? null,
-    output_tokens: sample?.output ?? null,
-    cache_read_tokens: sample?.cacheRead ?? null,
-    cache_write_tokens: sample?.cacheWrite ?? null,
-    reasoning_tokens: sample?.reasoning ?? null,
-    total_tokens: sample?.totalTokens ?? null,
-  };
-}
-
-/** Verbatim port of llmRuntime.ts's own `piMessagesFromAgentMessages` --
- * see its doc comment there for why the merge-consecutive-Assistant-
- * messages and full-AssistantMessage-shape behavior exist (two real bugs
- * found live-testing execute_node against Phase 1). */
-function piMessagesFromAgentMessages(messages: AgentMessage[], model: any): any[] {
-  const toolNamesByCallId = new Map<string, string>();
-  const out: any[] = [];
-  for (const message of messages as any[]) {
-    const timestamp = Date.parse(message.created_at) || Date.now();
-    if (message.role === "Tool") {
-      for (const block of message.content) {
-        if (!("ToolResult" in block)) continue;
-        const { call_id, result } = block.ToolResult;
-        out.push({
-          role: "toolResult",
-          toolCallId: call_id,
-          toolName: toolNamesByCallId.get(call_id) || "",
-          content: [{ type: "text", text: toolOutputText(result.output_preview) }],
-          details: {},
-          isError: result.has_error,
-          timestamp,
-        });
-      }
-      continue;
-    }
-    const content: any[] = [];
-    for (const block of message.content) {
-      if ("Text" in block) {
-        content.push({ type: "text", text: block.Text.text });
-      } else if ("ToolUse" in block) {
-        const { id, name, arguments: args } = block.ToolUse.call;
-        toolNamesByCallId.set(id, name);
-        content.push({ type: "toolCall", id, name, arguments: args ?? {} });
-      } else if ("ToolResult" in block) {
-        content.push({ type: "text", text: toolOutputText(block.ToolResult.result.output_preview) });
-      } else if ("Image" in block) {
-        content.push({ type: "text", text: "[image omitted]" });
-      }
-    }
-    if (content.length === 0) continue;
-    if (message.role === "Assistant") {
-      const previous = out[out.length - 1];
-      if (previous?.role === "assistant") {
-        previous.content.push(...content);
-        if (content.some((part) => part.type === "toolCall")) previous.stopReason = "toolUse";
-        previous.timestamp = Math.max(previous.timestamp, timestamp);
-        continue;
-      }
-      out.push({
-        role: "assistant",
-        content,
-        api: model?.api,
-        provider: model?.provider,
-        model: model?.id,
-        usage: {
-          input: 0,
-          output: 0,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 0,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-        stopReason: content.some((part) => part.type === "toolCall") ? "toolUse" : "stop",
-        timestamp,
-      });
-      continue;
-    }
-    out.push({ role: "user", content, timestamp });
-  }
-  return out;
 }
 
 /** Direct twin of agent-sidecar/src/services/llmRuntime.ts's own
@@ -358,150 +105,142 @@ export async function runDirectExecution(
   signal: AbortSignal,
 ): Promise<ExecutionResult> {
   signal.throwIfAborted();
-  const requestId = request.request_id;
-  const modelReference = request.params?.model || "";
-  const runtime = resolveDirectRuntime(modelReference, customProvider);
+  const runtime = resolveDirectRuntime(request.params?.model || "", customProvider);
   if (!runtime) throw new Error(`No API key is configured for ${customProvider.name}.`);
 
   const { streamSimple } = await import("@earendil-works/pi-ai/compat");
   signal.throwIfAborted();
 
-  const messages = piMessagesFromAgentMessages(request.messages, runtime.model);
-  const tools = request.tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: tool.input_schema || { type: "object", properties: {}, required: [] },
-  }));
-
   const controller = new AbortController();
+  const turn: ModelTurn = {
+    streamSimple,
+    runtime,
+    request,
+    messages: piMessagesFromAgentMessages(request.messages, runtime.model),
+    tools: piTools(request),
+    signal: controller.signal,
+    onEvent,
+  };
   const abortListener = () => controller.abort();
   signal.addEventListener("abort", abortListener);
 
   try {
-    const mistral = runtime.model.api === "mistral-conversations";
-    let result: any;
-    for (let attempt = 0; ; attempt++) {
-      // Whether anything reached the agent yet: a retry after that would repeat it.
-      let emitted = false;
-      try {
-        const stream = (streamSimple as any)(runtime.model, {
-          systemPrompt: request.system_prompt,
-          messages,
-          tools,
-        }, {
-          apiKey: runtime.apiKey || undefined,
-          headers: runtime.headers,
-          signal: controller.signal,
-          maxTokens: request.params?.max_tokens,
-          temperature: request.params?.temperature,
-          reasoning: request.params?.reasoning_effort || runtime.reasoningEffort,
-        });
-        result = undefined;
-        for await (const event of stream) {
-          // An empty delta (Mistral sends one with its error chunk) is not output.
-          if (event.type === "text_delta") {
-            if (!event.delta) continue;
-            emitted = true;
-            onEvent({ TextDelta: { request_id: requestId, delta: event.delta } });
-          } else if (event.type === "thinking_delta") {
-            if (!event.delta) continue;
-            emitted = true;
-            onEvent({ ReasoningDelta: { request_id: requestId, delta: event.delta } });
-          } else if (event.type === "error") {
-            throw new Error(event.error?.errorMessage || "The model request failed.");
-          } else if (event.type === "done") {
-            result = event.message;
-          }
-        }
-        result ||= await stream.result();
-        break;
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (signal.aborted || !mistral) throw error;
-        if (!emitted && attempt < MISTRAL_RETRY_DELAYS_MS.length && isTransientMistralError(message)) {
-          console.warn(`Mistral request failed (${message}); retrying in ${MISTRAL_RETRY_DELAYS_MS[attempt]} ms (retry ${attempt + 1} of ${MISTRAL_RETRY_DELAYS_MS.length}).`);
-          await delay(MISTRAL_RETRY_DELAYS_MS[attempt], signal);
-          continue;
-        }
-        throw new Error(describeMistralError(message, attempt));
-      }
-    }
-
-    let usage = toExecutionUsage(result?.usage);
-    const recoveredUsage = await recoverOpenRouterUsage(
-      runtime.providerId,
-      runtime.model.baseUrl,
-      runtime.apiKey,
-      result?.responseId,
-      usage,
-      controller.signal,
-    );
-    if (recoveredUsage) usage = toExecutionUsage(recoveredUsage);
-    onEvent({ UsageUpdate: { request_id: requestId, usage } });
-
-    const toolCalls = (result?.content || []).filter((part: any) => part?.type === "toolCall");
-    for (const call of toolCalls) {
-      onEvent({
-        ToolCallRequested: {
-          request_id: requestId,
-          call: { id: crypto.randomUUID(), name: call.name, arguments: call.arguments || {} },
-        },
-      });
-    }
-
-    const text = textFromPiMessage(result);
-    const outputLimited = ["length", "max_tokens", "max_output_tokens"].includes(result?.stopReason);
-    // Preserve the stop reason so the harness can recover an incomplete turn,
-    // including one whose entire budget was spent on reasoning/tool arguments.
-    if (toolCalls.length === 0 && !text.trim() && !outputLimited) throw new EmptyLlmResponseError(result);
-
-    return {
-      request_id: requestId,
-      usage,
-      cost: { amount_usd: null, source: null },
-      finish_reason: toolCalls.length > 0 ? "tool_use" : String(result?.stopReason || "end_turn"),
-      ...(typeof result?.responseId === "string" ? { response_id: result.responseId } : {}),
-    };
+    const streamOnce = (progress: StreamProgress) => streamTurn(turn, progress);
+    const result = runtime.model.api === "mistral-conversations"
+      ? await withMistralRetries(streamOnce, signal)
+      : await streamOnce({ emitted: false });
+    const usage = await reportUsage(turn, result);
+    const toolCalls = requestToolCalls(turn, result);
+    return executionResult(request.request_id, result, usage, toolCalls);
   } finally {
     signal.removeEventListener("abort", abortListener);
   }
 }
 
-/** Mistral's client is created without retries, and Mistral sometimes ends
- * a stream with `finish_reason: "error"` (a failure on its side, which pi-ai
- * reports as "An unknown error occurred"). Those, rate limits, 5xx responses
- * and dropped connections are retried a few times while nothing has been
- * streamed yet. */
-let MISTRAL_RETRY_DELAYS_MS = [1_000, 3_000, 8_000];
-
-/** Tests only: shorten the waits between Mistral retries. */
-export function setMistralRetryDelaysForTests(delays: number[]): void {
-  MISTRAL_RETRY_DELAYS_MS = delays;
+/** One model turn's request, and where its events go. */
+interface ModelTurn {
+  streamSimple: unknown;
+  runtime: ResolvedDirectRuntime;
+  request: ExecutionRequest;
+  messages: any[];
+  tools: Array<{ name: string; description: string; parameters: unknown }>;
+  signal: AbortSignal;
+  onEvent: (event: ExecutionEvent) => void;
 }
 
-function isTransientMistralError(message: string): boolean {
-  return message === "An unknown error occurred"
-    || /Mistral API error \((429|5\d\d)\)/.test(message)
-    // Network failures, as each engine words them: WebKit (the macOS app)
-    // says "Load failed", Chromium "Failed to fetch", Firefox "NetworkError";
-    // Mistral's SDK wraps them as "Unexpected HTTP client error".
-    || /Load failed|Failed to fetch|NetworkError|Unexpected HTTP client error|fetch failed|network|connection|ECONNRESET|socket hang up|timed? ?out/i.test(message);
+function piTools(request: ExecutionRequest): ModelTurn["tools"] {
+  return request.tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.input_schema || { type: "object", properties: {}, required: [] },
+  }));
 }
 
-function describeMistralError(message: string, retries: number): string {
-  const tried = retries > 0 ? ` (after ${retries} ${retries === 1 ? "retry" : "retries"})` : "";
-  if (message === "An unknown error occurred") {
-    return `Mistral ended the response with an error on its side${tried}; it gave no details. Trying again usually works.`;
-  }
-  return `${message}${tried}`;
-}
-
-function delay(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
-    const onAbort = () => { clearTimeout(timer); reject(signal.reason ?? new Error("aborted")); };
-    signal.addEventListener("abort", onAbort, { once: true });
+/** Streams the model's answer, forwarding its text and reasoning as they arrive, and returns its final message. */
+async function streamTurn(turn: ModelTurn, progress: StreamProgress): Promise<any> {
+  const { runtime, request } = turn;
+  const stream = (turn.streamSimple as any)(runtime.model, {
+    systemPrompt: request.system_prompt,
+    messages: turn.messages,
+    tools: turn.tools,
+  }, {
+    apiKey: runtime.apiKey || undefined,
+    headers: runtime.headers,
+    signal: turn.signal,
+    maxTokens: request.params?.max_tokens,
+    temperature: request.params?.temperature,
+    reasoning: request.params?.reasoning_effort || runtime.reasoningEffort,
   });
+  let result: any;
+  for await (const event of stream) {
+    if (event.type === "done") result = event.message;
+    else forwardStreamEvent(event, turn, progress);
+  }
+  return result || await stream.result();
+}
+
+function deltaEventKind(type: unknown): "TextDelta" | "ReasoningDelta" | undefined {
+  if (type === "text_delta") return "TextDelta";
+  if (type === "thinking_delta") return "ReasoningDelta";
+  return undefined;
+}
+
+function forwardStreamEvent(event: any, turn: ModelTurn, progress: StreamProgress): void {
+  if (event.type === "error") throw new Error(event.error?.errorMessage || "The model request failed.");
+  const kind = deltaEventKind(event.type);
+  // An empty delta (Mistral sends one with its error chunk) is not output.
+  if (!kind || !event.delta) return;
+  progress.emitted = true;
+  turn.onEvent({ [kind]: { request_id: turn.request.request_id, delta: event.delta } } as ExecutionEvent);
+}
+
+/** The turn's token usage, recovered from OpenRouter when the stream left it out. */
+async function reportUsage(turn: ModelTurn, result: any): Promise<ModelUsage> {
+  const { runtime } = turn;
+  let usage = toExecutionUsage(result?.usage);
+  const recoveredUsage = await recoverOpenRouterUsage(
+    runtime.providerId,
+    runtime.model.baseUrl,
+    runtime.apiKey,
+    result?.responseId,
+    usage,
+    turn.signal,
+  );
+  if (recoveredUsage) usage = toExecutionUsage(recoveredUsage);
+  turn.onEvent({ UsageUpdate: { request_id: turn.request.request_id, usage } });
+  return usage;
+}
+
+/** Sends each tool call the model asked for, under a fresh UUID: rusty-core's `ToolCallId` is a UUID newtype. */
+function requestToolCalls(turn: ModelTurn, result: any): any[] {
+  const toolCalls = (result?.content || []).filter((part: any) => part?.type === "toolCall");
+  for (const call of toolCalls) {
+    turn.onEvent({
+      ToolCallRequested: {
+        request_id: turn.request.request_id,
+        call: { id: crypto.randomUUID(), name: call.name, arguments: call.arguments || {} },
+      },
+    });
+  }
+  return toolCalls;
+}
+
+const OUTPUT_LIMIT_STOP_REASONS = ["length", "max_tokens", "max_output_tokens"];
+
+function executionResult(requestId: string, result: any, usage: ModelUsage, toolCalls: any[]): ExecutionResult {
+  const outputLimited = OUTPUT_LIMIT_STOP_REASONS.includes(result?.stopReason);
+  // Preserve the stop reason so the harness can recover an incomplete turn,
+  // including one whose entire budget was spent on reasoning/tool arguments.
+  const empty = toolCalls.length === 0 && !textFromPiMessage(result).trim();
+  if (empty && !outputLimited) throw new EmptyLlmResponseError(result);
+
+  return {
+    request_id: requestId,
+    usage,
+    cost: { amount_usd: null, source: null },
+    finish_reason: toolCalls.length > 0 ? "tool_use" : String(result?.stopReason || "end_turn"),
+    ...(typeof result?.responseId === "string" ? { response_id: result.responseId } : {}),
+  };
 }
 
 export function toDirectExecutionError(error: unknown): ExecutionError {

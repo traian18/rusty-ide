@@ -367,3 +367,138 @@ describe("Mistral requests", () => {
     warn.mockRestore();
   });
 });
+
+describe("direct runtime resolution", () => {
+  const lab: CustomProvider = {
+    id: "lab",
+    name: "Lab",
+    baseUrl: "https://lab.invalid/v1//",
+    apiKey: " key ",
+    apiType: "openai-completions",
+    authType: "bearer",
+    models: [
+      { id: "lab/first", remoteId: "first-remote", name: "First" },
+      { id: "lab/second", name: "Second", baseUrl: "https://second.invalid/v2/", apiType: "openai-responses", contextWindow: 1000, maxTokens: 50, reasoningEffort: "low" },
+    ],
+  };
+  const bare = (changes: Partial<CustomProvider>): CustomProvider => ({ id: "x", name: "X", baseUrl: "", apiKey: "k", apiType: "", models: [], ...changes });
+
+  it("falls back to the provider's first model, trimming its key and base URL", () => {
+    const runtime = resolveDirectRuntime("", lab)!;
+    expect(runtime).toMatchObject({ providerId: "lab", modelId: "first-remote", apiKey: "key", headers: undefined });
+    expect(runtime.model).toMatchObject({
+      id: "first-remote", name: "First", api: "openai-completions", provider: "lab", baseUrl: "https://lab.invalid/v1",
+      reasoning: false, input: ["text"], contextWindow: 200_000, maxTokens: 16_384,
+    });
+  });
+
+  it("uses the selected model's own URL, protocol, limits and reasoning effort", () => {
+    const runtime = resolveDirectRuntime("lab/second", lab)!;
+    expect(runtime.modelId).toBe("second");
+    expect(runtime.reasoningEffort).toBe("low");
+    expect(runtime.model).toMatchObject({ name: "Second", baseUrl: "https://second.invalid/v2", api: "openai-responses", contextWindow: 1000, maxTokens: 50 });
+  });
+
+  it("finds a model by its remote id and takes the effort the reference names", () => {
+    const runtime = resolveDirectRuntime("first-remote::reasoning=high", lab)!;
+    expect(runtime).toMatchObject({ modelId: "first-remote", reasoningEffort: "high" });
+    expect(runtime.model.name).toBe("First");
+  });
+
+  it("takes the URL, protocol, auth and headers a known provider needs from its defaults", () => {
+    const openrouter = resolveDirectRuntime("openrouter/m", bare({ id: "openrouter" }))!;
+    expect(openrouter.model).toMatchObject({ id: "m", name: "m", baseUrl: "https://openrouter.ai/api/v1", api: "openai-completions" });
+    expect(openrouter.headers).toEqual({ "HTTP-Referer": "https://rusty.dev", "X-Title": "Rusty" });
+
+    const github = resolveDirectRuntime("github-models/gpt", bare({
+      id: "github-models",
+      headers: [{ name: "X-GitHub-Api-Version", value: "2022-11-28" }, { name: "Authorization", value: "ignored" }, { name: "X-Team", value: "rusty" }],
+    }))!;
+    expect(github.headers).toEqual({ Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "X-Team": "rusty" });
+  });
+
+  it("sends a bearer header for an Anthropic-protocol provider that authenticates with one", () => {
+    const proxy = resolveDirectRuntime("x/claude", bare({ baseUrl: "https://proxy.invalid", apiType: "anthropic", authType: "bearer" }))!;
+    expect(proxy.model.api).toBe("anthropic-messages");
+    expect(proxy.headers).toEqual({ Authorization: "Bearer k" });
+  });
+
+  it("needs no key when neither the provider nor its defaults ask for one", () => {
+    expect(resolveDirectRuntime("x/m", bare({ baseUrl: "http://localhost:1", apiKey: "" }))?.apiKey).toBe("not-needed");
+  });
+
+  it("resolves nothing without a model, and refuses a provider without a base URL", () => {
+    expect(resolveDirectRuntime("", bare({ baseUrl: "http://localhost:1" }))).toBeUndefined();
+    expect(() => resolveDirectRuntime("x/m", bare({ name: "Nowhere" }))).toThrow("No base URL is configured for Nowhere.");
+  });
+});
+
+describe("direct execution responses", () => {
+  let sequence = 0;
+  async function run(respond: (pi: any) => unknown, request: Partial<ExecutionRequest> = {}) {
+    const pi = await fauxPi();
+    sequence += 1;
+    const registration = pi.registerFauxProvider({ api: `rusty-direct-faux-responses-${sequence}`, provider: "faux-responses" });
+    registration.setResponses([respond(pi)]);
+    const events: ExecutionEvent[] = [];
+    try {
+      const result = await runDirectExecution(
+        executionRequest({ params: { model: "faux-responses/faux-model" }, ...request }),
+        fauxProvider(registration.api, "faux-responses", "faux-model"),
+        (event) => events.push(event),
+        new AbortController().signal,
+      );
+      return { result, events };
+    } finally {
+      registration.unregister();
+    }
+  }
+  const streamed = (events: ExecutionEvent[], kind: "TextDelta" | "ReasoningDelta") =>
+    events.map((event) => (event as Record<string, { delta?: string }>)[kind]?.delta ?? "").join("");
+
+  it("streams reasoning and text as separate events", async () => {
+    const { result, events } = await run((pi) => pi.fauxAssistantMessage([pi.fauxThinking("plan it"), pi.fauxText("Done.")]));
+    expect(streamed(events, "ReasoningDelta")).toBe("plan it");
+    expect(streamed(events, "TextDelta")).toBe("Done.");
+    expect(result.finish_reason).toBe("stop");
+    expect(result).not.toHaveProperty("response_id");
+  });
+
+  it("fails with the model's own error message", async () => {
+    await expect(run((pi) => pi.fauxAssistantMessage([], { stopReason: "error", errorMessage: "quota exceeded" }))).rejects.toThrow("quota exceeded");
+  });
+
+  it("rejects an answer with no text and no tool calls", async () => {
+    await expect(run((pi) => pi.fauxAssistantMessage([pi.fauxText("   ")]))).rejects.toThrow("The selected model returned no text. (stop reason: stop)");
+  });
+
+  it("keeps an output-limited empty answer, so the harness can continue it", async () => {
+    const { result } = await run((pi) => pi.fauxAssistantMessage([pi.fauxThinking("long")], { stopReason: "length" }));
+    expect(result.finish_reason).toBe("length");
+  });
+
+  it("sends images as a placeholder and a user's tool results as text, skipping empty messages", async () => {
+    let seen: any[] = [];
+    await run((pi) => (context: any) => {
+      seen = context.messages;
+      return pi.fauxAssistantMessage([pi.fauxText("ok")]);
+    }, {
+      messages: [
+        { id: "m0", role: "User", content: [], created_at: "not a date" },
+        {
+          id: "m1",
+          role: "User",
+          content: [
+            { Image: { media_type: "image/png", data: "" } },
+            { ToolResult: { call_id: "c1", result: { has_error: false, output_preview: JSON.stringify("from a tool") } } },
+          ],
+          created_at: new Date().toISOString(),
+        },
+        { id: "m2", role: "Tool", content: [{ ToolResult: { call_id: "unknown", result: { has_error: true, output_preview: "not json" } } }], created_at: new Date().toISOString() },
+      ] as ExecutionRequest["messages"],
+    });
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toMatchObject({ role: "user", content: [{ type: "text", text: "[image omitted]" }, { type: "text", text: "from a tool" }] });
+    expect(seen[1]).toMatchObject({ role: "toolResult", toolCallId: "unknown", toolName: "", isError: true, content: [{ type: "text", text: "not json" }] });
+  });
+});
