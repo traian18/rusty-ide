@@ -253,7 +253,7 @@ mod tests {
     #[test]
     fn without_a_workspace_it_lists_the_built_ins_under_their_namespace() {
         let catalog = Catalog::load(None);
-        assert_eq!(catalog.workflows.len(), 15);
+        assert_eq!(catalog.workflows.len(), 20);
         assert_eq!(catalog.workflows[0].path, "builtin:plan-build-verify");
         assert_eq!(
             catalog.workflows[0].document["id"],

@@ -2244,6 +2244,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-specs"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "harness-tool-code-analysis"
 version = "0.1.0"
 dependencies = [
@@ -4628,6 +4636,7 @@ dependencies = [
  "harness-repository-imports-python",
  "harness-repository-wiki",
  "harness-runtime",
+ "harness-specs",
  "harness-tool-mcp",
  "harness-tool-repository-intelligence",
  "harness-tool-web",

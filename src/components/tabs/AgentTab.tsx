@@ -11,6 +11,7 @@ import { ChatHistorySidebar } from "./agentTab/ChatHistorySidebar";
 import { sendMessage, type AttachedFile } from "./agentTab/sendMessage";
 import { answerAgentQuestion, answerWorkflowQuestion, deleteChat, loadChat, newChat, stopTurn } from "./agentTab/tabActions";
 import { useAgentTab, type AgentTabModel } from "./agentTab/useAgentTab";
+import { usePendingSpecRun } from "./agentTab/usePendingSpecRun";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -116,6 +117,7 @@ function Composer({ agent }: { agent: AgentTabModel }) {
 
 export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
   const agent = useAgentTab(tab);
+  usePendingSpecRun(agent);
   const { run, session } = agent;
   const [showHistory, setShowHistory] = useState(true);
   return (

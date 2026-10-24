@@ -50,7 +50,7 @@ fn every_builtin_workflow_compiles_without_issues() {
         .map(|profile| profile["id"].as_str().unwrap().to_owned())
         .collect();
     let workflows = builtin_workflows();
-    assert_eq!(workflows.len(), 15);
+    assert_eq!(workflows.len(), 20);
     for (name, workflow) in &workflows {
         let issues = harness_engine::validation::validate_orchestration(workflow, &library);
         assert!(issues.is_empty(), "{name}: {issues:?}");
@@ -153,8 +153,15 @@ fn editing_workflows_require_task_coverage() {
     for (name, workflow) in builtin_workflows() {
         let nodes = workflow["nodes"].as_array().unwrap();
         if let Some(build) = nodes.iter().find(|n| n["config"]["task_queue"].is_object()) {
+            // A workflow built from a change folder queues only the unticked tasks (`/queue_plan`)
+            // and still verifies the whole plan (`/plan`).
+            let queued = if name.ends_with("implement-spec") {
+                "/queue_plan"
+            } else {
+                "/plan"
+            };
             assert_eq!(
-                build["config"]["task_queue"]["plan_pointer"], "/plan",
+                build["config"]["task_queue"]["plan_pointer"], queued,
                 "{name}"
             );
             assert!(

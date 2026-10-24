@@ -97,6 +97,8 @@ import { analyzeProject, formatProjectBrief } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
 import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSection } from "./repoAgentTools";
+import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
+import { activeSpecBrief } from "../../../specs/activeBrief";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
@@ -280,6 +282,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   workflow_catalog: "- 'workflow_catalog': List the workflows and profiles this workspace can use, or read one in full (input: {} | {\"path\": \"<workflow path or id>\"} | {\"profile\": \"<profile id>\"}). Reading a saved workflow also gives the content_token an update needs.",
   repo_context: REPO_CONTEXT_GUIDE,
   repo_wiki: REPO_WIKI_GUIDE,
+  spec_context: SPEC_CONTEXT_GUIDE,
   ...REPO_AGENT_GUIDES,
   report_progress: "- 'report_progress': Publish a brief progress update and the action you take next; then take it.",
   update_todos: UPDATE_TODOS_GUIDE,
@@ -299,7 +302,7 @@ interface ChatMode {
  * (see execute_node.ts's identical helper) -- an explicitly empty array is
  * NOT replaced by the default. report_progress/ask_user_question are
  * always available regardless of skill, and so are the read-only repository tools (repo_context,
- * repo_overview, repo_health, repo_risk, repo_symbol, repo_wiki),
+ * repo_overview, repo_health, repo_risk, repo_symbol, repo_wiki, spec_context),
  * matching the sidecar's own "Observability is always available" comment -- they're pushed after
  * the skill-filtered set, not filtered themselves.
  *
@@ -321,7 +324,7 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
   const todoTool = mode.planOnly ? [] : [UPDATE_TODOS_TOOL];
-  return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
+  return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, SPEC_CONTEXT_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
 }
 
 /** The chat shows about CHAT_RENDER_CHARS of one response; anything longer
@@ -598,8 +601,12 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
   // for the details (`project_info`), and never at the cost of a run: see
   // `enrichedRecipe`.
   enrichRecipe: async (recipe, input, host, signal) => {
-    if (!recipe.host_tools?.some((tool) => tool.name === "project_info") || !input.workspaceRoot.trim()) return undefined;
-    const brief = formatProjectBrief(await analyzeProject(await scanProject(input.workspaceRoot, host, signal)));
+    if (!input.workspaceRoot.trim()) return undefined;
+    const offers = (name: string) => recipe.host_tools?.some((tool) => tool.name === name);
+    const project = offers("project_info") ? formatProjectBrief(await analyzeProject(await scanProject(input.workspaceRoot, host, signal))) : "";
+    // The change the person marked as active on the Specs page, with its open tasks.
+    const spec = offers("spec_context") ? await activeSpecBrief(input.workspaceRoot) : "";
+    const brief = [project, spec].filter(Boolean).join("\n\n");
     return brief ? { ...recipe, system_prompt: `${recipe.system_prompt ?? ""}\n\n${brief}` } : undefined;
   },
 
@@ -643,6 +650,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     }
     handlers.repo_context = repoContextTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
+    handlers.spec_context = specContextTool(input.workspaceRoot);
     for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.report_progress = reportProgressTool(onEvent);
     if (names.has(UPDATE_TODOS_TOOL.name)) {

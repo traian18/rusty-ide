@@ -37,6 +37,8 @@ const INPUTS={
  audit:'audit: the security audit\'s findings, each with an id, severity, location, exploit conditions and the remediation it calls for.',
  review:'review: the Review step\'s prioritized findings on the changes.',
  plan:'plan: the plan the user approved: requirements with acceptance criteria and their ids, ordered tasks, and how each criterion is verified.',
+ project:'project: the project file the previous step wrote (project.md). Keep the capability specs consistent with it.',
+ queue_plan:'queue_plan: the tasks of the change that are not ticked yet, with the criteria they cover. The task queue builds exactly these.',
  plan_notes:`plan_notes: what the user wrote when approving the plan, in their own words, or empty. The plan was already revised to include it; it is repeated here because it is the user's latest decision. ${PRECEDENCE}`,
  build:'build: the builder\'s report: what changed and where, the checks it ran and their results, what it did differently from the plan, and any changes the user asked for after trying the result.',
  queuedBuild:'build: the tasks that were built, each with the builder\'s report and its per-task review, and the repairs made after them (for a failed verification, or for changes the user asked for after trying the result).',
@@ -203,17 +205,21 @@ const reviewChecksPrompt=step=>`${step} found more checks only a person can do. 
 // Multi-step changes run the approved plan as a task queue: one fresh builder
 // and a read-only review per task, each accepted task checkpointed. The plan
 // is the typed task plan (`rusty.task_plan`) the queue reads.
-const QUEUED=new Set(['plan-build-verify','researched-feature','careful-change','security-remediation','refactor']);
+const QUEUED=new Set(['plan-build-verify','researched-feature','careful-change','security-remediation','refactor','implement-spec']);
+// Built from a change folder: the host composes the plan from spec.md and tasks.md and sends it as run input
+// (`plan`: the whole spec, for verification; `queue_plan`: the unticked tasks, for the queue). No Plan step, no plan approval.
+const FROM_FILES=new Set(['implement-spec']);
 const taskPlanSchema={type:'registry',schema_id:'rusty.task_plan',revision:1};
 const WRITER_NAMES={build:'Build',refactor:'Refactor',optimize:'Optimize',document:'Document'};
 const catalog=[
- ['plan-build-verify',[], 'build'],['investigate',['research','analyze']],['design',['architect','plan']],['diagnose',['debug','plan']],['implement',[],'build'],['security-audit',['audit','plan']],['check-changes',['review','verify']],['analyzed-feature',['analyze'],'build'],['researched-feature',['research','architect'],'build'],['bug-fix',['debug'],'build'],['careful-change',['analyze'],'build','review'],['security-remediation',['audit'],'build','recheck'],['refactor',['analyze'],'refactor','review'],['optimize-performance',['analyze'],'optimize'],['documentation',['analyze'],'document','review'],
+ ['plan-build-verify',[], 'build'],['investigate',['research','analyze']],['design',['architect','plan']],['implement-spec',[],'build'],['start-specs',['analyze','project','survey']],['onboard-capability',['analyze','spec']],['specify',['analyze','spec']],['spec-plan',['architect','tasks']],['diagnose',['debug','plan']],['implement',[],'build'],['security-audit',['audit','plan']],['check-changes',['review','verify']],['analyzed-feature',['analyze'],'build'],['researched-feature',['research','architect'],'build'],['bug-fix',['debug'],'build'],['careful-change',['analyze'],'build','review'],['security-remediation',['audit'],'build','recheck'],['refactor',['analyze'],'refactor','review'],['optimize-performance',['analyze'],'optimize'],['documentation',['analyze'],'document','review'],
 ];
 const definitions=JSON.parse(fs.readFileSync(new URL('./workflow-catalog-source.json',import.meta.url),'utf8'));
 const outputs=[];
 for(const [id,preps,writer,post] of catalog){
  const {stages,focus={},description,...old}=definitions[id];
  const queued=QUEUED.has(id);
+ const fromFiles=FROM_FILES.has(id);
  const workflow={...old,revision:old.revision+(writer?6:4),nodes:[],edges:[],
   // stall_timeout_ms: no sign of life from a step for 10 min cancels the attempt and retries it (waiting on a permission prompt does not count).
   // research: any step that reads may send a question to a read-only Research step (2 per attempt).
@@ -225,8 +231,8 @@ for(const [id,preps,writer,post] of catalog){
  const history=[];
  const inputs=()=>[binding('request'),binding('context'),...history.map(id=>binding(id,id))];
  // The steps after plan approval also read the user's notes, right after the plan.
- const withNotes=bindings=>{bindings.splice(bindings.findIndex(b=>b.target==='plan')+1,0,binding('plan_notes','approve_plan','/notes'));return bindings;};
- const gate=(id,producer,checks,repair)=>node(id,'Acceptance','verify',{checks,...(repair?{retry_target:repair}:{})},[binding('check',producer),...(history.includes('plan')?[binding('plan','plan')]:[])]);
+ const withNotes=bindings=>{if(fromFiles)return bindings;bindings.splice(bindings.findIndex(b=>b.target==='plan')+1,0,binding('plan_notes','approve_plan','/notes'));return bindings;};
+ const gate=(id,producer,checks,repair)=>node(id,'Acceptance','verify',{checks,...(repair?{retry_target:repair}:{})},[binding('check',producer),...(history.includes('plan')?[binding('plan','plan')]:fromFiles?[binding('plan')]:[])]);
  // Ordinary steps exchange complete prose. Only acceptance reviewers need a
  // machine-readable verdict; successful execution already controls sequencing.
  // Instructions are written once the whole pipeline is known.
@@ -241,13 +247,15 @@ for(const [id,preps,writer,post] of catalog){
   else addAgent(prep,stages[prep].name,stages[prep].profile,()=>stageText(stages[prep].instructions));
  }
  if(writer){
-  addAgent('plan','Plan','plan',planText,queued?{type:'object'}:null);
-  if(queued)nodes.find(n=>n.id==='plan').output_schema=taskPlanSchema;
-  labels.set(node('approve_plan','Plan approval','approval',{subject:source('plan'),prompt:planApprovalPrompt,revise_on_notes:true}),'you approve the plan');
+  if(!fromFiles){
+   addAgent('plan','Plan','plan',planText,queued?{type:'object'}:null);
+   if(queued)nodes.find(n=>n.id==='plan').output_schema=taskPlanSchema;
+   labels.set(node('approve_plan','Plan approval','approval',{subject:source('plan'),prompt:planApprovalPrompt,revise_on_notes:true}),'you approve the plan');
+  }
   const name=WRITER_NAMES[writer];
-  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},withNotes(inputs()),{task_queue:{plan_pointer:'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),task_planner:{profile:{id:'plan'},instructions:''},max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
+  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},fromFiles?[...inputs(),binding('queue_plan')]:withNotes(inputs()),{task_queue:{plan_pointer:fromFiles?'/queue_plan':'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),task_planner:{profile:{id:'plan'},instructions:''},max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
   else addAgent('build',name,writer,buildText,null,withNotes(inputs()),{context_access:ACCESS.build});
-  addAgent('verify','Verify','verify',verifyText,reviewSchema,withNotes(inputs()),{context_access:{steps:ACCESS.verify}});
+  addAgent('verify','Verify','verify',verifyText,reviewSchema,fromFiles?[...inputs(),binding('plan')]:withNotes(inputs()),{context_access:{steps:ACCESS.verify}});
   // A queued plan's acceptance criteria must all be reported on, not just the ones the reviewer chose to mention.
   gate('gate','verify',queued?[{type:'criteria',pointer:'/check/criteria',plan_pointer:'/plan'}]:acceptance);
   const postName=post==='recheck'?'Security acceptance':'Final review';

@@ -145,6 +145,7 @@ describe("agentChatDefinition", () => {
       "run_check",
       "run_command",
       "search_codebase",
+      "spec_context",
       "update_todos",
       "web_search",
       "write_file",
@@ -203,7 +204,7 @@ describe("agentChatDefinition", () => {
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
     // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "update_todos"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
   });
 
   it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
@@ -218,7 +219,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "update_todos"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
@@ -265,7 +266,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "update_todos", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos", "web_search"]);
   });
 
   it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
@@ -372,6 +373,7 @@ describe("agentChatDefinition", () => {
       "run_check",
       "run_command",
       "search_codebase",
+      "spec_context",
       "update_todos",
       "web_search",
       "write_file",

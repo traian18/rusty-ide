@@ -5,6 +5,7 @@ import {
   shortWorkflowId,
   workflowMayEdit,
   workflowRoute,
+  workflowSpec,
   workflowSwitchTargets,
 } from "./flowCatalog";
 import { BUILTIN_PROFILES, BUILTIN_WORKFLOWS } from "../../../test/fakeWorkflowCatalog";
@@ -102,7 +103,7 @@ describe("the built-in workflows", () => {
       .filter((document) => !workflowMayEdit(document, BUILTIN_PROFILES))
       .map((document) => shortWorkflowId(String(document.id)))
       .sort();
-    expect(readOnly).toEqual(["check-changes", "design", "diagnose", "investigate", "security-audit"]);
+    expect(readOnly).toEqual(["check-changes", "design", "diagnose", "investigate", "onboard-capability", "security-audit", "spec-plan", "specify", "start-specs"]);
     expect(workflowMayEdit(byId("implement"), BUILTIN_PROFILES)).toBe(true);
   });
 
@@ -117,6 +118,8 @@ describe("the built-in workflows", () => {
     for (const document of BUILTIN_WORKFLOWS) {
       const id = shortWorkflowId(String(document.id));
       const targets = workflowSwitchTargets(document);
+      // The spec workflows write their reply into the change folder and never hand over.
+      if (workflowSpec(document)) continue;
       expect(targets.length, id).toBeGreaterThan(0);
       for (const target of targets) {
         expect(ids.has(target), `${id} -> ${target}`).toBe(true);

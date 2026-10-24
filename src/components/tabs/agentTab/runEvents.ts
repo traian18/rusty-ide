@@ -106,7 +106,10 @@ const handlers: Handlers = {
   },
   plan: (turn, _run, event) => turn.ui.setPlan(event.todos),
   progress: (turn, _run, event) => turn.activity.report(event.content),
-  workflow_checkpoint: (turn, _run, event) => turn.chat.setWorkflowCheckpoint(event.state),
+  workflow_checkpoint: (turn, _run, event) => {
+    turn.state.lastWorkflowState = event.state;
+    turn.chat.setWorkflowCheckpoint(event.state);
+  },
   workflow_research: onResearch,
   workflow_boundary: (turn, run, event) => {
     if (event.status === "checking") setRunLabel(turn, run, "Checking whether to switch flows…");

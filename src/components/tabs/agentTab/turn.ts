@@ -6,6 +6,8 @@ import type { RunHandle, WorkflowAnswer, WorkflowQuestion } from "../../../harne
 import { notify } from "../../../notificationStore";
 import { AgentChatResponseStream } from "../../../services/agentChatResponseStream";
 import { AgentChatSaveQueue } from "../../../services/agentChatPersistence";
+import type { QueuedSpecRun } from "../../../specs/launchStore";
+import type { SpecRun } from "../../../specs/run";
 import type { HistorySummary } from "../../../services/historySummary";
 import type { AgentMessage, CustomProvider, useWorkspaceStore } from "../../../store";
 import type { TabOfType } from "../../../tabs/types";
@@ -46,6 +48,12 @@ export interface TurnState {
   historySummary: HistorySummary | undefined;
   /** The background summary pass in progress, if any. */
   historySummaryJob: AbortController | null;
+  /** A Specify or Plan run set up from the Specs page; the next send starts it. */
+  specRun: (SpecRun & { workflowPath: string }) | undefined;
+  /** The latest workflow state the run reported, which has every finished step's output. */
+  lastWorkflowState: unknown;
+  /** Capability specs still to be written after the one that runs, each started when the previous completes. */
+  specQueue: QueuedSpecRun[];
 }
 
 export function createTurnState(): TurnState {
@@ -68,6 +76,9 @@ export function createTurnState(): TurnState {
     chatSaveQueue: new AgentChatSaveQueue(),
     historySummary: undefined,
     historySummaryJob: null,
+    specRun: undefined,
+    lastWorkflowState: undefined,
+    specQueue: [],
   };
 }
 

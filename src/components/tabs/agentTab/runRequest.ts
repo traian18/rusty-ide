@@ -11,6 +11,7 @@ import { useWorkspaceStore, type AgentMessage } from "../../../store";
 import type { WorkflowChoice } from "../behaviors/AgentWorkflowBar";
 import type { JsonObject } from "../behaviors/behaviorModel";
 import { workflowSwitchTargets } from "../behaviors/flowCatalog";
+import type { SpecRun } from "../../../specs/run";
 import type { RunModel } from "./runModel";
 import type { AgentTurn } from "./turn";
 
@@ -34,6 +35,10 @@ export interface LaunchPlan {
   switchesLeft: number;
   /** Workflows already run in this turn (by short id): none is run twice. */
   visited: string[];
+  /** A Specify or Plan run: its finished steps are written into the change folder. */
+  spec?: SpecRun;
+  /** Extra run inputs a workflow binds (an Implement run's task plans). */
+  inputs?: Record<string, unknown>;
 }
 
 /** How a workflow is named to the routers. */
@@ -86,6 +91,7 @@ function runChatHistory(chatHistory: AgentMessage[], message: TurnMessage): Agen
  * start from nothing, so the conversation goes behind its request. */
 function workflowRunInput(definition: Record<string, unknown>, message: TurnMessage, chatHistory: AgentMessage[], plan: LaunchPlan) {
   const structured = Boolean(definition.input_schema);
+  if (plan.inputs) return { ...(workflowInputFor(message.toSend, structured, plan.context ?? "") as object), ...plan.inputs };
   if (workflowUsesContext(definition)) {
     return workflowInputFor(message.toSend, structured, plan.context ?? conversationResults(chatHistory), chatHistory);
   }

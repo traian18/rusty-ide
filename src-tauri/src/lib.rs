@@ -12,6 +12,8 @@ mod project_search;
 mod repository;
 mod secure_key;
 mod shell_exec;
+#[cfg(feature = "core-harness")]
+mod specs;
 mod startup_window;
 mod usage_tracking;
 
@@ -1434,6 +1436,34 @@ pub fn run() {
             repository::commands::repository_context,
             repository::commands::repository_wiki_tool,
             repository::commands::repository_workspace_overview,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_overview,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_document,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_init,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_change_create,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_task_tick,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_tasks,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_context,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_record,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_queue_plan,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_progress,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_archive,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_foreign,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_import,
+            #[cfg(feature = "core-harness")]
+            specs::commands::specs_export,
             repository::commands::repository_wiki_page,
             repository::commands::repository_wiki_children,
             repository::commands::repository_dashboard_map,

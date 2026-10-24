@@ -29,6 +29,12 @@ export function workflowRoute(document: JsonObject | undefined): FlowRoute | und
   return when ? { when } : undefined;
 }
 
+/** Whether the workflow writes its steps' replies into a change folder (`metadata.spec`): Specify and Design & tasks. */
+export function workflowSpec(document: JsonObject | undefined): boolean {
+  const metadata = document?.metadata;
+  return isObject(metadata) && isObject(metadata.spec);
+}
+
 /** Ids a running workflow may hand over to, in the order they were declared. */
 export function workflowSwitchTargets(document: JsonObject | undefined): string[] {
   const metadata = document?.metadata;

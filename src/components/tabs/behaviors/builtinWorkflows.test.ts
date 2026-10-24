@@ -9,6 +9,11 @@ const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }>
   "plan-build-verify": { kind: "end_to_end", steps: ["plan", "build", "verify"] },
   investigate: { kind: "stage", steps: ["research", "analyze"] },
   design: { kind: "stage", steps: ["architect", "plan"] },
+  "implement-spec": { kind: "end_to_end", steps: ["build", "verify"] },
+  "start-specs": { kind: "stage", steps: ["analyze", "plan", "plan"] },
+  "onboard-capability": { kind: "stage", steps: ["analyze", "plan"] },
+  specify: { kind: "stage", steps: ["analyze", "plan"] },
+  "spec-plan": { kind: "stage", steps: ["architect", "plan"] },
   diagnose: { kind: "stage", steps: ["debug", "plan"] },
   implement: { kind: "stage", steps: ["plan", "build", "verify"] },
   "security-audit": { kind: "stage", steps: ["security", "plan"] },
@@ -25,7 +30,9 @@ const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }>
 
 const PREFIX = "rusty-ide.builtin.";
 /** Multi-step changes run the approved plan as a task queue. */
-const QUEUED = ["plan-build-verify", "researched-feature", "careful-change", "security-remediation", "refactor"];
+const QUEUED = ["plan-build-verify", "researched-feature", "careful-change", "security-remediation", "refactor", "implement-spec"];
+// Plans composed by the host from a change folder: no Plan step, no plan approval, and the queue reads /queue_plan.
+const FROM_FILES = ["implement-spec"];
 const profileIds = new Set(BUILTIN_PROFILES.map((profile) => String(profile.id)));
 const nodesOf = (document: JsonObject) => document.nodes as JsonObject[];
 const agentsOf = (document: JsonObject) => nodesOf(document).filter((node) => node.type === "agent");
@@ -53,7 +60,8 @@ describe("the built-in workflow catalog", () => {
       const { kind } = CATALOG[shortId(document)];
       const steps = agentsOf(document).length;
       if (kind === "stage") expect(steps, shortId(document)).toBeLessThanOrEqual(3);
-      else expect(steps, shortId(document)).toBeGreaterThanOrEqual(3);
+      // Implement a spec has no Plan step: its plan is the change folder.
+      else expect(steps, shortId(document)).toBeGreaterThanOrEqual(shortId(document) === "implement-spec" ? 2 : 3);
       // The built-in Plan, build, verify predates the marker; the rest declare theirs.
       if (shortId(document) !== "plan-build-verify") expect(workflowKind(document)).toBe(kind);
     }
@@ -142,6 +150,12 @@ describe("the built-in workflow catalog", () => {
         continue;
       }
       const ids = nodes.map((n) => String(n.id));
+      if (FROM_FILES.includes(shortId(document))) {
+        expect(ids, shortId(document)).not.toContain("plan");
+        expect(ids, shortId(document)).not.toContain("approve_plan");
+        expect(ids).toContain("confirm_checks");
+        continue;
+      }
       const approve = nodes.find((n) => n.id === "approve_plan")!;
       expect(approve.type).toBe("approval");
       expect(configOf(approve).subject).toEqual({ type: "node_output", node_id: "plan", pointer: "" });
@@ -197,7 +211,15 @@ describe("the built-in workflow catalog", () => {
     for (const document of BUILTIN_WORKFLOWS) {
       const nodes = nodesOf(document);
       const queue = nodes.map(n => configOf(n).task_queue).find(Boolean) as JsonObject | undefined;
-      if (QUEUED.includes(shortId(document))) {
+      if (FROM_FILES.includes(shortId(document))) {
+        // The plan is run input the host composes from spec.md and tasks.md: the queue builds the unticked tasks, verification checks the whole spec.
+        expect(queue, shortId(document)).toMatchObject({ plan_pointer: "/queue_plan", on_task_failure: "ask" });
+        const bound = (id: string) => (nodes.find((n) => n.id === id)!.input_bindings as JsonObject[]).map((b) => `${b.target}:${(b.source as JsonObject).type}`);
+        expect(bound("build")).toContain("queue_plan:run_input");
+        expect(bound("verify")).toContain("plan:run_input");
+        expect(bound("gate")).toContain("plan:run_input");
+        expect(configOf(nodes.find((n) => n.id === "gate")!).checks).toEqual([{ type: "criteria", pointer: "/check/criteria", plan_pointer: "/plan" }]);
+      } else if (QUEUED.includes(shortId(document))) {
         // Each step of the general plan is planned in detail, built, then reviewed.
         expect(queue, shortId(document)).toMatchObject({ plan_pointer: "/plan", review_profile: { id: `${PREFIX}review` }, task_planner: { profile: { id: `${PREFIX}plan` } }, on_task_failure: "ask" });
         expect(String((queue!.task_planner as JsonObject).instructions)).toContain("step plan");

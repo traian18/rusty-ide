@@ -1,0 +1,230 @@
+.body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.nav {
+  width: 17rem;
+  flex: none;
+  overflow: auto;
+  border-right: 1px solid var(--color-border-subtle);
+  padding: var(--space-2);
+}
+
+.group {
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  font-size: var(--font-size-ui-xs);
+  color: var(--color-fg-muted);
+  text-transform: uppercase;
+}
+
+.row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-fg-default);
+  font-size: var(--font-size-ui-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover {
+  background: var(--color-surface-elevated);
+}
+
+.row[aria-current="true"] {
+  background: var(--color-surface-sunken);
+  color: var(--color-fg-strong);
+}
+
+.rowLabel {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-xs);
+}
+
+.page {
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-4);
+}
+
+.centered {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.muted {
+  font-size: var(--font-size-ui-sm);
+  color: var(--color-fg-muted);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--font-size-ui-md);
+  color: var(--color-fg-strong);
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-ui-xs);
+  color: var(--color-fg-muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  padding: var(--space-1) var(--space-2);
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-sm);
+  cursor: pointer;
+}
+
+.tab[aria-selected="true"] {
+  border-bottom-color: var(--color-fg-strong);
+  color: var(--color-fg-strong);
+}
+
+.tabAbsent {
+  opacity: 0.6;
+}
+
+.prose {
+  max-width: 52rem;
+}
+
+.warnings {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.warning {
+  display: flex;
+  width: 100%;
+  gap: var(--space-2);
+  border: 0;
+  background: transparent;
+  padding: var(--space-1) 0;
+  color: var(--color-fg-default);
+  font-size: var(--font-size-ui-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.warning:hover {
+  background: var(--color-surface-elevated);
+}
+
+.severity {
+  flex: none;
+  width: 4.5rem;
+  color: var(--color-fg-muted);
+  text-transform: capitalize;
+}
+
+.tasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.task {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-2) 0;
+}
+
+.taskBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.taskTitle {
+  color: var(--color-fg-strong);
+}
+
+.taskDone {
+  text-decoration: line-through;
+  color: var(--color-fg-muted);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.card {
+  margin: var(--space-3) 0;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+}
+
+.entries {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.entry {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  border-top: 1px solid var(--color-border-subtle);
+  padding: var(--space-2) 0;
+}

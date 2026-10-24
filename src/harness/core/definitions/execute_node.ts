@@ -50,6 +50,7 @@ import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSection } from "./repoAgentTools";
+import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
@@ -97,6 +98,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   web_fetch: "- 'web_fetch': Fetch the contents of a URL when the task references external documentation or a webpage.",
   repo_context: REPO_CONTEXT_GUIDE,
   repo_wiki: REPO_WIKI_GUIDE,
+  spec_context: SPEC_CONTEXT_GUIDE,
   ...REPO_AGENT_GUIDES,
 };
 
@@ -110,7 +112,7 @@ function toolSpecsFor(skill: SkillLike | undefined): HostToolSpec[] {
   const requested = skill?.enabledTools;
   const names = Array.isArray(requested) ? requested : SUPPORTED_TOOL_NAMES;
   // The repository tools only read, so every skill has them, like the other always-available tools.
-  return [...SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name))).map((name) => TOOL_SPECS[name]), REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL];
+  return [...SUPPORTED_TOOL_NAMES.filter((name) => names.includes(grantedToolName(name))).map((name) => TOOL_SPECS[name]), REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, SPEC_CONTEXT_TOOL];
 }
 
 function asRecordArray(value: unknown): Record<string, unknown>[] {
@@ -254,6 +256,7 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     if (names.has("open_document")) handlers.open_document = openDocumentTool(input.workspaceRoot, input.inputFiles);
     handlers.repo_context = repoContextTool(input.workspaceRoot);
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot);
+    handlers.spec_context = specContextTool(input.workspaceRoot);
     for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot);
     return handlers;
   },

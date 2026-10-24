@@ -4,7 +4,7 @@ import { create } from "zustand";
 import type { FilesQuery } from "./model";
 import type { Lens } from "./lenses";
 
-export type DashboardPage = "docs" | "health" | "files";
+export type DashboardPage = "docs" | "specs" | "health" | "files";
 
 export interface DashboardState {
   root: string | null;

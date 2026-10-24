@@ -6,12 +6,13 @@ import styles from "./Behaviors.module.css";
 export const PROFILE_TOOLS = [
   ...SKILL_TOOLS,
   // These follow a skill grant rather than needing their own: edit_file rides on
-  // Write Files, project_info, repo_context and repo_wiki on Read Files, run_check and install_dependencies on
+  // Write Files, project_info, repo_context, repo_wiki and spec_context on Read Files, run_check and install_dependencies on
   // Run Commands. A profile can still name them to allow or deny one on its own.
   { id: "edit_file", label: "Edit Part of a File" },
   { id: "project_info", label: "Project Info" },
   { id: "repo_context", label: "Repository Context (connections, blast radius)" },
   { id: "repo_wiki", label: "Repository Wiki (documentation pages)" },
+  { id: "spec_context", label: "Specs (changes, spec, design, open tasks)" },
   { id: "read_workflow_context", label: "Read Workflow Context" },
   { id: "run_check", label: "Run Project Checks" },
   { id: "install_dependencies", label: "Install Dependencies" },

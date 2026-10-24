@@ -49,7 +49,7 @@ describe("DocumentationTab", () => {
     const health = fakeHealthClient();
     await mount(fakeDashboardClient(), vi.fn(), docs, health);
     const nav = container.querySelector('nav[aria-label="Documentation pages"]')!;
-    expect([...nav.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Project documentation", "Code health", "Files"]);
+    expect([...nav.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Project documentation", "Specs", "Code health", "Files"]);
     expect(container.querySelector('header[aria-label="Project documentation"]')!.textContent).toContain("2 pages: 1 to start with (overview, getting started, key concepts, how it works, architecture and more) and 1 module; 1 written");
     expect(byText("Index in background", "label")).toBeTruthy();
     await click(byText("Code health"));

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { Activity, BookText, FolderGit2, LayoutGrid, Loader2, RefreshCw } from "lucide-react";
+import { Activity, BookText, ClipboardList, FolderGit2, LayoutGrid, Loader2, RefreshCw } from "lucide-react";
 
 import { navigationRequest } from "../architecture/navigation";
 import { useRepository } from "../architecture/useRepository";
@@ -8,6 +8,7 @@ import { repositoryOptions } from "../components/git/repositoryOptions";
 import { Button, Callout } from "../components/ui";
 import { useWorkspaceStore } from "../store";
 import { CodeHealthPage, healthClient, type HealthClient } from "../health";
+import { specsClient as defaultSpecsClient, SpecsPage, type SpecsClient } from "../specs";
 import { docsClient as defaultDocsClient, GuideView, ModelSwitches, WorkspacePanel, type DocsClient } from "../wiki";
 import { dashboardClient, type DashboardClient } from "./client";
 import { useDashboard, type DashboardPage } from "./dashboardState";
@@ -22,6 +23,7 @@ export interface DocumentationTabProps {
   client?: DashboardClient;
   healthClient?: HealthClient;
   docsClient?: DocsClient;
+  specsClient?: SpecsClient;
   /** Overrides the repository root from the store (tests). */
   root?: string;
   openFile?: OpenTab;
@@ -31,12 +33,13 @@ export interface DocumentationTabProps {
 
 const PAGES: { id: DashboardPage; label: string; icon: typeof LayoutGrid }[] = [
   { id: "docs", label: "Project documentation", icon: BookText },
+  { id: "specs", label: "Specs", icon: ClipboardList },
   { id: "health", label: "Code health", icon: Activity },
   { id: "files", label: "Files", icon: LayoutGrid },
 ];
 
-/** Everything about one repository a developer reads: its documentation, its code health, and how its files are distributed. */
-export function DocumentationTab({ client = dashboardClient, healthClient: health = healthClient, docsClient = defaultDocsClient, root: rootOverride, openFile, handToAgent }: DocumentationTabProps) {
+/** Everything about one repository a developer reads: its documentation and specs, its code health, and how its files are distributed. */
+export function DocumentationTab({ client = dashboardClient, healthClient: health = healthClient, docsClient = defaultDocsClient, specsClient = defaultSpecsClient, root: rootOverride, openFile, handToAgent }: DocumentationTabProps) {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
   const openTab = useWorkspaceStore((state) => state.openTab);
   const repositories = useWorkspaceStore((state) => state.repositories);
@@ -78,6 +81,7 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
       client={client}
       health={health}
       docs={docsClient}
+      specs={specsClient}
       selector={selector}
       workspace={rootOverride === undefined && options.length > 1 ? { root: rootPath!, open: setActiveRepositoryId } : null}
       openFile={openFile ?? ((tab) => openTab(tab))}
@@ -91,6 +95,7 @@ interface ShellProps {
   client: DashboardClient;
   health: HealthClient;
   docs: DocsClient;
+  specs: SpecsClient;
   selector: ReactNode;
   /** The workspace folder and how to open one of its repositories, when it holds several. */
   workspace: { root: string; open(id: string): void } | null;
@@ -106,7 +111,7 @@ function Claimed(props: ShellProps) {
   return claimed ? <Shell {...props} /> : null;
 }
 
-function Shell({ root, client, health, docs, selector, workspace, openFile, handToAgent }: ShellProps) {
+function Shell({ root, client, health, docs, specs, selector, workspace, openFile, handToAgent }: ShellProps) {
   const page = useDashboard((state) => state.page);
   const setPage = useDashboard((state) => state.setPage);
   const selected = useDashboard((state) => state.selected);
@@ -133,6 +138,9 @@ function Shell({ root, client, health, docs, selector, workspace, openFile, hand
         />
       </div>
     );
+  } else if (page === "specs") {
+    // Specs are plain files: they show before (and without) the repository being analyzed.
+    body = <SpecsPage client={specs} root={root} openFile={(path, line) => open(path, line)} />;
   } else if (session.status === "opening") {
     body = (
       <div className={styles.centered} role="status">

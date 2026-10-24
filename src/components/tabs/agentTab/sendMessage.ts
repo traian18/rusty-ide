@@ -6,9 +6,11 @@ import { jevFlowRecord } from "../../../observability/modelSelectionRecord";
 import { chooseFlow, type FlowCandidate, type FlowChoice } from "../../../services/autoFlowSelection";
 import { buildAttachmentContext } from "../../../services/contextAttachmentService";
 import { snapshotContextCompaction, snapshotFlowRouter } from "../../../services/jevDecisionToolSnapshot";
+import { specsClient } from "../../../specs/client";
 import { workflowCatalogService } from "../../../services/workflowCatalogService";
 import { useWorkspaceStore, type AgentMessage } from "../../../store";
 import { resolveExecutionProvider } from "../../../store/resolveExecutionProvider";
+import type { SpecRun } from "../../../specs/run";
 import { AUTO_FLOW, shortWorkflowId } from "../behaviors/flowCatalog";
 import { runEventHandler, type RunProgress } from "./runEvents";
 import { agentRunHost } from "./runHost";
@@ -171,6 +173,7 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
     provider: resolution.provider,
     compaction,
     relaunch: (next) => launch(turn, message, next),
+    next: () => continueSpecQueue(turn),
   };
   void run.done.then((outcome) => handleRunOutcome(launched, outcome));
   turn.state.agentRun = run;
@@ -190,6 +193,8 @@ export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles:
   }
   let workflowDefinition = await readFollowedWorkflow(turn, auto ? undefined : chosenWorkflow);
   if (workflowDefinition === null) return;
+  const spec = await startingSpecRun(turn, chosenWorkflow);
+  if (spec === null) return;
   const message = await postMessage(turn, draft, attachedFiles);
   if (auto) {
     workflowDefinition = await chooseAutoWorkflow(turn, message);
@@ -201,5 +206,36 @@ export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles:
     workflowId,
     switchesLeft: MAX_FLOW_SWITCHES_PER_MESSAGE,
     visited: workflowDefinition ? [shortWorkflowId(workflowId)] : [],
+    ...(spec ? { spec: spec.run, context: spec.context, ...(spec.inputs ? { inputs: spec.inputs } : {}) } : {}),
   });
+}
+
+/** Starts the next capability spec of a batch in the same chat, with the same workflow. */
+async function continueSpecQueue(turn: AgentTurn): Promise<void> {
+  const next = turn.state.specQueue.shift();
+  const workflowPath = turn.state.chatWorkflow;
+  if (!next || !workflowPath) return;
+  turn.state.specRun = { ...next.run, workflowPath };
+  await sendMessage(turn, next.message, [], true);
+}
+
+/** A Specify, Plan or Implement run set up from the Specs page and still followed by the chat: what it
+ * starts from is composed from the files now, so edits made since the tab opened are included. An
+ * Implement run also gets the task plans from the files, and starts afresh rather than resuming a
+ * failed run (the folder holds the progress). `undefined` when there is none, `null` when it could
+ * not be composed (the person is told). */
+async function startingSpecRun(turn: AgentTurn, chosenWorkflow: string | undefined): Promise<{ run: SpecRun; context: string; inputs?: Record<string, unknown> } | undefined | null> {
+  const pending = turn.state.specRun;
+  turn.state.specRun = undefined;
+  if (!pending || pending.workflowPath !== chosenWorkflow) return undefined;
+  try {
+    const context = await specsClient.context(pending.root, pending.change, pending.step);
+    turn.chat.setWorkflowCheckpoint(undefined);
+    if (pending.step !== "implement") return { run: pending, context };
+    const plans = await specsClient.queuePlan(pending.root, pending.change);
+    return { run: pending, context, inputs: { plan: plans.full, queue_plan: plans.remaining } };
+  } catch (error) {
+    notify("Cannot start", `The change could not be read: ${String(error instanceof Object && "message" in error ? (error as { message: unknown }).message : error)}`, "error");
+    return null;
+  }
 }

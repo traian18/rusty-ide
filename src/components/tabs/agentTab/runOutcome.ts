@@ -2,6 +2,9 @@ import type { ContextCompactionRunConfig } from "../../../harness/core/decideToo
 import type { CapabilityResult, RunHandle, RunOutcome, WorkflowSwitch } from "../../../harness/contract";
 import { failedVerificationReport } from "../../../harness/core/workflowRun";
 import { notify } from "../../../notificationStore";
+import { specsClient } from "../../../specs/client";
+import { recordImplementRun, recordSpecRun } from "../../../specs/run";
+import { localDate } from "../../../specs/pure";
 import { workflowReportFor } from "../../../services/workflowReport";
 import type { CustomProvider } from "../../../store";
 import { refreshTree } from "../../filetree/FileTreePresenter";
@@ -27,6 +30,8 @@ export interface LaunchedRun {
   workspaceRoot: string;
   /** Starts the next run of the turn, after a hand-over. */
   relaunch(plan: LaunchPlan): Promise<void>;
+  /** Starts the next capability spec of a batch, if one is waiting. */
+  next(): Promise<void>;
 }
 
 type AgentChatResult = CapabilityResult<"agent_chat">;
@@ -89,6 +94,19 @@ async function saveReport(run: LaunchedRun, result: AgentChatResult): Promise<st
   return report ? saveRunReport(workspaceRoot, report) : "";
 }
 
+/** What the run leaves behind: a Specify or Plan run writes its documents into the change folder;
+ * any other run may save its report. Returns the note the response ends with. */
+async function saveOutcome(run: LaunchedRun, result: AgentChatResult): Promise<string> {
+  const { spec } = run.plan;
+  if (!spec) return saveReport(run, result);
+  const { lastWorkflowState: state } = run.turn.state;
+  const note = spec.step === "implement"
+    ? await recordImplementRun(specsClient, spec, state, true, localDate())
+    : await recordSpecRun(specsClient, spec, run.plan.workflowDefinition, state, localDate());
+  await refreshTree();
+  return note;
+}
+
 /** The run handed over: the same turn goes on in the workflow it chose.
  * Whether the next run started. */
 async function handOver(run: LaunchedRun, switchTo: WorkflowSwitch, finalResponse: string): Promise<boolean> {
@@ -124,17 +142,27 @@ async function handOver(run: LaunchedRun, switchTo: WorkflowSwitch, finalRespons
 async function onCompleted(run: LaunchedRun, result: AgentChatResult) {
   const { turn } = run;
   await showChangedFiles(turn, result.modifiedFiles);
-  const finalResponse = (result.response || "Agent complete.") + await saveReport(run, result);
+  const finalResponse = (result.response || "Agent complete.") + await saveOutcome(run, result);
   if (result.subagents.length > 0) turn.ui.setSubagents(completedSubagents(result.subagents));
   if (result.switchTo && await handOver(run, result.switchTo, finalResponse)) return;
   turn.state.responseStream?.finish(finalResponse);
   endTurn(turn);
   void turn.chat.save();
   turn.chat.refreshHistorySummary(run.provider, run.model.modelId, run.compaction);
+  if (run.plan.spec?.step === "capability") void run.next();
+}
+
+/** An Implement run that failed or was stopped keeps what it finished: those tasks are ticked in the folder. */
+function keepImplementProgress(run: LaunchedRun) {
+  const { spec } = run.plan;
+  if (spec?.step !== "implement") return;
+  void recordImplementRun(specsClient, spec, run.turn.state.lastWorkflowState, false, localDate()).then(() => refreshTree());
 }
 
 function onFailed(run: LaunchedRun, message: string) {
   const { turn } = run;
+  turn.state.specQueue = [];
+  keepImplementProgress(run);
   const review = failedReview(turn, run.plan);
   turn.activity.append(review ? VERIFICATION_INCOMPLETE : `Error: ${message}`, "update");
   turn.activity.flushNow();
@@ -151,4 +179,9 @@ function onFailed(run: LaunchedRun, message: string) {
 export async function handleRunOutcome(run: LaunchedRun, outcome: RunOutcome<"agent_chat">) {
   if (outcome.status === "completed") await onCompleted(run, outcome.result);
   else if (outcome.status === "failed") onFailed(run, outcome.error.message);
+  else {
+    // Stopped: the batch ends here.
+    run.turn.state.specQueue = [];
+    keepImplementProgress(run);
+  }
 }
