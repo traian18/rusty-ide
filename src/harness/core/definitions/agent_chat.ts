@@ -107,6 +107,7 @@ import { flattenHistory } from "./promptHistory";
 import { historyBudgetChars } from "../contextCompaction";
 import { GATED_RUN_COMMAND_TOOL, gatedRunCommandTool } from "./runCommandTool";
 import { runWebSearch, type WebSearchApiKeys, type WebSearchOptions } from "./webSearch";
+import { workingMethod } from "./agentWorkingMethod";
 import { SINGLE_AGENT_PROFILE } from "./singleAgentProfile";
 import { UPDATE_TODOS_GUIDE, UPDATE_TODOS_TOOL, chatTodoScope, openTodosReminder, stepTodoScope, updateTodosTool, type TodoLists } from "./todoTool";
 
@@ -398,7 +399,8 @@ ${longResponseGuideline(toolNames)}
 - When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.${repositoryToolsSection(toolNames)}
 `;
 
-  return `${defaultSystemPrompt}${skillGuidance}${taskDependencySection}
+  const method = workingMethod(toolNames, { planOnly: input.planOnly, workflow: Boolean(input.workflow) });
+  return `${defaultSystemPrompt}${method ? `\n${method}\n` : ""}${skillGuidance}${taskDependencySection}
 ${finishingSection(input, toolNames)}
 User-visible progress updates:
 - Before the first substantive action, call 'report_progress' with a concise summary of your approach and the next action.
@@ -654,7 +656,11 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.report_progress = reportProgressTool(onEvent);
     if (names.has(UPDATE_TODOS_TOOL.name)) {
-      const scope = input.workflow ? stepTodoScope((ctx.scratch.stepTodos ??= new Map()) as TodoLists, input.tabId) : chatTodoScope(input.tabId);
+      const currentStep = () => {
+        const { workflowStepId: id, workflowStep: name } = ctx.scratch;
+        return typeof id === "string" ? { id, name: typeof name === "string" ? name : id } : undefined;
+      };
+      const scope = input.workflow ? stepTodoScope((ctx.scratch.stepTodos ??= new Map()) as TodoLists, input.tabId, currentStep) : chatTodoScope(input.tabId);
       handlers.update_todos = updateTodosTool(scope, onEvent);
     }
     handlers.ask_user_question = askUserQuestionTool(host);

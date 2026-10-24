@@ -3,6 +3,7 @@ import { create } from "zustand";
 
 import { notify } from "../notificationStore";
 import { useWorkspaceStore } from "../store";
+import { workspacePrefix } from "./pure";
 import type { SpecRun } from "./run";
 
 export interface PendingSpecRun {
@@ -47,8 +48,9 @@ export function openSpecBatch(runs: readonly QueuedSpecRun[]): void {
 function openTabFor(request: Omit<PendingSpecRun, "tabId"> & { run: SpecRun }): void {
   const { run } = request;
   const workspace = useWorkspaceStore.getState();
-  if (workspace.rootPath && workspace.rootPath !== run.root) {
-    notify("Open this repository as the workspace", "Specify and Design & tasks run in the workspace folder, which is not this repository.", "info");
+  // The run works in the workspace folder: the repository must be it or one of its folders.
+  if (workspacePrefix(run.root, workspace.rootPath) === null) {
+    notify("Open this repository as the workspace", "Spec runs work in the workspace folder, and this repository is not in it.", "info");
     return;
   }
   const tabId = workspace.openTab({ type: "agent" });

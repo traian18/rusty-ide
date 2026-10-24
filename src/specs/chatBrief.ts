@@ -6,6 +6,7 @@ import { progressText, STATUS_TEXT, taskReferences } from "./pure";
 export const SPEC_DOCUMENTS: Record<string, string> = {
   change: "change.md",
   spec: "spec.md",
+  checklist: "checklist.md",
   research: "research.md",
   design: "design.md",
   tasks: "tasks.md",

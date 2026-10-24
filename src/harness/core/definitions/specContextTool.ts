@@ -16,7 +16,7 @@ import type { HostToolSpec } from "../SessionRecipe";
 export const SPEC_CONTEXT_TOOL: HostToolSpec = {
   name: "spec_context",
   description:
-    "Read the repository's specs (spec-driven development): with no input, the project file, the capabilities and every change with its status, task progress and next step. With change (a folder name like 0007-photo-albums, its number, or part of its title): that change's status, its open tasks and the documents asked for in documents (any of change, spec, research, design, tasks, verification; default spec and design). The spec says what must be true, the design how it is built, the tasks what is left. Read-only: the spec files are edited with the editor or the spec workflows.",
+    "Read the repository's specs (spec-driven development): with no input, the project file, the capabilities and every change with its status, task progress and next step. With change (a folder name like 0007-photo-albums, its number, or part of its title): that change's status, its open tasks and the documents asked for in documents (any of change, spec, checklist, research, design, tasks, verification; default spec and design). The spec says what must be true, the checklist which quality questions about it are still open, the design how it is built, the tasks what is left. Read-only: the spec files are edited with the editor or the spec workflows.",
   input_schema: {
     type: "object",
     properties: {

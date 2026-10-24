@@ -60,8 +60,26 @@ describe("update_todos", () => {
     const call = (sessionId: string) => ({ runId: "run", sessionId, configureExecution: async () => {} }) as HostToolCall;
     await tool({ todos: [{ content: "Task 1", status: "in_progress" }] }, signal, undefined, call("build-1"));
     expect(await tool({}, signal, undefined, call("build-1"))).toMatchObject({ ok: false });
-    expect(await tool({}, signal, undefined, call("verify-1"))).toEqual({ ok: true, output: "The task list is empty." });
+    // A step without a plan does not pass either: every workflow step makes one.
+    expect(await tool({}, signal, undefined, call("verify-1"))).toMatchObject({ ok: false, error: expect.stringContaining("not written a plan for this step") });
+    await tool({ todos: [{ content: "Check C1", status: "completed" }] }, signal, undefined, call("verify-1"));
+    expect(await tool({}, signal, undefined, call("verify-1"))).toMatchObject({ ok: true });
+    expect(await updateTodosTool(chatTodoScope("chat-2"), () => {})({}, signal)).toEqual({ ok: true, output: "The task list is empty." });
     expect(todosFor("chat-1")).toEqual([]);
-    expect([...lists.keys()]).toEqual(["build-1"]);
+    expect([...lists.keys()]).toEqual(["build-1", "verify-1"]);
+  });
+
+  it("in a workflow tags each list with the step and session it belongs to", async () => {
+    const events: unknown[] = [];
+    let step: { id: string; name: string } | undefined = { id: "analyze", name: "Analyze" };
+    const tool = updateTodosTool(stepTodoScope(new Map(), "root", () => step), (event) => events.push(event));
+    const call = { runId: "run", sessionId: "s-1", configureExecution: async () => {} } as HostToolCall;
+    await tool({ todos: [{ content: "Read the spec", status: "in_progress" }] }, signal, undefined, call);
+    step = undefined;
+    await tool({ todos: [{ content: "Read the spec", status: "completed" }] }, signal);
+    expect(events.filter((event) => (event as { kind: string }).kind === "plan")).toEqual([
+      { kind: "plan", todos: [{ content: "Read the spec", status: "in_progress" }], step: { key: "analyze:s-1", name: "Analyze" } },
+      { kind: "plan", todos: [{ content: "Read the spec", status: "completed" }] },
+    ]);
   });
 });

@@ -12,8 +12,8 @@ const CATALOG: Record<string, { kind: "stage" | "end_to_end"; steps: string[] }>
   "implement-spec": { kind: "end_to_end", steps: ["build", "verify"] },
   "start-specs": { kind: "stage", steps: ["analyze", "plan", "plan"] },
   "onboard-capability": { kind: "stage", steps: ["analyze", "plan"] },
-  specify: { kind: "stage", steps: ["analyze", "plan"] },
-  "spec-plan": { kind: "stage", steps: ["architect", "plan"] },
+  specify: { kind: "stage", steps: ["analyze", "analyze", "plan", "review"] },
+  "spec-plan": { kind: "stage", steps: ["architect", "analyze", "plan"] },
   diagnose: { kind: "stage", steps: ["debug", "plan"] },
   implement: { kind: "stage", steps: ["plan", "build", "verify"] },
   "security-audit": { kind: "stage", steps: ["security", "plan"] },
@@ -59,7 +59,8 @@ describe("the built-in workflow catalog", () => {
     for (const document of BUILTIN_WORKFLOWS) {
       const { kind } = CATALOG[shortId(document)];
       const steps = agentsOf(document).length;
-      if (kind === "stage") expect(steps, shortId(document)).toBeLessThanOrEqual(3);
+      // Specify also tests its spec's quality with a Checklist step.
+      if (kind === "stage") expect(steps, shortId(document)).toBeLessThanOrEqual(shortId(document) === "specify" ? 4 : 3);
       // Implement a spec has no Plan step: its plan is the change folder.
       else expect(steps, shortId(document)).toBeGreaterThanOrEqual(shortId(document) === "implement-spec" ? 2 : 3);
       // The built-in Plan, build, verify predates the marker; the rest declare theirs.

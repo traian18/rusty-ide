@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { exportSummary, foreignSummary, groupChanges, importSummary, localDate, progressText, taskDocument, taskReferences } from "./pure";
+import { exportSummary, foreignSummary, groupChanges, importSummary, linkedParts, localDate, progressText, taskDocument, taskReferences, workspacePrefix } from "./pure";
 import { change } from "./specs.testing";
 
 describe("specs helpers", () => {
@@ -40,5 +40,16 @@ describe("specs helpers", () => {
     expect(foreignSummary({ source: "spec_kit", path: ".specify", capabilities: 0, changes: 0, archived: 0 })).toBe("Spec Kit found in .specify: a project file.");
     expect(importSummary({ project: true, capabilities: ["a"], changes: ["0001-x", "0002-y"], skipped: ["change z was imported before"] })).toBe("Imported the project file, 1 capability, 2 changes. Left alone: change z was imported before.");
     expect(importSummary({ project: false, capabilities: [], changes: [], skipped: [] })).toBe("Nothing new to import.");
+  });
+  it("says how the workspace reaches a repository, and where a linked change's parts are", () => {
+    expect(workspacePrefix("/ws/apps/web/", "/ws")).toBe("apps/web/");
+    expect(workspacePrefix("/ws", "/ws/")).toBe("");
+    expect(workspacePrefix("/repo", null)).toBe("");
+    expect(workspacePrefix("/elsewhere/repo", "/ws")).toBeNull();
+    expect(workspacePrefix("/ws-other/repo", "/ws")).toBeNull();
+    expect(linkedParts(["core/0002-dark", "apps/web/0001-dark", "broken", "x/"], "/ws/")).toEqual([
+      { repository: "core", dir: "0002-dark", path: "/ws/core" },
+      { repository: "apps/web", dir: "0001-dark", path: "/ws/apps/web" },
+    ]);
   });
 });

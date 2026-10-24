@@ -7,6 +7,7 @@ import { commandPermissionService } from "../../../services/commandPermissionSer
 import { useWorkspaceStore } from "../../../store";
 import type { AgentQuestion } from "../../ui/ChatInput";
 import { readSavedChat, type SavedChat } from "./savedChats";
+import { useWorkflowRunStore } from "../behaviors/workflowRunStore";
 import { stopActiveSubagents } from "./subagents";
 import { cancelResponseFlush, DEFAULT_STREAMING_LABEL, releasePendingQuestions, type AgentTurn } from "./turn";
 import type { ChatSession } from "./useChatSession";
@@ -14,8 +15,13 @@ import type { ChatSession } from "./useChatSession";
 /** Stops the run, keeping the user's request and every update shown so far. */
 export function stopTurn(turn: AgentTurn) {
   const { state, ui } = turn;
+  const workflowId = state.activeWorkflowId;
   state.agentRun?.cancel();
   state.agentRun = null;
+  state.activeWorkflowId = null;
+  state.activeWorkflowRunId = null;
+  ui.setWorkflowRunning(false);
+  if (workflowId) useWorkflowRunStore.getState().finish(workflowId, "cancelled");
   turn.activity.flush();
   state.responseStream?.flush();
   state.responseStream = null;
@@ -46,6 +52,7 @@ export function resetForWorkspace(turn: AgentTurn, session: ChatSession) {
   session.reset();
   clearTodos(turn.tab.id);
   ui.setPlan([]);
+  ui.setStepPlans([]);
   ui.setWorkflowRunning(false);
   ui.setSubagents([]);
   ui.setRunUsage(null);
@@ -77,6 +84,7 @@ export function newChat(turn: AgentTurn, session: ChatSession) {
   session.reset();
   clearTodos(turn.tab.id);
   turn.ui.setPlan([]);
+  turn.ui.setStepPlans([]);
   turn.ui.setSubagents([]);
 }
 

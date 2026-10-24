@@ -23,8 +23,9 @@ export type CommonEvent =
   | { kind: "log"; message: string }
   | { kind: "token"; content: string; messageId?: string }
   | { kind: "progress"; content: string }
-  /** The model's task list after an `update_todos` call: the whole list, in order. */
-  | { kind: "plan"; todos: { content: string; status: "pending" | "in_progress" | "completed" | "cancelled" }[] }
+  /** The model's task list after an `update_todos` call: the whole list, in order. In a workflow,
+   * `step` says whose list it is: `key` is one step session (a retry or a queued task has its own). */
+  | { kind: "plan"; todos: { content: string; status: "pending" | "in_progress" | "completed" | "cancelled" }[]; step?: { key: string; name: string } }
   | { kind: "usage"; usage: TokenUsage }
   | { kind: "subagent"; subagent: unknown }
   | { kind: "files_changed"; paths: string[] }

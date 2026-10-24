@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "document",
-  "revision": 5,
+  "revision": 6,
   "name": "Document",
   "description": "Works as a technical writer who is also an engineer: reads the implementation and existing docs first, writes only documentation files, verifies every command, example and claim against the code, structures content for its reader, and reports exactly what was updated and what remains unverified.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "write_file",
@@ -62,6 +63,15 @@
           }
         },
         "feedback": "Read the relevant code or existing docs before completing documentation changes."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "analyze",
-  "revision": 7,
+  "revision": 8,
   "name": "Analyze",
   "description": "Works as a code analyst: traces how the current system really behaves from entry points to side effects, maps dependencies and blast radius, separates verified facts from hypotheses, and hands planning a precise picture of where a change belongs and what it can break. Read-only; it never edits files or runs commands.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document"
     ]
@@ -56,6 +57,15 @@
           }
         },
         "feedback": "Trace the relevant workspace code and cite files or symbols before completing the analysis."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

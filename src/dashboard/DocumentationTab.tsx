@@ -63,6 +63,10 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
     );
   }
   const options = rootOverride === undefined && rootPath ? repositoryOptions(repositories, rootPath) : [];
+  // A change can span the workspace's repositories, but not two worktrees of one.
+  const linkable = repositories
+    .filter((repository) => repository.kind !== "worktree")
+    .map((repository) => ({ id: repository.id, path: repository.worktreePath, name: options.find((option) => option.id === repository.worktreePath)?.name ?? repository.worktreePath }));
   const selector =
     options.length > 1 ? (
       <CompactSelect
@@ -83,7 +87,7 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
       docs={docsClient}
       specs={specsClient}
       selector={selector}
-      workspace={rootOverride === undefined && options.length > 1 ? { root: rootPath!, open: setActiveRepositoryId } : null}
+      workspace={rootOverride === undefined && options.length > 1 ? { root: rootPath!, open: setActiveRepositoryId, repositories: linkable } : null}
       openFile={openFile ?? ((tab) => openTab(tab))}
       handToAgent={handToAgent}
     />
@@ -98,7 +102,7 @@ interface ShellProps {
   specs: SpecsClient;
   selector: ReactNode;
   /** The workspace folder and how to open one of its repositories, when it holds several. */
-  workspace: { root: string; open(id: string): void } | null;
+  workspace: { root: string; open(id: string): void; repositories: { id: string; path: string; name: string }[] } | null;
   openFile: OpenTab;
   handToAgent?: DocumentationTabProps["handToAgent"];
 }
@@ -140,7 +144,15 @@ function Shell({ root, client, health, docs, specs, selector, workspace, openFil
     );
   } else if (page === "specs") {
     // Specs are plain files: they show before (and without) the repository being analyzed.
-    body = <SpecsPage client={specs} root={root} openFile={(path, line) => open(path, line)} />;
+    const specsWorkspace = workspace && {
+      root: workspace.root,
+      repositories: workspace.repositories,
+      open: (path: string) => {
+        const repository = workspace.repositories.find((candidate) => candidate.path === path);
+        if (repository) workspace.open(repository.id);
+      },
+    };
+    body = <SpecsPage client={specs} root={root} workspace={specsWorkspace} openFile={(path, line) => open(path, line)} />;
   } else if (session.status === "opening") {
     body = (
       <div className={styles.centered} role="status">

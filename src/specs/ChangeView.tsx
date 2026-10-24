@@ -4,6 +4,8 @@ import { toRepositoryError } from "../architecture/client";
 import { Button, Callout } from "../components/ui";
 import type { SpecsClient } from "./client";
 import { DocumentView } from "./DocumentView";
+import { LinkedParts } from "./LinkedParts";
+import type { SpecsWorkspace } from "./SpecsPage";
 import type { ChangeSummary } from "./model";
 import type { SpecArchived, SpecStep } from "./model";
 import { localDate } from "./pure";
@@ -19,6 +21,8 @@ export interface ChangeViewProps {
   client: SpecsClient;
   root: string;
   specsRoot: string;
+  /** The workspace, when it holds several repositories (for a change linked across them). */
+  workspace?: SpecsWorkspace | null;
   change: ChangeSummary;
   revision: number;
   onChanged(): void;
@@ -37,7 +41,7 @@ function missingFor(step: SpecStep, documents: readonly string[]): string | unde
 }
 
 /** One change: status and progress, what the files say about it, and a tab per document. */
-export function ChangeView({ client, root, specsRoot, change, revision, onChanged, onOpenFile, onRun, onArchived }: ChangeViewProps) {
+export function ChangeView({ client, root, specsRoot, workspace = null, change, revision, onChanged, onOpenFile, onRun, onArchived }: ChangeViewProps) {
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const active = useActiveSpecChange((state) => state.byRoot[root] === change.dir);
   const archive = async (force: boolean) => {
@@ -93,6 +97,7 @@ export function ChangeView({ client, root, specsRoot, change, revision, onChange
       ) : null}
       {change.hint ? <p className={styles.muted}>{change.hint}</p> : null}
       <Warnings warnings={change.warnings} onOpen={onOpenFile} />
+      <LinkedParts client={client} root={root} workspace={workspace} change={change} revision={revision} />
       <div role="tablist" className={styles.tabs} aria-label="Documents of this change">
         {CHANGE_TABS.map((candidate) => {
           const present = change.documents.includes(candidate.file);

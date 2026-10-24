@@ -27,6 +27,10 @@ export interface ChangeSummary {
   status: Status;
   created: string | null;
   branch: string | null;
+  /** A change linked across repositories: the repository (relative to the workspace) with the whole change's spec. */
+  main: string | null;
+  /** The other parts of a linked change, as `<repository>/<change folder>`. */
+  links: string[];
   tasksDone: number;
   tasksTotal: number;
   openQuestions: number;
@@ -87,6 +91,25 @@ export interface CreatedChange {
   files: string[];
   /** Absent when no branch was asked for. */
   branch: BranchOutcome | null;
+}
+
+/** One part of a change created across repositories. */
+export interface CreatedPart {
+  /** The repository's path in the workspace. */
+  repository: string;
+  root: string;
+  dir: string;
+  main: boolean;
+  files: string[];
+  branch: BranchOutcome | null;
+}
+
+export type SwitchOutcome = { kind: "switched"; stashed: boolean; restored: boolean } | { kind: "already" } | { kind: "skipped"; reason: string } | { kind: "failed"; message: string };
+
+export interface SwitchedPart {
+  repository: string;
+  branch: string | null;
+  outcome: SwitchOutcome;
 }
 
 export interface NewChangeRequest {

@@ -229,7 +229,7 @@ async function startingSpecRun(turn: AgentTurn, chosenWorkflow: string | undefin
   turn.state.specRun = undefined;
   if (!pending || pending.workflowPath !== chosenWorkflow) return undefined;
   try {
-    const context = await specsClient.context(pending.root, pending.change, pending.step);
+    const context = await specsClient.context(pending.root, pending.change, pending.step, useWorkspaceStore.getState().rootPath || undefined);
     turn.chat.setWorkflowCheckpoint(undefined);
     if (pending.step !== "implement") return { run: pending, context };
     const plans = await specsClient.queuePlan(pending.root, pending.change);

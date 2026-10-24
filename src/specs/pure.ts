@@ -23,6 +23,7 @@ export const NEXT_STEP_TEXT: Record<NextStep, string> = {
 export const CHANGE_TABS: { id: ChangeTab; label: string; file: string; writtenBy: string }[] = [
   { id: "overview", label: "Overview", file: "change.md", writtenBy: "New change" },
   { id: "spec", label: "Spec", file: "spec.md", writtenBy: "the Specify step" },
+  { id: "checklist", label: "Checklist", file: "checklist.md", writtenBy: "the Specify step's Checklist" },
   { id: "research", label: "Research", file: "research.md", writtenBy: "the Plan step, when the spec needs outside knowledge" },
   { id: "design", label: "Design", file: "design.md", writtenBy: "the Plan step" },
   { id: "tasks", label: "Tasks", file: "tasks.md", writtenBy: "the Plan step" },
@@ -63,6 +64,26 @@ export function taskReferences(task: Pick<SpecTask, "requirements" | "criteria" 
 export function localDate(now: Date = new Date()): string {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+const trimSlashes = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
+
+/** How the workspace reaches the repository at `root`: `rusty-ide/` inside it, "" when it is the workspace, null when it is outside. */
+export function workspacePrefix(root: string, workspaceRoot: string | null | undefined): string | null {
+  const repository = trimSlashes(root);
+  const workspace = trimSlashes(workspaceRoot ?? "");
+  if (!workspace || repository === workspace) return "";
+  return repository.startsWith(`${workspace}/`) ? `${repository.slice(workspace.length + 1)}/` : null;
+}
+
+/** The parts a linked change names, with the folder each repository has in the workspace. */
+export function linkedParts(links: readonly string[], workspaceRoot: string): { repository: string; dir: string; path: string }[] {
+  return links.flatMap((link) => {
+    const at = link.lastIndexOf("/");
+    if (at <= 0 || at === link.length - 1) return [];
+    const repository = link.slice(0, at);
+    return [{ repository, dir: link.slice(at + 1), path: `${trimSlashes(workspaceRoot)}/${repository}` }];
+  });
 }
 
 export const FOREIGN_NAME: Record<"open_spec" | "spec_kit", string> = { open_spec: "OpenSpec", spec_kit: "Spec Kit" };

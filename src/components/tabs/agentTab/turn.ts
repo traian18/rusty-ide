@@ -11,6 +11,7 @@ import type { SpecRun } from "../../../specs/run";
 import type { HistorySummary } from "../../../services/historySummary";
 import type { AgentMessage, CustomProvider, useWorkspaceStore } from "../../../store";
 import type { TabOfType } from "../../../tabs/types";
+import type { StepPlan } from "../../agent/stepPlans";
 import type { SubagentActivity } from "../../ui/Chat";
 import type { AgentQuestion } from "../../ui/ChatInput";
 import type { TokenUsageLike } from "../../ui/TokenBadge/TokenBadge";
@@ -33,6 +34,9 @@ export interface TurnState {
   flowSwitching: boolean;
   /** How the previous workflow run ended, which the Auto router sees. */
   lastWorkflowRun: { name: string; status: string } | undefined;
+  /** Workflow whose run handle is currently active in this tab. */
+  activeWorkflowId: string | null;
+  activeWorkflowRunId: string | null;
   questionResolvers: Map<string, (answer: string) => void>;
   workflowAnswers: Map<string, (answer: WorkflowAnswer) => void>;
   /** Approval steps pass without asking, as of the latest render. */
@@ -64,6 +68,8 @@ export function createTurnState(): TurnState {
     workflowOptions: [],
     flowSwitching: false,
     lastWorkflowRun: undefined,
+    activeWorkflowId: null,
+    activeWorkflowRunId: null,
     questionResolvers: new Map(),
     workflowAnswers: new Map(),
     autoApprove: false,
@@ -93,6 +99,7 @@ export interface TurnUi {
   setAutoWorkflow: (path: string | undefined) => void;
   setWorkflowRunning: (running: boolean) => void;
   setPlan: (todos: Todo[]) => void;
+  setStepPlans: Dispatch<SetStateAction<StepPlan[]>>;
   setMessage: (message: string) => void;
 }
 
@@ -163,6 +170,7 @@ export function endTurn(turn: AgentTurn) {
   turn.state.isStreaming = false;
   turn.state.responseStream = null;
   turn.state.agentRun = null;
+  turn.state.activeWorkflowId = null;
   turn.ui.setIsStreaming(false);
   turn.ui.setStreamingLabel(DEFAULT_STREAMING_LABEL);
   turn.ui.setAgentQuestions([]);

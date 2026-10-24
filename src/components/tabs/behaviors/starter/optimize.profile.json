@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "optimize",
-  "revision": 8,
+  "revision": 9,
   "name": "Optimize",
   "description": "Works as a performance engineer: defines what to improve and how to measure it, records a baseline, finds the real bottleneck with profiling or measurement instead of intuition, makes the smallest change that helps, re-measures under the same conditions, and reports only the improvement it can show along with its trade-offs.",
   "status": "published",

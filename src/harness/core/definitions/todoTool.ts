@@ -7,9 +7,10 @@
 // each retry) keeps its own list for the length of the run.
 //
 // The same tool is the completion check of the single-agent profile
-// (`SINGLE_AGENT_PROFILE`) and of the built-in implementer profiles:
+// (`SINGLE_AGENT_PROFILE`) and of every built-in step profile:
 // rusty-core's gate calls it with no `todos`, scoped to the agent's session,
-// and it fails while items are still pending or in progress. A model that
+// and it fails while items are still pending or in progress, and in a
+// workflow step also while the step has made no plan. A model that
 // calls it that way just gets the current list back.
 
 import type { CapabilityEvent } from "../../contract";
@@ -70,15 +71,28 @@ export function clearTodos(chatId: string): void {
 export interface TodoScope {
   lists: TodoLists;
   key(call?: HostToolCall): string;
+  /** In a workflow: the step the list belongs to, shown with it. */
+  step?(call?: HostToolCall): { key: string; name: string } | undefined;
+  /** A workflow step must make a plan: the gate's check fails while it has none. */
+  requiresPlan?: boolean;
 }
 
 export function chatTodoScope(chatId: string): TodoScope {
   return { lists: chatLists, key: () => chatId };
 }
 
-/** `lists` is the run's own map, so step lists end with the run. */
-export function stepTodoScope(lists: TodoLists, rootSessionKey: string): TodoScope {
-  return { lists, key: (call) => call?.sessionId ?? rootSessionKey };
+/** `lists` is the run's own map, so step lists end with the run. `currentStep` names the running step. */
+export function stepTodoScope(lists: TodoLists, rootSessionKey: string, currentStep: () => { id: string; name: string } | undefined = () => undefined): TodoScope {
+  const key = (call?: HostToolCall) => call?.sessionId ?? rootSessionKey;
+  return {
+    lists,
+    key,
+    requiresPlan: true,
+    step: (call) => {
+      const step = currentStep();
+      return step && { key: `${step.id}:${key(call)}`, name: step.name };
+    },
+  };
 }
 
 function isOpen(todo: Todo): boolean {
@@ -105,10 +119,14 @@ function parseTodos(value: unknown): Todo[] | string {
   return todos;
 }
 
+const AGAIN = "Then give your complete answer again as your last message: only the last message counts as your answer, so do not shorten it to a note that the list is done.";
+
+const NO_PLAN = `You have not written a plan for this step. Call 'update_todos' with your plan for this step (the items of your step instructions, made specific to this task), mark what you have already done as completed, and finish or cancel the rest. ${AGAIN}`;
+
 /** What is still open, for the gate's feedback and the model's own check. */
 function openItemsReport(todos: Todo[]): string {
   const open = todos.filter(isOpen);
-  return `${open.length} task list item${open.length === 1 ? " is" : "s are"} not done:\n${open.map((todo) => `- [${todo.status}] ${todo.content}`).join("\n")}\n\nKeep working until each one is done and mark it completed with 'update_todos'. If an item is no longer needed, mark it cancelled. If you are blocked on a decision only the user can make, ask with 'ask_user_question'.`;
+  return `${open.length} task list item${open.length === 1 ? " is" : "s are"} not done:\n${open.map((todo) => `- [${todo.status}] ${todo.content}`).join("\n")}\n\nKeep working until each one is done and mark it completed with 'update_todos'. If an item is no longer needed, mark it cancelled. If you are blocked on a decision only the user can make, ask with 'ask_user_question'. ${AGAIN}`;
 }
 
 export function updateTodosTool(scope: TodoScope, onEvent: (event: CapabilityEvent<"agent_chat">) => void): HostToolHandler {
@@ -118,13 +136,15 @@ export function updateTodosTool(scope: TodoScope, onEvent: (event: CapabilityEve
     if (raw === undefined) {
       const todos = scope.lists.get(key) ?? [];
       if (todos.some(isOpen)) return { ok: false, error: openItemsReport(todos) };
+      if (!todos.length && scope.requiresPlan) return { ok: false, error: NO_PLAN };
       return { ok: true, output: todos.length ? `All items are done:\n${renderTodos(todos)}` : "The task list is empty." };
     }
     const todos = parseTodos(raw);
     if (typeof todos === "string") return { ok: false, error: todos };
     scope.lists.set(key, todos);
     if (todos.length > 0) onEvent({ kind: "progress", content: renderTodos(todos) });
-    onEvent({ kind: "plan", todos });
+    const step = scope.step?.(call);
+    onEvent(step ? { kind: "plan", todos, step } : { kind: "plan", todos });
     const open = todos.filter(isOpen).length;
     return { ok: true, output: open ? `Task list saved: ${open} of ${todos.length} still open.` : `Task list saved: all ${todos.length} done.` };
   };

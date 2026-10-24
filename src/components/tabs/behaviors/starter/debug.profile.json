@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "debug",
-  "revision": 7,
+  "revision": 8,
   "name": "Debug",
   "description": "Works as a methodical debugger: reproduces the failure with the smallest reliable check, gathers evidence, forms and tests competing hypotheses, narrows to the root cause rather than the symptom, and specifies the regression test that would have caught it. It diagnoses and never edits files or installs anything.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "run_check",
@@ -65,6 +66,15 @@
           }
         },
         "feedback": "Inspect the implementation or run a relevant check before reporting."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 1,

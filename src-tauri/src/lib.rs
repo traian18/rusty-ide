@@ -1445,6 +1445,10 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             specs::commands::specs_change_create,
             #[cfg(feature = "core-harness")]
+            specs::linked::specs_linked_change_create,
+            #[cfg(feature = "core-harness")]
+            specs::linked::specs_linked_switch,
+            #[cfg(feature = "core-harness")]
             specs::commands::specs_task_tick,
             #[cfg(feature = "core-harness")]
             specs::commands::specs_tasks,

@@ -4,7 +4,7 @@ import { create } from "zustand";
 export type Selection = { kind: "project" } | { kind: "capability"; name: string } | { kind: "change"; dir: string } | { kind: "archived"; dir: string } | null;
 
 /** The documents of a change, in reading order; `tasks` is the checklist, the rest are files. */
-export type ChangeTab = "overview" | "spec" | "research" | "design" | "tasks" | "verification";
+export type ChangeTab = "overview" | "spec" | "checklist" | "research" | "design" | "tasks" | "verification";
 
 export interface SpecsViewState {
   root: string | null;
@@ -14,6 +14,8 @@ export interface SpecsViewState {
   select(selection: Selection): void;
   setTab(tab: ChangeTab): void;
   claimRoot(root: string): void;
+  /** Opens `selection` in the repository at `root`, which the page is about to show (a linked part). */
+  openIn(root: string, selection: Selection): void;
   reset(): void;
 }
 
@@ -23,6 +25,8 @@ export const useSpecsView = create<SpecsViewState>()((set) => ({
   ...initial,
   select: (selection) => set({ selection }),
   setTab: (tab) => set({ tab }),
-  claimRoot: (root) => set((state) => (state.root === root ? state : { ...initial, root })),
+  // The first repository shown keeps what was picked before; another one starts afresh.
+  claimRoot: (root) => set((state) => (state.root === root ? state : state.root === null ? { root } : { ...initial, root })),
+  openIn: (root, selection) => set({ ...initial, root, selection }),
   reset: () => set({ ...initial }),
 }));

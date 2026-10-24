@@ -89,6 +89,13 @@ function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): Abor
   return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
+async function checkedResponse(provider: string, response: Response, maxErrorLength = 300): Promise<Response> {
+  if (response.ok) return response;
+  const errorText = await response.text();
+  const detail = maxErrorLength === Infinity ? errorText : errorText.slice(0, maxErrorLength);
+  throw new Error(`${provider} API error ${response.status}: ${detail}`);
+}
+
 function normalizeDomain(value: string): string | null {
   let input = value.trim().toLowerCase();
   if (!input) return null;
@@ -137,15 +144,11 @@ async function searchWithBrave(query: string, options: PlainSearchOptions, apiKe
     params.set("freshness", freshnessMap[options.recencyFilter]);
   }
 
-  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params.toString()}`, {
+  const response = await checkedResponse("Brave Search", await fetch(`https://api.search.brave.com/res/v1/web/search?${params.toString()}`, {
     method: "GET",
     headers: { "X-Subscription-Token": apiKey, Accept: "application/json", "Accept-Encoding": "gzip" },
     signal: requestSignal(options.signal, 30_000),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Brave Search API error ${response.status}: ${errorText.slice(0, 300)}`);
-  }
+  }));
   const data = (await response.json()) as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
   const { include: allowed, exclude: blocked } = splitDomainFilter(options.domainFilter);
   const hostMatches = (hostname: string, domain: string) => hostname === domain || hostname.endsWith(`.${domain}`);
@@ -186,16 +189,12 @@ async function searchWithTavily(query: string, options: PlainSearchOptions, apiK
     ...(include.length ? { include_domains: include } : {}),
     ...(exclude.length ? { exclude_domains: exclude } : {}),
   };
-  const response = await fetch("https://api.tavily.com/search", {
+  const response = await checkedResponse("Tavily", await fetch("https://api.tavily.com/search", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: requestSignal(options.signal, 60_000),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Tavily API error ${response.status}: ${errorText.slice(0, 300)}`);
-  }
+  }));
   const data = (await response.json()) as { answer?: string; results?: Array<{ title?: string; url?: string; content?: string }> };
   const results: WebSearchResult[] = [];
   for (const item of data.results ?? []) {
@@ -231,16 +230,12 @@ async function searchWithPerplexity(query: string, options: PlainSearchOptions, 
     const validated = options.domainFilter.filter((d) => /^[a-zA-Z0-9][a-zA-Z0-9-_.]*\.[a-zA-Z]{2,}$/.test(d.startsWith("-") ? d.slice(1) : d));
     if (validated.length) requestBody.search_domain_filter = validated;
   }
-  const response = await fetch("https://api.perplexity.ai/chat/completions", {
+  const response = await checkedResponse("Perplexity", await fetch("https://api.perplexity.ai/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify(requestBody),
     signal: options.signal,
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Perplexity API error ${response.status}: ${errorText}`);
-  }
+  }), Infinity);
   const data = (await response.json()) as { model?: string; usage?: unknown; choices?: Array<{ message?: { content?: string } }>; citations?: unknown[] };
   const answer = data.choices?.[0]?.message?.content || "";
   const citations = Array.isArray(data.citations) ? data.citations : [];
@@ -271,16 +266,12 @@ async function searchWithPerplexity(query: string, options: PlainSearchOptions, 
 
 async function searchWithGemini(query: string, options: PlainSearchOptions, apiKey: string): Promise<ProviderResult | null> {
   const body = { contents: [{ role: "user", parts: [{ text: query }] }], tools: [{ google_search: {} }] };
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
+  const response = await checkedResponse("Gemini", await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: requestSignal(options.signal, 60_000),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${errorText.slice(0, 300)}`);
-  }
+  }));
   const data = (await response.json()) as {
     modelVersion?: string;
     usageMetadata?: unknown;
@@ -314,13 +305,12 @@ async function searchWithGemini(query: string, options: PlainSearchOptions, apiK
 async function searchWithExaKeyed(query: string, options: PlainSearchOptions, apiKey: string): Promise<{ answer: string; results: WebSearchResult[] }> {
   const useSearch = !!options.recencyFilter || !!options.domainFilter?.length || !!(options.numResults && options.numResults !== 5);
   if (!useSearch) {
-    const response = await fetch("https://api.exa.ai/answer", {
+    const response = await checkedResponse("Exa", await fetch("https://api.exa.ai/answer", {
       method: "POST",
       headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
       body: JSON.stringify({ query, text: true }),
       signal: requestSignal(options.signal, 60_000),
-    });
-    if (!response.ok) throw new Error(`Exa API error ${response.status}: ${(await response.text()).slice(0, 300)}`);
+    }));
     const data = (await response.json()) as { answer?: string; citations?: Array<{ url?: string; title?: string }> };
     const results: WebSearchResult[] = (data.citations ?? []).filter((c): c is { url: string; title?: string } => !!c.url).map((c, i) => ({ title: c.title || `Source ${i + 1}`, url: c.url, snippet: "" }));
     return { answer: data.answer || "", results };
@@ -331,7 +321,7 @@ async function searchWithExaKeyed(query: string, options: PlainSearchOptions, ap
     const offsets: Record<string, number> = { day: 1, week: 7, month: 30, year: 365 };
     return new Date(Date.now() - (offsets[filter] ?? 0) * 86_400_000).toISOString();
   };
-  const response = await fetch("https://api.exa.ai/search", {
+  const response = await checkedResponse("Exa", await fetch("https://api.exa.ai/search", {
     method: "POST",
     headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -344,8 +334,7 @@ async function searchWithExaKeyed(query: string, options: PlainSearchOptions, ap
       contents: { text: { maxCharacters: 3000 }, highlights: true },
     }),
     signal: requestSignal(options.signal, 60_000),
-  });
-  if (!response.ok) throw new Error(`Exa API error ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  }));
   const data = (await response.json()) as { results?: Array<{ title?: string; url?: string; text?: string; highlights?: unknown }> };
   const items = data.results ?? [];
   const results: WebSearchResult[] = items.filter((item): item is { url: string; title?: string } => !!item.url).map((item, i) => ({ title: item.title || `Source ${i + 1}`, url: item.url, snippet: "" }));
@@ -359,76 +348,94 @@ async function searchWithExaKeyed(query: string, options: PlainSearchOptions, ap
   return { answer: answerParts.join("\n\n"), results };
 }
 
-async function searchWithExaMcp(query: string, options: PlainSearchOptions): Promise<{ answer: string; results: WebSearchResult[] } | null> {
+type ExaMcpResponse = {
+  result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean };
+  error?: { code?: number; message?: string };
+};
+
+function exaMcpQuery(query: string, options: PlainSearchOptions): string {
   const queryParts = [query];
-  for (const d of options.domainFilter ?? []) queryParts.push(d.startsWith("-") ? `-site:${d.slice(1)}` : `site:${d}`);
+  for (const domain of options.domainFilter ?? []) queryParts.push(domain.startsWith("-") ? `-site:${domain.slice(1)}` : `site:${domain}`);
   if (options.recencyFilter) {
     const now = new Date();
     const labels: Record<string, string> = { day: "past 24 hours", week: "past week", month: `${now.toLocaleString("en", { month: "long" })} ${now.getFullYear()}`, year: String(now.getFullYear()) };
     queryParts.push(labels[options.recencyFilter]);
   }
-  const response = await fetch("https://mcp.exa.ai/mcp", {
+  return queryParts.join(" ");
+}
+
+async function fetchExaMcp(query: string, options: PlainSearchOptions): Promise<string> {
+  const response = await checkedResponse("Exa MCP", await fetch("https://mcp.exa.ai/mcp", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "web_search_exa", arguments: { query: queryParts.join(" "), numResults: options.numResults ?? 5, livecrawl: "fallback", type: "auto", contextMaxCharacters: 3000 } },
+      params: { name: "web_search_exa", arguments: { query, numResults: options.numResults ?? 5, livecrawl: "fallback", type: "auto", contextMaxCharacters: 3000 } },
     }),
     signal: requestSignal(options.signal, 60_000),
-  });
-  if (!response.ok) throw new Error(`Exa MCP error ${response.status}: ${(await response.text()).slice(0, 300)}`);
-  const bodyText = await response.text();
-  let parsed: { result?: { content?: Array<{ type?: string; text?: string }>; isError?: boolean }; error?: { code?: number; message?: string } } | null = null;
-  for (const line of bodyText.split("\n").filter((l) => l.startsWith("data:"))) {
-    try {
-      const candidate = JSON.parse(line.slice(5).trim());
-      if (candidate?.result || candidate?.error) {
-        parsed = candidate;
-        break;
-      }
-    } catch {
-      // not a JSON payload line -- ignore, matches the original's tolerant SSE scan
-    }
+  }));
+  return response.text();
+}
+
+function parseExaMcpJson(text: string): ExaMcpResponse | null {
+  try {
+    return JSON.parse(text) as ExaMcpResponse;
+  } catch {
+    return null;
   }
-  if (!parsed) {
-    try {
-      parsed = JSON.parse(bodyText);
-    } catch {
-      // falls through to the "no parseable response" error below
-    }
+}
+
+function parseExaMcpEventStream(bodyText: string): ExaMcpResponse | null {
+  for (const line of bodyText.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    const candidate = parseExaMcpJson(line.slice(5).trim());
+    if (candidate?.result || candidate?.error) return candidate;
   }
+  return null;
+}
+
+function parseExaMcpResponse(bodyText: string): string {
+  const parsed = parseExaMcpEventStream(bodyText) ?? parseExaMcpJson(bodyText);
   if (!parsed) throw new Error("Exa MCP returned an empty response");
   if (parsed.error) throw new Error(`Exa MCP error${parsed.error.code ? ` ${parsed.error.code}` : ""}: ${parsed.error.message || "Unknown error"}`);
-  if (parsed.result?.isError) throw new Error(parsed.result.content?.find((c) => c.type === "text")?.text?.trim() || "Exa MCP returned an error");
-  const text = parsed.result?.content?.find((c) => c.type === "text" && c.text?.trim())?.text;
+  if (parsed.result?.isError) throw new Error(parsed.result.content?.find((content) => content.type === "text")?.text?.trim() || "Exa MCP returned an error");
+  const text = parsed.result?.content?.find((content) => content.type === "text" && content.text?.trim())?.text;
   if (!text) throw new Error("Exa MCP returned empty content");
+  return text;
+}
 
-  const blocks = text.split(/(?=^Title: )/m).filter((b) => b.trim());
-  const parsedResults = blocks
-    .map((block) => {
-      const title = block.match(/^Title: (.+)/m)?.[1]?.trim() ?? "";
-      const url = block.match(/^URL: (.+)/m)?.[1]?.trim() ?? "";
-      const textStart = block.indexOf("\nText: ");
-      let content = textStart >= 0 ? block.slice(textStart + 7).trim() : "";
-      if (!content) {
-        const hlMatch = block.match(/\nHighlights:\s*\n/);
-        if (hlMatch?.index != null) content = block.slice(hlMatch.index + hlMatch[0].length).trim();
-      }
-      return { title, url, content: content.replace(/\n---\s*$/, "").trim() };
-    })
-    .filter((r) => r.url.length > 0);
-  if (parsedResults.length === 0) return null;
+type ExaMcpResult = { title: string; url: string; content: string };
 
-  const answer = parsedResults
-    .map((r, i) => {
-      const snippet = r.content.replace(/\s+/g, " ").trim().slice(0, 500);
-      return snippet ? `${snippet}\nSource: ${r.title || `Source ${i + 1}`} (${r.url})` : "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
-  return { answer, results: parsedResults.map((r, i) => ({ title: r.title || `Source ${i + 1}`, url: r.url, snippet: "" })) };
+function parseExaMcpBlocks(text: string): ExaMcpResult[] {
+  const blocks = text.split(/(?=^Title: )/m).filter((block) => block.trim());
+  return blocks.map((block) => {
+    const title = block.match(/^Title: (.+)/m)?.[1]?.trim() ?? "";
+    const url = block.match(/^URL: (.+)/m)?.[1]?.trim() ?? "";
+    const textStart = block.indexOf("\nText: ");
+    let content = textStart >= 0 ? block.slice(textStart + 7).trim() : "";
+    if (!content) {
+      const highlights = block.match(/\nHighlights:\s*\n/);
+      if (highlights?.index != null) content = block.slice(highlights.index + highlights[0].length).trim();
+    }
+    return { title, url, content: content.replace(/\n---\s*$/, "").trim() };
+  }).filter((result) => result.url.length > 0);
+}
+
+function formatExaMcpResults(results: ExaMcpResult[]): { answer: string; results: WebSearchResult[] } | null {
+  if (results.length === 0) return null;
+  const answer = results.map((result, index) => {
+    const snippet = result.content.replace(/\s+/g, " ").trim().slice(0, 500);
+    return snippet ? `${snippet}\nSource: ${result.title || `Source ${index + 1}`} (${result.url})` : "";
+  }).filter(Boolean).join("\n\n");
+  return { answer, results: results.map((result, index) => ({ title: result.title || `Source ${index + 1}`, url: result.url, snippet: "" })) };
+}
+
+async function searchWithExaMcp(query: string, options: PlainSearchOptions): Promise<{ answer: string; results: WebSearchResult[] } | null> {
+  const requestQuery = exaMcpQuery(query, options);
+  const responseText = await fetchExaMcp(requestQuery, options);
+  return formatExaMcpResults(parseExaMcpBlocks(parseExaMcpResponse(responseText)));
 }
 
 async function searchWithExa(query: string, options: PlainSearchOptions, apiKey: string | undefined): Promise<{ answer: string; results: WebSearchResult[] } | null> {
@@ -439,13 +446,12 @@ async function searchWithExa(query: string, options: PlainSearchOptions, apiKey:
 // --- Parallel ----------------------------------------------------------------
 
 async function parallelFetch(url: string, body: Record<string, unknown>, apiKey: string, signal: AbortSignal | undefined): Promise<Record<string, unknown>> {
-  const response = await fetch(url, {
+  const response = await checkedResponse("Parallel", await fetch(url, {
     method: "POST",
     headers: { "x-api-key": apiKey, "Content-Type": "application/json" },
     body: JSON.stringify(body),
     signal: requestSignal(signal, 60_000),
-  });
-  if (!response.ok) throw new Error(`Parallel API error ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  }));
   return (await response.json()) as Record<string, unknown>;
 }
 
@@ -474,6 +480,123 @@ async function searchWithParallel(query: string, options: PlainSearchOptions, ap
 
 // --- OpenAI (plain API key only -- see module doc for the dropped Codex-ctx branch) ---
 
+function firstPresent(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined && value !== null);
+}
+
+function cleanOpenAIUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.get("utm_source") === "openai") parsed.searchParams.delete("utm_source");
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function addOpenAIResult(
+  results: WebSearchResult[],
+  seenUrls: Set<string>,
+  url: unknown,
+  title: unknown,
+  snippet = "",
+) {
+  if (typeof url !== "string" || !url.trim()) return;
+  const cleanUrl = cleanOpenAIUrl(url);
+  if (seenUrls.has(cleanUrl)) return;
+  seenUrls.add(cleanUrl);
+  results.push({ title: typeof title === "string" && title.trim() ? title : cleanUrl, url: cleanUrl, snippet });
+}
+
+function readOpenAIEvent(data: string): { item?: unknown; response?: Record<string, unknown> } | null {
+  try {
+    const parsed = JSON.parse(data) as Record<string, unknown>;
+    const item = parsed.type === "response.output_item.done" ? parsed.item : undefined;
+    const isResponseEvent = parsed.type === "response.done" || parsed.type === "response.completed";
+    const response = isResponseEvent && parsed.response && typeof parsed.response === "object"
+      ? parsed.response as Record<string, unknown>
+      : undefined;
+    return { item, response };
+  } catch {
+    // Ignore non-JSON SSE lines, matching the tolerant provider parser.
+    return null;
+  }
+}
+
+function readOpenAIEvents(text: string): { output: unknown[]; response: Record<string, unknown> | null } {
+  const outputItems: unknown[] = [];
+  let completedResponse: Record<string, unknown> | null = null;
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data: ")) continue;
+    const data = line.slice(6).trim();
+    if (!data || data === "[DONE]") continue;
+    const event = readOpenAIEvent(data);
+    if (!event) continue;
+    if (event.item) outputItems.push(event.item);
+    if (event.response) completedResponse = event.response;
+  }
+  const output = completedResponse
+    ? (Array.isArray(completedResponse.output) ? completedResponse.output : outputItems)
+    : outputItems;
+  return { output, response: completedResponse };
+}
+
+function isRecordArray(value: unknown): value is Array<Record<string, unknown>> {
+  return Array.isArray(value);
+}
+
+function appendOpenAIMessage(item: Record<string, unknown>, answerParts: string[], results: WebSearchResult[], seenUrls: Set<string>) {
+  if (!isRecordArray(item.content)) return;
+  for (const part of item.content) {
+    if (typeof part.text === "string" && part.text.trim()) answerParts.push(part.text);
+    if (!isRecordArray(part.annotations)) continue;
+    for (const annotation of part.annotations) {
+      if (annotation.type === "url_citation") addOpenAIResult(results, seenUrls, annotation.url, annotation.title);
+    }
+  }
+}
+
+function appendOpenAISearchSources(item: Record<string, unknown>, results: WebSearchResult[], seenUrls: Set<string>) {
+  if (item.type !== "web_search_call") return;
+  const action = item.action as { sources?: unknown } | undefined;
+  for (const group of [action?.sources, item.sources, item.results]) {
+    if (!isRecordArray(group)) continue;
+    for (const source of group) {
+      addOpenAIResult(results, seenUrls, firstPresent(source.url, source.source_website_url), firstPresent(source.title, source.caption));
+    }
+  }
+}
+
+function readOpenAIAnswerAndCitations(output: unknown[]): { answer: string; results: WebSearchResult[] } {
+  const answerParts: string[] = [];
+  const results: WebSearchResult[] = [];
+  const seenUrls = new Set<string>();
+  const items = output as Array<Record<string, unknown>>;
+  for (const item of items) {
+    if (item?.type === "message") appendOpenAIMessage(item, answerParts, results, seenUrls);
+  }
+  for (const item of items) appendOpenAISearchSources(item, results, seenUrls);
+  return { answer: answerParts.join("\n").trim(), results };
+}
+
+function limitOpenAIResults(results: WebSearchResult[], requested: number | undefined): WebSearchResult[] {
+  return typeof requested === "number" && Number.isFinite(requested) && requested > 0
+    ? results.slice(0, Math.min(Math.floor(requested), 20))
+    : results;
+}
+
+function openAIUsage(response: Record<string, unknown> | null): TokenUsage {
+  const usage = record(response?.usage);
+  const reasoning = tokenCount(record(usage.output_tokens_details).reasoning_tokens);
+  return {
+    input: tokenCount(usage.input_tokens),
+    output: tokenCount(usage.output_tokens),
+    cacheRead: tokenCount(record(usage.input_tokens_details).cached_tokens),
+    totalTokens: tokenCount(usage.total_tokens),
+    ...(reasoning !== undefined ? { reasoning } : {}),
+  };
+}
+
 async function searchWithOpenAI(query: string, options: PlainSearchOptions, apiKey: string): Promise<ProviderResult> {
   const { include, exclude } = splitDomainFilter(options.domainFilter);
   const instructionLines = ["Search the web and return a concise answer grounded only in the web results.", "Include clickable source citations in the response text when possible."];
@@ -487,7 +610,7 @@ async function searchWithOpenAI(query: string, options: PlainSearchOptions, apiK
   const tool: Record<string, unknown> = { type: "web_search" };
   if (include.length || exclude.length) tool.filters = { ...(include.length ? { allowed_domains: include } : {}), ...(exclude.length ? { blocked_domains: exclude } : {}) };
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await checkedResponse("OpenAI", await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", "OpenAI-Beta": "responses=experimental" },
     body: JSON.stringify({
@@ -502,89 +625,20 @@ async function searchWithOpenAI(query: string, options: PlainSearchOptions, apiK
       parallel_tool_calls: true,
     }),
     signal: requestSignal(options.signal, 60_000),
-  });
-  if (!response.ok) throw new Error(`OpenAI API error ${response.status}: ${(await response.text()).slice(0, 300)}`);
+  }));
 
   const text = await response.text();
-  const outputItems: unknown[] = [];
-  let completedResponse: Record<string, unknown> | null = null;
-  for (const line of text.split("\n")) {
-    if (!line.startsWith("data: ")) continue;
-    const data = line.slice(6).trim();
-    if (!data || data === "[DONE]") continue;
-    try {
-      const parsed = JSON.parse(data) as Record<string, unknown>;
-      if (parsed.type === "response.output_item.done" && parsed.item) outputItems.push(parsed.item);
-      if ((parsed.type === "response.done" || parsed.type === "response.completed") && parsed.response && typeof parsed.response === "object") {
-        completedResponse = parsed.response as Record<string, unknown>;
-      }
-    } catch {
-      // non-JSON SSE line -- ignore, matches the original's tolerant scan
-    }
-  }
-  const output = completedResponse ? (Array.isArray(completedResponse.output) ? completedResponse.output : outputItems) : outputItems;
+  const { output, response: completedResponse } = readOpenAIEvents(text);
   if (output.length === 0) throw new Error("OpenAI API returned no parseable response output");
 
-  const answerParts: string[] = [];
-  const results: WebSearchResult[] = [];
-  const seenUrls = new Set<string>();
-  const addResult = (url: unknown, title: unknown, snippet = "") => {
-    if (typeof url !== "string" || !url.trim()) return;
-    let cleanUrl = url;
-    try {
-      const u = new URL(url);
-      if (u.searchParams.get("utm_source") === "openai") u.searchParams.delete("utm_source");
-      cleanUrl = u.toString();
-    } catch {
-      // not a parseable URL -- keep as-is, matching the original's fallback
-    }
-    if (seenUrls.has(cleanUrl)) return;
-    seenUrls.add(cleanUrl);
-    results.push({ title: typeof title === "string" && title.trim() ? title : cleanUrl, url: cleanUrl, snippet });
-  };
-
-  for (const item of output as Array<Record<string, unknown>>) {
-    if (item?.type !== "message") continue;
-    const content = item.content;
-    if (!Array.isArray(content)) continue;
-    for (const part of content as Array<Record<string, unknown>>) {
-      if (typeof part?.text === "string" && part.text.trim()) answerParts.push(part.text);
-      const annotations = part?.annotations;
-      if (!Array.isArray(annotations)) continue;
-      for (const annotation of annotations as Array<Record<string, unknown>>) {
-        if (annotation?.type !== "url_citation") continue;
-        addResult(annotation.url, annotation.title);
-      }
-    }
-  }
-  for (const item of output as Array<Record<string, unknown>>) {
-    if (item?.type !== "web_search_call") continue;
-    const action = item.action as { sources?: unknown } | undefined;
-    for (const group of [action?.sources, item.sources, item.results]) {
-      if (!Array.isArray(group)) continue;
-      for (const source of group as Array<Record<string, unknown>>) {
-        addResult(source?.url ?? source?.source_website_url, source?.title ?? source?.caption);
-      }
-    }
-  }
-
-  const numResults = options.numResults;
-  const limitedResults = typeof numResults === "number" && Number.isFinite(numResults) && numResults > 0 ? results.slice(0, Math.min(Math.floor(numResults), 20)) : results;
-  const answer = answerParts.join("\n").trim();
+  const { answer, results } = readOpenAIAnswerAndCitations(output);
+  const limitedResults = limitOpenAIResults(results, options.numResults);
   if (!answer && limitedResults.length === 0) throw new Error("OpenAI web_search returned no answer or sources");
-  const usage = record(completedResponse?.usage);
-  const reasoning = tokenCount(record(usage.output_tokens_details).reasoning_tokens);
   return {
     answer,
     results: limitedResults,
     model: typeof completedResponse?.model === "string" ? completedResponse.model : "gpt-5.4",
-    usage: {
-      input: tokenCount(usage.input_tokens),
-      output: tokenCount(usage.output_tokens),
-      cacheRead: tokenCount(record(usage.input_tokens_details).cached_tokens),
-      totalTokens: tokenCount(usage.total_tokens),
-      ...(reasoning !== undefined ? { reasoning } : {}),
-    },
+    usage: openAIUsage(completedResponse),
   };
 }
 
@@ -596,6 +650,91 @@ function shouldTryOpenAIInAuto(options: PlainSearchOptions): boolean {
   return true;
 }
 
+const PROVIDER_LABELS: Record<ResolvedWebSearchProvider, string> = {
+  openai: "OpenAI",
+  exa: "Exa",
+  brave: "Brave",
+  parallel: "Parallel",
+  tavily: "Tavily",
+  perplexity: "Perplexity",
+  gemini: "Gemini",
+};
+
+const MISSING_PROVIDER_KEY_ERRORS: Partial<Record<ResolvedWebSearchProvider, string>> = {
+  openai: "OpenAI web search unavailable: no OpenAI API key configured in Settings > Web Search.",
+  brave: "Brave Search unavailable: no Brave API key configured in Settings > Web Search.",
+  parallel: "Parallel search unavailable: no Parallel API key configured in Settings > Web Search.",
+  tavily: "Tavily search unavailable: no Tavily API key configured in Settings > Web Search.",
+  perplexity: "Perplexity search unavailable: no Perplexity API key configured in Settings > Web Search.",
+  gemini: "Gemini search unavailable: no Gemini API key configured in Settings > Web Search.",
+};
+
+type SearchAttempt = {
+  provider: ResolvedWebSearchProvider;
+  available: boolean;
+  run: () => Promise<ProviderResult | null>;
+};
+
+async function runExplicitProvider(
+  provider: Exclude<WebSearchProvider, "auto">,
+  query: string,
+  options: PlainSearchOptions,
+  apiKeys: WebSearchApiKeys,
+): Promise<WebSearchResponse> {
+  const key = apiKeys[provider];
+  const missingKeyMessage = MISSING_PROVIDER_KEY_ERRORS[provider];
+  if (missingKeyMessage && !key) throw new Error(missingKeyMessage);
+  const attempt: SearchAttempt = {
+    provider,
+    available: true,
+    run: () => {
+      switch (provider) {
+        case "openai": return searchWithOpenAI(query, options, key!);
+        case "brave": return searchWithBrave(query, options, key!);
+        case "parallel": return searchWithParallel(query, options, key!);
+        case "tavily": return searchWithTavily(query, options, key!);
+        case "perplexity": return searchWithPerplexity(query, options, key!);
+        case "gemini": return searchWithGemini(query, options, key!);
+        case "exa": return searchWithExa(query, options, key);
+      }
+    },
+  };
+  const result = await attempt.run();
+  if (!result && provider === "exa") return { answer: "", results: [], provider: "exa" };
+  if (!result) throw new Error("Gemini search returned no answer or sources.");
+  return { ...result, provider };
+}
+
+const AUTO_PROVIDER_ORDER: readonly ResolvedWebSearchProvider[] = ["openai", "exa", "brave", "parallel", "tavily", "perplexity", "gemini"];
+
+function buildAutoAttempts(query: string, options: PlainSearchOptions, apiKeys: WebSearchApiKeys): SearchAttempt[] {
+  const attempts: Record<ResolvedWebSearchProvider, SearchAttempt> = {
+    openai: { provider: "openai", available: !!apiKeys.openai && shouldTryOpenAIInAuto(options), run: () => searchWithOpenAI(query, options, apiKeys.openai!) },
+    exa: { provider: "exa", available: true, run: () => searchWithExa(query, options, apiKeys.exa) },
+    brave: { provider: "brave", available: !!apiKeys.brave, run: () => searchWithBrave(query, options, apiKeys.brave!) },
+    parallel: { provider: "parallel", available: !!apiKeys.parallel, run: () => searchWithParallel(query, options, apiKeys.parallel!) },
+    tavily: { provider: "tavily", available: !!apiKeys.tavily, run: () => searchWithTavily(query, options, apiKeys.tavily!) },
+    perplexity: { provider: "perplexity", available: !!apiKeys.perplexity, run: () => searchWithPerplexity(query, options, apiKeys.perplexity!) },
+    gemini: { provider: "gemini", available: !!apiKeys.gemini, run: () => searchWithGemini(query, options, apiKeys.gemini!) },
+  };
+  return AUTO_PROVIDER_ORDER.map((provider) => attempts[provider]);
+}
+
+async function runAutoProvider(query: string, options: PlainSearchOptions, apiKeys: WebSearchApiKeys): Promise<WebSearchResponse> {
+  const errors: string[] = [];
+  for (const attempt of buildAutoAttempts(query, options, apiKeys)) {
+    if (!attempt.available) continue;
+    try {
+      const result = await attempt.run();
+      if (result) return { ...result, provider: attempt.provider };
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      errors.push(`${PROVIDER_LABELS[attempt.provider]}: ${errorMessage(err)}`);
+    }
+  }
+  throw new Error(`Web search failed:\n  - ${errors.join("\n  - ")}`);
+}
+
 /** Direct port of gemini-search.ts's own `search()` waterfall -- see the
  * module doc for what got dropped. Throws only when every attempted
  * provider fails (or none is configured); a caller-selected `provider`
@@ -604,102 +743,7 @@ function shouldTryOpenAIInAuto(options: PlainSearchOptions): boolean {
 export async function runWebSearch(query: string, options: WebSearchOptions, apiKeys: WebSearchApiKeys): Promise<WebSearchResponse> {
   const provider = options.provider ?? "auto";
   const plain: PlainSearchOptions = { numResults: options.numResults, recencyFilter: options.recencyFilter, domainFilter: options.domainFilter, signal: options.signal };
-
-  if (provider === "openai") {
-    if (!apiKeys.openai) throw new Error("OpenAI web search unavailable: no OpenAI API key configured in Settings > Web Search.");
-    return { ...(await searchWithOpenAI(query, plain, apiKeys.openai)), provider: "openai" };
-  }
-  if (provider === "brave") {
-    if (!apiKeys.brave) throw new Error("Brave Search unavailable: no Brave API key configured in Settings > Web Search.");
-    return { ...(await searchWithBrave(query, plain, apiKeys.brave)), provider: "brave" };
-  }
-  if (provider === "parallel") {
-    if (!apiKeys.parallel) throw new Error("Parallel search unavailable: no Parallel API key configured in Settings > Web Search.");
-    return { ...(await searchWithParallel(query, plain, apiKeys.parallel)), provider: "parallel" };
-  }
-  if (provider === "tavily") {
-    if (!apiKeys.tavily) throw new Error("Tavily search unavailable: no Tavily API key configured in Settings > Web Search.");
-    return { ...(await searchWithTavily(query, plain, apiKeys.tavily)), provider: "tavily" };
-  }
-  if (provider === "perplexity") {
-    if (!apiKeys.perplexity) throw new Error("Perplexity search unavailable: no Perplexity API key configured in Settings > Web Search.");
-    return { ...(await searchWithPerplexity(query, plain, apiKeys.perplexity)), provider: "perplexity" };
-  }
-  if (provider === "gemini") {
-    if (!apiKeys.gemini) throw new Error("Gemini search unavailable: no Gemini API key configured in Settings > Web Search.");
-    const result = await searchWithGemini(query, plain, apiKeys.gemini);
-    if (result) return { ...result, provider: "gemini" };
-    throw new Error("Gemini search returned no answer or sources.");
-  }
-  if (provider === "exa") {
-    return { ...((await searchWithExa(query, plain, apiKeys.exa)) ?? { answer: "", results: [] }), provider: "exa" };
-  }
-
-  // "auto" -- same fallback order as gemini-search.ts's own auto branch.
-  const fallbackErrors: string[] = [];
-
-  if (apiKeys.openai && shouldTryOpenAIInAuto(plain)) {
-    try {
-      return { ...(await searchWithOpenAI(query, plain, apiKeys.openai)), provider: "openai" };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      fallbackErrors.push(`OpenAI: ${errorMessage(err)}`);
-    }
-  }
-
-  try {
-    const exaResult = await searchWithExa(query, plain, apiKeys.exa);
-    if (exaResult) return { ...exaResult, provider: "exa" };
-  } catch (err) {
-    if (isAbortError(err)) throw err;
-    fallbackErrors.push(`Exa: ${errorMessage(err)}`);
-  }
-
-  if (apiKeys.brave) {
-    try {
-      return { ...(await searchWithBrave(query, plain, apiKeys.brave)), provider: "brave" };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      fallbackErrors.push(`Brave: ${errorMessage(err)}`);
-    }
-  }
-  if (apiKeys.parallel) {
-    try {
-      return { ...(await searchWithParallel(query, plain, apiKeys.parallel)), provider: "parallel" };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      fallbackErrors.push(`Parallel: ${errorMessage(err)}`);
-    }
-  }
-  if (apiKeys.tavily) {
-    try {
-      return { ...(await searchWithTavily(query, plain, apiKeys.tavily)), provider: "tavily" };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      fallbackErrors.push(`Tavily: ${errorMessage(err)}`);
-    }
-  }
-  if (apiKeys.perplexity) {
-    try {
-      return { ...(await searchWithPerplexity(query, plain, apiKeys.perplexity)), provider: "perplexity" };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      fallbackErrors.push(`Perplexity: ${errorMessage(err)}`);
-    }
-  }
-  if (apiKeys.gemini) {
-    try {
-      const result = await searchWithGemini(query, plain, apiKeys.gemini);
-      if (result) return { ...result, provider: "gemini" };
-    } catch (err) {
-      if (isAbortError(err)) throw err;
-      fallbackErrors.push(`Gemini: ${errorMessage(err)}`);
-    }
-  }
-
-  // Exa's no-key MCP fallback is always attempted above, unconditionally,
-  // so fallbackErrors always has at least one entry by the time every
-  // provider has been tried -- there is no "nothing was even attempted"
-  // case left to report separately.
-  throw new Error(`Web search failed:\n  - ${fallbackErrors.join("\n  - ")}`);
+  return provider === "auto"
+    ? runAutoProvider(query, plain, apiKeys)
+    : runExplicitProvider(provider, query, plain, apiKeys);
 }

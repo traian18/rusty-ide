@@ -124,7 +124,7 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
     <div className="w-full h-full flex bg-[var(--bg-app)] text-[var(--text-normal)] font-mono relative terminal-theme-tab">
       {showHistory && <HistoryPanel agent={agent} onHide={() => setShowHistory(false)} />}
       <div className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden">
-        <PlanPanel plan={run.plan} />
+        <PlanPanel plan={run.plan} steps={run.stepPlans} />
         <AgentTabHeader
           historyHidden={!showHistory}
           onShowHistory={() => setShowHistory(true)}

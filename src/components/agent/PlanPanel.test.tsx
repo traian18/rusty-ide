@@ -7,11 +7,11 @@ import { PlanPanel } from "./PlanPanel";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-async function render(plan: Parameters<typeof PlanPanel>[0]["plan"]) {
+async function render(plan: Parameters<typeof PlanPanel>[0]["plan"], steps?: Parameters<typeof PlanPanel>[0]["steps"]) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => root.render(<PlanPanel plan={plan} />));
+  await act(async () => root.render(<PlanPanel plan={plan} steps={steps} />));
   return container;
 }
 
@@ -35,5 +35,18 @@ describe("PlanPanel", () => {
 
     await act(async () => bar.click());
     expect(c.textContent).toContain("Write tests");
+  });
+
+  it("in a workflow shows the running step's plan, with earlier steps folded above it", async () => {
+    const c = await render([{ content: "An old chat item", status: "pending" }], [
+      { key: "analyze:s1", step: "Analyze", label: "Analyze", todos: [{ content: "Read the spec", status: "completed" }] },
+      { key: "spec:s2", step: "Write spec", label: "Write spec", todos: [{ content: "Write R1", status: "in_progress" }, { content: "Self-check", status: "pending" }] },
+    ]);
+    expect(c.textContent).toContain("Write spec plan0/2");
+    expect(c.textContent).toContain("Write R1");
+    expect(c.textContent).not.toContain("An old chat item");
+    expect(c.textContent).not.toContain("Read the spec");
+    await act(async () => c.querySelector<HTMLButtonElement>("[aria-label='Analyze plan'] button")!.click());
+    expect(c.textContent).toContain("Read the spec");
   });
 });

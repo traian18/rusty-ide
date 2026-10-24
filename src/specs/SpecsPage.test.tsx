@@ -157,6 +157,59 @@ describe("SpecsPage", () => {
     expect(useWorkspaceStore.getState().tabs.some((tab) => tab.id === pending?.tabId && tab.type === "agent")).toBe(true);
   });
 
+  describe("in a workspace of several repositories", () => {
+    const workspace = { root: "/ws", repositories: [{ path: "/ws/ide", name: "ide" }, { path: "/ws/core", name: "core" }], open: vi.fn() };
+    const mountIn = async (client: ReturnType<typeof fakeSpecsClient>) => {
+      useWorkspaceStore.setState({ rootPath: "/ws" });
+      await act(async () => root.render(<SpecsPage client={client} root="/ws/ide" openFile={vi.fn()} workspace={workspace} />));
+      await settle();
+    };
+
+    it("creates a linked change in the repositories ticked, with this one holding the main spec", async () => {
+      const part = (repository: string, dir: string, main: boolean) => ({ repository, root: `/ws/${repository}`, dir, main, files: [], branch: { kind: "created" as const, name: "spec/0004-dark-mode" } });
+      const client = fakeSpecsClient({ createLinkedChange: vi.fn(async () => [part("ide", "0004-dark-mode", true), part("core", "0002-dark-mode", false)]) });
+      await mountIn(client);
+      await click(button("New change"));
+      const title = document.body.querySelector("#new-change-name") as HTMLInputElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(title, "Dark mode");
+        title.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      expect(document.body.querySelector("#new-change-repository-ide")).toBeNull();
+      await click(document.body.querySelector("#new-change-repository-core"));
+      await click(button("Create"));
+      expect(client.createLinkedChange).toHaveBeenCalledWith("/ws", ["/ws/ide", "/ws/core"], "/ws/ide", expect.objectContaining({ title: "Dark mode", branch: true }));
+      expect(client.createChange).not.toHaveBeenCalled();
+      expect(useSpecsView.getState().selection).toEqual({ kind: "change", dir: "0004-dark-mode" });
+    });
+
+    it("runs a step from the workspace folder, naming the repository's paths from there", async () => {
+      await mountIn(fakeSpecsClient({ overview: vi.fn(async () => overview({ changes: [change({ status: "draft", nextStep: "specify" })] })) }));
+      await click(button("Specify"));
+      const pending = useSpecLaunch.getState().pending;
+      expect(pending?.run).toEqual({ root: "/ws/ide", change: "0001-albums", step: "specify" });
+      expect(pending?.message).toContain("into ide/specs/changes/0001-albums/spec.md");
+    });
+
+    it("shows a linked change's other parts, opens one and switches them all to the branch", async () => {
+      const linked = change({ main: "ide", links: ["core/0002-albums"] });
+      const client = fakeSpecsClient({
+        overview: vi.fn(async (at: string) => (at === "/ws/core" ? overview({ changes: [change({ dir: "0002-albums", status: "specified", tasksTotal: 0, tasksDone: 0 })] }) : overview({ changes: [linked] }))),
+        switchLinked: vi.fn(async () => [{ repository: "ide", branch: "spec/0001-albums", outcome: { kind: "already" as const } }]),
+      });
+      await mountIn(client);
+      const parts = container.querySelector('section[aria-label="Linked parts"]')!;
+      expect(parts.textContent).toContain("This change spans 2 repositories");
+      expect(parts.textContent).toContain("0001-albums, this part · main spec");
+      expect(parts.textContent).toContain("0002-albums: Specified, tasks no tasks");
+      await click(button("Switch all to spec/0001-albums", parts));
+      expect(client.switchLinked).toHaveBeenCalledWith("/ws", "/ws/ide", "0001-albums");
+      await click(button("Open", parts));
+      expect(workspace.open).toHaveBeenCalledWith("/ws/core");
+      expect(useSpecsView.getState()).toMatchObject({ root: "/ws/core", selection: { kind: "change", dir: "0002-albums" } });
+    });
+  });
+
   it("does not offer Design & tasks until there is a spec", async () => {
     await mount(fakeSpecsClient({ overview: vi.fn(async () => overview({ changes: [change({ documents: ["change.md"] })] })) }));
     expect((button("Design & tasks") as HTMLButtonElement).disabled).toBe(true);

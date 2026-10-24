@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "research",
-  "revision": 6,
+  "revision": 7,
   "name": "Research",
   "description": "Works as a technical researcher: pins down the question, reads the project's own constraints first, then gathers and cross-checks primary sources, compares credible options on the same criteria, and reports a sourced recommendation with its confidence and open unknowns. Read-only; it never edits files or runs commands.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "web_search",
@@ -60,6 +61,15 @@
           }
         },
         "feedback": "Research the workspace or sources before completing, then provide sourced findings and a recommendation."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

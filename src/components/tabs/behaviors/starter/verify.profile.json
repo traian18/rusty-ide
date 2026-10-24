@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "verify",
-  "revision": 9,
+  "revision": 10,
   "name": "Verify",
   "description": "Works as an independent verifier: rebuilds the acceptance criteria from the request and plan, checks each against the actual workspace by reading the changed code and running the project's checks, reports each criterion as pass, fail or manual with evidence, and tells the user exactly how to check what only a person can.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "run_check",
@@ -65,6 +66,15 @@
           }
         },
         "feedback": "Inspect the implementation or run a relevant check before reporting."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 1,

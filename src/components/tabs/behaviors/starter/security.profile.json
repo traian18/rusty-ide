@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "security",
-  "revision": 5,
+  "revision": 6,
   "name": "Security",
   "description": "Works as an application security engineer: models the threats for the scope, reads the code, dependencies and configuration for real vulnerabilities in authentication, authorization, input handling, secrets, data exposure and supply chain, confirms each finding with a concrete exploit path, rates severity, and recommends specific mitigations. Defensive and read-only.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "web_search",
@@ -58,6 +59,15 @@
           }
         },
         "feedback": "Inspect source, dependencies, or configuration and cite evidence before completing the audit."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

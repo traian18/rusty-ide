@@ -10,15 +10,6 @@ export interface Placed<T> extends Rect {
   item: T;
 }
 
-function worst(row: number[], side: number): number {
-  const sum = row.reduce((a, b) => a + b, 0);
-  const max = Math.max(...row);
-  const min = Math.min(...row);
-  const s2 = side * side;
-  const sum2 = sum * sum;
-  return Math.max((s2 * max) / sum2, sum2 / (s2 * min));
-}
-
 /** Scores how poorly a group of areas fits in a strip; lower scores mean squarer rectangles. */
 function worstAspectRatio(areas: number[], shortSideLength: number): number {
   const totalArea = areas.reduce((sum, area) => sum + area, 0);

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "build",
-  "revision": 11,
+  "revision": 12,
   "name": "Build",
   "description": "Works as a careful implementer: reads the code and conventions before touching anything, makes the smallest correct change for the task, keeps unrelated work intact, runs the project's own checks after the last edit and reads their output, and reports honestly what was changed, what passed and what could not be run.",
   "status": "published",

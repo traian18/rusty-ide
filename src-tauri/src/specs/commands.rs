@@ -15,7 +15,7 @@ use serde::Serialize;
 use super::branch::{self, BranchOutcome};
 use crate::repository::error::RepositoryError;
 
-async fn blocking<T: Send + 'static>(
+pub(super) async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, RepositoryError> + Send + 'static,
 ) -> Result<T, RepositoryError> {
     tauri::async_runtime::spawn_blocking(work)
@@ -23,7 +23,7 @@ async fn blocking<T: Send + 'static>(
         .map_err(|error| RepositoryError::new("internal", error.to_string()))?
 }
 
-fn folder(root: &str) -> Result<PathBuf, RepositoryError> {
+pub(super) fn folder(root: &str) -> Result<PathBuf, RepositoryError> {
     let path = Path::new(root);
     if path.is_dir() {
         Ok(path.to_path_buf())
@@ -32,7 +32,7 @@ fn folder(root: &str) -> Result<PathBuf, RepositoryError> {
     }
 }
 
-fn spec_error(error: harness_specs::SpecError) -> RepositoryError {
+pub(super) fn spec_error(error: harness_specs::SpecError) -> RepositoryError {
     RepositoryError::new("io_error", error.message)
 }
 
@@ -103,6 +103,7 @@ pub async fn specs_change_create(
             description: &description,
             date: &date,
             branch: created,
+            linked: None,
         };
         let files = scaffold::create_change(&store, &plan, &request).map_err(spec_error)?;
         Ok(CreatedChange {
@@ -114,7 +115,7 @@ pub async fn specs_change_create(
     .await
 }
 
-fn plain_date(date: &str) -> bool {
+pub(super) fn plain_date(date: &str) -> bool {
     let bytes = date.as_bytes();
     bytes.len() == 10
         && bytes.iter().enumerate().all(|(i, b)| {
@@ -148,15 +149,19 @@ pub async fn specs_tasks(
     .await
 }
 
-/// The text a Specify or Plan run starts from, composed from the files at this moment.
+/// The text a Specify or Plan run starts from, composed from the files at this moment. With the
+/// `workspace` the run works in, it also says where the repository is in it and, for a linked
+/// change, what the other parts are.
 #[tauri::command]
 pub async fn specs_context(
     root: String,
     change: String,
     step: Step,
+    workspace: Option<String>,
 ) -> Result<String, RepositoryError> {
     blocking(move || {
-        let store = FsStore::new(folder(&root)?);
+        let repository = folder(&root)?;
+        let store = FsStore::new(&repository);
         // Start specs works on the whole repository, not on one change.
         if !matches!(step, Step::Start | Step::Capability)
             && !store.dirs(&Layout::of(&store).changes()).contains(&change)
@@ -165,7 +170,13 @@ pub async fn specs_context(
                 "{change} is not a change"
             )));
         }
-        Ok(context::compose(&store, &change, step))
+        let place = super::linked::Place::of(workspace.as_deref(), &repository);
+        Ok(format!(
+            "{}{}{}",
+            place.preamble(),
+            context::compose(&store, &change, step),
+            place.linked_context(&store, &change, step)
+        ))
     })
     .await
 }

@@ -1,4 +1,5 @@
 import type { CommonEvent } from "../../../harness/contract";
+import { mergeStepPlan } from "../../agent/stepPlans";
 import { scheduleTreeRefresh } from "../../filetree/FileTreePresenter";
 import { useWorkflowRunStore } from "../behaviors/workflowRunStore";
 import { mergeSubagent, readIncomingSubagent } from "./subagents";
@@ -104,7 +105,7 @@ const handlers: Handlers = {
     turn.state.responseStream?.append(event.content, event.messageId);
     scheduleResponseFlush(turn.state);
   },
-  plan: (turn, _run, event) => turn.ui.setPlan(event.todos),
+  plan: (turn, _run, { todos, step }) => (step ? turn.ui.setStepPlans((plans) => mergeStepPlan(plans, step, todos)) : turn.ui.setPlan(todos)),
   progress: (turn, _run, event) => turn.activity.report(event.content),
   workflow_checkpoint: (turn, _run, event) => {
     turn.state.lastWorkflowState = event.state;

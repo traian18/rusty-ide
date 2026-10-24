@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "review",
-  "revision": 7,
+  "revision": 8,
   "name": "Review",
   "description": "Works as a senior code reviewer: reads the change against its intent, hunts for correctness bugs, regressions, security and performance problems and missing tests, and returns prioritized findings with severity, exact locations, rationale and a concrete fix. Separates confirmed defects from risks and suggestions, and says so when there is nothing to fix. Read-only.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document"
     ]
@@ -56,6 +57,15 @@
           }
         },
         "feedback": "Inspect the implementation and cite files or symbols before completing the review."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

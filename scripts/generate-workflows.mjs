@@ -32,6 +32,9 @@ const INPUTS={
  context:'context: what came before this run, such as the conversation or the result of an earlier workflow the user continued from (an investigation, a design, a plan). It may be empty. Build on it instead of redoing it, and treat decisions recorded in it as made.',
  research:'research: the Research step\'s findings: sources, options, trade-offs and its recommendation.',
  analyze:'analyze: the Analyze step\'s report on the code: files and symbols, data and control flow, the change surface, the tests and the risks.',
+ clarify:'clarify: the Clarify step\'s report: what it resolved from the code and the context, the assumptions it takes, and the open questions it ranks for the person.',
+ spec:'spec: the spec the Write spec step wrote, as it is saved to spec.md: user stories, requirements with their criteria, success criteria, entities, assumptions and open questions.',
+ check:'check: the Check step\'s report: how the spec\'s criteria are covered by the design, the gaps and conflicts it found with their severity, and its verdict.',
  architect:'architect: the Architect step\'s design: components, interfaces, data flow, failure handling, and the approach it chose and why.',
  debug:'debug: the Debug step\'s diagnosis: the reproduction, the evidence, the root cause and the regression test it proposes.',
  audit:'audit: the security audit\'s findings, each with an id, severity, location, exploit conditions and the remediation it calls for.',
@@ -212,7 +215,7 @@ const FROM_FILES=new Set(['implement-spec']);
 const taskPlanSchema={type:'registry',schema_id:'rusty.task_plan',revision:1};
 const WRITER_NAMES={build:'Build',refactor:'Refactor',optimize:'Optimize',document:'Document'};
 const catalog=[
- ['plan-build-verify',[], 'build'],['investigate',['research','analyze']],['design',['architect','plan']],['implement-spec',[],'build'],['start-specs',['analyze','project','survey']],['onboard-capability',['analyze','spec']],['specify',['analyze','spec']],['spec-plan',['architect','tasks']],['diagnose',['debug','plan']],['implement',[],'build'],['security-audit',['audit','plan']],['check-changes',['review','verify']],['analyzed-feature',['analyze'],'build'],['researched-feature',['research','architect'],'build'],['bug-fix',['debug'],'build'],['careful-change',['analyze'],'build','review'],['security-remediation',['audit'],'build','recheck'],['refactor',['analyze'],'refactor','review'],['optimize-performance',['analyze'],'optimize'],['documentation',['analyze'],'document','review'],
+ ['plan-build-verify',[], 'build'],['investigate',['research','analyze']],['design',['architect','plan']],['implement-spec',[],'build'],['start-specs',['analyze','project','survey']],['onboard-capability',['analyze','spec']],['specify',['analyze','clarify','spec','checklist']],['spec-plan',['architect','check','tasks']],['diagnose',['debug','plan']],['implement',[],'build'],['security-audit',['audit','plan']],['check-changes',['review','verify']],['analyzed-feature',['analyze'],'build'],['researched-feature',['research','architect'],'build'],['bug-fix',['debug'],'build'],['careful-change',['analyze'],'build','review'],['security-remediation',['audit'],'build','recheck'],['refactor',['analyze'],'refactor','review'],['optimize-performance',['analyze'],'optimize'],['documentation',['analyze'],'document','review'],
 ];
 const definitions=JSON.parse(fs.readFileSync(new URL('./workflow-catalog-source.json',import.meta.url),'utf8'));
 const outputs=[];

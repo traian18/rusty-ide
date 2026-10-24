@@ -91,6 +91,19 @@ describe("runWebSearch", () => {
     expect(calledUrls.some((u) => u.includes("api.tavily.com"))).toBe(true);
   });
 
+  it("stops automatic provider fallback when the request is aborted", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn(async () => {
+      controller.abort();
+      throw new DOMException("Aborted", "AbortError");
+    });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await expect(runWebSearch("query", { signal: controller.signal }, { brave: "brave-key", tavily: "tavily-key" }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("auto mode throws, listing per-provider failures, when nothing succeeds (Exa's no-key MCP fallback is always attempted first)", async () => {
     globalThis.fetch = vi.fn(async () => new Response("", { status: 200 })) as unknown as typeof fetch;
 

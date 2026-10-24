@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { todosFor, type Todo } from "../../../harness/core/definitions/todoTool";
 import type { WorkflowQuestion } from "../../../harness/contract";
+import type { StepPlan } from "../../agent/stepPlans";
 import type { SubagentActivity } from "../../ui/Chat";
 import type { AgentQuestion } from "../../ui/ChatInput";
 import type { TokenUsageLike } from "../../ui/TokenBadge/TokenBadge";
@@ -20,14 +21,16 @@ export function useTurnUi(tabId: string) {
   const [workflowQuestions, setWorkflowQuestions] = useState<WorkflowQuestion[]>([]);
   const [workflowRunning, setWorkflowRunning] = useState(false);
   const [plan, setPlan] = useState<Todo[]>(() => todosFor(tabId));
+  // A workflow run's plans, one per step session.
+  const [stepPlans, setStepPlans] = useState<StepPlan[]>([]);
   const hasActiveSubagents = subagents.some(isActiveSubagent);
 
   const ui: Omit<TurnUi, "setAutoWorkflow"> = {
     setSubagents, setAgentQuestions, setWorkflowQuestions, setRunUsage, setStreamingLabel,
-    setIsStreaming, setWorkflowRunning, setPlan, setMessage,
+    setIsStreaming, setWorkflowRunning, setPlan, setStepPlans, setMessage,
   };
   return {
-    ui, message, isStreaming, subagents, runUsage, streamingLabel, agentQuestions, workflowQuestions, workflowRunning, plan,
+    ui, message, isStreaming, subagents, runUsage, streamingLabel, agentQuestions, workflowQuestions, workflowRunning, plan, stepPlans,
     hasActiveSubagents, isAgentBusy: isStreaming || hasActiveSubagents,
   };
 }

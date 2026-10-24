@@ -231,6 +231,23 @@ describe("Agent chat workflows", () => {
     expect(savedWorkflow()).toBe(FLOW_PATH);
   });
 
+  it("clears the running workflow state immediately when Stop is pressed", async () => {
+    await choose(FLOW_PATH);
+    await send("begin the workflow");
+
+    expect(useWorkflowRunStore.getState().runs.flow?.status).toBe("running");
+    const stopButton = [...container.querySelectorAll<HTMLButtonElement>("button")]
+      .find((button) => button.textContent?.trim() === "STOP");
+    expect(stopButton).toBeDefined();
+
+    await act(async () => stopButton!.click());
+    await flush();
+
+    expect(useWorkflowRunStore.getState().runs.flow?.status).toBe("cancelled");
+    expect(container.querySelector("#agent-workflow-select")?.hasAttribute("disabled")).toBe(false);
+    expect(container.querySelector('[data-testid="workflow-chip"]')?.textContent).toContain("Plan and build");
+  });
+
   it("starts a new activity and response pair for every agent workflow step", async () => {
     files[FLOW_PATH] = JSON.stringify({
       ...FLOW,

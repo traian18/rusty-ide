@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "architect",
-  "revision": 6,
+  "revision": 7,
   "name": "Architect",
   "description": "Works as a software architect: studies the existing system, defines responsibilities, interfaces, data flow and compatibility constraints, weighs real alternatives by their trade-offs, and records the decision, its reasons and what would change it, grounded in the code instead of in an ideal design. Read-only; it produces a design handoff, never code.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "web_search",
@@ -58,6 +59,15 @@
           }
         },
         "feedback": "Inspect the existing architecture and cite relevant code before completing the design."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

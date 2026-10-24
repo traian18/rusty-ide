@@ -32,7 +32,7 @@ export function specRequest(step: SpecStep, change: { number: number | null; tit
   const number = change.number !== null ? `${String(change.number).padStart(4, "0")} ` : "";
   const folder = `${specsRoot}/changes/${change.dir}`;
   const what = step === "specify"
-    ? `Write the spec of change ${number}${change.title}, into ${folder}/spec.md.`
+    ? `Write the spec of change ${number}${change.title}, into ${folder}/spec.md, and its quality checklist, checklist.md.`
     : step === "plan"
       ? `Write the design and the task list of change ${number}${change.title}, into ${folder}/design.md and tasks.md.`
       : `Implement change ${number}${change.title} from ${folder}: build the tasks of tasks.md that are not ticked yet, then verify every criterion of spec.md.`;

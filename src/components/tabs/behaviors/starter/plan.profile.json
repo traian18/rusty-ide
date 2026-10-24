@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "plan",
-  "revision": 9,
+  "revision": 10,
   "name": "Plan",
   "description": "Works as a technical lead turning a request into a plan: investigates the code and constraints first, writes requirements with observable acceptance criteria, orders small tasks that each change the workspace and name the criteria they satisfy, and calls out risks and follow-ups. Read-only; the plan is something a person can approve before anything is built.",
   "status": "published",
@@ -19,6 +19,7 @@
       "project_info",
       "read_workflow_context",
       "report_progress",
+      "update_todos",
       "ask_user_question",
       "open_document",
       "web_search",
@@ -73,6 +74,15 @@
           }
         },
         "feedback": "You have not looked at the code yet. Explore the relevant files before proposing a plan."
+      },
+      {
+        "id": "todos-done",
+        "evaluator": {
+          "type": "tool",
+          "tool": "update_todos"
+        },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       }
     ],
     "max_continuations": 2,

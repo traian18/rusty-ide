@@ -55,8 +55,14 @@ export function trackWorkflowRun(turn: AgentTurn, plan: LaunchPlan, run: RunHand
   for (const [nodeId, step] of Object.entries(steps ?? {})) {
     if (step.status === "succeeded") store.step(workflowId, { nodeId, status: "succeeded", attempt: step.attempts?.length ?? 1 });
   }
+  turn.state.activeWorkflowId = workflowId;
+  turn.state.activeWorkflowRunId = run.runId;
+  turn.ui.setStepPlans([]);
   turn.ui.setWorkflowRunning(true);
   void run.done.then((outcome) => {
+    if (turn.state.activeWorkflowRunId !== run.runId) return;
+    turn.state.activeWorkflowId = null;
+    turn.state.activeWorkflowRunId = null;
     turn.ui.setWorkflowRunning(false);
     const status = outcome.status === "completed" ? "completed" : outcome.status === "failed" ? "failed" : "was cancelled";
     turn.state.lastWorkflowRun = { name: workflowName(plan), status };
