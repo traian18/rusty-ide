@@ -19,37 +19,123 @@ function worst(row: number[], side: number): number {
   return Math.max((s2 * max) / sum2, sum2 / (s2 * min));
 }
 
-/** Lays `items` (any order; sorted largest first here) into `bounds`. Zero weights get no area. */
-export function squarify<T>(items: readonly T[], weight: (item: T) => number, bounds: Rect): Placed<T>[] {
-  const sorted = items.map((item) => ({ item, w: Math.max(0, weight(item)) })).filter((e) => e.w > 0).sort((a, b) => b.w - a.w);
-  const total = sorted.reduce((a, e) => a + e.w, 0);
-  if (!total || bounds.w <= 0 || bounds.h <= 0) return [];
-  const scale = (bounds.w * bounds.h) / total;
-  const areas = sorted.map((e) => ({ item: e.item, a: e.w * scale }));
-  const out: Placed<T>[] = [];
-  let free = { ...bounds };
-  let index = 0;
-  while (index < areas.length) {
-    const side = Math.min(free.w, free.h);
-    const row: typeof areas = [areas[index]];
-    index += 1;
-    while (index < areas.length) {
-      const next = [...row.map((r) => r.a), areas[index].a];
-      if (worst(next, side) > worst(row.map((r) => r.a), side)) break;
-      row.push(areas[index]);
-      index += 1;
+/** Scores how poorly a group of areas fits in a strip; lower scores mean squarer rectangles. */
+function worstAspectRatio(areas: number[], shortSideLength: number): number {
+  const totalArea = areas.reduce((sum, area) => sum + area, 0);
+  const largestArea = Math.max(...areas);
+  const smallestArea = Math.min(...areas);
+  const shortSideSquared = shortSideLength * shortSideLength;
+  const totalAreaSquared = totalArea * totalArea;
+
+  return Math.max(
+    (shortSideSquared * largestArea) / totalAreaSquared,
+    totalAreaSquared / (shortSideSquared * smallestArea),
+  );
+}
+
+/**
+ * Places positive-weight items in a treemap within `bounds`.
+ *
+ * Items receive areas proportional to their weights. The function sorts items
+ * from largest to smallest, then groups them into strips to keep their
+ * rectangles as close to square as possible. A strip is placed along the left
+ * edge when the remaining space is wide, or along the top edge when it is tall.
+ *
+ * Items with zero or negative weights are omitted. Results are returned in
+ * layout order, not the original input order.
+ */
+export function squarify<T>(
+  items: readonly T[],
+  weight: (item: T) => number,
+  bounds: Rect,
+): Placed<T>[] {
+  const itemsByWeight = items
+    .map((item) => ({ item, weight: Math.max(0, weight(item)) }))
+    .filter(({ weight }) => weight > 0)
+    .sort((left, right) => right.weight - left.weight);
+
+  const totalWeight = itemsByWeight.reduce((sum, entry) => sum + entry.weight, 0);
+  if (!totalWeight || bounds.w <= 0 || bounds.h <= 0) return [];
+
+  // Convert weights into rectangle areas that add up to the bounds' area.
+  const areaPerWeight = (bounds.w * bounds.h) / totalWeight;
+  const itemsByArea = itemsByWeight.map(({ item, weight }) => ({
+    item,
+    area: weight * areaPerWeight,
+  }));
+
+  const placedItems: Placed<T>[] = [];
+  let remainingBounds = { ...bounds };
+  let nextItemIndex = 0;
+
+  while (nextItemIndex < itemsByArea.length) {
+    const shortSideLength = Math.min(remainingBounds.w, remainingBounds.h);
+    const firstItem = itemsByArea[nextItemIndex];
+    const stripItems = [firstItem];
+    let stripAreas = [firstItem.area];
+    let stripScore = worstAspectRatio(stripAreas, shortSideLength);
+    nextItemIndex += 1;
+
+    // Add items while doing so improves the strip's rectangle proportions.
+    while (nextItemIndex < itemsByArea.length) {
+      const nextItem = itemsByArea[nextItemIndex];
+      const candidateAreas = [...stripAreas, nextItem.area];
+      const candidateScore = worstAspectRatio(candidateAreas, shortSideLength);
+
+      if (candidateScore > stripScore) break;
+
+      stripItems.push(nextItem);
+      stripAreas = candidateAreas;
+      stripScore = candidateScore;
+      nextItemIndex += 1;
     }
-    const rowArea = row.reduce((a, r) => a + r.a, 0);
-    const horizontal = free.w >= free.h;
-    // A column on the left when the free space is wide, a row on top when it is tall.
-    const thickness = rowArea / (horizontal ? free.h : free.w);
+
+    const stripArea = stripItems.reduce((sum, entry) => sum + entry.area, 0);
+    const remainingAreaIsWide = remainingBounds.w >= remainingBounds.h;
+    const stripThickness =
+      stripArea / (remainingAreaIsWide ? remainingBounds.h : remainingBounds.w);
+
     let offset = 0;
-    for (const r of row) {
-      const length = r.a / thickness;
-      out.push(horizontal ? { item: r.item, x: free.x, y: free.y + offset, w: thickness, h: length } : { item: r.item, x: free.x + offset, y: free.y, w: length, h: thickness });
-      offset += length;
+
+    for (const entry of stripItems) {
+      const itemLength = entry.area / stripThickness;
+
+      if (remainingAreaIsWide) {
+        placedItems.push({
+          item: entry.item,
+          x: remainingBounds.x,
+          y: remainingBounds.y + offset,
+          w: stripThickness,
+          h: itemLength,
+        });
+      } else {
+        placedItems.push({
+          item: entry.item,
+          x: remainingBounds.x + offset,
+          y: remainingBounds.y,
+          w: itemLength,
+          h: stripThickness,
+        });
+      }
+
+      offset += itemLength;
     }
-    free = horizontal ? { x: free.x + thickness, y: free.y, w: free.w - thickness, h: free.h } : { x: free.x, y: free.y + thickness, w: free.w, h: free.h - thickness };
+
+    // Remove the strip from the available space before laying out the next one.
+    remainingBounds = remainingAreaIsWide
+      ? {
+          x: remainingBounds.x + stripThickness,
+          y: remainingBounds.y,
+          w: remainingBounds.w - stripThickness,
+          h: remainingBounds.h,
+        }
+      : {
+          x: remainingBounds.x,
+          y: remainingBounds.y + stripThickness,
+          w: remainingBounds.w,
+          h: remainingBounds.h - stripThickness,
+        };
   }
-  return out;
+
+  return placedItems;
 }
