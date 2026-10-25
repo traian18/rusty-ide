@@ -334,8 +334,13 @@ export function grantedToolName(name: string): string {
 }
 
 export type EditOutcome =
-  | { ok: true; next: string; replaced: number; line: number }
+  /** `already`: the file already reads as the edit wants (`next` is the file unchanged). */
+  | { ok: true; next: string; replaced: number; line: number; already?: string }
   | { ok: false; error: string };
+
+/** A new_string at least this long that is already in the file, where
+ * old_string is not, is taken as an edit made before (a repeated call). */
+const MIN_ALREADY_APPLIED_CHARS = 20;
 
 const MAX_LISTED_MATCH_LINES = 5;
 
@@ -371,7 +376,9 @@ export function applyEdit(previous: string, args: unknown): EditOutcome {
     return { ok: false, error: "new_string is required. Use an empty string to delete old_string." };
   }
   if (oldString === newString) {
-    return { ok: false, error: "old_string and new_string are identical, so nothing would change." };
+    // Usually an edit repeated after it was made: nothing to do, not a failure.
+    const line = matchLines(previous, oldString)[0] ?? 0;
+    return { ok: true, next: previous, replaced: 0, line, already: "old_string and new_string are identical, so the file was left as it is." };
   }
 
   let find = oldString;
@@ -384,6 +391,12 @@ export function applyEdit(previous: string, args: unknown): EditOutcome {
     lines = matchLines(previous, find);
   }
 
+  if (lines.length === 0 && newString.trim().length >= MIN_ALREADY_APPLIED_CHARS && !newString.includes(oldString)) {
+    const applied = matchLines(previous, newString.includes("\r") ? newString : newString.replace(/\n/g, previous.includes("\r\n") ? "\r\n" : "\n"));
+    if (applied.length > 0) {
+      return { ok: true, next: previous, replaced: 0, line: applied[0], already: `old_string is not in the file, but new_string already is (line ${applied[0]}): this edit was made before, so the file was left as it is.` };
+    }
+  }
   if (lines.length === 0) {
     return {
       ok: false,
@@ -426,6 +439,7 @@ export function editTool(workspaceRoot: string, host: RunHost, modifiedFiles: Se
 
     const outcome = applyEdit(previous, args);
     if (!outcome.ok) return { ok: false, error: outcome.error };
+    if (outcome.already) return { ok: true, output: `Nothing to change in ${absolute}: ${outcome.already}` };
     try {
       await host.writeFile(absolute, outcome.next, signal);
     } catch (error: unknown) {

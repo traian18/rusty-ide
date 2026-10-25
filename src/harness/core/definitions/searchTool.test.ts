@@ -49,6 +49,23 @@ describe("resolveSearchCodebaseTool", () => {
     expect(vi.mocked(invoker.invoke).mock.calls[0][0].userPrompt).toContain("Search scope (workspace-relative): src");
   });
 
+  it("falls back to a plain text search for the request's words when the selector fails", async () => {
+    const invoker: SelectorModelInvoker = { invoke: vi.fn(async () => { throw new Error("RateLimited { retry_after: None }"); }) };
+    const search = vi.fn(async () => [
+      { path: "/ws/src/session.rs", name: "session.rs", line: 7, content: "  fn session_runtime() {", is_content_match: true },
+      { path: "/ws/docs/session.md", name: "session.md", line: 1, content: "session_runtime notes", is_content_match: true },
+    ]);
+    const { handler } = resolveSearchCodebaseTool(RANKED, { workspaceRoot: "/ws", selectorInvoker: invoker, search });
+
+    const outcome = await handler({ request: "where is session_runtime started", path: "src" }, new AbortController().signal, recordingObserver());
+
+    const output = String(outcome.ok && outcome.output);
+    expect(search).toHaveBeenCalledWith("(session_runtime|started)", true);
+    expect(output).toContain("src/session.rs:7 | fn session_runtime() {");
+    expect(output).not.toContain("docs/session.md");
+    expect(output).toContain("plain text matches");
+  });
+
   it("rejects a missing request before any model runs", async () => {
     const invoker: SelectorModelInvoker = { invoke: vi.fn() };
     const observer = recordingObserver();

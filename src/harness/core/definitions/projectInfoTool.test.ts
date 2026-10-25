@@ -71,6 +71,21 @@ describe("projectInfoTool", () => {
     expect(outcome.output).toContain("- test: go test ./...   cwd: svc");
   });
 
+  it("answers repeated calls from one scan for a short while, then scans again", async () => {
+    answer();
+    const host = fakeHost();
+    let clock = 0;
+    const tool = projectInfoTool("/ws", host, () => clock);
+    const first = await tool(undefined, signal);
+    const again = await tool({ path: "svc" }, signal);
+    expect(invokeMock).toHaveBeenCalledTimes(2); // one listing, one node_modules check
+    expect(again).toMatchObject({ ok: true });
+    expect(first).toMatchObject({ ok: true });
+    clock = 2 * 60_000 + 1;
+    await tool(undefined, signal);
+    expect(invokeMock.mock.calls.filter(([command]) => command === "list_directory")).toHaveLength(2);
+  });
+
   it("checks for node_modules with the existence command, since the scan skips it", async () => {
     answer(LISTING, ["/ws/ide/node_modules"]);
     const present = await projectInfoTool("/ws", fakeHost())(undefined, signal);

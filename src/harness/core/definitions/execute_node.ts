@@ -156,7 +156,7 @@ function systemPrompt(input: ExecuteNodeInput, toolNames: string[], mcpSection: 
     : "";
 
   const firstWritingRule = toolNames.includes("edit_file")
-    ? "- Change an existing file with 'edit_file', replacing only the text that must change. Use 'write_file' only for a new file your task requires, or when a complete rewrite is really needed - then write the complete content, never partial content or diffs, and set overwrite: true when the file already has content."
+    ? "- Change an existing file with 'edit_file' for a small, targeted change. When you change much of a file under about 300 lines, read it whole once and write its complete new content with 'write_file' in one call (overwrite: true, since the file has content) instead of many small edits. Use 'write_file' for a new file your task requires too, always with the complete content: never placeholders, partial content or diffs."
     : "- Write the complete file content — never partial edits or diffs.";
 
   const defaultSystemPrompt = `You are a bounded task executor — one node in a larger multi-node plan. You have a single, small, well-defined responsibility. Other nodes handle everything else.

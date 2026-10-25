@@ -328,6 +328,18 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, SPEC_CONTEXT_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
 }
 
+/** How to report progress, for a run that has 'report_progress'. */
+function progressSection(toolNames: readonly string[]): string {
+  if (!toolNames.includes("report_progress")) return "\n";
+  return `
+User-visible progress updates:
+- Before the first substantive action, call 'report_progress' with a concise summary of your approach and the next action.
+- Call it again whenever the evidence changes your plan or before a distinct new phase.
+- A progress update is not a stopping point: take the action it names in the same turn.
+- Base updates on concrete context and tool results. Do not reveal private chain-of-thought or hidden reasoning; keep each update to 1-3 clear sentences.
+`;
+}
+
 /** The chat shows about CHAT_RENDER_CHARS of one response; anything longer
  * belongs in a file, with a short summary in chat. */
 export function longResponseGuideline(toolNames: string[]): string {
@@ -370,7 +382,7 @@ ${longResponseGuideline(toolNames)}${mcpSection}${skillGuidance}${taskDependency
 
   const fileGuidelines = toolNames.includes("edit_file")
     ? `- Use 'read_file' to read a file before changing it.
-- Change an existing file with 'edit_file', replacing only the text that must change. Use 'write_file' only to create a new file or when a complete rewrite is really intended (replacing a file that already has content needs overwrite: true).`
+- Change an existing file with 'edit_file' for a small, targeted change. When you change much of a file under about 300 lines, read it whole once and write its complete new content with 'write_file' in one call (overwrite: true, since the file has content) instead of many small edits. Use 'write_file' for new files too, and always with the complete content: never placeholders or diffs.`
     : `- Use 'read_file' to read a file before editing it.
 - Use 'write_file' to write the updated content back.`;
 
@@ -401,13 +413,7 @@ ${longResponseGuideline(toolNames)}
 
   const method = workingMethod(toolNames, { planOnly: input.planOnly, workflow: Boolean(input.workflow) });
   return `${defaultSystemPrompt}${method ? `\n${method}\n` : ""}${skillGuidance}${taskDependencySection}
-${finishingSection(input, toolNames)}
-User-visible progress updates:
-- Before the first substantive action, call 'report_progress' with a concise summary of your approach and the next action.
-- Call it again whenever the evidence changes your plan or before a distinct new phase.
-- A progress update is not a stopping point: take the action it names in the same turn.
-- Base updates on concrete context and tool results. Do not reveal private chain-of-thought or hidden reasoning; keep each update to 1-3 clear sentences.
-
+${finishingSection(input, toolNames)}${progressSection(toolNames)}
 Questions:
 - When a material product, UX, or architecture decision cannot be inferred safely, call 'ask_user_question' instead of guessing. Keep questions focused and offer concrete options with their trade-offs.`;
 }

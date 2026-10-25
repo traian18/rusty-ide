@@ -272,10 +272,23 @@ describe("applyEdit", () => {
     expect(applyEdit("", { old_string: "", new_string: "x" })).toMatchObject({ ok: false });
   });
 
-  it("rejects a missing new_string and a no-op edit", () => {
+  it("rejects a missing new_string", () => {
     expect(applyEdit(FILE, { old_string: "beta" })).toEqual({ ok: false, error: expect.stringContaining("new_string is required") });
-    expect(applyEdit(FILE, { old_string: "beta", new_string: "beta" })).toEqual({ ok: false, error: expect.stringContaining("identical") });
     expect(applyEdit(FILE, undefined)).toMatchObject({ ok: false });
+  });
+
+  it("takes a no-op or repeated edit as already made, leaving the file as it is", () => {
+    expect(applyEdit(FILE, { old_string: "beta", new_string: "beta" })).toEqual({ ok: true, next: FILE, replaced: 0, line: 2, already: expect.stringContaining("identical") });
+    const done = "const first = 1;\nconst renamedValue = computeTheValue();\n";
+    expect(applyEdit(done, { old_string: "const value = compute();", new_string: "const renamedValue = computeTheValue();" })).toEqual({
+      ok: true,
+      next: done,
+      replaced: 0,
+      line: 2,
+      already: expect.stringContaining("made before"),
+    });
+    // A short new_string found elsewhere proves nothing: still a failed match.
+    expect(applyEdit(FILE, { old_string: "delta", new_string: "gamma" })).toMatchObject({ ok: false });
   });
 
   it("matches LF text against a CRLF file and keeps its line endings", () => {

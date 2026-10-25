@@ -56,21 +56,27 @@ describe("resolveReadFileTool observability", () => {
     expect(String(outcome.ok && outcome.output)).not.toContain("selector-model");
   });
 
-  it("records selector failures on the call without returning the full file", async () => {
-    const invoker: SelectorModelInvoker = { invoke: vi.fn(async () => "not json") };
+  it("records a selector failure and answers with the parts that name the request's words", async () => {
+    const invoker: SelectorModelInvoker = { invoke: vi.fn(async () => { throw new Error("RateLimited { retry_after: None }"); }) };
     const observer = recordingObserver();
 
-    const outcome = await semanticTool(invoker).handler({ path: "src/a.ts", request: "validation logic" }, new AbortController().signal, observer);
+    const outcome = await semanticTool(invoker).handler({ path: "src/a.ts", request: "the validate function" }, new AbortController().signal, observer);
 
-    expect(outcome.ok).toBe(false);
     expect(observer.step).toHaveBeenCalledWith("warn", "semantic read_file failed", expect.objectContaining({ path: "src/a.ts" }));
+    const output = String(outcome.ok && outcome.output);
+    expect(output).toContain("export function validate()");
+    expect(output).toContain("Smart Read selector is unavailable (RateLimited");
+    // Only the parts around the match, not the whole file.
+    expect(output).not.toContain("filler300");
   });
 
-  it("does not claim a delegated executor when the request is rejected before the selector runs", async () => {
+  it("answers a long file read without a request with its first lines, without the selector", async () => {
     const observer = recordingObserver();
     const outcome = await semanticTool({ invoke: vi.fn() }).handler({ path: "src/a.ts" }, new AbortController().signal, observer);
 
-    expect(outcome.ok).toBe(false);
+    const output = String(outcome.ok && outcome.output);
+    expect(output).toContain("[lines 1-300]");
+    expect(output).toContain("these are the first 300");
     expect(observer.executedBy).not.toHaveBeenCalled();
   });
 });

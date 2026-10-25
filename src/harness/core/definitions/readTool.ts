@@ -5,6 +5,7 @@ import type { ReadToolRunConfig } from "../readToolConfig";
 import { RoutedSelectorModelInvoker, type SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { semanticRead, smartReadTracer } from "../semanticRead/semanticRead";
 import { parseLineRange, readLineRange } from "../semanticRead/lineRange";
+import { PLAIN_EXCERPT_LINES, plainExcerpt } from "../semanticRead/plainExcerpt";
 
 /** Files up to this many lines come back whole: an excerpt of a short file
  * saves little, costs a selector call and leads to re-reads and edits that miss. */
@@ -109,8 +110,12 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
         return { ok: true, output: readLineRange(path, content, {}) };
       }
       if (!request) {
-        trace.warn("read_file rejected: missing request", { path });
-        return { ok: false, error: `Smart read_file requires a precise request for a file over ${WHOLE_FILE_LINES} lines, or start_line/end_line to read exact lines.` };
+        // The first lines and how to get the rest, instead of an error and a second call.
+        trace.info("read_file returned the start of a long file without a request", { path, lines });
+        return {
+          ok: true,
+          output: `${plainExcerpt(path, content, "")}\n\n[${path} has ${lines} lines; these are the first ${PLAIN_EXCERPT_LINES}. For other parts, call read_file again with a request describing what you need, or with start_line/end_line.]`,
+        };
       }
       observer.executedBy({
         kind: "model",
@@ -137,7 +142,13 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
       } catch (error: unknown) {
         const message = formatError(error);
         trace.warn("semantic read_file failed", { path, request, selector, error: message });
-        return { ok: false, error: message };
+        if (signal?.aborted) return { ok: false, error: message };
+        // The selector failed (a rate limit, a provider error): the file is
+        // still here, so answer with the parts that name the request's words.
+        return {
+          ok: true,
+          output: `${plainExcerpt(path, content, request)}\n\n[The Smart Read selector is unavailable (${message.slice(0, 120)}), so these are plain excerpts. Use start_line/end_line for exact lines.]`,
+        };
       }
     },
   };

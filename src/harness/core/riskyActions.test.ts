@@ -23,6 +23,12 @@ describe("writeRisk", () => {
     expect(writeRisk(lines(10), "const x = 1;")).toBeUndefined();
   });
 
+  it("does not flag a whole-file rewrite of about the same size", () => {
+    // Every line changes (a restructure), but the file keeps its size.
+    expect(writeRisk(lines(40), lines(36, "renamed"))).toBeUndefined();
+    expect(writeRisk(lines(40), lines(20, "renamed"))).toBe("It removes 40 of the file's 40 lines (100%).");
+  });
+
   it.each([
     "// ... rest of the file unchanged",
     "# rest of the code remains the same",

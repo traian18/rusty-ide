@@ -5,6 +5,10 @@ import { classifyCommandRisk } from "../commandPolicy";
 const MIN_LINES_FOR_REMOVAL_CHECK = 20;
 /** Share of an existing file's lines a rewrite may drop before it is flagged. */
 export const MAX_REMOVED_SHARE = 0.5;
+/** ...but only when the file also shrinks by at least this share: a
+ * whole-file rewrite of about the same size (a restructure, the Build
+ * profile's way to change a short file) changes many lines and loses none. */
+export const MIN_SHRINK_SHARE = 0.25;
 
 /**
  * Lines that stand in for code instead of containing it -- the classic way a
@@ -40,6 +44,7 @@ export function writeRisk(previous: string | undefined, next: string): string | 
   const removed = before.filter((line) => !kept.has(line)).length;
   const share = removed / before.length;
   if (share < MAX_REMOVED_SHARE) return undefined;
+  if (after.length > before.length * (1 - MIN_SHRINK_SHARE)) return undefined;
   return `It removes ${removed} of the file's ${before.length} lines (${Math.round(share * 100)}%).`;
 }
 

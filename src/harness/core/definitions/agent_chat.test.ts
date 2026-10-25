@@ -326,15 +326,15 @@ describe("agentChatDefinition", () => {
     expect(recipe.system_prompt).not.toContain("List all files in the workspace");
   });
 
-  it("recipe() offers edit_file with the write_file grant and steers existing-file changes to it", () => {
+  it("recipe() offers edit_file with the write_file grant: targeted changes by edit, short files rewritten whole", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "write_file"] } }));
     const toolNames = recipe.host_tools?.map((t) => t.name);
     expect(toolNames).toContain("edit_file");
     expect(toolNames!.indexOf("edit_file")).toBeLessThan(toolNames!.indexOf("write_file"));
     expect(recipe.system_prompt).toContain("Change an existing file with 'edit_file'");
-    expect(recipe.system_prompt).toContain("Use 'write_file' only to create a new file");
+    expect(recipe.system_prompt).toContain("write its complete new content with 'write_file' in one call (overwrite: true, since the file has content)");
+    expect(recipe.system_prompt).toContain("never placeholders or diffs");
     expect(recipe.system_prompt).not.toContain("Use 'write_file' to write the updated content back.");
-    expect(recipe.system_prompt).toContain("needs overwrite: true");
     expect(recipe.system_prompt).toContain('"overwrite"?: true');
   });
 

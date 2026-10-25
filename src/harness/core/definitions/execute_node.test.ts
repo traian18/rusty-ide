@@ -153,11 +153,12 @@ describe("executeNodeDefinition", () => {
     expect(recipe.system_prompt).not.toContain("'write_file'");
   });
 
-  it("recipe() tells the model to change existing files with edit_file, not to rewrite them whole", () => {
+  it("recipe() tells the model to edit for targeted changes and to rewrite a short file whole for larger ones", () => {
     const prompt = executeNodeDefinition.recipe!(input()).system_prompt ?? "";
     expect(prompt).toContain("Change an existing file with 'edit_file'");
     expect(prompt).not.toContain("never partial edits or diffs.");
-    expect(prompt).toContain("set overwrite: true when the file already has content");
+    expect(prompt).toContain("write its complete new content with 'write_file' in one call (overwrite: true, since the file has content)");
+    expect(prompt).toContain("never placeholders, partial content or diffs");
     expect(prompt).toContain("Replacing a file that already has content needs overwrite: true.");
   });
 

@@ -31,13 +31,22 @@ export const PROJECT_INFO_TOOL: HostToolSpec = {
   },
 };
 
-export function projectInfoTool(workspaceRoot: string, host: RunHost): HostToolHandler {
+/** How long one scan of the manifests answers later calls of the same run:
+ * steps ask again and again (46 repeated calls in the 2026-10-25 traces),
+ * and manifests rarely change within minutes. Short, so an install is seen soon. */
+export const PROJECT_INFO_REUSE_MS = 2 * 60_000;
+
+export function projectInfoTool(workspaceRoot: string, host: RunHost, now: () => number = Date.now): HostToolHandler {
+  let scanned: { at: number; info: Awaited<ReturnType<typeof analyzeProject>> } | undefined;
   return async (args, signal) => {
     if (!workspaceRoot.trim()) return { ok: false, error: "No workspace is open, so there is no project to inspect." };
     const given = (args as { path?: unknown } | undefined)?.path;
     const base = normalizeBase(typeof given === "string" ? given : "");
     try {
-      const info = await analyzeProject(await scanProject(workspaceRoot, host, signal));
+      if (!scanned || now() - scanned.at > PROJECT_INFO_REUSE_MS) {
+        scanned = { at: now(), info: await analyzeProject(await scanProject(workspaceRoot, host, signal)) };
+      }
+      const info = scanned.info;
       if (base === "") return { ok: true, output: formatProjectInfo(info) };
       const focused = focusProjects(info, base);
       if (focused.projects.length === 0) {

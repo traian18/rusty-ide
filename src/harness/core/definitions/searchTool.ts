@@ -4,6 +4,7 @@ import type { HostToolSpec } from "../SessionRecipe";
 import type { SearchToolRunConfig } from "../searchToolConfig";
 import { RoutedSelectorModelInvoker, type SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, semanticSearch, smartSearchTracer } from "../semanticSearch/semanticSearch";
+import { requestTerms } from "../semanticRead/plainExcerpt";
 import { searchService, type SearchMatch } from "../../../services/searchService";
 import { SEARCH_CODEBASE_TOOL, searchCodebaseTool } from "./exploreTools";
 
@@ -33,6 +34,30 @@ export interface SearchCodebaseToolDependencies {
 export interface ResolvedSearchCodebaseTool {
   spec: HostToolSpec;
   handler: HostToolHandler;
+}
+
+/** Lines that name the request's words, as `path:line | text` like the
+ * ranked results, for when the selector cannot rank them. `undefined` when
+ * the request names nothing. */
+export async function plainSearch(
+  search: (pattern: string, isRegex: boolean) => Promise<SearchMatch[]>,
+  request: string,
+  path: string | undefined,
+  maxResults: number,
+  workspaceRoot: string,
+): Promise<string | undefined> {
+  const terms = requestTerms(request);
+  if (terms.length === 0) return undefined;
+  const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const root = `${workspaceRoot.replace(/\/+$/, "")}/`;
+  const relative = (file: string) => (file.startsWith(root) ? file.slice(root.length) : file);
+  const matches = (await search(`(${escaped.join("|")})`, true))
+    .filter((match) => match.is_content_match && (!path || relative(match.path).startsWith(path.replace(/^\.\//, ""))));
+  if (matches.length === 0) return `No lines mention ${terms.join(", ")}.`;
+  return matches
+    .slice(0, maxResults)
+    .map((match) => `${relative(match.path)}:${match.line} | ${match.content.trim().slice(0, 200)}`)
+    .join("\n");
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -88,7 +113,12 @@ export function resolveSearchCodebaseTool(config: SearchToolRunConfig | undefine
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error);
         trace.warn("smart search_codebase failed", { request, selector, error: message });
-        return { ok: false, error: message };
+        if (signal?.aborted) return { ok: false, error: message };
+        // The selector failed (a rate limit, a provider error): a plain text
+        // search for the request's words still finds the places.
+        const found = await plainSearch(search, request, optionalString(parsed.path), maxResults ?? DEFAULT_MAX_RESULTS, dependencies.workspaceRoot).catch(() => undefined);
+        if (!found) return { ok: false, error: message };
+        return { ok: true, output: `${found}\n\n[The Smart Search selector is unavailable (${message.slice(0, 120)}), so these are plain text matches, not ranked.]` };
       }
     },
   };
