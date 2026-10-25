@@ -45,12 +45,18 @@ const COMPACTION_KEEP_RECENT: usize = 12;
 /// Character cap used when the model's window is unknown.
 const COMPACTION_FALLBACK_CHARS: usize = 400_000;
 
+/// What every request goes through before compaction: file reads that a
+/// later read made redundant are replaced, at fixed points of the history so
+/// the provider's prompt cache keeps matching in between.
+fn first_pass() -> Arc<dyn harness_context::ContextProvider> {
+    Arc::new(harness_context::SupersededReadsProvider)
+}
+
 /// Standard compaction: local tiers only, sized by the model's window.
 fn standard_compaction(
     window: Option<u64>,
 ) -> Arc<harness_context::PolicyDrivenCompactionProvider> {
-    let passthrough: Arc<dyn harness_context::ContextProvider> =
-        Arc::new(harness_context::ChainedContextProvider::new(vec![]));
+    let passthrough = first_pass();
     Arc::new(
         harness_context::PolicyDrivenCompactionProvider::new(
             passthrough,
@@ -85,8 +91,7 @@ pub(super) fn compaction_provider(
     if let Some(confidence) = jev.confidence {
         judge = judge.with_confidence_threshold(confidence);
     }
-    let passthrough: Arc<dyn harness_context::ContextProvider> =
-        Arc::new(harness_context::ChainedContextProvider::new(vec![]));
+    let passthrough = first_pass();
     Arc::new(
         harness_context::SummarizingCompactionProvider::new(
             passthrough,
