@@ -2201,6 +2201,7 @@ version = "0.3.0"
 dependencies = [
  "async-trait",
  "futures",
+ "git2",
  "harness-core",
  "harness-protocol",
  "harness-session-store",
