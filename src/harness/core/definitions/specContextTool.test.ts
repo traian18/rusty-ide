@@ -21,6 +21,35 @@ describe("spec_context", () => {
     expect(findChange(overview.changes, " ")).toBeUndefined();
   });
 
+  it("reads the specs of each repository in a workspace of several", async () => {
+    const linked = fakeSpecsClient({
+      overview: vi.fn(async (root: string) => (root === "/ws/rusty-ide" ? overview : root === "/ws/rusty-core" ? { ...overview, changes: [change()] } : emptyOverview)),
+      document: vi.fn(async (root: string, path: string) => `${root}:${path}`),
+      tasks: vi.fn(async () => []),
+    });
+    const folders = vi.fn(async () => [
+      { name: "rusty-core", path: "/ws/rusty-core" },
+      { name: "rusty-ide", path: "/ws/rusty-ide" },
+      { name: "website", path: "/ws/website" },
+    ]);
+    const tool = specContextTool("/ws", linked, folders);
+
+    const list = (await tool({})) as { output: string };
+    expect(list.output).toContain("## rusty-core");
+    expect(list.output).toContain("## rusty-ide");
+    expect(list.output).not.toContain("website");
+
+    const one = (await tool({ change: "rusty-ide/0002" })) as { ok: boolean; output: string };
+    expect(one.ok).toBe(true);
+    expect(one.output).toContain("/ws/rusty-ide:specs/changes/0002-dark-mode/spec.md");
+    // A linked change is in both repositories: both parts come back.
+    const both = (await tool({ change: "0001-albums" })) as { output: string };
+    expect(both.output).toContain("/ws/rusty-core:specs/changes/0001-albums/spec.md");
+    expect(both.output).toContain("/ws/rusty-ide:specs/changes/0001-albums/spec.md");
+    const missing = (await tool({ change: "0009" })) as { ok: boolean; error: string };
+    expect(missing.error).toContain("rusty-ide/0002-dark-mode");
+  });
+
   it("lists the specs with no input", async () => {
     const result = await specContextTool("/repo", client())({});
     expect(result).toMatchObject({ ok: true });
