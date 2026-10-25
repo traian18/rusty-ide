@@ -5,13 +5,15 @@ import type { SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { resolveReadFileTool } from "./readTool";
 
 const SOURCE = ["import x from 'y';", "", "export function validate() {", "  return true;", "}"].join("\n");
+/** Long enough that read_file asks the selector instead of returning it whole. */
+const LONG_SOURCE = [SOURCE, ...Array.from({ length: 400 }, (_, i) => `const filler${i} = ${i};`)].join("\n");
 
 function recordingObserver() {
   const observer: ToolExecutionObserver = { executedBy: vi.fn(), usage: vi.fn(), step: vi.fn() };
   return observer;
 }
 
-function semanticTool(invoker: SelectorModelInvoker, source = SOURCE) {
+function semanticTool(invoker: SelectorModelInvoker, source = LONG_SOURCE) {
   const host = { readFile: vi.fn(async () => source) } as unknown as RunHost;
   return resolveReadFileTool(
     {
@@ -106,6 +108,20 @@ describe("resolveReadFileTool large reads", () => {
     const output = String(outcome.ok && outcome.output);
     expect(output).toContain("[lines 1-2000]");
     expect(output).toContain("Continue with start_line 2001.");
+  });
+
+  it("returns a short file whole, without the selector and without needing a request", async () => {
+    const invoker: SelectorModelInvoker = { invoke: vi.fn() };
+    const observer = recordingObserver();
+
+    const tool = semanticTool(invoker, SOURCE);
+    const asked = await tool.handler({ path: "a.ts", request: "the validate function" }, new AbortController().signal, observer);
+    const bare = await tool.handler({ path: "a.ts" }, new AbortController().signal);
+
+    expect(invoker.invoke).not.toHaveBeenCalled();
+    expect(observer.executedBy).not.toHaveBeenCalled();
+    expect(asked).toEqual({ ok: true, output: `File: a.ts (5 lines)\n[lines 1-5]\n${SOURCE}` });
+    expect(bare).toEqual(asked);
   });
 
   it("refuses a malformed line range", async () => {

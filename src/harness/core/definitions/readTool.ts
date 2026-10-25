@@ -5,18 +5,22 @@ import type { ReadToolRunConfig } from "../readToolConfig";
 import { RoutedSelectorModelInvoker, type SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { semanticRead, smartReadTracer } from "../semanticRead/semanticRead";
 import { parseLineRange, readLineRange } from "../semanticRead/lineRange";
+
+/** Files up to this many lines come back whole: an excerpt of a short file
+ * saves little, costs a selector call and leads to re-reads and edits that miss. */
+export const WHOLE_FILE_LINES = 300;
 import { NOOP_TOOL_EXECUTION_OBSERVER } from "../../contract/observability";
 import { READ_FILE_TOOL, readTool } from "./exploreTools";
 
 export const SEMANTIC_READ_FILE_TOOL: HostToolSpec = {
   name: "read_file",
   description:
-    "Read the relevant portions of a file needed to answer a specific question. Provide a precise request describing the symbols, behavior, dependencies, or implementation details you need. The result may be an excerpt rather than the complete file. If the result is insufficient, make another read_file request with a more specific description. To read exact lines instead (for example lines named in an earlier result, or a whole large file page by page), pass start_line and/or end_line; request is then optional.",
+    "Read a file. A file of up to 300 lines always comes back whole, with line numbers (the request is then not needed). For a longer file, provide a precise request describing the symbols, behavior, dependencies, or implementation details you need; the result may be an excerpt rather than the complete file. If the result is insufficient, make another read_file request with a more specific description. To read exact lines instead (for example lines named in an earlier result, or a whole large file page by page), pass start_line and/or end_line; request is then optional.",
   input_schema: {
     type: "object",
     properties: {
       path: { type: "string", description: "The file path to inspect." },
-      request: { type: "string", description: "Precisely describe the code or information needed from this file. Optional when start_line or end_line is given." },
+      request: { type: "string", description: "Precisely describe the code or information needed from this file. Optional for a file of up to 300 lines and when start_line or end_line is given." },
       start_line: { type: "integer", minimum: 1, description: "First line to return (1-based). Returns exact lines without selection." },
       end_line: { type: "integer", minimum: 1, description: "Last line to return (inclusive). Returns exact lines without selection." },
     },
@@ -66,7 +70,7 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
   return {
     spec: SEMANTIC_READ_FILE_TOOL,
     description:
-      "Read relevant excerpts from a file. Include path and a precise request describing the symbols, behavior, dependencies, or implementation details needed. The result may be partial; ask again with a more specific request, or pass start_line/end_line to read exact lines.",
+      "Read a file: up to 300 lines it comes back whole; for a longer file include a precise request describing the symbols, behavior, dependencies, or implementation details needed. The result may be partial; ask again with a more specific request, or pass start_line/end_line to read exact lines.",
     handler: async (args, signal, observer = NOOP_TOOL_EXECUTION_OBSERVER) => {
       const trace = smartReadTracer(dependencies.workspaceRoot, observer);
       const parsed = args as { path?: unknown; request?: unknown } | undefined;
@@ -93,9 +97,20 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
         trace.info("read_file exact line range", { path, ...lineRange });
         return { ok: true, output: readLineRange(path, content, lineRange) };
       }
+      const fullRead = await completeHandler({ path }, signal);
+      if (!fullRead.ok) {
+        trace.warn("underlying full read_file failed", { path, request, selector, error: fullRead.error });
+        return fullRead;
+      }
+      const content = typeof fullRead.output === "string" ? fullRead.output : String(fullRead.output ?? "");
+      const lines = content.split(/\r?\n/).length;
+      if (lines <= WHOLE_FILE_LINES) {
+        trace.info("read_file returned a short file whole", { path, lines });
+        return { ok: true, output: readLineRange(path, content, {}) };
+      }
       if (!request) {
         trace.warn("read_file rejected: missing request", { path });
-        return { ok: false, error: "Smart read_file requires a precise request, or start_line/end_line to read exact lines." };
+        return { ok: false, error: `Smart read_file requires a precise request for a file over ${WHOLE_FILE_LINES} lines, or start_line/end_line to read exact lines.` };
       }
       observer.executedBy({
         kind: "model",
@@ -105,13 +120,7 @@ export function resolveReadFileTool(config: ReadToolRunConfig | undefined, depen
         providerId: selector.providerId,
       });
       trace.info("semantic read_file started", { path, request, selector });
-      const fullRead = await completeHandler({ path }, signal);
-      if (!fullRead.ok) {
-        trace.warn("underlying full read_file failed", { path, request, selector, error: fullRead.error });
-        return fullRead;
-      }
-      const content = typeof fullRead.output === "string" ? fullRead.output : String(fullRead.output ?? "");
-      trace.info("full file loaded for selector", { path, bytes: content.length, lines: content.split(/\r?\n/).length, selector });
+      trace.info("full file loaded for selector", { path, bytes: content.length, lines, selector });
       try {
         const output = await semanticRead({
           workspaceRoot: dependencies.workspaceRoot,
