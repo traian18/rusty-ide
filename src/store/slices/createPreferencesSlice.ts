@@ -8,6 +8,7 @@ import {
   loadKeyboardShortcuts,
   saveKeyboardShortcuts,
   SHORTCUT_DEFAULTS,
+  type KeyboardShortcutPreferences,
   type ShortcutAction,
 } from "../../preferences/shortcuts";
 import {
@@ -46,6 +47,9 @@ export const createPreferencesSlice: WorkspaceSliceCreator = (set) => ({
       [action]: shortcut,
     }),
   })),
+  setKeyboardShortcuts: (shortcuts: KeyboardShortcutPreferences) => set({
+    keyboardShortcuts: saveKeyboardShortcuts(shortcuts),
+  }),
   resetKeyboardShortcuts: () => set({
     keyboardShortcuts: saveKeyboardShortcuts({ ...SHORTCUT_DEFAULTS }),
   }),

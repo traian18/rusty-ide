@@ -551,6 +551,8 @@ export interface WorkspaceState {
   /** Same hydration contract as hydrateTheme() above. */
   keyboardShortcuts: KeyboardShortcutPreferences;
   setKeyboardShortcut: (action: ShortcutAction, shortcut: string) => void;
+  /** Saves every shortcut at once (the Settings page's Save). */
+  setKeyboardShortcuts: (shortcuts: KeyboardShortcutPreferences) => void;
   resetKeyboardShortcuts: () => void;
   hydrateShortcuts: () => void;
   /** Same hydration contract as hydrateTheme() above (REFACTOR_PLAN.md PR 6). */
