@@ -15,7 +15,7 @@ import { AUTO_FLOW, shortWorkflowId } from "../behaviors/flowCatalog";
 import { runEventHandler, type RunProgress } from "./runEvents";
 import { agentRunHost } from "./runHost";
 import { resolveRunModel } from "./runModel";
-import { handleRunOutcome, trackWorkflowRun, type LaunchedRun } from "./runOutcome";
+import { handleRunOutcome, implementTicks, trackWorkflowRun, type LaunchedRun } from "./runOutcome";
 import { agentChatInput, flowCandidateName, workflowStepTypesOf, type LaunchPlan, type TurnMessage } from "./runRequest";
 import { abandonTurn, DEFAULT_STREAMING_LABEL, startResponseStream, type AgentTurn } from "./turn";
 
@@ -158,7 +158,7 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
   }
   const compaction = snapshotContextCompaction(store);
   const input = agentChatInput(turn, message, model, resolution.provider, plan, compaction);
-  const progress: RunProgress = { stepTypes: workflowStepTypesOf(plan.workflowDefinition), changed: new Set() };
+  const progress: RunProgress = { stepTypes: workflowStepTypesOf(plan.workflowDefinition), changed: new Set(), onCheckpoint: implementTicks(plan) };
   const run = harness.run(
     "agent_chat",
     input,

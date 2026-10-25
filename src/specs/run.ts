@@ -101,6 +101,21 @@ export function implementProgress(state: unknown, passed: boolean): SpecProgress
   return { tasks: acceptedTasks(steps.build), verification: verificationOf(steps.verify), passed };
 }
 
+/** Ticks an Implement run's tasks in the change as the queue accepts them, one write per newly accepted task,
+ * so a run that is stopped, fails or is cancelled never has to build them again. Writes run one after the other. */
+export function implementTicker(client: SpecsClient, run: SpecRun, date: () => string, onTicked?: () => void): (state: unknown) => void {
+  let recorded = 0;
+  let writes = Promise.resolve();
+  return (state) => {
+    const progress = implementProgress(state, false);
+    if (progress.tasks.length <= recorded) return;
+    recorded = progress.tasks.length;
+    writes = writes
+      .then(() => client.progress(run.root, run.change, progress, date()))
+      .then(() => onTicked?.(), () => undefined);
+  };
+}
+
 /** Writes an Implement run's progress into the change and says what happened, as a note. Quiet when there was nothing to record. */
 export async function recordImplementRun(client: SpecsClient, run: SpecRun, state: unknown, passed: boolean, date: string): Promise<string> {
   const progress = implementProgress(state, passed);

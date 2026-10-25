@@ -3,7 +3,7 @@ import type { CapabilityResult, RunHandle, RunOutcome, WorkflowSwitch } from "..
 import { failedVerificationReport } from "../../../harness/core/workflowRun";
 import { notify } from "../../../notificationStore";
 import { specsClient } from "../../../specs/client";
-import { recordImplementRun, recordSpecRun } from "../../../specs/run";
+import { implementTicker, recordImplementRun, recordSpecRun } from "../../../specs/run";
 import { localDate } from "../../../specs/pure";
 import { workflowReportFor } from "../../../services/workflowReport";
 import type { CustomProvider } from "../../../store";
@@ -156,6 +156,12 @@ async function onCompleted(run: LaunchedRun, result: AgentChatResult) {
   void turn.chat.save();
   turn.chat.refreshHistorySummary(run.provider, run.model.modelId, run.compaction);
   if (run.plan.spec?.step === "capability") void run.next();
+}
+
+/** An Implement run ticks each task in the change folder as soon as the queue accepts it. */
+export function implementTicks(plan: LaunchPlan): ((state: unknown) => void) | undefined {
+  const { spec } = plan;
+  return spec?.step === "implement" ? implementTicker(specsClient, spec, localDate, () => void refreshTree()) : undefined;
 }
 
 /** An Implement run that failed or was stopped keeps what it finished: those tasks are ticked in the folder. */

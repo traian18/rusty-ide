@@ -13,6 +13,8 @@ export interface RunProgress {
   stepTypes: Record<string, string>;
   /** Every file this run changed, whichever tool changed it. */
   changed: Set<string>;
+  /** Called with each workflow checkpoint (an Implement run ticks its accepted tasks). */
+  onCheckpoint?: (state: unknown) => void;
 }
 
 type EventOf<K extends CommonEvent["kind"]> = Extract<CommonEvent, { kind: K }>;
@@ -107,9 +109,10 @@ const handlers: Handlers = {
   },
   plan: (turn, _run, { todos, step }) => (step ? turn.ui.setStepPlans((plans) => mergeStepPlan(plans, step, todos)) : turn.ui.setPlan(todos)),
   progress: (turn, _run, event) => turn.activity.report(event.content),
-  workflow_checkpoint: (turn, _run, event) => {
+  workflow_checkpoint: (turn, run, event) => {
     turn.state.lastWorkflowState = event.state;
     turn.chat.setWorkflowCheckpoint(event.state);
+    run.onCheckpoint?.(event.state);
   },
   workflow_research: onResearch,
   workflow_boundary: (turn, run, event) => {

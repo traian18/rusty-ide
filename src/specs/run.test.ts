@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { fakeSpecsClient } from "./specs.testing";
-import { capabilityRequest, implementProgress, recordImplementRun, recordSpecRun, specDocuments, specRequest, startRequest } from "./run";
+import { capabilityRequest, implementProgress, implementTicker, recordImplementRun, recordSpecRun, specDocuments, specRequest, startRequest } from "./run";
 
 const definition = {
   metadata: { spec: { step: "plan", outputs: { architect: "design.md", tasks: "tasks.md" } } },
@@ -79,6 +79,19 @@ describe("implement runs", () => {
     const note = await recordImplementRun(client, { ...run, step: "implement" }, state, false, "2026-10-24");
     expect(client.progress).toHaveBeenCalledWith("/repo", "0001-albums", expect.objectContaining({ passed: false, tasks: [expect.objectContaining({ id: "T1" })] }), "2026-10-24");
     expect(note).toContain("Ticked T1. Status: building.");
+  });
+
+  it("ticks each task once, as soon as the queue accepts it", async () => {
+    const client = fakeSpecsClient({ progress: vi.fn(async () => ({ ticked: [], status: "building" as const, warnings: [] })) });
+    const ticked = vi.fn();
+    const tick = implementTicker(client, { ...run, step: "implement" }, () => "2026-10-25", ticked);
+    const at = (completed: unknown[]) => ({ steps: { build: { status: "running", checkpoint: { completed } } } });
+    tick(at([]));
+    tick(at(accepted));
+    tick(at(accepted));
+    await vi.waitFor(() => expect(ticked).toHaveBeenCalledTimes(1));
+    expect(client.progress).toHaveBeenCalledTimes(1);
+    expect(client.progress).toHaveBeenCalledWith("/repo", "0001-albums", expect.objectContaining({ passed: false, tasks: [expect.objectContaining({ id: "T1" })] }), "2026-10-25");
   });
 
   it("stays quiet when a failed run finished nothing, and reports a save that fails", async () => {
