@@ -1,15 +1,22 @@
-export type ShortcutAction = "closeActiveTab" | "openSearch" | "toggleExplorer";
+/** Every action a keyboard shortcut can trigger, with what Settings shows for it. */
+export const SHORTCUT_ACTIONS = [
+  { action: "closeActiveTab", label: "Close active tab", description: "Closes the selected editor tab.", defaultShortcut: "Mod+W" },
+  { action: "openSearch", label: "Open search", description: "Opens the workspace search palette.", defaultShortcut: "Mod+K" },
+  { action: "toggleExplorer", label: "Toggle explorer", description: "Shows or collapses the file explorer.", defaultShortcut: "Mod+1" },
+  { action: "navigateBack", label: "Navigate back", description: "Goes back to where the cursor was before, also in another file.", defaultShortcut: "Mod+Alt+ArrowLeft" },
+  { action: "navigateForward", label: "Navigate forward", description: "Goes forward again after navigating back.", defaultShortcut: "Mod+Alt+ArrowRight" },
+] as const;
+
+export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[number]["action"];
 
 export type KeyboardShortcutPreferences = Record<ShortcutAction, string>;
 
 export const SHORTCUT_STORAGE_KEY = "rusty_keyboard_shortcuts";
 export const SHORTCUT_STORAGE_VERSION = 1;
 
-export const SHORTCUT_DEFAULTS: KeyboardShortcutPreferences = {
-  closeActiveTab: "Mod+W",
-  openSearch: "Mod+K",
-  toggleExplorer: "Mod+1",
-};
+export const SHORTCUT_DEFAULTS: KeyboardShortcutPreferences = Object.fromEntries(
+  SHORTCUT_ACTIONS.map(({ action, defaultShortcut }) => [action, defaultShortcut]),
+) as KeyboardShortcutPreferences;
 
 const MODIFIER_ORDER = ["Mod", "Ctrl", "Alt", "Shift"] as const;
 
@@ -45,11 +52,24 @@ export function normalizeKeyboardShortcuts(value: unknown): KeyboardShortcutPref
     ? record.shortcuts as Record<string, unknown>
     : record;
 
-  return {
-    closeActiveTab: isValidShortcut(stored.closeActiveTab) ? stored.closeActiveTab : SHORTCUT_DEFAULTS.closeActiveTab,
-    openSearch: isValidShortcut(stored.openSearch) ? stored.openSearch : SHORTCUT_DEFAULTS.openSearch,
-    toggleExplorer: isValidShortcut(stored.toggleExplorer) ? stored.toggleExplorer : SHORTCUT_DEFAULTS.toggleExplorer,
-  };
+  return Object.fromEntries(
+    SHORTCUT_ACTIONS.map(({ action, defaultShortcut }) => {
+      const value = stored[action];
+      return [action, isValidShortcut(value) ? value : defaultShortcut];
+    }),
+  ) as KeyboardShortcutPreferences;
+}
+
+/** Actions whose shortcut an earlier action already uses, with that action. */
+export function shortcutConflicts(shortcuts: KeyboardShortcutPreferences): Partial<Record<ShortcutAction, ShortcutAction>> {
+  const owner = new Map<string, ShortcutAction>();
+  const conflicts: Partial<Record<ShortcutAction, ShortcutAction>> = {};
+  for (const { action } of SHORTCUT_ACTIONS) {
+    const taken = owner.get(shortcuts[action]);
+    if (taken) conflicts[action] = taken;
+    else owner.set(shortcuts[action], action);
+  }
+  return conflicts;
 }
 
 export function loadKeyboardShortcuts(): KeyboardShortcutPreferences {
@@ -77,12 +97,12 @@ export function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean
   return shortcutFromKeyboardEvent(event) === shortcut;
 }
 
+const KEY_SYMBOLS: Record<string, string> = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓" };
+const MAC_MODIFIERS: Record<string, string> = { Mod: "⌘", Alt: "⌥", Shift: "⇧" };
+
 export function formatShortcut(shortcut: string): string {
   const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-  if (!isMac) return shortcut.replace("Mod", "Ctrl");
-  return shortcut
-    .replace("Mod", "⌘")
-    .replace("Alt", "⌥")
-    .replace("Shift", "⇧")
-    .split("+").join("");
+  const parts = shortcut.split("+").map((part) => KEY_SYMBOLS[part] ?? part);
+  if (!isMac) return parts.map((part) => (part === "Mod" ? "Ctrl" : part)).join("+");
+  return parts.map((part) => MAC_MODIFIERS[part] ?? part).join("");
 }

@@ -1,4 +1,5 @@
-import { useEffect, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
+import { noteCursor, registerEditor, unregisterEditor } from "../../../navigation/navigationHistory";
 import { useWorkspaceStore } from "../../../store";
 import type { FileLocation, FileTabData } from "./fileLocation";
 import type { AutoSave } from "./useAutoSave";
@@ -19,6 +20,10 @@ export interface FileEditorParts {
   definitions: DefinitionLookup;
   inlineChat: InlineChatControl;
   autoSave: AutoSave;
+}
+
+function locationOf(tab: FileTabData, position: { lineNumber: number; column: number }) {
+  return { path: tab.path, vfsTabId: tab.vfsTabId, line: position.lineNumber, column: position.column };
 }
 
 function scrollToLine(editor: any, lineNum: number): void {
@@ -45,6 +50,8 @@ function disposeModelWhenClosed(modelUri: string, tabId: string): void {
  * changes. Returns the editor's onMount handler. */
 export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEditorParts): (editor: any, monaco: any) => void {
   const { tab, isActive, location } = parts;
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
 
   // Trigger editor layout when tab becomes active
   useEffect(() => {
@@ -52,6 +59,14 @@ export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEdito
       setTimeout(() => editorRef.current?.layout(), 50);
     }
   }, [isActive]);
+
+  // Arriving in a file is a place Navigate Back can return to.
+  useEffect(() => {
+    const position = isActive ? editorRef.current?.getPosition?.() : null;
+    if (position) noteCursor(locationOf(tab, position));
+  }, [isActive]);
+
+  useEffect(() => () => unregisterEditor(tab.id, editorRef.current), [tab.id]);
 
   useEffect(() => {
     if (editorRef.current && tab.line) scrollToLine(editorRef.current, tab.line);
@@ -68,6 +83,12 @@ export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEdito
 
   return (editor, monaco) => {
     editorRef.current = editor;
+    registerEditor(tab.id, editor);
+    // Where the cursor goes feeds Navigate Back/Forward, while this tab is the active one.
+    editor.onDidChangeCursorPosition?.((e: any) => {
+      const current = tabRef.current;
+      if (useWorkspaceStore.getState().activeTabId === current.id) noteCursor(locationOf(current, e.position));
+    });
     parts.gutter.attach();
     if (monaco) parts.inlineChat.register(editor, monaco, { language: parts.language, onOpen: parts.definitions.close });
 

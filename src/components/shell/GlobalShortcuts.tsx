@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useWorkspaceStore } from "../../store";
 import { requestCloseTab } from "../../tabs/closeRequests";
 import { matchesShortcut } from "../../preferences/shortcuts";
+import { navigate } from "../../navigation/navigationHistory";
 
 /**
  * Global keyboard shortcuts, extracted verbatim from App.tsx. Also blocks
@@ -89,6 +90,14 @@ export const GlobalShortcuts: React.FC = () => {
         e.preventDefault();
         e.stopPropagation();
         toggleDrawerView("explorer");
+      } else if (matchesShortcut(e, keyboardShortcuts.navigateBack)) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigate(-1);
+      } else if (matchesShortcut(e, keyboardShortcuts.navigateForward)) {
+        e.preventDefault();
+        e.stopPropagation();
+        navigate(1);
       }
     };
 
