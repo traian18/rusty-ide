@@ -24,7 +24,7 @@ export const REPO_CONTEXT_TOOL: HostToolSpec = {
       targets: { type: "array", items: { type: "string" }, description: "Several files or folders answered in one call (at most 8); for mode 'changes', the changed files." },
       mode: { type: "string", enum: ["connections", "blast_radius", "orient", "changes"] },
       depth: { type: "integer", minimum: 1, maximum: 5, description: "How far a change is followed; default 2." },
-      budget: { type: "integer", minimum: 1000, maximum: 20000, description: "Approximate size of the answer in characters; default 6000." },
+      budget: { type: "integer", minimum: 1000, maximum: 8000, description: "Approximate size of the answer in characters; default 3000. Ask for more only when a smaller answer was not enough." },
       include: { type: "array", items: { type: "string", enum: ["symbols", "skeleton", "health", "owners", "frameworks", "findings", "history", "tests"] } },
       repository: { type: "string", description: "Which repository, by name or path, when the workspace holds several. Optional when the path names it." },
     },
@@ -40,6 +40,25 @@ export const REPO_CONTEXT_GUIDE =
 export const REPO_CONTEXT_GUIDELINE =
   "\n- Before you move, rename, split, group, merge or delete files, or change a public name, call 'repo_context' (mode 'orient' on the folder, 'blast_radius' on each file) to see what depends on them; to learn how code connects or what a folder holds, call it before reading many files or searching. If it says a language is unsupported or a file is stale or not indexed, read the file directly.";
 
+/** Default and largest answer size: every answer stays in the conversation and is sent again with each later call. */
+export const REPO_CONTEXT_DEFAULT_BUDGET = 3_000;
+export const REPO_CONTEXT_MAX_BUDGET = 8_000;
+
+/** The arguments with the answer size defaulted and clamped. */
+function withBudget(args: unknown): Record<string, unknown> {
+  const fields = args && typeof args === "object" && !Array.isArray(args) ? { ...(args as Record<string, unknown>) } : {};
+  const asked = typeof fields.budget === "number" && Number.isFinite(fields.budget) ? fields.budget : REPO_CONTEXT_DEFAULT_BUDGET;
+  fields.budget = Math.min(Math.max(asked, 1_000), REPO_CONTEXT_MAX_BUDGET);
+  return fields;
+}
+
+/** Cuts an answer that is still far over its budget, saying how to get the rest. */
+export function capAnswer(text: string, budget: number): string {
+  const limit = Math.round(budget * 1.5);
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n[Answer cut at ${limit} characters. Ask about fewer targets, a smaller depth or a narrower include to see the rest.]`;
+}
+
 function failureText(error: unknown): string {
   if (typeof error === "object" && error !== null && "message" in error) {
     const { code, message } = error as { code?: unknown; message?: unknown };
@@ -53,8 +72,9 @@ export function repoContextTool(workspaceRoot: string, activeRepository?: string
   return async (args) => {
     if (!workspaceRoot.trim()) return { ok: false, error: "No workspace is open, so there is no repository to analyse." };
     try {
-      const output = (await invoke("repository_context", { root: workspaceRoot, activeRepository: activeRepository ?? null, arguments: args ?? {} })) as { result?: unknown };
-      return { ok: true, output: JSON.stringify(output.result ?? output) };
+      const request = withBudget(args);
+      const output = (await invoke("repository_context", { root: workspaceRoot, activeRepository: activeRepository ?? null, arguments: request })) as { result?: unknown };
+      return { ok: true, output: capAnswer(JSON.stringify(output.result ?? output), request.budget as number) };
     } catch (error: unknown) {
       return { ok: false, error: failureText(error) };
     }
