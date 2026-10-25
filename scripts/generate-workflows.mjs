@@ -135,6 +135,7 @@ const taskReviewText=({workflow,focus})=>lines(
   'Read the code the builder changed (its summary names the files) and enough of the code around it to judge the change. The summary tells you where to look; it is not evidence. The builder followed workflow_input.step_plan, the detailed plan for this task: check that the tests it called for exist.',
   'For each criterion the task names, give evidence from the workspace: file and line, and what there implements it.',
   'Check that the change does not break completed tasks or nearby code, and that it follows the notes the user gave when approving the plan (workflow_input.plan_notes), which take precedence over the plan.',
+  'Judge only this task. What its instructions leave to another repository, a later task, a prerequisite or a follow-up is not this task\'s to deliver: mention it in the summary, but never use needs_repair for it. workflow_input.host_checks, when present, is the workflow\'s own typecheck after this build: errors it says were there before the task are not this task\'s to fix.',
   'Use status complete only when every named criterion is implemented. Otherwise use needs_repair and say exactly what is missing or wrong and where, so the builder can fix it in one more attempt.',
   'The task final-repair names no criteria: check that it does what its instructions ask.',
  ]),
