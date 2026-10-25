@@ -8,6 +8,7 @@ import { AgentChatResponseStream } from "../../../services/agentChatResponseStre
 import { AgentChatSaveQueue } from "../../../services/agentChatPersistence";
 import type { QueuedSpecRun } from "../../../specs/launchStore";
 import type { SpecRun } from "../../../specs/run";
+import type { FollowedSpec } from "../../../services/agentChatPersistence";
 import type { HistorySummary } from "../../../services/historySummary";
 import type { AgentMessage, CustomProvider, useWorkspaceStore } from "../../../store";
 import type { TabOfType } from "../../../tabs/types";
@@ -54,6 +55,9 @@ export interface TurnState {
   historySummaryJob: AbortController | null;
   /** A Specify or Plan run set up from the Specs page; the next send starts it. */
   specRun: (SpecRun & { workflowPath: string }) | undefined;
+  /** The change an Implement run of this chat works on (saved with the chat): a later message to the
+   * same workflow, such as "continue" after a failure, still ticks its tasks in the change folder. */
+  followedSpec: FollowedSpec | undefined;
   /** The latest workflow state the run reported, which has every finished step's output. */
   lastWorkflowState: unknown;
   /** Capability specs still to be written after the one that runs, each started when the previous completes. */
@@ -83,6 +87,7 @@ export function createTurnState(): TurnState {
     historySummary: undefined,
     historySummaryJob: null,
     specRun: undefined,
+    followedSpec: undefined,
     lastWorkflowState: undefined,
     specQueue: [],
   };

@@ -21,6 +21,7 @@ export interface SavedChatFile {
   workflow?: unknown;
   flowSwitching?: unknown;
   workflowCheckpoint?: unknown;
+  followedSpec?: unknown;
 }
 
 export async function readSavedChat(path: string): Promise<SavedChatFile> {

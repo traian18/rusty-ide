@@ -195,6 +195,9 @@ export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles:
   if (workflowDefinition === null) return;
   const spec = await startingSpecRun(turn, chosenWorkflow);
   if (spec === null) return;
+  // A later message to the workflow implementing the chat's change (say,
+  // "continue" after a failure) goes on ticking its tasks.
+  const followed = spec === undefined && chosenWorkflow && turn.state.followedSpec?.workflowPath === chosenWorkflow ? turn.state.followedSpec : undefined;
   const message = await postMessage(turn, draft, attachedFiles);
   if (auto) {
     workflowDefinition = await chooseAutoWorkflow(turn, message);
@@ -207,6 +210,7 @@ export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles:
     switchesLeft: MAX_FLOW_SWITCHES_PER_MESSAGE,
     visited: workflowDefinition ? [shortWorkflowId(workflowId)] : [],
     ...(spec ? { spec: spec.run, context: spec.context, ...(spec.inputs ? { inputs: spec.inputs } : {}) } : {}),
+    ...(followed ? { spec: { root: followed.root, change: followed.change, step: followed.step } } : {}),
   });
 }
 
@@ -231,6 +235,7 @@ async function startingSpecRun(turn: AgentTurn, chosenWorkflow: string | undefin
   try {
     const context = await specsClient.context(pending.root, pending.change, pending.step, useWorkspaceStore.getState().rootPath || undefined);
     turn.chat.setWorkflowCheckpoint(undefined);
+    turn.state.followedSpec = pending.step === "implement" ? { root: pending.root, change: pending.change, step: "implement", workflowPath: pending.workflowPath } : undefined;
     if (pending.step !== "implement") return { run: pending, context };
     const plans = await specsClient.queuePlan(pending.root, pending.change);
     return { run: pending, context, inputs: { plan: plans.full, queue_plan: plans.remaining } };

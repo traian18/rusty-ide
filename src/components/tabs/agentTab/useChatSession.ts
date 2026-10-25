@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ContextCompactionRunConfig } from "../../../harness/core/decideToolConfig";
 import { readWorkflowCheckpoint, type FailedWorkflowCheckpoint } from "../../../harness/core/workflowRun";
 import { notify } from "../../../notificationStore";
-import { AgentChatSaveQueue, readChatWorkflow, readFlowSwitching, readModifiedFiles } from "../../../services/agentChatPersistence";
+import { AgentChatSaveQueue, readChatWorkflow, readFlowSwitching, readFollowedSpec, readModifiedFiles } from "../../../services/agentChatPersistence";
 import { readHistorySummary, type HistorySummary } from "../../../services/historySummary";
 import { refreshSummaryInBackground, resetSummary } from "./historySummaryJob";
 import { useWorkspaceStore, type CustomProvider } from "../../../store";
@@ -33,7 +33,7 @@ export function useChatSession(tabId: string, rootPath: string, state: TurnState
     const messages = useWorkspaceStore.getState().agentChats[tabId] || [];
     const queue = state.chatSaveQueue;
     try {
-      await queue.save(rootPath, tabId, messages, state.modifiedFiles, state.chatWorkflow, state.workflowCheckpoint, state.flowSwitching, state.historySummary);
+      await queue.save(rootPath, tabId, messages, state.modifiedFiles, state.chatWorkflow, state.workflowCheckpoint, state.flowSwitching, state.historySummary, state.followedSpec);
       if (state.chatSaveQueue === queue) setActiveChatPath(queue.path);
       await onSaved();
     } catch (error) {
@@ -85,6 +85,7 @@ export function useChatSession(tabId: string, rootPath: string, state: TurnState
     setChatWorkflow(undefined, { persist: false });
     setFlowSwitching(false, { persist: false });
     state.lastWorkflowRun = undefined;
+    state.followedSpec = undefined;
   };
 
   /** Shows the chat saved at `path`, as `file` holds it. */
@@ -97,6 +98,7 @@ export function useChatSession(tabId: string, rootPath: string, state: TurnState
     setFlowSwitching(readFlowSwitching(file.flowSwitching), { persist: false });
     state.lastWorkflowRun = undefined;
     setWorkflowCheckpoint(file.workflowCheckpoint);
+    state.followedSpec = readFollowedSpec(file.followedSpec);
   };
 
   /** The saved chat at `path` was deleted: if it is the one shown, it is no longer saved. */

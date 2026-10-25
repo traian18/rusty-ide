@@ -12,6 +12,7 @@ import { sendMessage, type AttachedFile } from "./agentTab/sendMessage";
 import { answerAgentQuestion, answerWorkflowQuestion, deleteChat, loadChat, newChat, stopTurn } from "./agentTab/tabActions";
 import { useAgentTab, type AgentTabModel } from "./agentTab/useAgentTab";
 import { usePendingSpecRun } from "./agentTab/usePendingSpecRun";
+import { CONTINUE_MESSAGE, useUsageLimitContinue } from "./agentTab/usageLimit";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -85,6 +86,9 @@ function Composer({ agent }: { agent: AgentTabModel }) {
     session.setWorkflowCheckpoint(undefined);
     void session.save();
   };
+  const usageLimit = useUsageLimitContinue(agent.agentChats, run.isAgentBusy, () => {
+    void sendMessage(turn(), CONTINUE_MESSAGE, [], skill.hasSelectedSkill);
+  });
   return (
     <AgentComposer
       workflows={workflows.options}
@@ -100,6 +104,7 @@ function Composer({ agent }: { agent: AgentTabModel }) {
       onSelectWorkflow={(path) => session.setChatWorkflow(path)}
       resumable={Boolean(session.workflowCheckpoint) && !run.isAgentBusy && session.chatWorkflow !== AUTO_FLOW}
       onStartOver={startOver}
+      usageLimit={run.isAgentBusy ? undefined : usageLimit}
       workflowQuestion={run.workflowQuestions[0]}
       onWorkflowAnswer={(answer) => answerWorkflowQuestion(turn(), run.workflowQuestions, answer)}
       message={run.message}

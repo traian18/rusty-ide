@@ -9,6 +9,22 @@ export function readModifiedFiles(value: unknown): string[] {
 }
 
 /** The workflow a saved conversation follows (absent in older files). */
+/** The Implement change a chat follows, and the workflow that implements it. */
+export interface FollowedSpec {
+  root: string;
+  change: string;
+  step: "implement";
+  workflowPath: string;
+}
+
+export function readFollowedSpec(value: unknown): FollowedSpec | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { root, change, step, workflowPath } = value as Record<string, unknown>;
+  return typeof root === "string" && typeof change === "string" && step === "implement" && typeof workflowPath === "string"
+    ? { root, change, step, workflowPath }
+    : undefined;
+}
+
 export function readChatWorkflow(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -30,8 +46,9 @@ export class AgentChatSaveQueue {
   }
 
   /** `workflow` is the path of the workflow this chat follows, if any;
-   * `historySummary` is its smart-compaction summary of earlier turns. */
-  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean, historySummary?: unknown): Promise<void> {
+   * `historySummary` is its smart-compaction summary of earlier turns;
+   * `followedSpec` the Implement change it works on. */
+  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean, historySummary?: unknown, followedSpec?: FollowedSpec): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
       tabId, messages, modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
@@ -39,6 +56,7 @@ export class AgentChatSaveQueue {
       ...(workflowCheckpoint ? { workflowCheckpoint } : {}),
       ...(flowSwitching ? { flowSwitching: true } : {}),
       ...(historySummary ? { historySummary } : {}),
+      ...(followedSpec ? { followedSpec } : {}),
     });
     this.pending = this.pending.catch(() => {}).then(async () => {
       if (this.path) {

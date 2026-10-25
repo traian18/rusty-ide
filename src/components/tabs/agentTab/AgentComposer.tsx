@@ -6,6 +6,7 @@ import { AgentWorkflowBar, type WorkflowChoice } from "../behaviors/AgentWorkflo
 import type { JsonObject } from "../behaviors/behaviorModel";
 import { WorkflowApprovalCard } from "../behaviors/WorkflowApprovalCard";
 import type { useWorkflowRunStore } from "../behaviors/workflowRunStore";
+import type { UsageLimitContinue } from "./usageLimit";
 import type { AttachedFile } from "./sendMessage";
 
 /** The files the chat changed, each opening on click. */
@@ -46,6 +47,8 @@ interface AgentComposerProps {
   /** The next message resumes a failed workflow run. */
   resumable: boolean;
   onStartOver: () => void;
+  /** The last run stopped at the model provider's usage limit: it can go on once that resets. */
+  usageLimit?: UsageLimitContinue;
   workflowQuestion: WorkflowQuestion | undefined;
   onWorkflowAnswer: (answer: WorkflowAnswer) => void;
   message: string;
@@ -58,6 +61,20 @@ interface AgentComposerProps {
   agentQuestion: AgentQuestion | null;
   onAgentQuestionAnswer: (answer: string) => void;
   promptHistory: string[];
+}
+
+function UsageLimitBanner({ limit }: { limit: UsageLimitContinue }) {
+  const at = limit.resetsAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)] py-2" role="status">
+      <span>{limit.scheduled ? `The run continues by itself at ${at}, when the usage limit resets.` : `The model provider's usage limit resets at ${at}.`}</span>
+      {limit.scheduled ? (
+        <button type="button" className="underline" onClick={limit.cancel}>Cancel</button>
+      ) : (
+        <button type="button" className="underline" onClick={limit.schedule}>Continue at {at}</button>
+      )}
+    </div>
+  );
 }
 
 /** Below the chat: the workflow bar, what a failed run or a workflow step
@@ -79,6 +96,7 @@ export const AgentComposer: React.FC<AgentComposerProps> = (props) => (
       onStop={props.onStop}
       onSelect={props.onSelectWorkflow}
     />
+    {props.usageLimit && <UsageLimitBanner limit={props.usageLimit} />}
     {props.resumable && (
       <div className="flex items-center justify-between gap-2 text-xs text-[var(--color-text-secondary)] py-2">
         <span>Your next message resumes the workflow with the findings above. Completed steps are retained.</span>
