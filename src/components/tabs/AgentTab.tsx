@@ -101,7 +101,11 @@ function Composer({ agent }: { agent: AgentTabModel }) {
       autoApprove={agent.autoApprove}
       onAutoApproveChange={agent.setAutoApprove}
       onFlowSwitchingChange={(allowed) => session.setFlowSwitching(allowed)}
-      onSelectWorkflow={(path) => session.setChatWorkflow(path)}
+      onSelectWorkflow={(path) => {
+        // Another workflow than the one a Specs page run was set up for: the person changed their mind.
+        if (path !== turn().state.specRun?.workflowPath) turn().state.specRun = undefined;
+        session.setChatWorkflow(path);
+      }}
       resumable={Boolean(session.workflowCheckpoint) && !run.isAgentBusy && session.chatWorkflow !== AUTO_FLOW}
       onStartOver={startOver}
       usageLimit={run.isAgentBusy ? undefined : usageLimit}

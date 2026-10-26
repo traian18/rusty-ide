@@ -119,7 +119,7 @@ export const ContextNodeContent: React.FC<ContextNodeContentProps> = ({
             onClick={onClearContext}
             onPointerDown={stopNodePropagation}
             onMouseDown={stopNodePropagation}
-            className="nodrag absolute right-2 top-2 text-[var(--text-muted)] hover:text-[var(--text-light)] opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer"
+            className="nodrag absolute right-2 top-2 text-[var(--text-muted)] hover:text-[var(--text-light)] opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 transition-opacity p-0.5 rounded cursor-pointer"
             title="Remove context file"
           >
             <X size={12} />

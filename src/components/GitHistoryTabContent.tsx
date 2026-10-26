@@ -458,7 +458,7 @@ export const GitHistoryTabContent: React.FC<{ tab: TabOfType<"git-history"> }> =
                               e.stopPropagation();
                               handleCopyHash(commit.hash);
                             }}
-                            className="text-[var(--text-muted)] hover:text-[var(--text-light)] p-0.5 rounded transition-all cursor-pointer opacity-0 group-hover/row:opacity-100 group-focus/row:opacity-100"
+                            className="text-[var(--text-muted)] hover:text-[var(--text-light)] p-0.5 rounded transition-all cursor-pointer opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100 focus-visible:opacity-100"
                             title="Copy commit SHA"
                           >
                             {copiedHash === commit.hash ? (

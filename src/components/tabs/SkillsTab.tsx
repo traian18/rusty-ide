@@ -309,7 +309,7 @@ export const SkillsTab: React.FC = () => {
                       <span className="text-xs font-bold text-[var(--text-light)] group-hover:text-[var(--accent-color)] transition-colors">
                         {skill.name}
                       </span>
-                      <span className="text-[10px] text-[var(--text-muted)] font-mono truncate mt-0.5 max-w-[180px]">
+                      <span className="text-[10px] text-[var(--text-muted)] font-mono line-clamp-2 mt-0.5">
                         {skill.description || "No description"}
                       </span>
                     </div>
@@ -325,7 +325,7 @@ export const SkillsTab: React.FC = () => {
                             e.stopPropagation();
                             handleDelete(skill.id);
                           }}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[var(--color-status-danger)] hover:text-[var(--color-status-danger)]"
+                          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity text-[var(--color-status-danger)] hover:text-[var(--color-status-danger)]"
                         >
                           <Trash2 size={12} />
                         </button>

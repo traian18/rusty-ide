@@ -46,7 +46,7 @@ function SavedChatRow({ chat, active, onLoad, onDelete }: {
           <span className="text-[8px] font-mono text-[var(--text-muted)]">{chat.messageCount} msgs</span>
           <button
             onClick={(e) => onDelete(e, chat)}
-            className="opacity-0 group-hover:opacity-100 text-[var(--color-status-danger)] hover:text-[var(--color-status-danger)] transition-all p-0.5 border-none bg-transparent cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-[var(--color-status-danger)] hover:text-[var(--color-status-danger)] transition-all p-0.5 border-none bg-transparent cursor-pointer"
             title="Delete chat"
           >
             <Trash2 size={10} />

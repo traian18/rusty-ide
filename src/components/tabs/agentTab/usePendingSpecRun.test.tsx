@@ -7,16 +7,19 @@ import { useSpecLaunch } from "../../../specs/launchStore";
 import { createTurnState } from "./turn";
 import { usePendingSpecRun } from "./usePendingSpecRun";
 import type { AgentTabModel } from "./useAgentTab";
+import { useWorkspaceStore } from "../../../store";
 
 let container: HTMLDivElement;
 let root: Root;
 
-function fakeAgent(tabId: string, options: { id: string; path: string }[]) {
+function fakeAgent(tabId: string, options: { id: string; path: string }[], isAgentBusy = false) {
   const state = createTurnState();
   const setChatWorkflow = vi.fn();
+  const reset = vi.fn();
   const setMessage = vi.fn();
-  const agent = { tab: { id: tabId }, workflows: { options }, session: { setChatWorkflow }, run: { ui: { setMessage } }, turn: () => ({ state }) } as unknown as AgentTabModel;
-  return { agent, state, setChatWorkflow, setMessage };
+  const ui = { setPlan: vi.fn(), setStepPlans: vi.fn(), setSubagents: vi.fn() };
+  const agent = { tab: { id: tabId }, workflows: { options }, session: { setChatWorkflow, reset }, run: { ui: { setMessage }, isAgentBusy }, turn: () => ({ state, tab: { id: tabId }, ui }) } as unknown as AgentTabModel;
+  return { agent, state, setChatWorkflow, setMessage, reset };
 }
 function Probe({ agent }: { agent: AgentTabModel }) {
   usePendingSpecRun(agent);
@@ -55,6 +58,19 @@ describe("usePendingSpecRun", () => {
     await mount(agent);
     expect(setChatWorkflow).not.toHaveBeenCalled();
     expect(useSpecLaunch.getState().pending).not.toBeNull();
+  });
+
+  it("starts a fresh chat when the tab already shows a conversation, and waits for a run to finish", async () => {
+    useWorkspaceStore.setState({ agentChats: { t1: [{ id: "m1", role: "user", content: "earlier", timestamp: "2026-10-26T00:00:00Z" }] } });
+    const busy = fakeAgent("t1", [{ id: "specify", path: "p" }], true);
+    useSpecLaunch.getState().request(pending);
+    await mount(busy.agent);
+    expect(busy.setChatWorkflow).not.toHaveBeenCalled();
+    const idle = fakeAgent("t1", [{ id: "specify", path: "p" }]);
+    await mount(idle.agent);
+    expect(idle.reset).toHaveBeenCalled();
+    expect(useWorkspaceStore.getState().agentChats.t1 ?? []).toHaveLength(0);
+    expect(idle.setChatWorkflow).toHaveBeenCalledWith("p");
   });
 
   it("waits until the workflow catalog has loaded", async () => {

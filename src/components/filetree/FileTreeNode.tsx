@@ -190,7 +190,7 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = (props) => {
         <div className="flex items-center space-x-1 mr-1">{gitMarker("text-[12px] font-mono font-bold opacity-85 select-none")}</div>
 
         {!isRenaming && (
-          <div className="absolute right-1 top-0 bottom-0 opacity-0 group-hover:opacity-100 flex items-center space-x-1.5 bg-[var(--accent-bg)] pl-2 transition-opacity">
+          <div className="absolute right-1 top-0 bottom-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 flex items-center space-x-1.5 bg-[var(--accent-bg)] pl-2 transition-opacity">
             <button
               type="button"
               onClick={(event) => { event.stopPropagation(); onCreateRequest("file", node.path, node.name); }}

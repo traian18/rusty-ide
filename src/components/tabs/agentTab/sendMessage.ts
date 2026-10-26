@@ -182,6 +182,10 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
 /** Sends the chat box's message: in the chat's workflow, the one Auto
  * chooses, or to the single agent. */
 export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles: AttachedFile[], hasSelectedSkill: boolean) {
+  // A run set up from the Specs page runs in its step's workflow, even when the chat was started
+  // over (New chat) after it was set up; choosing another workflow in the Mode picker drops it.
+  const specRun = turn.state.specRun;
+  if (specRun && turn.state.chatWorkflow !== specRun.workflowPath) turn.chat.setChatWorkflow(specRun.workflowPath);
   const chosenWorkflow = turn.state.chatWorkflow;
   const auto = chosenWorkflow === AUTO_FLOW;
   // A workflow's steps get their tools from their own profiles, so the chat's

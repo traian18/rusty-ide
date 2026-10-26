@@ -169,7 +169,7 @@ export const WorkspaceTab: React.FC = () => {
 
                     <button
                       onClick={(e) => handleRemoveRecent(e, path)}
-                      className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--color-status-danger)] hover:bg-[var(--color-status-danger-bg)] opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
+                      className="p-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--color-status-danger)] hover:bg-[var(--color-status-danger-bg)] opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all cursor-pointer"
                       title="Remove from Recents"
                     >
                       <Trash2 size={14} />

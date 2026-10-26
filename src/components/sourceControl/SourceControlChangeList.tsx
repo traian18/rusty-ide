@@ -168,7 +168,7 @@ const FileRow: React.FC<FileRowProps> = ({
         {showUndoRenameButton && (
           <button
             onClick={handleUndoRename}
-            className="opacity-0 group-hover:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-info)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-info)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
             title="Undo rename/move"
           >
             <RotateCcw size={11} />
@@ -179,7 +179,7 @@ const FileRow: React.FC<FileRowProps> = ({
         {showDiscardButton && (
           <button
             onClick={handleDiscard}
-            className="opacity-0 group-hover:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-warning)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-warning)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
             title="Discard changes"
           >
             <RotateCcw size={11} />
@@ -190,7 +190,7 @@ const FileRow: React.FC<FileRowProps> = ({
         {showGitignoreButton && (
           <button
             onClick={handleGitignore}
-            className="opacity-0 group-hover:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-info)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-info)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
             title="Add to .gitignore"
           >
             <EyeOff size={11} />
@@ -201,7 +201,7 @@ const FileRow: React.FC<FileRowProps> = ({
         {showUnstageButton && (
           <button
             onClick={handleUnstage}
-            className="opacity-0 group-hover:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-danger)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-danger)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
             title="Unstage changes"
           >
             <Minus size={11} />
@@ -212,7 +212,7 @@ const FileRow: React.FC<FileRowProps> = ({
         {showStageButton && (
           <button
             onClick={handleStage}
-            className="opacity-0 group-hover:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-success)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
+            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 text-[var(--text-muted)] hover:text-[var(--color-status-success)] hover:bg-[var(--color-surface-sunken)] rounded transition-all cursor-pointer"
             title="Stage changes"
           >
             <Plus size={11} />
