@@ -176,8 +176,8 @@ pub async fn specs_linked_change_create(
         }
         let branch_name = parts[0].2.branch.clone();
         let main_name = parts[0].1.clone();
-        let main_spec = format!(
-            "{main_name}/{}/spec.md",
+        let main_overview = format!(
+            "{main_name}/{}/overview.md",
             Layout::of(&FsStore::new(&parts[0].0)).change(&parts[0].2.dir)
         );
         let links: Vec<String> = parts
@@ -197,7 +197,7 @@ pub async fn specs_linked_change_create(
                 description.clone()
             } else {
                 format!(
-                    "This is the {name} part of a change linked across repositories. The whole change's spec is {main_spec}.\n\n{}",
+                    "This is the {name} part of a change linked across repositories. It is self-contained: its spec says everything {name} delivers, checkable with {name}'s own tests. The overview of the whole change, when written, is {main_overview}.\n\n{}",
                     description.trim()
                 )
             };
@@ -429,13 +429,14 @@ mod tests {
         let part_spec = text(core.join("specs/changes/0002-dark-mode/spec.md"));
         assert!(
             part_spec.contains("This is the core part")
-                && part_spec.contains("ide/specs/changes/0001-dark-mode/spec.md")
+                && part_spec.contains("self-contained")
+                && part_spec.contains("ide/specs/changes/0001-dark-mode/overview.md")
         );
 
         let place = Place::of(Some(&path(workspace.path())), &core);
         let context = place.linked_context(&FsStore::new(&core), "0002-dark-mode", Step::Specify);
         assert!(
-            context.contains("write only what core delivers")
+            context.contains("write the complete spec of what core delivers, and only that")
                 && context.contains("ide (0001-dark-mode), the main spec")
         );
 

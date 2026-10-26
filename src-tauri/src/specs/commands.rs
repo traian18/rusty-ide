@@ -170,6 +170,17 @@ pub async fn specs_context(
                 "{change} is not a change"
             )));
         }
+        // Planning or building needs the spec of the change itself: a spec that is still the
+        // empty template (a linked part nobody specified yet) has nothing to go on.
+        if matches!(step, Step::Plan | Step::Implement) {
+            let layout = Layout::of(&store);
+            let spec = store.read(&format!("{}/spec.md", layout.change(&change)));
+            if spec.as_deref().is_some_and(harness_specs::parse::spec::is_unwritten) {
+                return Err(RepositoryError::invalid(format!(
+                    "The spec of {change} in this repository is still the empty template, so there is nothing to plan or build from. Write it first: run Specify on this part, or use the cross-repo-spec skill to write the spec of every repository from your discussion."
+                )));
+            }
+        }
         let place = super::linked::Place::of(workspace.as_deref(), &repository);
         Ok(format!(
             "{}{}{}",
@@ -332,6 +343,42 @@ pub async fn specs_task_tick(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_spec_that_is_still_the_template_cannot_be_planned_or_built() {
+        let folder = tempfile::tempdir().unwrap();
+        let change = folder.path().join("specs/changes/0001-dark");
+        std::fs::create_dir_all(&change).unwrap();
+        let root = folder.path().to_string_lossy().into_owned();
+        std::fs::write(
+            change.join("spec.md"),
+            "# Dark\n\n## Requirements\n\n### R1: \nCapability: \n\n- C1: WHEN … THEN ….\n",
+        )
+        .unwrap();
+        for step in [Step::Plan, Step::Implement] {
+            let error = specs_context(root.clone(), "0001-dark".into(), step, None)
+                .await
+                .unwrap_err();
+            assert!(
+                error.message.contains("still the empty template"),
+                "{error:?}"
+            );
+        }
+        // Specify may start from the template: that is how it is written.
+        assert!(
+            specs_context(root.clone(), "0001-dark".into(), Step::Specify, None)
+                .await
+                .is_ok()
+        );
+        std::fs::write(
+            change.join("spec.md"),
+            "# Dark\n\n## Requirements\n\n### R1: Dark theme\n\n- C1: WHEN the user turns it on THEN the app is dark.\n",
+        )
+        .unwrap();
+        assert!(specs_context(root, "0001-dark".into(), Step::Plan, None)
+            .await
+            .is_ok());
+    }
 
     #[test]
     fn dates_are_plain() {
