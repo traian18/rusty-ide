@@ -21,7 +21,8 @@ const retry={max_attempts:2,retry_on:['backend_rate_limited','backend_timeout','
 // what to do and who reads its result. The role texts below are shared; what
 // differs per workflow lives in workflow-catalog-source.json: the
 // description, `stages.<id>.instructions` for the preparation steps, and
-// `focus.<plan|build|verify|review>` for the steps every editing workflow has.
+// `focus.<plan|build|verify|review>` for the steps every editing workflow has,
+// and `focus.task_review` for the per-task reviewer of a task queue.
 // Lines of a text; false, null and undefined parts are left out, '' is a blank line.
 const lines=(...parts)=>parts.filter(part=>part!==false&&part!=null).join('\n');
 const list=items=>items.map((item,i)=>`${i+1}. ${item}`).join('\n');
@@ -128,7 +129,7 @@ const queueBuildText=({focus})=>lines(
  '','What happens next',
  'A reviewer reads the code you changed and checks each criterion your task names, so in your summary say for each of them how it is met and where (file and line), and list the files you changed and the checks you ran. After the last task, Verify checks the whole plan against the workspace.',
 );
-const taskReviewText=({workflow,focus})=>lines(
+const taskReviewText=({workflow,focus,review})=>lines(
  'Review the change made for workflow_input.task against its acceptance criteria in workflow_input.requirements. Do not edit anything.',
  `This is the per-task review of "${workflow.name}": each task is built by a fresh builder and checked here before the next one starts; after the last task, Verify checks the whole plan.`,
  list([
@@ -140,6 +141,7 @@ const taskReviewText=({workflow,focus})=>lines(
   'The task final-repair names no criteria: check that it does what its instructions ask.',
  ]),
  Boolean(focus)&&`The builder in this workflow was told: ${focus} Check that too.`,
+ inThisWorkflow(review),
 );
 // Plans one step of the general plan in detail, just before it is built.
 const stepPlanText=lines(
@@ -257,7 +259,7 @@ for(const [id,preps,writer,post] of catalog){
    labels.set(node('approve_plan','Plan approval','approval',{subject:source('plan'),prompt:planApprovalPrompt,revise_on_notes:true}),'you approve the plan');
   }
   const name=WRITER_NAMES[writer];
-  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},fromFiles?[...inputs(),binding('queue_plan')]:withNotes(inputs()),{task_queue:{plan_pointer:fromFiles?'/queue_plan':'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build}),task_planner:{profile:{id:'plan'},instructions:''},max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
+  if(queued)addAgent('build',name,writer,queueBuildText,{type:'object'},fromFiles?[...inputs(),binding('queue_plan')]:withNotes(inputs()),{task_queue:{plan_pointer:fromFiles?'/queue_plan':'/plan',review_profile:{id:'review'},review_instructions:taskReviewText({workflow,focus:focus.build,review:focus.task_review}),task_planner:{profile:{id:'plan'},instructions:''},max_repairs:2,on_task_failure:'ask'},context_access:ACCESS.build});
   else addAgent('build',name,writer,buildText,null,withNotes(inputs()),{context_access:ACCESS.build});
   addAgent('verify','Verify','verify',verifyText,reviewSchema,fromFiles?[...inputs(),binding('plan')]:withNotes(inputs()),{context_access:{steps:ACCESS.verify}});
   // A queued plan's acceptance criteria must all be reported on, not just the ones the reviewer chose to mention.
