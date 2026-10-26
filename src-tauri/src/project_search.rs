@@ -76,6 +76,27 @@ fn build_regex_matcher(options: &SearchOptions) -> Result<Option<Arc<Regex>>, St
         .map(Some)
 }
 
+/// The repositories directly inside a workspace folder. Each is searched
+/// from its own root, so the workspace repository's ignore rules (which may
+/// leave every repository in it out) do not hide its files; its own do.
+fn nested_repositories(root_path: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(root_path) else {
+        return Vec::new();
+    };
+    let mut repositories: Vec<PathBuf> = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir() && path.join(".git").exists())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| !name.starts_with('.') && !is_excluded_directory_name(name))
+        })
+        .collect();
+    repositories.sort();
+    repositories
+}
+
 fn search_files(
     root_path: &Path,
     options: SearchOptions,
@@ -85,8 +106,19 @@ fn search_files(
     let root_path = Arc::new(root_path.to_path_buf());
     let query = Arc::new(options.query);
     let query_lower = Arc::new(query.to_lowercase());
-    let walker = ignore::WalkBuilder::new(&*root_path)
+    let repositories = Arc::new(nested_repositories(&root_path));
+    let mut builder = ignore::WalkBuilder::new(&*root_path);
+    for repository in repositories.iter() {
+        builder.add(repository);
+    }
+    // A nested repository is walked from its own root (added above); reached
+    // again from the workspace folder it is skipped, or its files would count twice.
+    let skipped = repositories.clone();
+    let walker = builder
         .hidden(true)
+        .filter_entry(move |entry| {
+            entry.depth() != 1 || !skipped.iter().any(|repository| repository == entry.path())
+        })
         .build_parallel();
 
     walker.run(|| {
@@ -372,6 +404,44 @@ mod tests {
         assert!(search_project(invalid_options)
             .unwrap_err()
             .starts_with("Invalid regex:"));
+    }
+
+    #[test]
+    fn searches_each_repository_of_a_workspace_whose_own_repository_ignores_them() {
+        // The Rusty workspace repository keeps only its own files: `/*` leaves the
+        // repositories in it out. Their code is still what a search is for.
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".gitignore"), "/*\n!/.gitignore\n!/notes.md\n").unwrap();
+        std::fs::write(root.join("notes.md"), "needle in the workspace").unwrap();
+        let repository = root.join("core");
+        std::fs::create_dir_all(repository.join(".git")).unwrap();
+        std::fs::create_dir_all(repository.join("src")).unwrap();
+        std::fs::create_dir_all(repository.join("generated")).unwrap();
+        std::fs::write(repository.join(".gitignore"), "/generated\n").unwrap();
+        std::fs::write(repository.join("src/lib.rs"), "pub enum Needle {}\n").unwrap();
+        std::fs::write(repository.join("generated/out.rs"), "needle\n").unwrap();
+
+        let results = search_project(search_options(root, "needle")).unwrap();
+        let found: Vec<String> = results
+            .iter()
+            .filter(|result| result.is_content_match)
+            .map(|result| {
+                std::path::Path::new(&result.path)
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+
+        // Once each: the repository is not also reached through the workspace folder,
+        // and its own ignore rules still apply.
+        assert_eq!(
+            found,
+            vec!["core/src/lib.rs".to_string(), "notes.md".to_string()]
+        );
     }
 
     #[test]

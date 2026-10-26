@@ -10,7 +10,7 @@ use super::{
     blocking,
     envelope::DEFAULT_BUDGET,
     health::{findings_of, round},
-    source,
+    next_calls, source,
 };
 
 const CORE_INCLUDES: [&str; 4] = ["frameworks", "findings", "history", "tests"];
@@ -92,6 +92,9 @@ async fn one(
             return json!({"result": {"status": "error", "summary": format!("{}: {}", error.code, error.message), "sections": {}, "next": []}})
         }
     };
+    if let Some(next) = output["result"]["next"].as_array() {
+        output["result"]["next"] = json!(next_calls::hosted(next));
+    }
     if let (true, Some(path)) = (files, target.filter(|t| !t.is_empty())) {
         let entry = entry.clone();
         let added = blocking(move || Ok(extras(&entry, &path, &wanted)))
