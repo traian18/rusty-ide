@@ -86,6 +86,12 @@ export function noteCursor(location: EditorLocation): void {
   history = recordLocation(history, location);
 }
 
+/** Called when a file tab's editor mounts. A newly opened file is shown before its editor exists,
+ * so its activation recorded nothing: its first position is a place when the tab is the active one. */
+export function noteMountedEditor(tabId: string, location: EditorLocation): void {
+  if (useWorkspaceStore.getState().activeTabId === tabId) noteCursor(location);
+}
+
 /** Goes back (-1) or forward (1). Whether there was somewhere to go. */
 export function navigate(direction: -1 | 1): boolean {
   const step = stepHistory(history, direction);

@@ -1,5 +1,5 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
-import { noteCursor, registerEditor, unregisterEditor } from "../../../navigation/navigationHistory";
+import { noteCursor, noteMountedEditor, registerEditor, unregisterEditor } from "../../../navigation/navigationHistory";
 import { useWorkspaceStore } from "../../../store";
 import type { FileLocation, FileTabData } from "./fileLocation";
 import type { AutoSave } from "./useAutoSave";
@@ -84,6 +84,8 @@ export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEdito
   return (editor, monaco) => {
     editorRef.current = editor;
     registerEditor(tab.id, editor);
+    const shown = editor.getPosition?.();
+    if (shown) noteMountedEditor(tab.id, locationOf(tab, shown));
     // Where the cursor goes feeds Navigate Back/Forward, while this tab is the active one.
     editor.onDidChangeCursorPosition?.((e: any) => {
       const current = tabRef.current;

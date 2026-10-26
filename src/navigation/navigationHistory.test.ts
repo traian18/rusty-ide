@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const openTab = vi.fn((request: { path: string }) => `file:${request.path}`);
-vi.mock("../store", () => ({ useWorkspaceStore: { getState: () => ({ openTab }) } }));
+const workspace = { activeTabId: "" };
+vi.mock("../store", () => ({ useWorkspaceStore: { getState: () => ({ openTab, activeTabId: workspace.activeTabId }) } }));
 
 import {
   currentNavigationHistory,
@@ -9,6 +10,7 @@ import {
   MAX_LOCATIONS,
   navigate,
   noteCursor,
+  noteMountedEditor,
   recordLocation,
   registerEditor,
   resetNavigationHistory,
@@ -73,5 +75,20 @@ describe("navigation history", () => {
     expect(navigate(1)).toBe(true);
     expect(openTab).toHaveBeenLastCalledWith({ type: "file", path: "b.ts", line: 3, vfsTabId: undefined });
     expect(navigate(1)).toBe(false);
+  });
+
+  it("counts a newly opened file as a place, so Back returns to the tab before it", () => {
+    // Files opened from the explorer, never clicked in: only their editors mounting says where they are.
+    workspace.activeTabId = "file:a.ts";
+    noteMountedEditor("file:a.ts", at("a.ts", 1));
+    workspace.activeTabId = "file:b.ts";
+    noteMountedEditor("file:b.ts", at("b.ts", 1));
+    // An editor mounting in a tab in the background is not where the person is.
+    noteMountedEditor("file:c.ts", at("c.ts", 1));
+
+    expect(currentNavigationHistory().entries.map((entry) => entry.path)).toEqual(["a.ts", "b.ts"]);
+    expect(navigate(-1)).toBe(true);
+    expect(openTab).toHaveBeenCalledWith({ type: "file", path: "a.ts", line: 1, vfsTabId: undefined });
+    workspace.activeTabId = "";
   });
 });
