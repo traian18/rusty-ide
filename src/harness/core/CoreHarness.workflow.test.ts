@@ -66,6 +66,11 @@ class FakeEngine implements CoreEngine {
     this.controls.push(control);
     return Promise.resolve();
   }
+  /** What `workflowState` answers: the run's state as the engine holds it now. */
+  state: unknown = undefined;
+  workflowState() {
+    return Promise.resolve(this.state);
+  }
   emit(event: BridgeEvent) {
     this.listener?.(event);
   }
@@ -183,6 +188,23 @@ describe("CoreHarness workflow runs", () => {
     engine.emit({ kind: "workflow_finished", data: { state: checkpoint } });
     expect(await handle.done).toMatchObject({ status: "failed" });
     expect(events).toContainEqual({ kind: "workflow_checkpoint", state: checkpoint });
+  });
+  it("hands on the run's state as a checkpoint each time the task queue accepts a task", async () => {
+    const { engine, handle, events } = await start();
+    const accepted = { status: "running", steps: { build: { status: "running", attempts: [{ checkpoint: { completed: [{ task_id: "T1" }] } }] } } };
+    engine.state = accepted;
+    engine.emit({ kind: "workflow_event", data: { event: { type: "task_progress", node_id: "build", attempt: 1, completed: 1, total: 3 } } });
+    await flush();
+    expect(events).toContainEqual({ kind: "workflow_checkpoint", state: accepted });
+
+    // A read that comes back after the run finished never replaces the final state.
+    const final = { status: "succeeded", steps: {} };
+    engine.emit({ kind: "workflow_event", data: { event: { type: "task_progress", node_id: "build", attempt: 1, completed: 2, total: 3 } } });
+    engine.emit({ kind: "workflow_finished", data: { state: final } });
+    await handle.done;
+    await flush();
+    const checkpoints = events.filter((event) => event.kind === "workflow_checkpoint");
+    expect(checkpoints.at(-1)).toEqual({ kind: "workflow_checkpoint", state: final });
   });
   it("starts the workflow instead of prompting and reports its output", async () => {
     const { engine, handle, events } = await start();

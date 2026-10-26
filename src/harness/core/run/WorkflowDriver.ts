@@ -43,6 +43,8 @@ export class WorkflowDriver<K extends CapabilityName> {
   private readonly boundary: WorkflowBoundary<K>;
   /** Research a workflow step asked for and that has not answered yet, by tool call id. */
   private readonly pendingResearch = new Map<string, { nodeId: string; question: string }>();
+  /** Set once the run's final state was handed on; a checkpoint read before it must not replace it. */
+  private finished = false;
 
   constructor(run: WorkflowRunAccess<K>) {
     this.run = run;
@@ -85,7 +87,20 @@ export class WorkflowDriver<K extends CapabilityName> {
     if (log) this.run.log(log);
     if (step) this.stepChanged(step);
     if (envelope.event.type === "input_requested") this.answerQuestion(envelope.event);
+    if (envelope.event.type === "task_progress") void this.reportCheckpoint();
     this.boundary.onEvent(envelope.event);
+  }
+
+  /** The task queue recorded a checkpoint (a task was accepted): hand the run's state on while it
+   * runs, so an Implement run ticks the task in its change right away instead of at the end. */
+  private async reportCheckpoint(): Promise<void> {
+    const sessionId = this.run.sessionId();
+    if (!sessionId || !this.run.engine.workflowState) return;
+    const state = await this.run.engine.workflowState(sessionId).catch((error: unknown) => {
+      observe(() => trajectories.append(this.run.runId, "Checkpoint read failed", { error: errorMessage(error) }));
+      return undefined;
+    });
+    if (state && !this.finished) this.run.onEvent({ kind: "workflow_checkpoint", state } as CapabilityEvent<K>);
   }
 
   onAgentEvent(envelope: AgentEventEnvelope): void {
@@ -107,6 +122,7 @@ export class WorkflowDriver<K extends CapabilityName> {
   }
 
   onFinished(state: unknown): void {
+    this.finished = true;
     this.run.onEvent({ kind: "workflow_checkpoint", state } as CapabilityEvent<K>);
     const outcome = workflowOutcome(state);
     if (outcome.status === "cancelled") return this.finishCancelled();
