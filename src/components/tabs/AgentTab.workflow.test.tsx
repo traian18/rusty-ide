@@ -20,6 +20,7 @@ import { AUTO_FLOW } from "./behaviors/flowCatalog";
 import { workflowKind } from "./behaviors/starterFlow";
 import { BUILTIN_WORKFLOWS, answerCatalogCommand } from "../../test/fakeWorkflowCatalog";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
+import { useSpecLaunch } from "../../specs/launchStore";
 
 const FLOW_PATH = "/ws/.rusty/workflows/flow.json";
 const FLOW = {
@@ -185,6 +186,25 @@ describe("Agent chat workflows", () => {
     await flush();
     expect(select().textContent).toBe("Workflow: Plan and build");
     expect(useWorkflowRunStore.getState().agentRequest).toBeUndefined();
+  });
+
+  it("runs a Specify launched from the Specs page in its workflow, even after New chat", async () => {
+    await act(async () => {
+      useSpecLaunch.getState().request({ tabId: "agent", run: { root: "/ws", change: "0001-dark", step: "specify" }, message: "Write the spec of change 0001 Dark.\n\nNotes: " });
+    });
+    await flush();
+    expect(select().textContent).toBe("Stage: Specify a change");
+    await act(async () => (container.querySelector('[title="New chat"]') as HTMLButtonElement).click());
+    await flush();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.value).toContain("Write the spec of change 0001 Dark.");
+    await act(async () => {
+      textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+    await flush();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(String(run.mock.calls[0][1].workflow?.definition?.id)).toContain("specify");
+    expect(invoke).toHaveBeenCalledWith("specs_context", expect.objectContaining({ root: "/ws", change: "0001-dark", step: "specify" }));
   });
 
   it("sends the chat's workflow with the message and shows it running", async () => {
