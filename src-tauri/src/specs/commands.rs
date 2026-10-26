@@ -70,18 +70,32 @@ pub struct CreatedChange {
     pub files: Vec<String>,
     /// `None` when no branch was asked for.
     pub branch: Option<BranchOutcome>,
+    /// A workspace change's branch, per repository it was asked for in.
+    pub repository_branches: Vec<RepositoryBranch>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RepositoryBranch {
+    /// The repository's folder, relative to the workspace.
+    pub repository: String,
+    pub outcome: BranchOutcome,
 }
 
 /// Creates the next numbered change from templates. With `branch`, it first creates and switches
-/// to `spec/<folder>` so the files land on it; a branch that cannot be made does not stop the
-/// change, and the outcome says why.
+/// to `branch_name` (default `spec/<folder>`) so the files land on it; a branch that cannot be
+/// made does not stop the change, and the outcome says why. A workspace change (its specs live
+/// outside every repository) makes the branch in `repositories` instead of in `root`.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn specs_change_create(
     root: String,
     title: String,
     description: String,
     date: String,
     branch: bool,
+    branch_name: Option<String>,
+    repositories: Option<Vec<String>>,
 ) -> Result<CreatedChange, RepositoryError> {
     blocking(move || {
         let folder = folder(&root)?;
@@ -93,7 +107,27 @@ pub async fn specs_change_create(
         }
         let store = FsStore::new(&folder);
         let plan = scaffold::plan_change(&store, &title);
-        let outcome = branch.then(|| branch::create_and_switch(&folder, &plan.branch));
+        let name = branch::chosen_name(branch_name.as_deref(), &plan.branch);
+        let repositories = repositories.unwrap_or_default();
+        let mut repository_branches = Vec::new();
+        let outcome = if !branch {
+            None
+        } else if repositories.is_empty() {
+            Some(branch::create_and_switch(&folder, &name))
+        } else {
+            for repository in &repositories {
+                let path = Path::new(repository);
+                repository_branches.push(RepositoryBranch {
+                    repository: path
+                        .strip_prefix(&folder)
+                        .unwrap_or(path)
+                        .to_string_lossy()
+                        .into_owned(),
+                    outcome: branch::create_and_switch(path, &name),
+                });
+            }
+            Some(summary(&repository_branches, &name))
+        };
         let created = match &outcome {
             Some(BranchOutcome::Created { name }) => Some(name.as_str()),
             _ => None,
@@ -110,9 +144,32 @@ pub async fn specs_change_create(
             dir: plan.dir,
             files,
             branch: outcome,
+            repository_branches,
         })
     })
     .await
+}
+
+/// One outcome for a branch made in several repositories: created when any repository has it.
+fn summary(branches: &[RepositoryBranch], name: &str) -> BranchOutcome {
+    if branches
+        .iter()
+        .any(|b| matches!(b.outcome, BranchOutcome::Created { .. }))
+    {
+        return BranchOutcome::Created {
+            name: name.to_owned(),
+        };
+    }
+    let reasons: Vec<String> = branches
+        .iter()
+        .filter_map(|b| match &b.outcome {
+            BranchOutcome::Skipped { reason } => Some(format!("{}: {reason}", b.repository)),
+            BranchOutcome::Created { .. } => None,
+        })
+        .collect();
+    BranchOutcome::Skipped {
+        reason: reasons.join("; "),
+    }
 }
 
 pub(super) fn plain_date(date: &str) -> bool {
@@ -177,7 +234,7 @@ pub async fn specs_context(
             let spec = store.read(&format!("{}/spec.md", layout.change(&change)));
             if spec.as_deref().is_some_and(harness_specs::parse::spec::is_unwritten) {
                 return Err(RepositoryError::invalid(format!(
-                    "The spec of {change} in this repository is still the empty template, so there is nothing to plan or build from. Write it first: run Specify on this part, or use the cross-repo-spec skill to write the spec of every repository from your discussion."
+                    "The spec of {change} in this repository is still the empty template, so there is nothing to plan or build from. Write it first: run Specify on this change."
                 )));
             }
         }
@@ -378,6 +435,74 @@ mod tests {
         assert!(specs_context(root, "0001-dark".into(), Step::Plan, None)
             .await
             .is_ok());
+    }
+
+    fn repository(parent: &Path, name: &str) -> PathBuf {
+        let root = parent.join(name);
+        std::fs::create_dir_all(&root).unwrap();
+        let git = |args: &[&str]| {
+            assert!(std::process::Command::new("git")
+                .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+                .args(args)
+                .current_dir(&root)
+                .status()
+                .unwrap()
+                .success());
+        };
+        git(&["init", "-q"]);
+        std::fs::write(root.join("a.txt"), "a").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+        root
+    }
+
+    #[tokio::test]
+    async fn a_workspace_change_lives_in_the_rusty_folder_and_branches_its_repositories() {
+        let workspace = tempfile::tempdir().unwrap();
+        let ide = repository(workspace.path(), "ide");
+        let core = repository(workspace.path(), "core");
+        let path = |p: &Path| p.to_string_lossy().into_owned();
+        super::super::workspace::specs_workspace_prepare(path(workspace.path()))
+            .await
+            .unwrap();
+        let created = specs_change_create(
+            path(workspace.path()),
+            "Dark mode".into(),
+            String::new(),
+            "2026-10-26".into(),
+            true,
+            Some("feature/dark".into()),
+            Some(vec![path(&ide), path(&core)]),
+        )
+        .await
+        .unwrap();
+        assert!(workspace
+            .path()
+            .join(".rusty/specs/changes")
+            .join(&created.dir)
+            .join("spec.md")
+            .is_file());
+        assert_eq!(
+            created.branch,
+            Some(BranchOutcome::Created {
+                name: "feature/dark".into()
+            })
+        );
+        let repositories: Vec<&str> = created
+            .repository_branches
+            .iter()
+            .map(|b| b.repository.as_str())
+            .collect();
+        assert_eq!(repositories, ["ide", "core"]);
+        let change = std::fs::read_to_string(
+            workspace
+                .path()
+                .join(".rusty/specs/changes")
+                .join(&created.dir)
+                .join("change.md"),
+        )
+        .unwrap();
+        assert!(change.contains("feature/dark"), "{change}");
     }
 
     #[test]
