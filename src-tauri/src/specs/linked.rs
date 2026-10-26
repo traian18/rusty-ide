@@ -126,7 +126,8 @@ pub struct CreatedPart {
 
 /// Creates one change per repository in `roots`, linked to each other. `main` holds the whole
 /// change's spec; the others get a spec that points to it. Every part gets the next number of its
-/// own repository, and with `branch` all of them switch to one branch named after the main part.
+/// own repository, and with `branch` all of them switch to one branch: `branch_name`, or one named
+/// after the main part.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn specs_linked_change_create(
@@ -137,6 +138,7 @@ pub async fn specs_linked_change_create(
     description: String,
     date: String,
     branch: bool,
+    branch_name: Option<String>,
 ) -> Result<Vec<CreatedPart>, RepositoryError> {
     blocking(move || {
         if title.trim().is_empty() {
@@ -174,7 +176,7 @@ pub async fn specs_linked_change_create(
                 "a linked change needs at least two repositories",
             ));
         }
-        let branch_name = parts[0].2.branch.clone();
+        let branch_name = branch::chosen_name(branch_name.as_deref(), &parts[0].2.branch);
         let main_name = parts[0].1.clone();
         let main_overview = format!(
             "{main_name}/{}/overview.md",
@@ -402,6 +404,7 @@ mod tests {
             "Night use.".into(),
             "2026-10-24".into(),
             true,
+            None,
         )
         .await
         .unwrap();
@@ -491,6 +494,7 @@ mod tests {
             String::new(),
             "2026-10-24".into(),
             false,
+            None,
         )
         .await
         .unwrap_err();

@@ -50,6 +50,21 @@ describe("spec_context", () => {
     expect(missing.error).toContain("rusty-ide/0002-dark-mode");
   });
 
+  it("reads the workspace's own specs next to each repository's", async () => {
+    const workspace = { ...overview, root: ".rusty/specs", changes: [change({ dir: "0001-shared", title: "Shared" })] };
+    const specs = fakeSpecsClient({
+      overview: vi.fn(async (root: string) => (root === "/ws" ? workspace : root === "/ws/rusty-ide" ? overview : emptyOverview)),
+      document: vi.fn(async (root: string, path: string) => `${root}:${path}`),
+      tasks: vi.fn(async () => []),
+    });
+    const tool = specContextTool("/ws", specs, vi.fn(async () => [{ name: "rusty-ide", path: "/ws/rusty-ide" }]));
+    const list = (await tool({})) as { output: string };
+    expect(list.output).toContain("## workspace");
+    expect(list.output).toContain("## rusty-ide");
+    const shared = (await tool({ change: "shared", documents: ["spec"] })) as { output: string };
+    expect(shared.output).toContain("/ws:.rusty/specs/changes/0001-shared/spec.md");
+  });
+
   it("lists the specs with no input", async () => {
     const result = await specContextTool("/repo", client())({});
     expect(result).toMatchObject({ ok: true });

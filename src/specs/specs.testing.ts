@@ -31,6 +31,9 @@ export function fakeSpecsClient(overrides: Partial<SpecsClient> = {}): SpecsClie
     foreign: vi.fn(async () => []),
     importForeign: vi.fn(async () => ({ project: false, capabilities: [], changes: [], skipped: [] })),
     exportTo: vi.fn(async () => ({ written: [], skipped: [] })),
+    prepareWorkspace: vi.fn(async () => ".rusty/specs"),
+    workspaceRepository: vi.fn(async () => ({ exists: true, committed: false, reason: null })),
+    createWorkspaceRepository: vi.fn(async () => ({ exists: true, committed: true, reason: null })),
     onChanged: vi.fn(async () => () => undefined),
     ...overrides,
   };

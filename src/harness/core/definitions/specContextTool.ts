@@ -69,17 +69,18 @@ function hasSpecs(overview: SpecsOverview): boolean {
   return overview.exists || overview.changes.length > 0;
 }
 
-/** Where the specs are: the workspace folder, or, when it has none of its own
- * (a workspace of several repositories), each folder directly inside it that
- * has some. `name` is "" for the workspace folder itself. */
+/** Where the specs are: the workspace folder's own (a repository's `specs/`, or a workspace's
+ * `.rusty/specs`) and those of each folder directly inside it. `name` is "" for the workspace
+ * folder itself. */
 async function specRoots(workspaceRoot: string, client: SpecsClient, folders: (root: string) => Promise<WorkspaceFolder[]>): Promise<SpecRoot[]> {
   const own = await client.overview(workspaceRoot);
-  if (hasSpecs(own)) return [{ name: "", path: workspaceRoot, overview: own }];
   const found = await Promise.all(
     (await folders(workspaceRoot).catch(() => [])).map(async (folder) => ({ ...folder, overview: await client.overview(folder.path).catch(() => undefined) })),
   );
-  const withSpecs = found.filter((root): root is SpecRoot => root.overview !== undefined && hasSpecs(root.overview));
-  return withSpecs.length ? withSpecs : [{ name: "", path: workspaceRoot, overview: own }];
+  const inside = found.filter((root): root is SpecRoot => root.overview !== undefined && hasSpecs(root.overview));
+  const ownRoot = { name: "", path: workspaceRoot, overview: own };
+  if (!inside.length) return [ownRoot];
+  return hasSpecs(own) ? [ownRoot, ...inside] : inside;
 }
 
 /** The specs folder as the workspace sees it: inside its repository when there are several. */
@@ -95,7 +96,7 @@ export function specContextTool(workspaceRoot: string, client: SpecsClient = spe
       const { change: given, documents } = (args ?? {}) as { change?: unknown; documents?: unknown };
       if (typeof given !== "string" || !given.trim()) {
         if (roots.length === 1 && !roots[0].name) return { ok: true, output: formatSpecList(roots[0].overview) };
-        return { ok: true, output: roots.map((root) => `## ${root.name}\n${formatSpecList({ ...root.overview, root: shownRoot(root) })}`).join("\n\n") };
+        return { ok: true, output: roots.map((root) => `## ${root.name || "workspace"}\n${formatSpecList({ ...root.overview, root: shownRoot(root) })}`).join("\n\n") };
       }
       // "rusty-ide/0001-x" names the repository as well as the change.
       const [first, ...rest] = given.trim().split("/");

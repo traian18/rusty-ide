@@ -28,7 +28,12 @@ export interface SpecsPageProps {
   openFile(path: string, line?: number): void;
   /** The workspace, when it holds several repositories: a change can then span them. */
   workspace?: SpecsWorkspace | null;
+  /** `workspace`: `root` is the workspace folder and its specs live in `.rusty/specs`, outside every repository. */
+  level?: SpecsLevel;
 }
+
+/** Whose specs the page shows: one repository's, or the whole workspace's. */
+export type SpecsLevel = "repository" | "workspace";
 
 export interface SpecsWorkspace {
   root: string;
@@ -38,8 +43,9 @@ export interface SpecsWorkspace {
   open(path: string): void;
 }
 
-/** The specs of a repository. It reads files only, so it works before the repository is analyzed. */
-export function SpecsPage({ client, root, openFile, workspace = null }: SpecsPageProps) {
+/** The specs of a repository, or of the whole workspace. It reads files only, so it works before the repository is analyzed. */
+export function SpecsPage({ client, root, openFile, workspace = null, level = "repository" }: SpecsPageProps) {
+  const inWorkspace = level === "workspace";
   const [revision, setRevision] = useState(0);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,8 +56,8 @@ export function SpecsPage({ client, root, openFile, workspace = null }: SpecsPag
   useEffect(() => useSpecsView.getState().claimRoot(root), [root]);
   // Runs work in the workspace folder, so their requests name paths from there.
   const prefix = workspacePrefix(root, workspace?.root) ?? "";
-  const loaded = useLoad(() => client.overview(root), [client, root, revision]);
-  const foreign = useLoad(() => client.foreign(root).catch(() => []), [client, root, revision]).value ?? [];
+  const loaded = useLoad(() => (inWorkspace ? client.prepareWorkspace(root).then(() => client.overview(root)) : client.overview(root)), [client, root, revision, inWorkspace]);
+  const foreign = useLoad(() => (inWorkspace ? Promise.resolve([]) : client.foreign(root).catch(() => [])), [client, root, revision, inWorkspace]).value ?? [];
 
   // Files change under the page (an agent, an editor, git): follow them, once things settle.
   useEffect(() => {
@@ -105,7 +111,12 @@ export function SpecsPage({ client, root, openFile, workspace = null }: SpecsPag
       setError(toRepositoryError(failure).message);
     }
   };
-  const banner = <ForeignBanner found={foreign} onImport={(source) => void importFrom(source)} />;
+  const banner = (
+    <>
+      {inWorkspace ? <WorkspaceRepositoryOffer client={client} workspace={root} /> : null}
+      <ForeignBanner found={foreign} onImport={(source) => void importFrom(source)} />
+    </>
+  );
   const start = (specsRoot: string) => openSpecRun({ root, change: "", step: "start" }, startRequest(`${prefix}${specsRoot}`));
   const archived = (result: SpecArchived) => {
     select({ kind: "project" });
@@ -118,11 +129,12 @@ export function SpecsPage({ client, root, openFile, workspace = null }: SpecsPag
     select({ kind: "change", dir: result.dir });
     reload();
     if (parts.length) notify("Linked change created", linkedSummary(parts), "info");
+    else if (result.repositoryBranches?.length) notify("Change created", repositoryBranchSummary(result.repositoryBranches), "info");
     else if (result.branch?.kind === "created") notify("Change created", `Switched to ${result.branch.name}.`, "info");
     else if (result.branch?.kind === "skipped") notify("Change created without a branch", result.branch.reason, "info");
   };
 
-  const body = !overview.exists && !overview.changes.length ? <EmptyState banner={banner} onSetUp={() => void setUp()} onNew={() => setCreating(true)} onStart={() => start(overview.root)} root={overview.root} /> : (
+  const body = !overview.exists && !overview.changes.length ? <EmptyState banner={banner} owner={inWorkspace ? "This workspace" : "This repository"} onSetUp={() => void setUp()} onNew={() => setCreating(true)} onStart={() => start(overview.root)} root={overview.root} /> : (
     <div className={styles.body}>
       <SpecsNav overview={overview} selection={selection ?? defaultSelection(overview)} onSelect={select} onNew={() => setCreating(true)} />
       <div className={styles.page}>
@@ -135,7 +147,7 @@ export function SpecsPage({ client, root, openFile, workspace = null }: SpecsPag
   return (
     <>
       {body}
-      {creating ? <NewChangeDialog client={client} root={root} workspace={workspace} onClose={() => setCreating(false)} onCreated={created} /> : null}
+      {creating ? <NewChangeDialog client={client} root={root} workspace={workspace} level={level} onClose={() => setCreating(false)} onCreated={created} /> : null}
     </>
   );
 }
@@ -150,17 +162,85 @@ function linkedSummary(parts: CreatedPart[]): string {
   return `Created in ${folders}.${branch}`;
 }
 
+/** `ide: on feature/dark; core: skipped (a branch named feature/dark already exists)`. */
+function repositoryBranchSummary(branches: NonNullable<CreatedChange["repositoryBranches"]>): string {
+  return branches.map(({ repository, outcome }) => `${repository}: ${outcome.kind === "created" ? `on ${outcome.name}` : `no branch (${outcome.reason})`}`).join("; ");
+}
+
+const DECLINED_KEY = "rusty.specs.workspaceRepositoryDeclined";
+
+function declined(workspace: string): boolean {
+  try {
+    return (JSON.parse(localStorage.getItem(DECLINED_KEY) ?? "[]") as string[]).includes(workspace);
+  } catch {
+    return false;
+  }
+}
+
+function decline(workspace: string) {
+  try {
+    const list = JSON.parse(localStorage.getItem(DECLINED_KEY) ?? "[]") as string[];
+    localStorage.setItem(DECLINED_KEY, JSON.stringify([...list, workspace]));
+  } catch {
+    // Without storage the offer simply shows again next time.
+  }
+}
+
+/** Offers to keep the workspace's specs, skills and workflows in a Git repository of the workspace folder, once. */
+function WorkspaceRepositoryOffer({ client, workspace }: { client: SpecsClient; workspace: string }) {
+  const [hidden, setHidden] = useState(() => declined(workspace));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const status = useLoad(() => client.workspaceRepository(workspace).catch(() => null), [client, workspace, hidden]);
+  if (hidden || !status.value || status.value.exists) return null;
+  const create = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await client.createWorkspaceRepository(workspace);
+      notify("Workspace repository created", created.committed ? "The specs, skills and workflows are committed. The repositories in the workspace, chats and runs are ignored." : `The repository exists, but nothing was committed: ${created.reason ?? "unknown reason"}.`, "info");
+      setHidden(true);
+    } catch (failure) {
+      setError(toRepositoryError(failure).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <Callout variant="info">
+      <p>
+        Keep the workspace's specs, skills and workflows in Git? This makes the workspace folder a repository that tracks only <code>.rusty/specs</code>, <code>.rusty/skills</code>, <code>.rusty/workflows</code>, <code>.rusty/profiles</code> and <code>.rusty/canvas</code>. The repositories inside the workspace, chats, runs, metrics and traces are ignored.
+      </p>
+      {error ? <p>{error}</p> : null}
+      <div className={styles.actions}>
+        <Button variant="primary" disabled={busy} onClick={() => void create()}>
+          Create workspace repository
+        </Button>
+        <Button
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            decline(workspace);
+            setHidden(true);
+          }}
+        >
+          Not now
+        </Button>
+      </div>
+    </Callout>
+  );
+}
+
 /** The first change that is not finished, else the first, else the project. */
 function defaultSelection(overview: SpecsOverview): Selection {
   const open = overview.changes.find((change) => change.status !== "done") ?? overview.changes[0];
   return open ? { kind: "change", dir: open.dir } : { kind: "project" };
 }
 
-function EmptyState({ banner, onSetUp, onNew, onStart, root }: { banner: ReactNode; onSetUp(): void; onNew(): void; onStart(): void; root: string }) {
+function EmptyState({ banner, owner, onSetUp, onNew, onStart, root }: { banner: ReactNode; owner: string; onSetUp(): void; onNew(): void; onStart(): void; root: string }) {
   return (
     <div className={styles.centered}>
       {banner}
-      <p>This repository has no specs yet.</p>
+      <p>{owner} has no specs yet.</p>
       <p className={styles.muted}>
         Specs are Markdown files under <code>{root}/</code>: a project description, what the system does, and one folder per change with its spec, design and tasks. For a project that already exists, <strong>Onboard this project</strong> surveys the code and proposes its capabilities for you to review before their specs are written. <strong>Set up specs</strong> only writes a README and a project template; no model is used.
       </p>

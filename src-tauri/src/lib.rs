@@ -1449,6 +1449,12 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             specs::linked::specs_linked_switch,
             #[cfg(feature = "core-harness")]
+            specs::workspace::specs_workspace_prepare,
+            #[cfg(feature = "core-harness")]
+            specs::workspace::workspace_repository_status,
+            #[cfg(feature = "core-harness")]
+            specs::workspace::workspace_repository_create,
+            #[cfg(feature = "core-harness")]
             specs::commands::specs_task_tick,
             #[cfg(feature = "core-harness")]
             specs::commands::specs_tasks,

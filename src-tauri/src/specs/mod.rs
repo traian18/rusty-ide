@@ -10,6 +10,8 @@
 //! | `commands` | The Tauri commands, each a thin wrapper that runs off the UI thread |
 //! | `branch` | Creating and switching to a change's Git branch |
 //! | `linked` | Changes linked across a workspace's repositories: creating, context and switching |
+//! | `workspace` | The workspace's own specs under `.rusty/specs` and its optional Git repository |
 pub mod branch;
 pub mod commands;
 pub mod linked;
+pub mod workspace;

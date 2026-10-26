@@ -24,6 +24,13 @@ const click = async (element: Element | undefined | null) => {
   await settle();
 };
 const overview = (overrides: Partial<SpecsOverview> = {}): SpecsOverview => ({ ...emptyOverview, exists: true, project: true, ...overrides });
+const type = async (selector: string, text: string) => {
+  const input = document.body.querySelector(selector) as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+};
 
 async function mount(client = fakeSpecsClient(), openFile = vi.fn()) {
   await act(async () => root.render(<SpecsPage client={client} root="/repo" openFile={openFile} />));
@@ -129,6 +136,19 @@ describe("SpecsPage", () => {
     expect(client.createChange).toHaveBeenCalledWith("/repo", expect.objectContaining({ branch: false }));
   });
 
+  it("creates the branch under the name typed, and hides the name without a branch", async () => {
+    const client = fakeSpecsClient();
+    await mount(client);
+    await click(button("New change"));
+    await type("#new-change-name", "Dark mode");
+    await type("#new-change-branch-name", "feature/dark");
+    await click(button("Create"));
+    expect(client.createChange).toHaveBeenCalledWith("/repo", expect.objectContaining({ branch: true, branchName: "feature/dark" }));
+    await click(button("New change"));
+    await click(document.body.querySelector("#new-change-branch"));
+    expect(document.body.querySelector("#new-change-branch-name")).toBeNull();
+  });
+
   it("follows file changes by loading again once things settle", async () => {
     let notify: () => void = () => undefined;
     const client = fakeSpecsClient({ onChanged: vi.fn(async (callback: () => void) => { notify = callback; return () => undefined; }) });
@@ -181,6 +201,48 @@ describe("SpecsPage", () => {
       expect(client.createLinkedChange).toHaveBeenCalledWith("/ws", ["/ws/ide", "/ws/core"], "/ws/ide", expect.objectContaining({ title: "Dark mode", branch: true }));
       expect(client.createChange).not.toHaveBeenCalled();
       expect(useSpecsView.getState().selection).toEqual({ kind: "change", dir: "0004-dark-mode" });
+    });
+
+    describe("with the workspace's own specs", () => {
+      const mountWorkspace = async (client: ReturnType<typeof fakeSpecsClient>) => {
+        useWorkspaceStore.setState({ rootPath: "/ws" });
+        await act(async () => root.render(<SpecsPage client={client} root="/ws" openFile={vi.fn()} workspace={workspace} level="workspace" />));
+        await settle();
+      };
+
+      it("keeps them in the .rusty folder and makes the branch only in the repositories ticked", async () => {
+        const client = fakeSpecsClient({ overview: vi.fn(async () => ({ ...emptyOverview, root: ".rusty/specs" })) });
+        await mountWorkspace(client);
+        expect(client.prepareWorkspace).toHaveBeenCalledWith("/ws");
+        expect(container.textContent).toContain("This workspace has no specs yet.");
+        await click(button("New change"));
+        expect((document.body.querySelector("#new-change-branch") as HTMLInputElement).checked).toBe(false);
+        await click(document.body.querySelector("#new-change-branch"));
+        await type("#new-change-name", "Dark mode");
+        await click(document.body.querySelector("#new-change-repository-core"));
+        await click(button("Create"));
+        expect(client.createChange).toHaveBeenCalledWith("/ws", expect.objectContaining({ branch: true, repositories: ["/ws/core"] }));
+        expect(client.createLinkedChange).not.toHaveBeenCalled();
+      });
+
+      it("offers a workspace repository once, and creates it on request", async () => {
+        localStorage.clear();
+        const client = fakeSpecsClient({ workspaceRepository: vi.fn(async () => ({ exists: false, committed: false, reason: null })) });
+        await mountWorkspace(client);
+        await click(button("Create workspace repository"));
+        expect(client.createWorkspaceRepository).toHaveBeenCalledWith("/ws");
+        expect(button("Create workspace repository")).toBeUndefined();
+      });
+
+      it("does not offer it again after Not now", async () => {
+        localStorage.clear();
+        const client = fakeSpecsClient({ workspaceRepository: vi.fn(async () => ({ exists: false, committed: false, reason: null })) });
+        await mountWorkspace(client);
+        await click(button("Not now"));
+        await act(async () => root.render(<div />));
+        await mountWorkspace(client);
+        expect(button("Create workspace repository")).toBeUndefined();
+      });
     });
 
     it("runs a step from the workspace folder, naming the repository's paths from there", async () => {

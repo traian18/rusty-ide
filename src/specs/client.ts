@@ -2,7 +2,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-import type { CreatedChange, CreatedPart, NewChangeRequest, SwitchedPart, ExportReport, ForeignKind, ForeignSource, ImportReport, SpecArchived, SpecDocumentInput, SpecProgress, SpecProgressRecorded, SpecQueuePlans, SpecRecorded, SpecStep, SpecsOverview, SpecTask } from "./model";
+import type { CreatedChange, CreatedPart, NewChangeRequest, SwitchedPart, WorkspaceRepository, ExportReport, ForeignKind, ForeignSource, ImportReport, SpecArchived, SpecDocumentInput, SpecProgress, SpecProgressRecorded, SpecQueuePlans, SpecRecorded, SpecStep, SpecsOverview, SpecTask } from "./model";
 
 export interface SpecsClient {
   overview(root: string): Promise<SpecsOverview>;
@@ -33,6 +33,12 @@ export interface SpecsClient {
   importForeign(root: string, source: ForeignKind, date: string): Promise<ImportReport>;
   /** Writes these specs in another tool's layout; the specs here stay the source and nothing existing there is overwritten. */
   exportTo(root: string, target: ForeignKind, date: string): Promise<ExportReport>;
+  /** Points the workspace's own specs at `.rusty/specs` (unless it names another folder); resolves to the specs root. */
+  prepareWorkspace(workspace: string): Promise<string>;
+  /** Whether the workspace folder is a Git repository. */
+  workspaceRepository(workspace: string): Promise<WorkspaceRepository>;
+  /** Makes the workspace folder a Git repository of its specs, skills and workflows only, and commits them. */
+  createWorkspaceRepository(workspace: string): Promise<WorkspaceRepository>;
   /** Calls back when files in the workspace change; resolves to the function that stops listening. */
   onChanged(callback: () => void): Promise<() => void>;
 }
@@ -42,8 +48,8 @@ export const specsClient: SpecsClient = {
   document: (root, path) => invoke<string | null>("specs_document", { root, path }),
   tasks: (root, change) => invoke<SpecTask[]>("specs_tasks", { root, change }),
   init: (root) => invoke<string[]>("specs_init", { root }),
-  createChange: (root, { title, description, date, branch }) => invoke<CreatedChange>("specs_change_create", { root, title, description, date, branch }),
-  createLinkedChange: (workspace, roots, main, { title, description, date, branch }) => invoke<CreatedPart[]>("specs_linked_change_create", { workspace, roots, main, title, description, date, branch }),
+  createChange: (root, { title, description, date, branch, branchName, repositories }) => invoke<CreatedChange>("specs_change_create", { root, title, description, date, branch, branchName: branchName?.trim() || null, repositories: repositories ?? null }),
+  createLinkedChange: (workspace, roots, main, { title, description, date, branch, branchName }) => invoke<CreatedPart[]>("specs_linked_change_create", { workspace, roots, main, title, description, date, branch, branchName: branchName?.trim() || null }),
   switchLinked: (workspace, root, change) => invoke<SwitchedPart[]>("specs_linked_switch", { workspace, root, change }),
   tick: (root, change, task, done) => invoke<void>("specs_task_tick", { root, change, task, done }),
   context: (root, change, step, workspace) => invoke<string>("specs_context", { root, change, step, workspace: workspace ?? null }),
@@ -54,5 +60,8 @@ export const specsClient: SpecsClient = {
   foreign: (root) => invoke<ForeignSource[]>("specs_foreign", { root }),
   importForeign: (root, source, date) => invoke<ImportReport>("specs_import", { root, source, date }),
   exportTo: (root, target, date) => invoke<ExportReport>("specs_export", { root, target, date }),
+  prepareWorkspace: (workspace) => invoke<string>("specs_workspace_prepare", { workspace }),
+  workspaceRepository: (workspace) => invoke<WorkspaceRepository>("workspace_repository_status", { workspace }),
+  createWorkspaceRepository: (workspace) => invoke<WorkspaceRepository>("workspace_repository_create", { workspace }),
   onChanged: (callback) => listen("workspace-fs-changed", () => callback()),
 };

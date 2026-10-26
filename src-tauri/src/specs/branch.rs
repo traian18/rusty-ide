@@ -34,6 +34,15 @@ pub fn create_and_switch(root: &Path, name: &str) -> BranchOutcome {
     }
 }
 
+/// The branch a change starts on: the name the person typed, or `default` (`spec/<folder>`) when
+/// they left it empty.
+pub fn chosen_name(typed: Option<&str>, default: &str) -> String {
+    match typed.map(str::trim) {
+        Some(name) if !name.is_empty() => name.to_owned(),
+        _ => default.to_owned(),
+    }
+}
+
 fn skipped(reason: impl Into<String>) -> BranchOutcome {
     BranchOutcome::Skipped {
         reason: reason.into(),
@@ -61,6 +70,13 @@ mod tests {
             .output()
             .unwrap();
         String::from_utf8_lossy(&output.stdout).trim().to_owned()
+    }
+
+    #[test]
+    fn a_typed_name_wins_and_an_empty_one_falls_back_to_the_default() {
+        assert_eq!(chosen_name(Some(" feature/dark "), "spec/0001-a"), "feature/dark");
+        assert_eq!(chosen_name(Some("  "), "spec/0001-a"), "spec/0001-a");
+        assert_eq!(chosen_name(None, "spec/0001-a"), "spec/0001-a");
     }
 
     #[test]

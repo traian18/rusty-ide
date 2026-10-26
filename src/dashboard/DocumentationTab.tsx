@@ -8,7 +8,7 @@ import { repositoryOptions } from "../components/git/repositoryOptions";
 import { Button, Callout } from "../components/ui";
 import { useWorkspaceStore } from "../store";
 import { CodeHealthPage, healthClient, type HealthClient } from "../health";
-import { specsClient as defaultSpecsClient, SpecsPage, type SpecsClient } from "../specs";
+import { specsClient as defaultSpecsClient, SpecsPage, type SpecsClient, type SpecsLevel } from "../specs";
 import { docsClient as defaultDocsClient, GuideView, ModelSwitches, WorkspacePanel, type DocsClient } from "../wiki";
 import { dashboardClient, type DashboardClient } from "./client";
 import { useDashboard, type DashboardPage } from "./dashboardState";
@@ -46,6 +46,8 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
   const activeRepositoryId = useWorkspaceStore((state) => state.activeRepositoryId);
   const setActiveRepositoryId = useWorkspaceStore((state) => state.setActiveRepositoryId);
   const discoverRepositories = useWorkspaceStore((state) => state.discoverRepositories);
+  // The Specs page shows one repository's specs, or the workspace's own (in its `.rusty` folder).
+  const [specsLevel, setSpecsLevel] = useState<SpecsLevel>("repository");
 
   useEffect(() => {
     if (rootOverride === undefined && rootPath && repositories.length === 0) void discoverRepositories();
@@ -63,16 +65,20 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
     );
   }
   const options = rootOverride === undefined && rootPath ? repositoryOptions(repositories, rootPath) : [];
-  // A change can span the workspace's repositories, but not two worktrees of one.
+  // A change can span the workspace's repositories, but not two worktrees of one, nor the
+  // workspace folder's own repository (it keeps the workspace's specs).
   const linkable = repositories
-    .filter((repository) => repository.kind !== "worktree")
+    .filter((repository) => repository.kind !== "worktree" && repository.worktreePath !== rootPath)
     .map((repository) => ({ id: repository.id, path: repository.worktreePath, name: options.find((option) => option.id === repository.worktreePath)?.name ?? repository.worktreePath }));
   const selector =
     options.length > 1 ? (
       <CompactSelect
         id="dashboard-repository"
         value={root}
-        onChange={(path) => setActiveRepositoryId(repositories.find((repository) => repository.worktreePath === path)?.id ?? null)}
+        onChange={(path) => {
+          setSpecsLevel("repository");
+          setActiveRepositoryId(repositories.find((repository) => repository.worktreePath === path)?.id ?? null);
+        }}
         options={options}
         placeholder="Select repository"
         icon={<FolderGit2 size={10} className="flex-shrink-0 mr-1" />}
@@ -90,6 +96,8 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
       workspace={rootOverride === undefined && options.length > 1 ? { root: rootPath!, open: setActiveRepositoryId, repositories: linkable } : null}
       openFile={openFile ?? ((tab) => openTab(tab))}
       handToAgent={handToAgent}
+      specsLevel={specsLevel}
+      onSpecsLevel={setSpecsLevel}
     />
   );
 }
@@ -105,6 +113,8 @@ interface ShellProps {
   workspace: { root: string; open(id: string): void; repositories: { id: string; path: string; name: string }[] } | null;
   openFile: OpenTab;
   handToAgent?: DocumentationTabProps["handToAgent"];
+  specsLevel: SpecsLevel;
+  onSpecsLevel(level: SpecsLevel): void;
 }
 
 function Claimed(props: ShellProps) {
@@ -115,7 +125,7 @@ function Claimed(props: ShellProps) {
   return claimed ? <Shell {...props} /> : null;
 }
 
-function Shell({ root, client, health, docs, specs, selector, workspace, openFile, handToAgent }: ShellProps) {
+function Shell({ root, client, health, docs, specs, selector, workspace, openFile, handToAgent, specsLevel, onSpecsLevel }: ShellProps) {
   const page = useDashboard((state) => state.page);
   const setPage = useDashboard((state) => state.setPage);
   const selected = useDashboard((state) => state.selected);
@@ -152,7 +162,8 @@ function Shell({ root, client, health, docs, specs, selector, workspace, openFil
         if (repository) workspace.open(repository.id);
       },
     };
-    body = <SpecsPage client={specs} root={root} workspace={specsWorkspace} openFile={(path, line) => open(path, line)} />;
+    // The workspace's files open by their path from the workspace folder.
+    body = specsLevel === "workspace" && workspace ? <SpecsPage client={specs} root={workspace.root} workspace={specsWorkspace} level="workspace" openFile={(file, line) => openFile(navigationRequest(workspace.root, { file, line }).tab)} /> : <SpecsPage client={specs} root={root} workspace={specsWorkspace} openFile={(path, line) => open(path, line)} />;
   } else if (session.status === "opening") {
     body = (
       <div className={styles.centered} role="status">
@@ -206,6 +217,11 @@ function Shell({ root, client, health, docs, specs, selector, workspace, openFil
     <div className={styles.root}>
       <div className={styles.header} role="toolbar" aria-label="Documentation">
         {selector}
+        {workspace && page === "specs" && !showRepositories ? (
+          <Button variant={specsLevel === "workspace" ? "secondary" : "ghost"} aria-pressed={specsLevel === "workspace"} title="The workspace's own specs, kept in its .rusty folder outside every repository" onClick={() => onSpecsLevel(specsLevel === "workspace" ? "repository" : "workspace")}>
+            Workspace specs
+          </Button>
+        ) : null}
         {workspace ? (
           <Button variant={showRepositories ? "secondary" : "ghost"} aria-pressed={showRepositories} onClick={() => setShowRepositories((shown) => !shown)}>
             Repositories

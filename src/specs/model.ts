@@ -91,6 +91,8 @@ export interface CreatedChange {
   files: string[];
   /** Absent when no branch was asked for. */
   branch: BranchOutcome | null;
+  /** A workspace change's branch, per repository it was made in. */
+  repositoryBranches?: { repository: string; outcome: BranchOutcome }[];
 }
 
 /** One part of a change created across repositories. */
@@ -118,6 +120,17 @@ export interface NewChangeRequest {
   /** `YYYY-MM-DD`, from this machine's clock. */
   date: string;
   branch: boolean;
+  /** The branch's name; empty or absent is `spec/<change folder>`. */
+  branchName?: string;
+  /** A workspace change: the repositories (paths) the branch is made in. */
+  repositories?: string[];
+}
+
+/** The workspace folder's own Git repository, which keeps the workspace's specs, skills and workflows. */
+export interface WorkspaceRepository {
+  exists: boolean;
+  committed: boolean;
+  reason: string | null;
 }
 
 export type SpecStep = "specify" | "plan" | "implement" | "start" | "capability";
