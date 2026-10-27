@@ -101,7 +101,7 @@ async function routeMessage(turn: AgentTurn, message: TurnMessage): Promise<Flow
   }
   if (candidates.length === 0) return { type: "single" };
   // The conversation so far (the new message is already in it), so a follow-up is routed in its setting.
-  const chats = useWorkspaceStore.getState().agentChats[turn.tab.id] || [];
+  const chats = useWorkspaceStore.getState().agentChats[turn.chatId] || [];
   return chooseFlow({
     message: message.text,
     recentRequests: chats.filter((m) => m.role === "user" && m.id !== message.id).map((m) => m.content),
@@ -111,7 +111,7 @@ async function routeMessage(turn: AgentTurn, message: TurnMessage): Promise<Flow
     router: {
       ...routerConfig,
       onTrace: (trace) => executionObservability.recordStandalone(
-        jevFlowRecord(trace, { tabId: turn.tab.id, workspaceRoot: useWorkspaceStore.getState().rootPath || undefined }),
+        jevFlowRecord(trace, { tabId: turn.chatId, workspaceRoot: useWorkspaceStore.getState().rootPath || undefined }),
       ),
     },
     announce: (line) => turn.state.responseStream?.progress(line),
@@ -149,7 +149,8 @@ async function chooseAutoWorkflow(turn: AgentTurn, message: TurnMessage): Promis
 async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): Promise<void> {
   const workspaceRoot = useWorkspaceStore.getState().rootPath;
   const model = await resolveRunModel(turn, Boolean(plan.workflowDefinition), message.toSend);
-  if (!model) return;
+  // The chat may have been closed or stopped while the model was chosen.
+  if (!model || turn.state.disposed || !turn.state.isStreaming) return;
   const store = useWorkspaceStore.getState();
   const resolution = resolveExecutionProvider(store.customProviders, store.providerStatus, store.activeCustomProviderId, model.modelId);
   if (!resolution.ok) {
@@ -175,7 +176,8 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
     relaunch: (next) => launch(turn, message, next),
     next: () => continueSpecQueue(turn),
   };
-  void run.done.then((outcome) => handleRunOutcome(launched, outcome));
+  // A closed chat's run was cancelled with it; what it left goes nowhere.
+  void run.done.then((outcome) => turn.state.disposed ? undefined : handleRunOutcome(launched, outcome));
   turn.state.agentRun = run;
 }
 

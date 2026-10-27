@@ -480,6 +480,7 @@ export interface WorkspaceState {
   undoCanvasTab: (tabId: string) => void;
   redoCanvasTab: (tabId: string) => void;
 
+  /** Each open Agent chat's messages, by chat id (an Agent tab's first chat has the tab's id). */
   agentChats: Record<string, AgentMessage[]>;
   agentStreams: Record<string, string>;
   agentPermissionRequests: Record<string, AgentPermissionRequest[]>;
@@ -488,6 +489,8 @@ export interface WorkspaceState {
   setAgentMessages: (tabId: string, messages: AgentMessage[]) => void;
   setAgentMessagePinned: (tabId: string, messageId: string, pinned: boolean) => void;
   clearAgentMessages: (tabId: string) => void;
+  /** A chat was closed: its messages go, and late writes to it are dropped. */
+  removeAgentChat: (chatId: string) => void;
   updateAgentStream: (tabId: string, content: string) => void;
   clearAgentStream: (tabId: string) => void;
   addAgentPermissionRequest: (tabId: string, request: AgentPermissionRequest) => void;

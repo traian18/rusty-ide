@@ -38,7 +38,7 @@ function onResearch(turn: AgentTurn, run: RunProgress, event: EventOf<"workflow_
     nodeId: event.nodeId,
     question: event.question,
     status: event.status,
-  });
+  }, turn.chatId);
   if (event.status === "running") {
     setRunLabel(turn, run, "Researching…");
     turn.activity.append(`↳ Research: ${event.question}`, "update");
@@ -63,7 +63,7 @@ function startAgentStep(turn: AgentTurn, event: EventOf<"workflow_step">, label:
 }
 
 function onStep(turn: AgentTurn, run: RunProgress, event: EventOf<"workflow_step">) {
-  useWorkflowRunStore.getState().step(event.workflowId, event);
+  useWorkflowRunStore.getState().step(event.workflowId, event, turn.chatId);
   const name = event.name ?? event.nodeId;
   const label = `${name}${event.attempt > 1 ? ` (attempt ${event.attempt})` : ""}`;
   if (event.status === "running") {
@@ -122,11 +122,13 @@ const handlers: Handlers = {
   subagent: onSubagent,
 };
 
-/** Shows one run's events in the tab as they arrive. */
+/** Shows one run's events in its chat as they arrive, whichever chat is shown. */
 export function runEventHandler(turn: AgentTurn, run: RunProgress) {
   return (event: CommonEvent) => {
+    // A closed chat's run was cancelled with it: what still arrives goes nowhere.
+    if (turn.state.disposed) return;
     // Any host event is a sign of life for the workflow's "no activity" notice.
-    useWorkflowRunStore.getState().touchRunning();
+    useWorkflowRunStore.getState().touchRunning(turn.chatId);
     (handlers[event.kind] as (turn: AgentTurn, run: RunProgress, event: CommonEvent) => void)(turn, run, event);
   };
 }

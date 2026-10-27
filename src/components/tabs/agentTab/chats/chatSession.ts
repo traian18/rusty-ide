@@ -1,39 +1,43 @@
-import { useState } from "react";
-import type { ContextCompactionRunConfig } from "../../../harness/core/decideToolConfig";
-import { readWorkflowCheckpoint, type FailedWorkflowCheckpoint } from "../../../harness/core/workflowRun";
-import { notify } from "../../../notificationStore";
-import { AgentChatSaveQueue, readChatWorkflow, readFlowSwitching, readFollowedSpec, readModifiedFiles } from "../../../services/agentChatPersistence";
-import { readHistorySummary, type HistorySummary } from "../../../services/historySummary";
-import { refreshSummaryInBackground, resetSummary } from "./historySummaryJob";
-import { useWorkspaceStore, type CustomProvider } from "../../../store";
-import type { SavedChatFile } from "./savedChats";
-import type { TurnState } from "./turn";
+import type { ContextCompactionRunConfig } from "../../../../harness/core/decideToolConfig";
+import { readWorkflowCheckpoint } from "../../../../harness/core/workflowRun";
+import { notify } from "../../../../notificationStore";
+import { AgentChatSaveQueue, readChatWorkflow, readFlowSwitching, readFollowedSpec, readModifiedFiles } from "../../../../services/agentChatPersistence";
+import { readHistorySummary, type HistorySummary } from "../../../../services/historySummary";
+import { refreshSummaryInBackground, resetSummary } from "../historySummaryJob";
+import { useWorkspaceStore, type CustomProvider } from "../../../../store";
+import type { SavedChatFile } from "../savedChats";
+import { isCurrentRuntime, type ChatRuntime } from "./chatRuntime";
+import { useChatStore, type ChatView } from "./chatStore";
 
 interface Persist {
   persist?: boolean;
 }
 
-/** The conversation the tab shows as a saved chat: where it is saved, and
- * what is saved with it (changed files, the workflow it follows, flow
- * switching, a failed run's checkpoint, the earlier-turns summary). */
-export function useChatSession(tabId: string, rootPath: string, state: TurnState, onSaved: () => Promise<void>) {
-  const [activeChatPath, setActiveChatPath] = useState<string | null>(null);
-  const [modifiedFiles, setModifiedFilesState] = useState<string[]>([]);
-  const [chatWorkflow, setChatWorkflowState] = useState<string | undefined>();
-  // With Auto, the workflow chosen for the latest message (drives the bar's steps).
-  const [autoWorkflow, setAutoWorkflow] = useState<string | undefined>();
-  const [flowSwitching, setFlowSwitchingState] = useState(false);
-  const [workflowCheckpoint, setWorkflowCheckpointState] = useState<FailedWorkflowCheckpoint>();
-  const hasMessages = () => (useWorkspaceStore.getState().agentChats[tabId] || []).length > 0;
+/** A chat as a saved conversation: where it is saved, and what is saved with
+ * it (changed files, the workflow it follows, flow switching, a failed run's
+ * checkpoint, the earlier-turns summary). Writes to that chat's view, whichever
+ * chat is shown. */
+export function chatSession(chatId: string, rootPath: string, runtime: ChatRuntime, onSaved: () => Promise<void>) {
+  const { state } = runtime;
+  const patch = (change: Partial<ChatView>) => {
+    if (isCurrentRuntime(chatId, runtime)) useChatStore.getState().patch(chatId, change);
+  };
+  const setActiveChatPath = (activeChatPath: string | null) => patch({ activeChatPath });
+  const setModifiedFilesState = (modifiedFiles: string[]) => patch({ modifiedFiles });
+  const setChatWorkflowState = (chatWorkflow: string | undefined) => patch({ chatWorkflow });
+  const setAutoWorkflow = (autoWorkflow: string | undefined) => patch({ autoWorkflow });
+  const setFlowSwitchingState = (flowSwitching: boolean) => patch({ flowSwitching });
+  const setWorkflowCheckpointState = (workflowCheckpoint: ChatView["workflowCheckpoint"]) => patch({ workflowCheckpoint });
+  const hasMessages = () => (useWorkspaceStore.getState().agentChats[chatId] || []).length > 0;
 
   const save = async () => {
     if (!rootPath) return;
-    // Snapshot synchronously: closing the tab removes its messages from
+    // Snapshot synchronously: closing the chat removes its messages from
     // the store, and a later render may belong to a different conversation.
-    const messages = useWorkspaceStore.getState().agentChats[tabId] || [];
+    const messages = useWorkspaceStore.getState().agentChats[chatId] || [];
     const queue = state.chatSaveQueue;
     try {
-      await queue.save(rootPath, tabId, messages, state.modifiedFiles, state.chatWorkflow, state.workflowCheckpoint, state.flowSwitching, state.historySummary, state.followedSpec);
+      await queue.save(rootPath, chatId, messages, state.modifiedFiles, state.chatWorkflow, state.workflowCheckpoint, state.flowSwitching, state.historySummary, state.followedSpec);
       if (state.chatSaveQueue === queue) setActiveChatPath(queue.path);
       await onSaved();
     } catch (error) {
@@ -73,7 +77,7 @@ export function useChatSession(tabId: string, rootPath: string, state: TurnState
 
   const resetHistorySummary = (next?: HistorySummary) => resetSummary(state, next);
   const refreshHistorySummary = (provider: CustomProvider, model: string, compaction: ContextCompactionRunConfig) => {
-    if (rootPath) refreshSummaryInBackground({ state, tabId, rootPath, save }, provider, model, compaction);
+    if (rootPath) refreshSummaryInBackground({ state, chatId, rootPath, save }, provider, model, compaction);
   };
 
   /** Starts a conversation that is not saved yet. */
@@ -101,9 +105,9 @@ export function useChatSession(tabId: string, rootPath: string, state: TurnState
     state.followedSpec = readFollowedSpec(file.followedSpec);
   };
 
-  /** The saved chat at `path` was deleted: if it is the one shown, it is no longer saved. */
+  /** The saved chat at `path` was deleted: if it is this chat, it is no longer saved. */
   const forget = (path: string) => {
-    if (activeChatPath !== path) return;
+    if (state.chatSaveQueue.path !== path) return;
     setActiveChatPath(null);
     state.chatSaveQueue = new AgentChatSaveQueue();
   };
@@ -117,10 +121,17 @@ export function useChatSession(tabId: string, rootPath: string, state: TurnState
   });
 
   return {
-    activeChatPath, modifiedFiles, chatWorkflow, autoWorkflow, setAutoWorkflow, flowSwitching, workflowCheckpoint,
-    save, saved, savingTo, setModifiedFiles, setWorkflowCheckpoint, setChatWorkflow, adoptChatWorkflowPath, setFlowSwitching,
+    setAutoWorkflow, save, saved, savingTo, setModifiedFiles, setWorkflowCheckpoint, setChatWorkflow, adoptChatWorkflowPath, setFlowSwitching,
     refreshHistorySummary, reset, restore, forget,
   };
 }
 
-export type ChatSession = ReturnType<typeof useChatSession>;
+export type ChatSessionActions = ReturnType<typeof chatSession>;
+
+/** The chat's saved-conversation fields as shown, with what changes them. */
+export function chatSessionView(view: ChatView, actions: ChatSessionActions) {
+  const { activeChatPath, modifiedFiles, chatWorkflow, autoWorkflow, flowSwitching, workflowCheckpoint } = view;
+  return { activeChatPath, modifiedFiles, chatWorkflow, autoWorkflow, flowSwitching, workflowCheckpoint, ...actions };
+}
+
+export type ChatSession = ReturnType<typeof chatSessionView>;

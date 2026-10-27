@@ -14,7 +14,7 @@ export function resetSummary(state: TurnState, next?: HistorySummary) {
 
 interface SummaryChat {
   state: TurnState;
-  tabId: string;
+  chatId: string;
   rootPath: string;
   /** Saves the chat, with its new summary. */
   save(): Promise<void>;
@@ -32,14 +32,14 @@ export function refreshSummaryInBackground(chat: SummaryChat, provider: CustomPr
   const controller = new AbortController();
   state.historySummaryJob = controller;
   void refreshHistorySummary({
-    turns: historyTurnsOf(useWorkspaceStore.getState().agentChats[chat.tabId] || []),
+    turns: historyTurnsOf(useWorkspaceStore.getState().agentChats[chat.chatId] || []),
     previous: state.historySummary,
     budgetChars,
     provider,
     model,
     jev: compaction.jev,
     workspaceRoot: chat.rootPath,
-    tabId: chat.tabId,
+    tabId: chat.chatId,
     signal: controller.signal,
   })
     .then((next) => {

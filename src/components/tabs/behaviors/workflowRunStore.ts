@@ -3,7 +3,8 @@
  * the Agent tab (which runs it) and the Behaviors canvas (which shows each
  * step's status on its node), plus one-shot hand-offs between the two tabs.
  * Which workflow a chat follows belongs to that chat (saved in its file),
- * not to this store.
+ * not to this store. Each Agent chat also has its own latest run here, so
+ * two chats running the same workflow do not show each other's steps.
  *
  * Deliberately a small standalone store, like notificationStore: nothing
  * here needs persisting or belongs to the workspace store's slices.
@@ -24,6 +25,8 @@ export interface WorkflowResearchProgress {
 }
 
 export interface WorkflowRunView {
+  /** The workflow that runs (set on a chat's run). */
+  workflowId?: string;
   status: WorkflowRunStatus;
   steps: Record<string, WorkflowStepProgress>;
   /** Research steps inserted on demand, oldest first. */
@@ -43,19 +46,40 @@ interface WorkflowRunStore {
   behaviorsRequest?: string;
   /** Bumped when workflow files change, so pickers reload their list. */
   catalogVersion: number;
-  /** Latest run per workflow id. */
+  /** Latest run per workflow id, whichever chat ran it (the Behaviors canvas). */
   runs: Record<string, WorkflowRunView>;
+  /** Latest run per Agent chat id (that chat's workflow bar). */
+  chatRuns: Record<string, WorkflowRunView>;
   requestAgentWorkflow(path: string): void;
   takeAgentRequest(): string | undefined;
   requestBehaviorsWorkflow(path: string): void;
   takeBehaviorsRequest(): string | undefined;
   catalogChanged(): void;
-  begin(workflowId: string): void;
-  /** Record activity on every run that is still going. */
-  touchRunning(): void;
-  step(workflowId: string, progress: WorkflowStepProgress): void;
-  research(workflowId: string, progress: WorkflowResearchProgress): void;
-  finish(workflowId: string, status: Exclude<WorkflowRunStatus, "running">, error?: string): void;
+  /** `chatId`, when given, is the Agent chat the run belongs to; the run is then also that chat's. */
+  begin(workflowId: string, chatId?: string): void;
+  /** Record activity on the chat's run (and the workflow's latest run) while it goes; without a chat, on every run that is still going. */
+  touchRunning(chatId?: string): void;
+  step(workflowId: string, progress: WorkflowStepProgress, chatId?: string): void;
+  research(workflowId: string, progress: WorkflowResearchProgress, chatId?: string): void;
+  finish(workflowId: string, status: Exclude<WorkflowRunStatus, "running">, error?: string, chatId?: string): void;
+  /** Forgets a closed chat's run. */
+  forgetChat(chatId: string): void;
+}
+
+type RunUpdate = (run: WorkflowRunView | undefined) => WorkflowRunView | undefined;
+
+/** Applies `update` to the workflow's latest run and, with a chat, to that chat's run. */
+function updateRuns(state: Pick<WorkflowRunStore, "runs" | "chatRuns">, workflowId: string, chatId: string | undefined, update: RunUpdate) {
+  const latest = update(state.runs[workflowId]);
+  const runs = latest ? { ...state.runs, [workflowId]: latest } : state.runs;
+  if (!chatId) return { runs };
+  const own = state.chatRuns[chatId];
+  const chat = own?.workflowId === workflowId ? update(own) : undefined;
+  return { runs, chatRuns: chat ? { ...state.chatRuns, [chatId]: chat } : state.chatRuns };
+}
+
+function stillGoing(run: WorkflowRunView | undefined, now: number): WorkflowRunView | undefined {
+  return run?.status === "running" ? { ...run, lastActivityAt: now } : undefined;
 }
 
 export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
@@ -63,6 +87,7 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
   behaviorsRequest: undefined,
   catalogVersion: 0,
   runs: {},
+  chatRuns: {},
   requestAgentWorkflow: (path) => set({ agentRequest: path }),
   takeAgentRequest: () => {
     const path = get().agentRequest;
@@ -76,38 +101,44 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
     return path;
   },
   catalogChanged: () => set((state) => ({ catalogVersion: state.catalogVersion + 1 })),
-  begin: (workflowId) =>
-    set((state) => ({ runs: { ...state.runs, [workflowId]: { status: "running", steps: {}, startedAt: Date.now(), lastActivityAt: Date.now() } } })),
-  touchRunning: () =>
+  begin: (workflowId, chatId) =>
     set((state) => {
-      const now = Date.now();
-      const runs = Object.fromEntries(Object.entries(state.runs).map(([id, run]) => [id, run.status === "running" ? { ...run, lastActivityAt: now } : run]));
-      return { runs };
-    }),
-  step: (workflowId, progress) =>
-    set((state) => {
-      const run = state.runs[workflowId] ?? { status: "running" as const, steps: {}, startedAt: Date.now(), lastActivityAt: Date.now() };
-      const active = progress.status === "running" || progress.status === "waiting" || progress.status === "retry";
+      const run: WorkflowRunView = { status: "running", steps: {}, startedAt: Date.now(), lastActivityAt: Date.now() };
       return {
-        runs: {
-          ...state.runs,
-          [workflowId]: { ...run, lastActivityAt: Date.now(), current: active ? progress.nodeId : run.current, steps: { ...run.steps, [progress.nodeId]: progress } },
-        },
+        runs: { ...state.runs, [workflowId]: run },
+        ...(chatId ? { chatRuns: { ...state.chatRuns, [chatId]: { ...run, workflowId } } } : {}),
       };
     }),
-  research: (workflowId, progress) =>
+  touchRunning: (chatId) =>
     set((state) => {
-      const run = state.runs[workflowId];
-      if (!run) return {};
+      const now = Date.now();
+      if (!chatId) {
+        const runs = Object.fromEntries(Object.entries(state.runs).map(([id, run]) => [id, stillGoing(run, now) ?? run]));
+        return { runs };
+      }
+      const workflowId = state.chatRuns[chatId]?.workflowId;
+      return workflowId ? updateRuns(state, workflowId, chatId, (run) => stillGoing(run, now)) : {};
+    }),
+  step: (workflowId, progress, chatId) =>
+    set((state) => updateRuns(state, workflowId, chatId, (existing) => {
+      const run = existing ?? { status: "running" as const, steps: {}, startedAt: Date.now(), lastActivityAt: Date.now() };
+      const active = progress.status === "running" || progress.status === "waiting" || progress.status === "retry";
+      return { ...run, lastActivityAt: Date.now(), current: active ? progress.nodeId : run.current, steps: { ...run.steps, [progress.nodeId]: progress } };
+    })),
+  research: (workflowId, progress, chatId) =>
+    set((state) => updateRuns(state, workflowId, chatId, (run) => {
+      if (!run) return undefined;
       const research = run.research ?? [];
       const index = research.findIndex((item) => item.callId === progress.callId);
       const next = index >= 0 ? research.map((item, at) => (at === index ? { ...item, status: progress.status } : item)) : [...research, progress];
-      return { runs: { ...state.runs, [workflowId]: { ...run, lastActivityAt: Date.now(), research: next } } };
-    }),
-  finish: (workflowId, status, error) =>
+      return { ...run, lastActivityAt: Date.now(), research: next };
+    })),
+  finish: (workflowId, status, error, chatId) =>
+    set((state) => updateRuns(state, workflowId, chatId, (run) => run && { ...run, status, error, current: undefined })),
+  forgetChat: (chatId) =>
     set((state) => {
-      const run = state.runs[workflowId];
-      if (!run) return {};
-      return { runs: { ...state.runs, [workflowId]: { ...run, status, error, current: undefined } } };
+      if (!(chatId in state.chatRuns)) return {};
+      const { [chatId]: _forgotten, ...chatRuns } = state.chatRuns;
+      return { chatRuns };
     }),
 }));

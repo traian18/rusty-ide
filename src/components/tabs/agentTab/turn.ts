@@ -19,12 +19,14 @@ import type { TokenUsageLike } from "../../ui/TokenBadge/TokenBadge";
 import type { WorkflowChoice } from "../behaviors/AgentWorkflowBar";
 import type { ActivityLog } from "./activityLog";
 
-export const DEFAULT_STREAMING_LABEL = "Model is thinking…";
+export { DEFAULT_STREAMING_LABEL } from "./chats/chatStore";
+import { DEFAULT_STREAMING_LABEL } from "./chats/chatStore";
 
-/** What the Agent tab keeps between renders for its runs and its chat. Read
- * by callbacks that outlive a render (runs, saves), so it is one mutable
- * object rather than state. */
+/** What a chat keeps for its runs. Read by callbacks that outlive a render
+ * (runs, saves), so it is one mutable object rather than state. */
 export interface TurnState {
+  /** The chat was closed: its runs' late events and outcomes are dropped. */
+  disposed: boolean;
   agentRun: RunHandle<"agent_chat"> | null;
   /** The saved workflow (.rusty/workflows) this chat follows instead of a single agent loop. */
   chatWorkflow: string | undefined;
@@ -66,6 +68,7 @@ export interface TurnState {
 
 export function createTurnState(): TurnState {
   return {
+    disposed: false,
     agentRun: null,
     chatWorkflow: undefined,
     workflowCheckpoint: undefined,
@@ -93,7 +96,7 @@ export function createTurnState(): TurnState {
   };
 }
 
-/** The tab's state setters a run drives. */
+/** The chat's state setters a run drives. */
 export interface TurnUi {
   setSubagents: Dispatch<SetStateAction<SubagentActivity[]>>;
   setAgentQuestions: Dispatch<SetStateAction<AgentQuestion[]>>;
@@ -119,9 +122,12 @@ export interface TurnChat {
   openChangedFile(path: string): void;
 }
 
-/** Everything one message's runs work with, taken when the message is sent. */
+/** Everything one message's runs work with, taken when the message is sent.
+ * It belongs to one chat, so the runs keep writing to it while another is shown. */
 export interface AgentTurn {
   tab: TabOfType<"agent">;
+  /** The chat the runs belong to: what messages, todos, command grants and the harness session are keyed by. */
+  chatId: string;
   rootPath: string;
   selectedModel: string;
   selectedSkillId: string;

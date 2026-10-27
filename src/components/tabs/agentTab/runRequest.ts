@@ -134,10 +134,10 @@ export function agentChatInput(
   contextCompaction: ContextCompactionRunConfig,
 ): AgentChatInput {
   const state = useWorkspaceStore.getState();
-  const chatHistory = state.agentChats[turn.tab.id] || [];
+  const chatHistory = state.agentChats[turn.chatId] || [];
   const skillData = toSkillData(resolveSkill(state.skills, plan.workflowDefinition ? BUILT_IN_SKILL_IDS.BUILD : turn.selectedSkillId));
   return {
-    tabId: turn.tab.id,
+    tabId: turn.chatId,
     message: message.toSend,
     model: model.modelId,
     workspaceRoot: state.rootPath,

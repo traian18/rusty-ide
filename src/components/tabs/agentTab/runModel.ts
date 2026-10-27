@@ -46,7 +46,7 @@ async function ratedModel(
   const { jevModelId } = turn.intelligentModelSelectionSettings;
   const workspaceRoot = useWorkspaceStore.getState().rootPath || undefined;
   const selection = await selectIntelligentModel(message, jevProvider, candidates, jevModelId, (trace) =>
-    executionObservability.recordStandalone(jevSelectionRecord(trace, { tabId: turn.tab.id, workspaceRoot })),
+    executionObservability.recordStandalone(jevSelectionRecord(trace, { tabId: turn.chatId, workspaceRoot })),
   );
   const confidence = (selection.confidence * 100).toFixed(0);
   turn.ui.setStreamingLabel(`${AUTO_LEVEL_LABELS[selection.level]} task${selection.escalated ? " (stepped up)" : ""} · ${selection.candidate.model.name} (${confidence}% confidence)…`);

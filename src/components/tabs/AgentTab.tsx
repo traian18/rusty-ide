@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useState } from "react";
 import { PlanPanel } from "../agent/PlanPanel";
 import { useWorkspaceStore } from "../../store";
 import { Chat } from "../ui/Chat";
@@ -8,8 +8,11 @@ import { AUTO_FLOW } from "./behaviors/flowCatalog";
 import { AgentComposer, ModifiedFilesBar } from "./agentTab/AgentComposer";
 import { AgentTabHeader } from "./agentTab/AgentTabHeader";
 import { ChatHistorySidebar } from "./agentTab/ChatHistorySidebar";
+import { ChatStrip } from "./agentTab/ChatStrip";
+import { ensureChat } from "./agentTab/chats/chatLifecycle";
+import { chatNeedsInput, isChatBusy, useChatStore } from "./agentTab/chats/chatStore";
 import { sendMessage, type AttachedFile } from "./agentTab/sendMessage";
-import { answerAgentQuestion, answerWorkflowQuestion, deleteChat, loadChat, newChat, stopTurn } from "./agentTab/tabActions";
+import { answerAgentQuestion, answerWorkflowQuestion, closeChat, deleteChat, loadChat, newChat, openChatSavedAt, stopTurn } from "./agentTab/tabActions";
 import { useAgentTab, type AgentTabModel } from "./agentTab/useAgentTab";
 import { usePendingSpecRun } from "./agentTab/usePendingSpecRun";
 import { CONTINUE_MESSAGE, useUsageLimitContinue } from "./agentTab/usageLimit";
@@ -30,25 +33,37 @@ function isSkillLocked(chatWorkflow: string | undefined, autoWorkflow: string | 
   return chatWorkflow === AUTO_FLOW ? Boolean(autoWorkflow) && workflowRunning : Boolean(chatWorkflow);
 }
 
+/** How an open chat saved at `path` is going, for the history list. */
+function useSavedChatStatus(tabId: string) {
+  // Re-render when a chat of the tab changes status (not on every token); the lookup reads the latest.
+  useChatStore((s) => (s.tabs[tabId]?.order ?? []).map((id) => `${isChatBusy(s.chats[id])}${chatNeedsInput(s.chats[id])}`).join());
+  return (path: string) => {
+    const chatId = openChatSavedAt(tabId, path);
+    const view = chatId ? useChatStore.getState().chats[chatId] : undefined;
+    return chatNeedsInput(view) ? "input" as const : isChatBusy(view) ? "running" as const : undefined;
+  };
+}
+
 function HistoryPanel({ agent, onHide }: { agent: AgentTabModel; onHide: () => void }) {
-  const { run, savedChats, session, turn } = agent;
+  const { savedChats, session, chats } = agent;
+  const statusOf = useSavedChatStatus(agent.tab.id);
   return (
     <ChatHistorySidebar
       chats={savedChats.chatHistory}
       activeChatPath={session.activeChatPath}
       loading={savedChats.loadingHistory}
-      busy={run.isAgentBusy}
       onRefresh={savedChats.loadChatHistory}
-      onNewChat={() => !run.isAgentBusy && newChat(turn(), session)}
+      onNewChat={() => newChat(chats.context())}
       onHide={onHide}
-      onLoad={(chat) => !run.isAgentBusy && loadChat(turn(), session, chat)}
-      onDelete={(event, chat) => deleteChat(event, session, chat, savedChats.removeChat)}
+      onLoad={(chat) => loadChat(chats.context(), chat)}
+      onDelete={(event, chat) => deleteChat(event, chats.context(), chat, savedChats.removeChat)}
+      statusOf={(chat) => statusOf(chat.path)}
     />
   );
 }
 
 function ChatPane({ agent }: { agent: AgentTabModel }) {
-  const { agentChats, search, run, session, tab } = agent;
+  const { agentChats, search, run, session } = agent;
   return (
     <div className="flex flex-1 min-h-0 min-w-0">
       <ChatQueryRail queries={search.queryMetadata} activeQueryId={search.activeQueryId} onSelect={search.selectQuery} disabled={agentChats.length === 0} />
@@ -56,7 +71,7 @@ function ChatPane({ agent }: { agent: AgentTabModel }) {
         messages={agentChats}
         onTogglePin={(messageId, pinned) => {
           // Saved so the pin survives reopening the chat.
-          useWorkspaceStore.getState().setAgentMessagePinned(tab.id, messageId, pinned);
+          useWorkspaceStore.getState().setAgentMessagePinned(agent.chatId, messageId, pinned);
           void session.save();
         }}
         isStreaming={run.isAgentBusy}
@@ -124,10 +139,20 @@ function Composer({ agent }: { agent: AgentTabModel }) {
   );
 }
 
+/** The tab shows one of its chats at a time; the others go on running. */
 export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
-  const agent = useAgentTab(tab);
+  const chatId = useChatStore((s) => s.tabs[tab.id]?.activeChatId);
+  // The first chat opens before the tab paints; another workspace's reset opens a new one at once.
+  useLayoutEffect(() => {
+    if (!chatId) ensureChat(tab.id);
+  }, [chatId, tab.id]);
+  return chatId ? <AgentChatView tab={tab} chatId={chatId} /> : null;
+};
+
+function AgentChatView({ tab, chatId }: AgentTabProps & { chatId: string }) {
+  const agent = useAgentTab(tab, chatId);
   usePendingSpecRun(agent);
-  const { run, session } = agent;
+  const { run, session, chats } = agent;
   const [showHistory, setShowHistory] = useState(true);
   return (
     <div className="w-full h-full flex bg-[var(--bg-app)] text-[var(--text-normal)] font-mono relative terminal-theme-tab">
@@ -147,6 +172,12 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
           isAgentBusy={run.isAgentBusy}
           hasActiveSubagents={run.hasActiveSubagents}
         />
+        <ChatStrip
+          tabId={tab.id}
+          onSelect={chats.select}
+          onClose={(id) => closeChat(chats.context(), id)}
+          onNewChat={() => newChat(chats.context())}
+        />
         <ModifiedFilesBar files={session.modifiedFiles} onOpen={agent.openChangedFile} />
         <div className="flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden max-w-6xl mx-auto w-full">
           <ChatPane agent={agent} />
@@ -155,4 +186,4 @@ export const AgentTab: React.FC<AgentTabProps> = ({ tab }) => {
       </div>
     </div>
   );
-};
+}

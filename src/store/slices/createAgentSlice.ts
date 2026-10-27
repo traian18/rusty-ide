@@ -64,6 +64,12 @@ export const createAgentSlice: WorkspaceSliceCreator = (set) => ({
     agentChats: { ...state.agentChats, [tabId]: [] },
   })),
 
+  removeAgentChat: (chatId) => set((state) => {
+    if (!(chatId in state.agentChats)) return {};
+    const { [chatId]: _removed, ...agentChats } = state.agentChats;
+    return { agentChats };
+  }),
+
   updateAgentStream: (tabId, content) => set((state) => {
     if (!state.agentChats[tabId]) return {};
     return { agentStreams: { ...state.agentStreams, [tabId]: content } };

@@ -50,10 +50,10 @@ function failedReview(turn: AgentTurn, plan: LaunchPlan) {
 export function trackWorkflowRun(turn: AgentTurn, plan: LaunchPlan, run: RunHandle<"agent_chat">) {
   const { workflowId } = plan;
   const store = useWorkflowRunStore.getState();
-  store.begin(workflowId);
+  store.begin(workflowId, turn.chatId);
   const steps = turn.state.workflowCheckpoint?.steps as Record<string, { status?: string; attempts?: unknown[] }> | undefined;
   for (const [nodeId, step] of Object.entries(steps ?? {})) {
-    if (step.status === "succeeded") store.step(workflowId, { nodeId, status: "succeeded", attempt: step.attempts?.length ?? 1 });
+    if (step.status === "succeeded") store.step(workflowId, { nodeId, status: "succeeded", attempt: step.attempts?.length ?? 1 }, turn.chatId);
   }
   turn.state.activeWorkflowId = workflowId;
   turn.state.activeWorkflowRunId = run.runId;
@@ -69,7 +69,7 @@ export function trackWorkflowRun(turn: AgentTurn, plan: LaunchPlan, run: RunHand
     const message = outcome.status === "failed"
       ? (failedReview(turn, plan) ? VERIFICATION_INCOMPLETE : outcome.error.message)
       : undefined;
-    useWorkflowRunStore.getState().finish(workflowId, outcome.status, message);
+    useWorkflowRunStore.getState().finish(workflowId, outcome.status, message, turn.chatId);
   });
 }
 

@@ -4,12 +4,15 @@ import { createRunHost } from "../../../harness/hostDefaults";
 import { notify } from "../../../notificationStore";
 import type { AgentQuestion } from "../../ui/ChatInput";
 import type { AgentTurn } from "./turn";
+import { isShownChat, noticeFor } from "./chats/chatTitle";
 
 /** A run's question to the user, answered from the chat box. */
 function askQuestion(turn: AgentTurn, question: AgentQuestion): Promise<string> {
   return new Promise<string>((resolve) => {
     turn.state.questionResolvers.set(question.requestId, resolve);
     turn.ui.setAgentQuestions((prev) => prev.some((q) => q.requestId === question.requestId) ? prev : [...prev, question]);
+    // The shown chat asks in its box; another chat's question would go unseen.
+    if (!isShownChat(turn.chatId)) notify("A chat needs your answer", noticeFor(turn.chatId, question.question), "info");
   });
 }
 
@@ -29,7 +32,7 @@ function askWorkflowInput(turn: AgentTurn, question: WorkflowQuestion, signal: A
       resolve(answer);
     });
     turn.ui.setWorkflowQuestions((prev) => prev.some((q) => q.requestId === question.requestId) ? prev : [...prev, question]);
-    notify(`${question.step} needs your answer`, question.prompt, "info");
+    notify(`${question.step} needs your answer`, noticeFor(turn.chatId, question.prompt), "info");
   });
 }
 
