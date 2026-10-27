@@ -203,17 +203,47 @@ async fn a_call_that_does_not_say_which_repository_fails_instead_of_guessing() {
 }
 
 #[tokio::test]
-async fn paths_in_different_repositories_need_one_call_each() {
+async fn paths_in_different_repositories_are_answered_by_each_repository_in_one_answer() {
     let world = world(&["api", "web"]);
-    let error = world
+    let output = world
         .call(
             None,
             "repo_context",
-            json!({"mode": "changes", "targets": ["api/src/a.rs", "web/src/a.rs"]}),
+            json!({"targets": ["api/src/own.rs", "web/src/own.rs", "web/src/a.rs"]}),
         )
         .await
-        .unwrap_err();
-    assert_eq!(error.code, "spans_repositories");
+        .unwrap();
+    let result = &output["result"];
+    assert_eq!(result["status"], "ok", "{output}");
+    let api = &result["sections"]["api"];
+    let web = &result["sections"]["web"];
+    assert_eq!(api["repository"]["name"], "api");
+    assert_eq!(web["repository"]["name"], "web");
+    // Each repository answered for its own paths only: one target in api (answered as a single
+    // target), two in web (one section each).
+    assert_eq!(api["status"], "ok", "{api}");
+    assert_eq!(api["target"]["path"], "src/own.rs", "{api}");
+    assert!(
+        web["sections"].get("src/own.rs").is_some() && web["sections"].get("src/a.rs").is_some(),
+        "{web}"
+    );
+    assert!(result["summary"].as_str().unwrap().starts_with("api: "));
+    // Following a suggested call stays in the repository it came from.
+    for call in result["next"].as_array().unwrap() {
+        assert!(call["arguments"]["repository"].is_string(), "{call}");
+    }
+
+    // A call that names its repository is held to it and not split: a path elsewhere is not found there.
+    let held = world
+        .call(
+            None,
+            "repo_context",
+            json!({"repository": "api", "mode": "changes", "targets": ["api/src/a.rs", "web/src/a.rs"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(held["repository"]["name"], "api");
+    assert_eq!(held["result"]["status"], "partial", "{held}");
     let output = world
         .call(
             None,

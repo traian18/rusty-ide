@@ -13,7 +13,7 @@ use super::{
 /// Page-id prefixes: a target written this way names a page, not a path.
 const PAGE_PREFIXES: [&str; 6] = ["file:", "folder:", "package:", "repo:", "dir:", "rest:"];
 
-fn is_path(target: &str) -> bool {
+pub(super) fn is_path(target: &str) -> bool {
     !target.is_empty()
         && !PAGE_PREFIXES
             .iter()
@@ -21,7 +21,7 @@ fn is_path(target: &str) -> bool {
 }
 
 /// `src/a.rs::Type.method` and `src/a.rs:10-40` name a place in a file: the path, and the rest.
-fn split_anchor(target: &str) -> (&str, &str) {
+pub(super) fn split_anchor(target: &str) -> (&str, &str) {
     if let Some(at) = target.find("::") {
         return target.split_at(at);
     }
@@ -198,7 +198,8 @@ pub fn repository_json(repository: &RepoRef) -> Value {
     Value::Object(map)
 }
 
-/// Runs one read-only repository tool for the repository the call is about.
+/// Runs one read-only repository tool for the repository the call is about; a call whose paths
+/// lie in several repositories runs once for each, and their answers come back as one.
 pub async fn run_tool(
     state: &RepositoryState,
     workspace: &str,
@@ -206,8 +207,31 @@ pub async fn run_tool(
     tool: &str,
     arguments: Value,
 ) -> Result<Value, RepositoryError> {
+    let Some(parts) = super::routing_split::split(state, workspace, active, &arguments)? else {
+        return run_one(state, workspace, active, tool, arguments)
+            .await
+            .map(|(_, output)| output);
+    };
+    let mut answers = Vec::new();
+    for part in parts {
+        let (repository, _) = route(state, workspace, active, part.clone())?;
+        let answer = run_one(state, workspace, active, tool, part)
+            .await
+            .map(|(_, output)| output);
+        answers.push((repository, answer));
+    }
+    Ok(super::routing_split::merge(answers))
+}
+
+async fn run_one(
+    state: &RepositoryState,
+    workspace: &str,
+    active: Option<&str>,
+    tool: &str,
+    arguments: Value,
+) -> Result<(RepoRef, Value), RepositoryError> {
     let (repository, arguments) = route(state, workspace, active, arguments)?;
     let entry = state.entry(&repository.root.to_string_lossy())?;
     let output = super::agent_tools::run(entry, tool, arguments).await?;
-    Ok(stamp(output, &repository))
+    Ok((repository.clone(), stamp(output, &repository)))
 }

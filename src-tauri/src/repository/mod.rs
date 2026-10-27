@@ -27,6 +27,7 @@ mod queries;
 mod refresh;
 mod registry;
 pub mod routing;
+mod routing_split;
 pub mod storage;
 mod summaries;
 mod wiki;
