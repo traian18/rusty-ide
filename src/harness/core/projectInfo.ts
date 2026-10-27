@@ -790,7 +790,11 @@ export function selectChecks(info: ProjectInfo, id: CheckId, path = ""): CheckSe
     return { ok: false, error: `No project found at or above '${requested}'. Projects here: ${info.projects.map(projectLabel).join(", ")}.` };
   }
 
-  const candidates = scoped.projects.filter((project) => project.checks.some((check) => check.id === id));
+  const having = scoped.projects.filter((project) => project.checks.some((check) => check.id === id));
+  // A path that names a project means that project, not the ones nested inside it
+  // (`rusty-core`, not also `rusty-core/sdk/typescript`).
+  const named = having.find((project) => project.path === requested);
+  const candidates = named ? [named] : having;
   if (candidates.length === 0) {
     const where = scoped.projects.length === 1 ? projectLabel(scoped.projects[0]) : "the projects found";
     if (id === "install") {

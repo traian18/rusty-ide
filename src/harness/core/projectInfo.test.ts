@@ -230,6 +230,20 @@ describe("selectChecks", () => {
     }
   });
 
+  it("takes the project a path names over the projects nested inside it", async () => {
+    const nested = await analyzeProject(fakeFs({
+      "core/Cargo.toml": "[workspace]\nmembers = [\"crates/a\"]\n",
+      "core/sdk/ts/package.json": json({ scripts: { test: "vitest run", typecheck: "tsc --noEmit" } }),
+    }, { exists: ["core/sdk/ts/node_modules"] }));
+    for (const id of ["test", "typecheck"] as const) {
+      const selection = selectChecks(nested, id, "core");
+      if (!selection.ok) throw new Error(selection.error);
+      expect(selection.project.path).toBe("core");
+    }
+    const inner = selectChecks(nested, "test", "core/sdk/ts");
+    expect(inner.ok && inner.project.path).toBe("core/sdk/ts");
+  });
+
   it("asks which project when several qualify, and lists them", async () => {
     expect(selectChecks(await analyze(), "test")).toEqual({ ok: false, error: "Several projects have a test check: core, ide. Call run_check again with path set to one of them." });
   });
