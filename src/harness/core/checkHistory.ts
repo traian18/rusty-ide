@@ -5,9 +5,9 @@
 //   (a full rusty-core test run takes ten minutes; a model cannot know that,
 //   and guessing low is how a slow check gets cut off). Kept in the browser's
 //   storage so it outlives the app, and in memory when that is unavailable.
-// - One check at a time per project. Two cargo runs in one project wait on
-//   each other's build lock anyway, silently; here the second one waits in
-//   the open and says so.
+// - One check or build command at a time per repository. Two cargo runs in
+//   one repository wait on each other's build lock anyway, silently; here the
+//   second one waits in the open and says so.
 // ============================================================
 
 const STORAGE_KEY = "rusty.checkDurations";
@@ -59,7 +59,42 @@ export function formatDuration(ms: number): string {
   return total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s`;
 }
 
-// ---- One check at a time per project ------------------------------------
+// ---- Limits of a long run ----------------------------------------------
+
+/** The most a check, or a command run in the background, may run in all. */
+export const LONG_RUN_MAX_MS = 60 * 60_000;
+/** How long a command run in the background may print nothing before it is stopped as hung. */
+export const LONG_RUN_IDLE_MS = 10 * 60_000;
+
+// ---- One check at a time per repository ---------------------------------
+
+/**
+ * The repository a workspace path belongs to: its first folder below the
+ * workspace (`rusty-core` for `rusty-core/sdk/typescript`), or "." for the
+ * workspace itself. Checks and build commands take turns per repository,
+ * since that is what shares a build directory and its lock.
+ */
+export function repositoryOf(workspaceRoot: string, path: string): string {
+  const root = workspaceRoot.replace(/\\/g, "/").replace(/\/+$/, "");
+  let relative = path.replace(/\\/g, "/");
+  if (relative === root) return ".";
+  if (relative.startsWith(`${root}/`)) relative = relative.slice(root.length + 1);
+  const first = relative.replace(/^\.\/+/, "").split("/").find((part) => part && part !== ".");
+  return first ?? ".";
+}
+
+/** Programs that build or test, and so may hold a repository's build lock for minutes. */
+const BUILD_PROGRAMS = new Set([
+  "cargo", "npm", "pnpm", "yarn", "bun", "npx", "node", "go", "make", "gradle", "gradlew", "./gradlew", "mvn", "./mvnw",
+  "pytest", "python", "python3", "uv", "poetry", "tsc", "vitest", "jest", "dotnet", "swift", "xcodebuild", "terraform",
+]);
+
+/** Whether a command builds or tests, and so takes its repository's turn like a check. */
+export function takesTurn(program: string): boolean {
+  const name = program.split("/").pop() ?? program;
+  return BUILD_PROGRAMS.has(program) || BUILD_PROGRAMS.has(name);
+}
+
 
 const queues = new Map<string, Promise<void>>();
 

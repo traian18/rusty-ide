@@ -35,6 +35,7 @@ import { classifyCommandRisk, commandSessionGrantScope, programName, resolvePath
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 import { runShellCommand, type CommandOutput } from "./shellExec";
+import { LONG_RUN_IDLE_MS, LONG_RUN_MAX_MS, formatDuration, repositoryOf, takeProjectTurn, takesTurn, type ProjectTurn } from "../checkHistory";
 
 export const GATED_RUN_COMMAND_TOOL: HostToolSpec = {
   name: "run_command",
@@ -109,6 +110,8 @@ export interface GatedRunCommandOptions {
   onEvent: (event: CapabilityEvent<"agent_chat">) => void;
   /** Told each command execution started, when the call runs as a background job. */
   onExecution?: (executionId: string) => void;
+  /** The call runs as a background job: it may take up to an hour, and is stopped only when it goes quiet. */
+  background?: boolean;
 }
 
 function describeExit(result: { exit_code: number | null; timed_out: boolean; cancelled?: boolean }): string {
@@ -189,31 +192,55 @@ export function gatedRunCommandTool(options: GatedRunCommandOptions): HostToolHa
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
 
-    const run = await runWithApproval(command, options, signal);
+    // In the background nothing waits on it, so it runs like a check: as long as it keeps printing.
+    let idleTimeoutMs: number | undefined;
+    if (options.background) {
+      const asked = Number((args as { timeoutMs?: unknown } | null)?.timeoutMs);
+      command = { ...command, timeoutMs: Number.isFinite(asked) && asked > 0 ? Math.min(Math.max(asked, MIN_TIMEOUT_MS), LONG_RUN_MAX_MS) : LONG_RUN_MAX_MS };
+      idleTimeoutMs = Math.min(LONG_RUN_IDLE_MS, command.timeoutMs);
+    }
+
+    // A build or test command shares its repository's build lock with checks: it takes its turn.
+    let turn: ProjectTurn | undefined;
+    if (takesTurn(command.program)) {
+      const repository = repositoryOf(workspaceRoot, command.cwd);
+      const name = repository === "." ? "this workspace" : repository;
+      try {
+        turn = await takeProjectTurn(workspaceRoot, repository, signal, () => {
+          options.onEvent({ kind: "log", message: `Waiting for another check or build command on ${name} to finish.` });
+        });
+      } catch (error: unknown) {
+        return { ok: false, error: `Stopped: ${error instanceof Error ? error.message : String(error)}; \`${formatCommand(command)}\` was not run.` };
+      }
+    }
+    let run: ApprovedRun;
+    try {
+      run = await runWithApproval(command, options, signal, undefined, idleTimeoutMs);
+    } finally {
+      turn?.release();
+    }
     if (run.status !== "ran") return { ok: false, error: run.error };
     const { result } = run;
     const status = describeExit(result);
+    const waited = turn && turn.waitedMs >= 1000
+      ? `\nWaited ${formatDuration(turn.waitedMs)} for another check or build command on ${repositoryOf(workspaceRoot, command.cwd)} to finish first.`
+      : "";
     const shown = result.output.length > MAX_TOOL_OUTPUT_CHARS || result.truncated
       ? `...(truncated)...\n${result.output.slice(-MAX_TOOL_OUTPUT_CHARS)}`
       : result.output;
     const text = `${shown}${shown && !shown.endsWith("\n") ? "\n" : ""}(command ${status})`;
     // A command that was stopped did not finish: what it printed is how far it got,
     // and the model must not read it as a result.
-    if (result.timed_out || result.cancelled) return { ok: false, error: `${text}\n${stoppedNote(result, run.durationMs)}` };
+    if (result.timed_out || result.cancelled) return { ok: false, error: `${text}\n${stoppedNote(result, run.durationMs)}${waited}` };
     const log = result.log_path ? `\nFull output: ${result.log_path}` : "";
-    return { ok: true, output: `${text}${log}` };
+    return { ok: true, output: `${text}${log}${waited}` };
   };
 }
 
 /** What to do about a command that was stopped before it finished. */
 export function stoppedNote(result: CommandOutput, durationMs: number): string {
   const log = result.log_path ? ` Full output so far: ${result.log_path}.` : "";
-  if (result.cancelled) return `It was cancelled after ${seconds(durationMs)} and did not finish.${log}`;
-  if (result.idle) return `It printed nothing for too long and was stopped as hung after ${seconds(durationMs)}; the output above is where it stopped.${log}`;
-  return `It ran out of its time limit after ${seconds(durationMs)} and did not finish; the output above is how far it got. If it is just slow, run it again with a larger timeoutMs (up to 30 minutes), or run a narrower command.${log}`;
-}
-
-function seconds(ms: number): string {
-  const total = Math.round(ms / 1000);
-  return total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s`;
+  if (result.cancelled) return `It was cancelled after ${formatDuration(durationMs)} and did not finish.${log}`;
+  if (result.idle) return `It printed nothing for too long and was stopped as hung after ${formatDuration(durationMs)}; the output above is where it stopped.${log}`;
+  return `It ran out of its time limit after ${formatDuration(durationMs)} and did not finish; the output above is how far it got. If it is just slow, run it again with background: true (it then runs up to an hour and is stopped only when it goes quiet), or run a narrower command.${log}`;
 }

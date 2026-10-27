@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { CapabilityEvent, CommandPermissionRequest, RunHost } from "../../contract";
 import { DEFAULT_TIMEOUT_MS, GATED_RUN_COMMAND_TOOL, MAX_TIMEOUT_MS, MAX_TOOL_OUTPUT_CHARS, gatedRunCommandTool, normalizeCommand } from "./runCommandTool";
+import { resetCheckHistory, takeProjectTurn } from "../checkHistory";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -158,7 +159,7 @@ describe("gatedRunCommandTool", () => {
     expect(timedOut).toEqual({ ok: false, error: expect.stringContaining("Running tests/replay.rs\n(command timed out)") });
     if (timedOut.ok) throw new Error("expected a failure");
     expect(timedOut.error).toContain("did not finish");
-    expect(timedOut.error).toContain("larger timeoutMs");
+    expect(timedOut.error).toContain("background: true");
     expect(timedOut.error).toContain("/tmp/rusty-commands/1.log");
 
     invokeMock.mockResolvedValueOnce({ exit_code: null, output: "partial", timed_out: false, cancelled: true });
@@ -188,3 +189,42 @@ describe("gatedRunCommandTool", () => {
     expect(events.at(-1)).toEqual({ kind: "log", message: "Command failed to start: Failed to start 'nope': No such file or directory" });
   });
 });
+
+describe("long and build commands", () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    resetCheckHistory();
+  });
+
+  const background = (host: RunHost, events: CapabilityEvent<"agent_chat">[] = []) =>
+    gatedRunCommandTool({ workspaceRoot: "/workspace", sessionId: "tab-1", host, onEvent: (event) => events.push(event), background: true });
+
+  it("runs a background command like a check: up to an hour, stopped only when it goes quiet", async () => {
+    invokeMock.mockResolvedValue({ exit_code: 0, output: "ok", timed_out: false, cancelled: false });
+    await background(fakeHost())({ program: "cargo", args: ["test", "--workspace"], cwd: "rusty-core" }, new AbortController().signal);
+    expect(invokeMock).toHaveBeenCalledWith("run_shell_command", expect.objectContaining({ timeoutMs: 3_600_000, idleTimeoutMs: 600_000 }));
+    // A foreground command keeps its own limit, and no idle limit.
+    invokeMock.mockClear();
+    await tool(fakeHost())({ program: "cargo", args: ["test"], cwd: "rusty-core" }, new AbortController().signal);
+    const sent = invokeMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(sent.timeoutMs).toBe(DEFAULT_TIMEOUT_MS);
+    expect(sent.idleTimeoutMs).toBeUndefined();
+  });
+
+  it("makes a build command wait for a check running in the same repository, but not a quick command", async () => {
+    invokeMock.mockResolvedValue({ exit_code: 0, output: "ok", timed_out: false, cancelled: false });
+    const check = await takeProjectTurn("/workspace", "rusty-core", new AbortController().signal);
+    const events: CapabilityEvent<"agent_chat">[] = [];
+    const build = tool(fakeHost(), events)({ program: "cargo", args: ["clippy"], cwd: "rusty-core/crates/a" }, new AbortController().signal);
+    const status = await tool(fakeHost())({ program: "git", args: ["status"], cwd: "rusty-core" }, new AbortController().signal);
+    expect(status.ok).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 1050));
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(events).toContainEqual({ kind: "log", message: "Waiting for another check or build command on rusty-core to finish." });
+    check.release();
+    const outcome = await build;
+    expect(invokeMock).toHaveBeenCalledTimes(2);
+    expect(outcome.ok && String(outcome.output)).toMatch(/Waited \d+s for another check or build command on rusty-core to finish first\./);
+  });
+});
+

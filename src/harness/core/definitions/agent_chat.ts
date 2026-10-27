@@ -660,7 +660,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ ...commandOptions, evidence });
     if (names.has("run_command")) {
       handlers.run_command = backgroundable((onExecution) => {
-        const run = gatedRunCommandTool({ ...commandOptions, onExecution });
+        const run = gatedRunCommandTool({ ...commandOptions, onExecution, background: onExecution !== undefined });
         // A background command changes the workspace when it finishes, not when it is started.
         return onExecution ? async (...args) => { try { return await run(...args); } finally { evidence.invalidate(); } } : run;
       }, commandJobLabel, jobs);

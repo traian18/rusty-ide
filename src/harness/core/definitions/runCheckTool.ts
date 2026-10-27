@@ -1,5 +1,5 @@
 import type { CheckEvidenceLedger } from "../checkEvidence";
-import { formatDuration, lastDuration, recordDuration, takeProjectTurn, type CheckKey, type ProjectTurn } from "../checkHistory";
+import { LONG_RUN_MAX_MS, formatDuration, lastDuration, recordDuration, repositoryOf, takeProjectTurn, type CheckKey, type ProjectTurn } from "../checkHistory";
 // ============================================================
 // definitions/runCheckTool.ts -- "run_check": run one of the project's own
 // checks (typecheck, lint, test, build, format, install) and get a verdict a
@@ -61,7 +61,7 @@ const DEFAULT_IDLE_MS: Record<CheckId, number> = {
   format: 3 * 60_000,
 };
 /** The most any check may run in all, and what it gets when none is asked for. */
-export const CHECK_MAX_MS = 60 * 60_000;
+export const CHECK_MAX_MS = LONG_RUN_MAX_MS;
 
 export const RUN_CHECK_TOOL: HostToolSpec = {
   name: "run_check",
@@ -169,12 +169,13 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
   const total = commands.length;
   const history: CheckKey = { workspaceRoot, project: selection.project.path, check: id, only };
   const usual = lastDuration(history);
-  const projectName = selection.project.path === "." ? "this project" : selection.project.path;
+  const repository = repositoryOf(workspaceRoot, selection.project.path);
+  const repositoryName = repository === "." ? "this workspace" : repository;
 
   let turn: ProjectTurn;
   try {
-    turn = await takeProjectTurn(workspaceRoot, selection.project.path, signal, () => {
-      options.onEvent({ kind: "log", message: `Waiting for the other check on ${projectName} to finish.` });
+    turn = await takeProjectTurn(workspaceRoot, repository, signal, () => {
+      options.onEvent({ kind: "log", message: `Waiting for another check or build command on ${repositoryName} to finish.` });
     });
   } catch (error: unknown) {
     return { ok: false, error: `Stopped: ${message(error)}; the ${id} check was not run.` };
@@ -230,7 +231,7 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
   const tookMs = outcomes.reduce((sum, outcome) => sum + outcome.durationMs, 0);
   if (ranToEnd) recordDuration(history, tookMs);
   const notes = [
-    turn.waitedMs >= 1000 ? `Waited ${formatDuration(turn.waitedMs)} for another check on ${projectName} to finish first.` : undefined,
+    turn.waitedMs >= 1000 ? `Waited ${formatDuration(turn.waitedMs)} for another check or build command on ${repositoryName} to finish first.` : undefined,
     usual !== undefined && ranToEnd ? `It took ${formatDuration(tookMs)} (${formatDuration(usual)} last time).` : undefined,
     usual !== undefined && !ranToEnd ? `It ran to the end in ${formatDuration(usual)} last time.` : undefined,
   ].filter(Boolean);

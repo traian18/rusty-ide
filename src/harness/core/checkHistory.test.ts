@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { formatDuration, lastDuration, recordDuration, resetCheckHistory, takeProjectTurn } from "./checkHistory";
+import { formatDuration, lastDuration, recordDuration, repositoryOf, resetCheckHistory, takeProjectTurn, takesTurn } from "./checkHistory";
 
 const key = { workspaceRoot: "/ws", project: "rusty-core", check: "test" };
 
@@ -66,3 +66,19 @@ describe("one check at a time per project", () => {
     (await third).release();
   });
 });
+
+describe("which repository and which commands", () => {
+  it("names the repository a path is in: its first folder below the workspace", () => {
+    expect(repositoryOf("/ws", "/ws/rusty-core/sdk/typescript")).toBe("rusty-core");
+    expect(repositoryOf("/ws/", "rusty-core")).toBe("rusty-core");
+    expect(repositoryOf("/ws", "./rusty-ide/src-tauri")).toBe("rusty-ide");
+    expect(repositoryOf("/ws", "/ws")).toBe(".");
+    expect(repositoryOf("/ws", ".")).toBe(".");
+  });
+
+  it("makes build and test programs take turns, and lets quick ones through", () => {
+    for (const program of ["cargo", "npm", "/usr/local/bin/cargo", "pytest", "go", "./gradlew"]) expect(takesTurn(program)).toBe(true);
+    for (const program of ["git", "ls", "cat", "rg"]) expect(takesTurn(program)).toBe(false);
+  });
+});
+

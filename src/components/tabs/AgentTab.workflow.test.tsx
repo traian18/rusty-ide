@@ -314,6 +314,7 @@ describe("Agent chat workflows", () => {
   });
 
   async function send(text: string) {
+    const runsBefore = run.mock.calls.length;
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, text);
@@ -323,6 +324,9 @@ describe("Agent chat workflows", () => {
       textarea.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     });
     await flush();
+    // Sending goes through asynchronous steps (choosing a model or a workflow) before the run
+    // starts; on a busy machine one tick is not enough, so wait for the run itself.
+    for (let tries = 0; tries < 200 && run.mock.calls.length === runsBefore; tries++) await flush(10);
   }
 
   it("synchronizes visible query groups and search occurrences without redundant updates", async () => {
@@ -840,6 +844,8 @@ describe("Agent chat workflows", () => {
 
     it("lets each step of a workflow pick its own model instead of rating the whole message once", async () => {
       await choose(FLOW_PATH);
+      // Only this message's calls: one an earlier test left in flight must not count.
+      fetchStub.mockClear();
       await send("add password reset");
       expect(decisionCalls()).toHaveLength(0);
       const input = run.mock.calls[0][1];
@@ -862,6 +868,7 @@ describe("Agent chat workflows", () => {
         ok: true, status: 200,
         text: async () => JSON.stringify({ answers: { level: { type: "score", confidence: 0.9, probabilities: { 0: 0.05, 1: 0.05, 2: 0.9 } } } }),
       });
+      fetchStub.mockClear();
       await send("redesign the sync engine");
       expect(decisionCalls()).toHaveLength(1);
       const input = run.mock.calls[0][1];

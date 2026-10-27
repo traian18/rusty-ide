@@ -318,13 +318,13 @@ describe("runCheckTool", () => {
       const second = tool({ check: "test" }, signal);
       await new Promise((resolve) => setTimeout(resolve, 1100));
       expect(executed).toEqual(["run typecheck"]);
-      expect(onEvent).toHaveBeenCalledWith({ kind: "log", message: "Waiting for the other check on ide to finish." });
+      expect(onEvent).toHaveBeenCalledWith({ kind: "log", message: "Waiting for another check or build command on ide to finish." });
       finishFirst();
       await first;
       const outcome = await second;
       expect(executed).toEqual(["run typecheck", "run test"]);
       if (!outcome.ok) throw new Error(outcome.error);
-      expect(outcome.output).toMatch(/Waited \d+s for another check on ide to finish first\./);
+      expect(outcome.output).toMatch(/Waited \d+s for another check or build command on ide to finish first\./);
     });
 
     it("reports a check that went quiet as hung, with where it stopped and its full log", async () => {
