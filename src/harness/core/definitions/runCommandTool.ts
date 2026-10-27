@@ -46,6 +46,7 @@ export const GATED_RUN_COMMAND_TOOL: HostToolSpec = {
       args: { type: "array", items: { type: "string" }, description: "Arguments passed literally to the executable." },
       cwd: { type: "string", description: "Workspace-relative working directory. Defaults to the workspace root." },
       timeoutMs: { type: "number", description: "Timeout in milliseconds, between 1 second and 30 minutes." },
+      background: { type: "boolean", description: "Run it as a background job and return at once, for something slow (a full build or test run): you keep working and are told when it finishes; read it with job_output." },
     },
     required: ["program"],
   },
@@ -106,6 +107,8 @@ export interface GatedRunCommandOptions {
   sessionId: string;
   host: RunHost;
   onEvent: (event: CapabilityEvent<"agent_chat">) => void;
+  /** Told each command execution started, when the call runs as a background job. */
+  onExecution?: (executionId: string) => void;
 }
 
 function describeExit(result: { exit_code: number | null; timed_out: boolean; cancelled?: boolean }): string {
@@ -163,7 +166,7 @@ export async function runWithApproval(
   onEvent({ kind: "log", message: `Running approved command: ${formatCommand(command)}` });
   try {
     const started = Date.now();
-    const result = await runShellCommand(command.program, command.args, command.cwd, command.timeoutMs, signal, idleTimeoutMs);
+    const result = await runShellCommand(command.program, command.args, command.cwd, command.timeoutMs, signal, idleTimeoutMs, options.onExecution);
     const durationMs = Date.now() - started;
     if (result.output) onEvent({ kind: "command_output", content: result.output });
     onEvent({ kind: "command_complete" });

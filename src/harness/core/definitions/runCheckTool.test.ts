@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { RunHost } from "../../contract";
 import { CHECK_IDS, INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
+import { resetCheckHistory } from "../checkHistory";
 
 import cargoCheck from "../__fixtures__/checks/cargo_check.txt?raw";
 import cargoTestMatch from "../__fixtures__/checks/cargo_test_match.txt?raw";
@@ -87,6 +88,7 @@ const ide: Tree = { "ide/package.json": json({ scripts: { typecheck: "tsc --noEm
 describe("runCheckTool", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    resetCheckHistory();
   });
 
   it("runs the detected command after asking the user, and reports a failure as a failed tool call with the errors", async () => {
@@ -285,6 +287,46 @@ describe("runCheckTool", () => {
       expect(await used({ timeout_seconds: "soon" })).toEqual([3_600_000, 300_000]);
     });
 
+    it("remembers how long a check took and says so the next time, in the approval and the result", async () => {
+      const first = setup(ide, [{ exit_code: 0, output: "", timed_out: false }]);
+      await first.tool({ check: "typecheck" }, signal);
+      const second = setup(ide, [{ exit_code: 0, output: "", timed_out: false }]);
+      const outcome = await second.tool({ check: "typecheck" }, signal);
+      if (!outcome.ok) throw new Error(outcome.error);
+      expect(second.requestPermission.mock.calls[0][0].description).toMatch(/It took \d+s last time\.$/);
+      expect(outcome.output).toMatch(/It took \d+s \(\d+s last time\)\./);
+    });
+
+    it("runs a second check of the same project only after the first, and says it waited", async () => {
+      let finishFirst!: () => void;
+      const firstDone = new Promise<void>((resolve) => { finishFirst = resolve; });
+      const { tool, onEvent } = setup(ide, []);
+      const executed: string[] = [];
+      invokeMock.mockImplementation(async (command: string, args?: unknown) => {
+        const a = args as Record<string, unknown>;
+        if (command === "list_directory") return listingFor(ide);
+        if (command === "check_external_path") return { exists: true };
+        if (command === "run_shell_command") {
+          executed.push((a.args as string[]).join(" "));
+          if (executed.length === 1) await firstDone;
+          return ok();
+        }
+        throw new Error(`unexpected command ${command}`);
+      });
+      const first = tool({ check: "typecheck" }, signal);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const second = tool({ check: "test" }, signal);
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      expect(executed).toEqual(["run typecheck"]);
+      expect(onEvent).toHaveBeenCalledWith({ kind: "log", message: "Waiting for the other check on ide to finish." });
+      finishFirst();
+      await first;
+      const outcome = await second;
+      expect(executed).toEqual(["run typecheck", "run test"]);
+      if (!outcome.ok) throw new Error(outcome.error);
+      expect(outcome.output).toMatch(/Waited \d+s for another check on ide to finish first\./);
+    });
+
     it("reports a check that went quiet as hung, with where it stopped and its full log", async () => {
       const { tool } = setup(ide, [{
         exit_code: null, output: "running 12 tests\ntest replay::resumes ... ", timed_out: true, idle: true,
@@ -353,6 +395,7 @@ describe("INSTALL_DEPENDENCIES_TOOL", () => {
 describe("running one test", () => {
   beforeEach(() => {
     invokeMock.mockReset();
+    resetCheckHistory();
   });
 
   const web: Tree = { "web/package.json": json({ scripts: { test: "vitest run", typecheck: "tsc --noEmit" } }) };
@@ -466,7 +509,7 @@ describe("RUN_CHECK_TOOL", () => {
     expect(RUN_CHECK_TOOL.name).toBe("run_check");
     expect((RUN_CHECK_TOOL.input_schema as Record<string, unknown>).required).toEqual(["check"]);
     const props = (RUN_CHECK_TOOL.input_schema as Record<string, unknown>).properties as Record<string, { enum?: string[] }>;
-    expect(Object.keys(props)).toEqual(["fresh", "check", "path", "test_name", "test_file", "timeout_seconds"]);
+    expect(Object.keys(props)).toEqual(["fresh", "check", "path", "test_name", "test_file", "timeout_seconds", "background"]);
     expect(props.check.enum).toEqual(["typecheck", "lint", "test", "build", "format"]);
   });
 

@@ -45,10 +45,20 @@ export interface CommandOutput {
  * sent), so test_build's existing callers are unaffected. `idleTimeoutMs`
  * stops it once it has printed nothing for that long: a long build keeps
  * printing, a hung one does not. */
-export function runShellCommand(program: string, args: string[], cwd: string, timeoutMs: number, signal?: AbortSignal, idleTimeoutMs?: number): Promise<CommandOutput> {
+export function runShellCommand(
+  program: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+  idleTimeoutMs?: number,
+  /** Told the execution id, so the command's progress can be read while it runs (a background job). */
+  onExecution?: (executionId: string) => void,
+): Promise<CommandOutput> {
   if (!signal) return invoke<CommandOutput>("run_shell_command", { program, args, cwd, timeoutMs, ...(idleTimeoutMs ? { idleTimeoutMs } : {}) });
   if (signal.aborted) return Promise.resolve({ exit_code: null, output: "", timed_out: false, cancelled: true });
   const executionId = crypto.randomUUID();
+  onExecution?.(executionId);
   const cancel = () => {
     void invoke<boolean>("cancel_shell_command", { executionId }).catch(() => {});
   };

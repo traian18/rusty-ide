@@ -106,6 +106,7 @@ import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SE
 import { flattenHistory } from "./promptHistory";
 import { historyBudgetChars } from "../contextCompaction";
 import { GATED_RUN_COMMAND_TOOL, gatedRunCommandTool } from "./runCommandTool";
+import { JOB_OUTPUT_TOOL, backgroundable, runJobs, withJobNotices } from "./commandJobs";
 import { runWebSearch, type WebSearchApiKeys, type WebSearchOptions } from "./webSearch";
 import { workingMethod } from "./agentWorkingMethod";
 import { SINGLE_AGENT_PROFILE } from "./singleAgentProfile";
@@ -325,7 +326,22 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   const structural = structuralNames.map((name) => TOOL_SPECS[name]);
   const planTool = mode.planOnly ? [WRITE_PLAN_TOOL] : [];
   const todoTool = mode.planOnly ? [] : [UPDATE_TODOS_TOOL];
-  return [...structural, ...planTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, SPEC_CONTEXT_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
+  // A check or command can run as a background job; this reads it.
+  const jobTool = structuralNames.some((name) => name === "run_check" || name === "run_command") ? [JOB_OUTPUT_TOOL] : [];
+  return [...structural, ...planTool, ...jobTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, SPEC_CONTEXT_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
+}
+
+/** How a background check is named to the model: "run_check test (rusty-core, test_name replay)". */
+function checkJobLabel(args: Record<string, unknown>): string {
+  const detail = [args.path, args.test_name && `test_name ${String(args.test_name)}`, args.test_file && `test_file ${String(args.test_file)}`]
+    .filter((part) => typeof part === "string" && part.trim())
+    .join(", ");
+  return `run_check ${String(args.check ?? "")}${detail ? ` (${detail})` : ""}`;
+}
+
+function commandJobLabel(args: Record<string, unknown>): string {
+  const words = [args.program, ...(Array.isArray(args.args) ? args.args : [])].map(String).join(" ");
+  return `run_command ${words.length > 80 ? `${words.slice(0, 80)}...` : words}`;
 }
 
 /** How to report progress, for a run that has 'report_progress'. */
@@ -635,9 +651,21 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (names.has("open_document")) handlers.open_document = openDocumentTool(input.workspaceRoot);
     if (names.has("web_search")) handlers.web_search = webSearchTool((input.webSearchApiKeys ?? {}) as WebSearchApiKeys, onEvent);
     if (names.has("write_plan")) handlers.write_plan = writePlanTool(host);
-    if (names.has("run_check")) handlers.run_check = runCheckTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, evidence });
-    if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, evidence });
-    if (names.has("run_command")) handlers.run_command = gatedRunCommandTool({ workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent });
+    const stepId = () => (typeof ctx.scratch.workflowStepId === "string" ? ctx.scratch.workflowStepId : undefined);
+    const jobs = runJobs(ctx.scratch, stepId, ctx.signal);
+    const commandOptions = { workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent };
+    if (names.has("run_check")) {
+      handlers.run_check = backgroundable((onExecution) => runCheckTool({ ...commandOptions, evidence, onExecution }), checkJobLabel, jobs);
+    }
+    if (names.has("install_dependencies")) handlers.install_dependencies = installDependenciesTool({ ...commandOptions, evidence });
+    if (names.has("run_command")) {
+      handlers.run_command = backgroundable((onExecution) => {
+        const run = gatedRunCommandTool({ ...commandOptions, onExecution });
+        // A background command changes the workspace when it finishes, not when it is started.
+        return onExecution ? async (...args) => { try { return await run(...args); } finally { evidence.invalidate(); } } : run;
+      }, commandJobLabel, jobs);
+    }
+    if (names.has(JOB_OUTPUT_TOOL.name)) handlers[JOB_OUTPUT_TOOL.name] = jobs.handler();
     if (names.has("save_workflow") && workflowAuthorAuthorized(input.skill, mode, input.workflow)) handlers.save_workflow = async (args) => {
       try {
         const result = await invoke("save_workflow", { request: { ...args as Record<string, unknown>, workspace_root: input.workspaceRoot } }) as { ready?: boolean; outcome?: string };
@@ -674,6 +702,8 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       const handler = handlers[name];
       if (handler) handlers[name] = async (...args) => { evidence.invalidate(); try { return await handler(...args); } finally { evidence.invalidate(); } };
     }
+    // Whatever the model calls next hears of a background job that finished meanwhile.
+    for (const [name, handler] of Object.entries(handlers)) handlers[name] = withJobNotices(handler, jobs);
     return handlers;
   },
 

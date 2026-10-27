@@ -30,7 +30,7 @@ describe("GATED_RUN_COMMAND_TOOL", () => {
   it("is the structured program/args shape, not a sh -c string", () => {
     expect(GATED_RUN_COMMAND_TOOL.name).toBe("run_command");
     const schema = GATED_RUN_COMMAND_TOOL.input_schema as { properties: object; required: string[] };
-    expect(Object.keys(schema.properties).sort()).toEqual(["args", "cwd", "program", "timeoutMs"]);
+    expect(Object.keys(schema.properties).sort()).toEqual(["args", "background", "cwd", "program", "timeoutMs"]);
     expect(schema.required).toEqual(["program"]);
   });
 });

@@ -89,6 +89,11 @@ fn host_call_timeout(tool: &str, arguments: &Value, default: Duration) -> Option
         "run_check" | "install_dependencies" => {
             Some(own("timeout_seconds", 1.0, CHECK_MAX).unwrap_or(CHECK_MAX) + WAIT_FOR_USER)
         }
+        // Waits for a background job as long as it was asked to, then answers.
+        "job_output" => Some(
+            own("wait_seconds", 1.0, Duration::from_secs(30 * 60)).unwrap_or_default()
+                + Duration::from_secs(60),
+        ),
         "run_command" => Some(
             own("timeoutMs", 0.001, Duration::from_secs(30 * 60))
                 .unwrap_or(Duration::from_secs(2 * 60))

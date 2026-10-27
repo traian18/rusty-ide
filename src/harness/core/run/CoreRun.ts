@@ -68,7 +68,9 @@ export interface CoreRunOptions<K extends CapabilityName> {
 
 export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   readonly runId = crypto.randomUUID();
-  readonly context: RunContext = { scratch: {} };
+  private readonly controller = new AbortController();
+  /** Aborts when the run settles, so what a definition started for it (a background job) ends with it. */
+  readonly context: RunContext = { scratch: {}, signal: this.controller.signal };
   readonly capability: K;
   readonly definition: CoreCapabilityDefinition<K>;
   readonly input: CapabilityInput<K>;
@@ -76,7 +78,6 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   readonly onEvent: (event: CapabilityEvent<K>) => void;
   readonly engine: CoreEngine;
   private readonly executionAnswerer: ExecutionAnswerer;
-  private readonly controller = new AbortController();
   private readonly transcript = createTranscript();
   private readonly incompleteAgentRun: IncompleteAgentRun | undefined;
   private readonly pendingFileChanges = new Map<string, string[]>();

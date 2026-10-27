@@ -97,6 +97,8 @@ export interface HostToolCall {
  * its own key naming. */
 export interface RunContext {
   scratch: Record<string, unknown>;
+  /** Aborts when the run ends, however it ends. */
+  signal?: AbortSignal;
 }
 
 export interface WorkflowBoundaryContext<K extends CapabilityName> {

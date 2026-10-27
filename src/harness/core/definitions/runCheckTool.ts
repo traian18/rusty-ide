@@ -1,4 +1,5 @@
 import type { CheckEvidenceLedger } from "../checkEvidence";
+import { formatDuration, lastDuration, recordDuration, takeProjectTurn, type CheckKey, type ProjectTurn } from "../checkHistory";
 // ============================================================
 // definitions/runCheckTool.ts -- "run_check": run one of the project's own
 // checks (typecheck, lint, test, build, format, install) and get a verdict a
@@ -85,6 +86,7 @@ export const RUN_CHECK_TOOL: HostToolSpec = {
         description: "Only for check: test. Run only the tests in this file, relative to the workspace root, for example src/math.test.ts. For cargo it must be a file under tests/; for go it runs that file's package.",
       },
       timeout_seconds: { type: "number", description: "An overall limit, 1 to 3600 seconds. Usually leave it out: a check runs for as long as it keeps printing (up to an hour), and one that prints nothing for several minutes is stopped as hung." },
+      background: { type: "boolean", description: "Run it as a background job and return at once, for a slow check (a full test suite or build): you keep working and are told when it finishes; read it with job_output. The result says how long the check took last time." },
     },
     required: ["check"],
   },
@@ -165,7 +167,25 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
   const outcomes: CommandOutcome[] = [];
   const report = (): CheckReport => ({ check: id, project: selection.project.path, outcomes: only ? settleNarrowed(outcomes, only) : outcomes, only });
   const total = commands.length;
+  const history: CheckKey = { workspaceRoot, project: selection.project.path, check: id, only };
+  const usual = lastDuration(history);
+  const projectName = selection.project.path === "." ? "this project" : selection.project.path;
 
+  let turn: ProjectTurn;
+  try {
+    turn = await takeProjectTurn(workspaceRoot, selection.project.path, signal, () => {
+      options.onEvent({ kind: "log", message: `Waiting for the other check on ${projectName} to finish.` });
+    });
+  } catch (error: unknown) {
+    return { ok: false, error: `Stopped: ${message(error)}; the ${id} check was not run.` };
+  }
+  try {
+    return await runCommands();
+  } finally {
+    turn.release();
+  }
+
+  async function runCommands(): Promise<Outcome> {
   for (const [index, detected] of commands.entries()) {
     let command: NormalizedCommand;
     try {
@@ -177,7 +197,8 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
     const qualifiers = [total > 1 ? `${index + 1} of ${total}` : undefined, only ? `only ${only}` : undefined].filter(Boolean);
     const which = qualifiers.length > 0 ? ` (${qualifiers.join(", ")})` : "";
     const purpose = installing ? "install the project's dependencies" : `run the project's ${id} check`;
-    const run = await runWithApproval(command, options, signal, `The agent wants to ${purpose}${which}: ${formatCommand(command)}`, idleTimeoutMs);
+    const lastTime = usual !== undefined && index === 0 ? ` It took ${formatDuration(usual)} last time.` : "";
+    const run = await runWithApproval(command, options, signal, `The agent wants to ${purpose}${which}: ${formatCommand(command)}${lastTime ? `.${lastTime}` : ""}`, idleTimeoutMs);
 
     if (run.status === "refused") {
       const consequence = installing ? "so nothing was installed" : "so this check is incomplete and proves nothing";
@@ -204,10 +225,20 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
     if (narrowing && (outcomes[outcomes.length - 1].testsRun ?? 0) > 0) break;
   }
 
-  const text = formatCheckReport(report());
+  // A run that went to the end tells how long this check takes; a stopped one does not.
+  const ranToEnd = outcomes.length > 0 && !signal.aborted && outcomes.every((outcome) => !outcome.timedOut && !outcome.cancelled && outcome.startError === undefined);
+  const tookMs = outcomes.reduce((sum, outcome) => sum + outcome.durationMs, 0);
+  if (ranToEnd) recordDuration(history, tookMs);
+  const notes = [
+    turn.waitedMs >= 1000 ? `Waited ${formatDuration(turn.waitedMs)} for another check on ${projectName} to finish first.` : undefined,
+    usual !== undefined && ranToEnd ? `It took ${formatDuration(tookMs)} (${formatDuration(usual)} last time).` : undefined,
+    usual !== undefined && !ranToEnd ? `It ran to the end in ${formatDuration(usual)} last time.` : undefined,
+  ].filter(Boolean);
+  const text = [formatCheckReport(report()), ...notes].join("\n");
   const result: Outcome = reportPassed(report()) && !signal.aborted ? { ok: true, output: text } : { ok: false, error: text };
   const receipt = options.evidence?.record(evidenceKey, before, await options.evidence.fingerprint(), result);
   return receipt && result.ok ? { ok: true, output: `${text}\nHost evidence: ${receipt.id}` } : result;
+  }
 }
 
 export function runCheckTool(options: CheckToolOptions): HostToolHandler {

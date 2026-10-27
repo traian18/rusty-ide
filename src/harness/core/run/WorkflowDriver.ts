@@ -8,6 +8,7 @@ import { executionObservability } from "../../../observability/executionStore";
 import { trajectories } from "../../../observability/trajectoryStore";
 import type { SessionRecipe } from "../SessionRecipe";
 import { describeWorkflowEvent, stepNames, workflowOutcome, type WorkflowEventEnvelope } from "../workflowRun";
+import type { CommandJobs } from "../definitions/commandJobs";
 import { errorMessage, observe } from "./failures";
 import { WorkflowBoundary } from "./WorkflowBoundary";
 import { nodeIdOf, type WorkflowRunAccess, type WorkflowSpec } from "./workflowRunAccess";
@@ -141,6 +142,8 @@ export class WorkflowDriver<K extends CapabilityName> {
     if (step.status === "running") {
       this.run.context.scratch.workflowStep = name;
       this.run.context.scratch.workflowStepId = step.nodeId;
+      // A background job belongs to the step that started it; that step is over.
+      (this.run.context.scratch.commandJobs as CommandJobs | undefined)?.cancelOutside(step.nodeId);
     }
     this.run.onEvent({ kind: "workflow_step", workflowId: this.id, ...step, name } as CapabilityEvent<K>);
   }

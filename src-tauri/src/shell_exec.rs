@@ -160,6 +160,12 @@ impl Capture {
         }
     }
 
+    fn log_path(&self) -> Option<String> {
+        self.log
+            .as_ref()
+            .map(|(path, _)| path.to_string_lossy().into_owned())
+    }
+
     /// The output, and the log's path when it is worth keeping.
     async fn finish(mut self, keep_log: bool) -> (String, bool, Option<String>) {
         use tokio::io::AsyncWriteExt;
@@ -239,6 +245,7 @@ pub async fn run_shell_command(
         cwd
     );
 
+    let progress_id = execution_id.clone();
     let registration = CancelRegistration::new(execution_id);
 
     let mut command = Command::new(&program);
@@ -275,6 +282,10 @@ pub async fn run_shell_command(
     drop(chunks);
 
     let mut capture = Capture::open().await;
+    let progress = crate::shell_progress::ProgressRegistration::new(
+        progress_id.as_deref(),
+        capture.log_path(),
+    );
     let deadline = started + Duration::from_millis(timeout_ms.max(1));
     let idle = idle_timeout_ms.map(|ms| Duration::from_millis(ms.max(1)));
     let mut last_output = started;
@@ -292,6 +303,7 @@ pub async fn run_shell_command(
             chunk = printed.recv(), if streams_open => match chunk {
                 Some(chunk) => {
                     last_output = tokio::time::Instant::now();
+                    progress.push(&chunk);
                     capture.push(&chunk).await;
                 }
                 None => streams_open = false,

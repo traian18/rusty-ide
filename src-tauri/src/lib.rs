@@ -12,6 +12,7 @@ mod project_search;
 mod repository;
 mod secure_key;
 mod shell_exec;
+mod shell_progress;
 #[cfg(feature = "core-harness")]
 mod specs;
 mod startup_window;
@@ -1370,6 +1371,7 @@ pub fn run() {
             shell_exec::run_shell_command,
             check_fingerprint::check_workspace_fingerprint,
             shell_exec::cancel_shell_command,
+            shell_progress::shell_command_progress,
             usage_tracking::record_usage,
             usage_tracking::reset_usage_day,
             observability_store::observability_append,
