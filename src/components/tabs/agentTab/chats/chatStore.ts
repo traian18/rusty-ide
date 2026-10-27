@@ -58,7 +58,8 @@ interface ChatStore {
   select(tabId: string, chatId: string): void;
   /** Takes the chat out of its tab; the one next to it is shown. */
   remove(chatId: string): void;
-  /** Changes a chat's view; a chat no longer open is left alone. */
+  /** Changes a chat's view; a chat no longer open, or a change to what it already shows, is left alone
+   * (runs set the same status line on every token: re-rendering for it made the tab stutter). */
   patch(chatId: string, change: Partial<ChatView> | ((view: ChatView) => Partial<ChatView>)): void;
 }
 
@@ -102,9 +103,10 @@ export const useChatStore = create<ChatStore>((set) => ({
   }),
   patch: (chatId, change) => set((state) => {
     const view = state.chats[chatId];
-    if (!view) return {};
+    if (!view) return state;
     const next = typeof change === "function" ? change(view) : change;
-    return { chats: { ...state.chats, [chatId]: { ...view, ...next } } };
+    const changed = (Object.keys(next) as (keyof ChatView)[]).some((key) => !Object.is(view[key], next[key]));
+    return changed ? { chats: { ...state.chats, [chatId]: { ...view, ...next } } } : state;
   }),
 }));
 

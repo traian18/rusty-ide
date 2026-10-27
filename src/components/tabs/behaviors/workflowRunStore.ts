@@ -78,8 +78,13 @@ function updateRuns(state: Pick<WorkflowRunStore, "runs" | "chatRuns">, workflow
   return { runs, chatRuns: chat ? { ...state.chatRuns, [chatId]: chat } : state.chatRuns };
 }
 
+/** How often a sign of life is recorded. Runs send many events a second (every token); recording each
+ * re-rendered every view of the runs, the Behaviors canvas included, and the app stuttered. */
+export const ACTIVITY_RESOLUTION_MS = 1000;
+
+/** The run with its activity moved to `now`, or undefined when it is not running or was touched just now. */
 function stillGoing(run: WorkflowRunView | undefined, now: number): WorkflowRunView | undefined {
-  return run?.status === "running" ? { ...run, lastActivityAt: now } : undefined;
+  return run?.status === "running" && now - run.lastActivityAt >= ACTIVITY_RESOLUTION_MS ? { ...run, lastActivityAt: now } : undefined;
 }
 
 export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
@@ -113,11 +118,20 @@ export const useWorkflowRunStore = create<WorkflowRunStore>((set, get) => ({
     set((state) => {
       const now = Date.now();
       if (!chatId) {
-        const runs = Object.fromEntries(Object.entries(state.runs).map(([id, run]) => [id, stillGoing(run, now) ?? run]));
-        return { runs };
+        const touched = Object.entries(state.runs).flatMap(([id, run]) => {
+          const next = stillGoing(run, now);
+          return next ? [[id, next] as const] : [];
+        });
+        return touched.length > 0 ? { runs: { ...state.runs, ...Object.fromEntries(touched) } } : state;
       }
       const workflowId = state.chatRuns[chatId]?.workflowId;
-      return workflowId ? updateRuns(state, workflowId, chatId, (run) => stillGoing(run, now)) : {};
+      const chatRun = stillGoing(state.chatRuns[chatId], now);
+      const latest = workflowId ? stillGoing(state.runs[workflowId], now) : undefined;
+      if (!chatRun && !latest) return state;
+      return {
+        ...(latest ? { runs: { ...state.runs, [workflowId!]: latest } } : {}),
+        ...(chatRun ? { chatRuns: { ...state.chatRuns, [chatId]: chatRun } } : {}),
+      };
     }),
   step: (workflowId, progress, chatId) =>
     set((state) => updateRuns(state, workflowId, chatId, (existing) => {

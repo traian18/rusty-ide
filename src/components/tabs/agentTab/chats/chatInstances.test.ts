@@ -134,6 +134,35 @@ describe("concurrent chats", () => {
     expect(tabChatIds("t")).toEqual(["t"]);
   });
 
+  it("re-renders nothing for a token that leaves the chat as it was, and records a sign of life at most once a second", () => {
+    const tab = fakeChatTab("t");
+    const other = openChat("t");
+    const turn = tab.chats.turnFor(other);
+    const handle = runEventHandler(turn, progress());
+    useWorkflowRunStore.getState().begin("build", other);
+    const chatUpdates = vi.fn();
+    const runUpdates = vi.fn();
+    const stopChats = useChatStore.subscribe(chatUpdates);
+    const stopRuns = useWorkflowRunStore.subscribe(runUpdates);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(Date.now() + 5000);
+      for (let i = 0; i < 50; i++) handle({ kind: "token", content: "x", messageId: "m" } as never);
+      // The first token sets the status line and records activity; the other 49 change nothing.
+      expect(chatUpdates).toHaveBeenCalledTimes(1);
+      expect(runUpdates).toHaveBeenCalledTimes(1);
+      vi.advanceTimersByTime(1000);
+      handle({ kind: "token", content: "x", messageId: "m" } as never);
+      expect(runUpdates).toHaveBeenCalledTimes(2);
+      expect(chatUpdates).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+      stopChats();
+      stopRuns();
+    }
+  });
+
   it("drops what a closed chat's run still sends, even when its id is reused", () => {
     const tab = fakeChatTab("t");
     const stale = tab.chats.turnFor("t");
