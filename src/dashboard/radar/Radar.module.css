@@ -6,13 +6,6 @@
  * knowing about it. A fixed palette on purpose: the radar looks the same in every theme.
  */
 
-/* The HUD face: Pricedown when installed (or dropped in public/fonts), else a heavy condensed face. */
-@font-face {
-  font-family: "Radar HUD";
-  src: local("Pricedown"), local("Pricedown Bl"), local("PricedownBl-Regular"), url("/fonts/pricedown.woff2") format("woff2"), url("/fonts/pricedown.otf") format("opentype");
-  font-display: swap;
-}
-
 .skin {
   --radar-road: #b3b2a2;
   --radar-ring: #000000;
@@ -25,7 +18,8 @@
   --blip-red: #c8282d;
   --blip-blue: #2f66b8;
   --blip-pink: #d672c6;
-  --font-hud: "Radar HUD", Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  /* The HUD face: a heavy condensed one, as the game's lettering is. */
+  --font-hud: Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
   --hud-shadow: -1px -1px 0 var(--hud-outline), 1px -1px 0 var(--hud-outline), -1px 1px 0 var(--hud-outline), 1px 1px 0 var(--hud-outline), 0 2px 0 var(--hud-outline);
 
   --color-primary: var(--hud-green);
