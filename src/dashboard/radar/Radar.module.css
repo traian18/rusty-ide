@@ -1,0 +1,144 @@
+/*
+ * The Documentation tab's radar skin: the feel of a San Andreas-style minimap
+ * (dark olive ground, pale roads, black outlines, coloured blips) and HUD
+ * lettering. It redefines the theme's tokens for the tab's subtree only, so every
+ * page inside (guide, specs, code health, files) takes the palette without
+ * knowing about it. A fixed palette on purpose: the radar looks the same in every theme.
+ */
+
+/* The HUD face: Pricedown when installed (or dropped in public/fonts), else a heavy condensed face. */
+@font-face {
+  font-family: "Radar HUD";
+  src: local("Pricedown"), local("Pricedown Bl"), local("PricedownBl-Regular"), url("/fonts/pricedown.woff2") format("woff2"), url("/fonts/pricedown.otf") format("opentype");
+  font-display: swap;
+}
+
+.skin {
+  --radar-road: #b3b2a2;
+  --radar-ring: #000000;
+  --hud-white: #f2f2ec;
+  --hud-outline: #000000;
+  --hud-green: #3d7a33;
+  --hud-green-bright: #55a447;
+  --hud-menu: #9eb0cf;
+  --blip-yellow: #f0d23a;
+  --blip-red: #c8282d;
+  --blip-blue: #2f66b8;
+  --blip-pink: #d672c6;
+  --font-hud: "Radar HUD", Impact, Haettenschweiler, "Arial Narrow Bold", sans-serif;
+  --hud-shadow: -1px -1px 0 var(--hud-outline), 1px -1px 0 var(--hud-outline), -1px 1px 0 var(--hud-outline), 1px 1px 0 var(--hud-outline), 0 2px 0 var(--hud-outline);
+
+  --color-primary: var(--hud-green);
+  --color-primary-foreground: var(--hud-white);
+  --color-fg-default: #dcdccf;
+  --color-fg-muted: #a2a58e;
+  --color-fg-strong: var(--hud-white);
+  --color-fg-inverse: #11120e;
+  --color-surface-app: #1d201a;
+  --color-surface-workspace: #1d201a;
+  --color-surface-sidebar: #141611;
+  --color-surface-header: #0e0f0b;
+  --color-surface-panel: #262a21;
+  --color-surface-elevated: #2f3428;
+  --color-surface-sunken: #161812;
+  --color-surface-input: #161812;
+  --color-surface-canvas: #1d201a;
+  --color-surface-overlay: rgba(0, 0, 0, 0.6);
+  --color-border-default: #4a5140;
+  --color-border-subtle: #353a2d;
+  --color-border-strong: var(--radar-road);
+  --color-border-focus: var(--blip-yellow);
+  --color-interaction-hover: rgba(179, 178, 162, 0.12);
+  --color-interaction-active: rgba(179, 178, 162, 0.2);
+  --color-interaction-selected: rgba(240, 210, 58, 0.16);
+  --color-focus-ring: var(--blip-yellow);
+  --color-disabled: #6b6e5e;
+  --color-status-info: #8fb3e6;
+  --color-status-info-bg: rgba(47, 102, 184, 0.16);
+  --color-status-info-border: rgba(47, 102, 184, 0.45);
+  --color-status-info-solid: var(--blip-blue);
+  --color-status-success: #7cc66c;
+  --color-status-success-bg: rgba(61, 122, 51, 0.18);
+  --color-status-success-border: rgba(85, 164, 71, 0.45);
+  --color-status-success-solid: var(--hud-green);
+  --color-status-warning: var(--blip-yellow);
+  --color-status-warning-bg: rgba(240, 210, 58, 0.14);
+  --color-status-warning-border: rgba(240, 210, 58, 0.4);
+  --color-status-warning-solid: #b89a1c;
+  --color-status-danger: #ec6a6e;
+  --color-status-danger-bg: rgba(200, 40, 45, 0.16);
+  --color-status-danger-border: rgba(200, 40, 45, 0.45);
+  --color-status-danger-solid: var(--blip-red);
+  --syntax-comment: #8a8d78;
+  --syntax-keyword: #d672c6;
+  --syntax-string: #9fd38f;
+  --syntax-number: #f0d23a;
+  --syntax-function: #8fb3e6;
+  --syntax-variable: #dcdccf;
+  --syntax-type: #e8b86a;
+  /* The compatibility aliases older components still read. */
+  --bg-app: var(--color-surface-app);
+  --bg-sidebar: var(--color-surface-sidebar);
+  --bg-header: var(--color-surface-header);
+  --bg-canvas: var(--color-surface-canvas);
+  --border-color: var(--color-border-default);
+  --border-active: var(--color-border-strong);
+  --text-normal: var(--color-fg-default);
+  --text-muted: var(--color-fg-muted);
+  --text-light: var(--color-fg-strong);
+  --text-color: var(--color-fg-strong);
+  --accent-color: var(--blip-yellow);
+  --accent-bg: var(--color-interaction-selected);
+  color-scheme: dark;
+}
+
+/* HUD lettering (white with a black outline, as the game's menus draw it) on the page list: pale blue until chosen. */
+.skin nav button {
+  font-family: var(--font-hud);
+  font-size: var(--font-size-ui-lg);
+  letter-spacing: 0.04em;
+  text-shadow: var(--hud-shadow);
+  color: var(--hud-menu);
+}
+
+.skin nav button[aria-current="page"] {
+  background: transparent;
+  color: var(--hud-white);
+}
+
+.skin nav button:hover {
+  color: var(--hud-white);
+}
+
+/* The toolbar's buttons in HUD lettering; the main action in money green. */
+.skin [role="toolbar"] button {
+  font-family: var(--font-hud);
+  font-size: var(--font-size-ui-md);
+  letter-spacing: 0.05em;
+  text-shadow: var(--hud-shadow);
+  color: var(--hud-white);
+}
+
+.skin button[class*="primary"] {
+  border: 2px solid var(--hud-outline);
+  background: var(--hud-green);
+  color: var(--hud-white);
+}
+
+.skin button[class*="primary"]:hover:not(:disabled) {
+  background: var(--hud-green-bright);
+}
+
+/* The menu entry's blip, so the list reads as the radar's legend. */
+.legend {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: none;
+  border: 2px solid var(--radar-ring);
+}
+
+.blipYellow { background: var(--blip-yellow); }
+.blipRed { background: var(--blip-red); }
+.blipBlue { background: var(--blip-blue); }
+.blipPink { background: var(--blip-pink); }
