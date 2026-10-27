@@ -62,7 +62,7 @@ class CommandPermissionService {
    */
   request(message: CommandPermissionRequest, signal: AbortSignal): Promise<CommandPermissionDecision> {
     if (this.hasSessionGrant(message)) return Promise.resolve("allow_session");
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
       const entry: PendingPermission = { ...message, resolve };
       this.queue.push(entry);
       this.emit();
@@ -80,6 +80,9 @@ class CommandPermissionService {
           this.queue = next;
           notificationCoordinator.cancel(message.requestId);
           this.emit();
+          // The caller is waiting on this answer: without one its tool call would
+          // stay open until the app closes.
+          reject(new Error("The command was cancelled before it was approved."));
         },
         { once: true },
       );

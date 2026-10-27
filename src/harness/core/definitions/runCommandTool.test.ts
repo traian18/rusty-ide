@@ -149,17 +149,22 @@ describe("gatedRunCommandTool", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it("reports a timeout and a cancel in the model-facing status", async () => {
-    invokeMock.mockResolvedValueOnce({ exit_code: null, output: "", timed_out: true, cancelled: false });
-    expect(await tool(fakeHost())({ program: "sleep", args: ["999"] }, new AbortController().signal)).toEqual({
-      ok: true,
-      output: "(command timed out)",
+  it("reports a command that was stopped as a failure, with how far it got and where its full log is", async () => {
+    invokeMock.mockResolvedValueOnce({
+      exit_code: null, output: "Compiling harness-core\nRunning tests/replay.rs\n", timed_out: true, cancelled: false,
+      log_path: "/tmp/rusty-commands/1.log",
     });
+    const timedOut = await tool(fakeHost())({ program: "cargo", args: ["test"], timeoutMs: 300_000 }, new AbortController().signal);
+    expect(timedOut).toEqual({ ok: false, error: expect.stringContaining("Running tests/replay.rs\n(command timed out)") });
+    if (timedOut.ok) throw new Error("expected a failure");
+    expect(timedOut.error).toContain("did not finish");
+    expect(timedOut.error).toContain("larger timeoutMs");
+    expect(timedOut.error).toContain("/tmp/rusty-commands/1.log");
 
     invokeMock.mockResolvedValueOnce({ exit_code: null, output: "partial", timed_out: false, cancelled: true });
     expect(await tool(fakeHost())({ program: "sleep", args: ["999"] }, new AbortController().signal)).toEqual({
-      ok: true,
-      output: "partial\n(command cancelled)",
+      ok: false,
+      error: expect.stringMatching(/^partial\n\(command cancelled\)\nIt was cancelled after \d+s and did not finish\.$/),
     });
   });
 

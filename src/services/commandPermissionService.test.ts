@@ -141,12 +141,13 @@ describe("commandPermissionService session grants", () => {
     expect(commandPermissionService.hasSessionGrant(request())).toBe(false);
   });
 
-  it("aborting the signal withdraws a queued request without answering it", async () => {
+  it("aborting the signal withdraws a queued request and ends the wait as cancelled, not as a decision", async () => {
     const controller = new AbortController();
     const pending = commandPermissionService.request(request({ requestId: "r1" }), controller.signal);
     expect(commandPermissionService.getSnapshot()?.requestId).toBe("r1");
     controller.abort();
     expect(commandPermissionService.getSnapshot()).toBeNull();
-    expect(await settled(pending)).toEqual({ done: false });
+    await expect(pending).rejects.toThrow("cancelled before it was approved");
+    expect(commandPermissionService.hasSessionGrant(request())).toBe(false);
   });
 });

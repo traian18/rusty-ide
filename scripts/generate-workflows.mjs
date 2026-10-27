@@ -227,7 +227,7 @@ for(const [id,preps,writer,post] of catalog){
  const queued=QUEUED.has(id);
  const fromFiles=FROM_FILES.has(id);
  const workflow={...old,revision:old.revision+(writer?6:4),nodes:[],edges:[],
-  // stall_timeout_ms: no sign of life from a step for 10 min cancels the attempt and retries it (waiting on a permission prompt does not count).
+  // stall_timeout_ms: no sign of life from a step for 10 min cancels the attempt and retries it (a tool call still running, or waiting for its approval, does not count: commands and checks stop themselves).
   // research: any step that reads may send a question to a read-only Research step (2 per attempt).
   policies:{max_total_attempts:40,stall_timeout_ms:600000,research:{max_per_attempt:2,profile:{id:'research'}}}};
  const nodes=workflow.nodes;

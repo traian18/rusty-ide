@@ -27,6 +27,13 @@ export interface CommandOutput {
   /** Killed via `cancel_shell_command` before it exited -- only ever true
    * for a call that passed a `signal` (below) which then aborted. */
   cancelled?: boolean;
+  /** Stopped for printing nothing for `idleTimeoutMs`; `timed_out` is set too. */
+  idle?: boolean;
+  /** `output` is only the end of what it printed. */
+  truncated?: boolean;
+  /** The full output, kept when the command was stopped or `output` was truncated. */
+  log_path?: string | null;
+  elapsed_ms?: number;
 }
 
 /** Runs `program args...` in `cwd` and resolves once it exits, times out,
@@ -35,16 +42,18 @@ export interface CommandOutput {
  * registered, so a user's Stop kills the command (and, on Unix, its
  * whole process group) instead of letting it run out its timeout. Without
  * a `signal` the call is exactly the pre-cancel shape (no execution id is
- * sent), so test_build's existing callers are unaffected. */
-export function runShellCommand(program: string, args: string[], cwd: string, timeoutMs: number, signal?: AbortSignal): Promise<CommandOutput> {
-  if (!signal) return invoke<CommandOutput>("run_shell_command", { program, args, cwd, timeoutMs });
+ * sent), so test_build's existing callers are unaffected. `idleTimeoutMs`
+ * stops it once it has printed nothing for that long: a long build keeps
+ * printing, a hung one does not. */
+export function runShellCommand(program: string, args: string[], cwd: string, timeoutMs: number, signal?: AbortSignal, idleTimeoutMs?: number): Promise<CommandOutput> {
+  if (!signal) return invoke<CommandOutput>("run_shell_command", { program, args, cwd, timeoutMs, ...(idleTimeoutMs ? { idleTimeoutMs } : {}) });
   if (signal.aborted) return Promise.resolve({ exit_code: null, output: "", timed_out: false, cancelled: true });
   const executionId = crypto.randomUUID();
   const cancel = () => {
     void invoke<boolean>("cancel_shell_command", { executionId }).catch(() => {});
   };
   signal.addEventListener("abort", cancel, { once: true });
-  return invoke<CommandOutput>("run_shell_command", { program, args, cwd, timeoutMs, executionId }).finally(() => {
+  return invoke<CommandOutput>("run_shell_command", { program, args, cwd, timeoutMs, executionId, ...(idleTimeoutMs ? { idleTimeoutMs } : {}) }).finally(() => {
     signal.removeEventListener("abort", cancel);
   });
 }

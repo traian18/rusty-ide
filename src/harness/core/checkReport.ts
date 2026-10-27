@@ -28,8 +28,12 @@ export interface CommandRun {
   exitCode: number | null;
   durationMs: number;
   timedOut: boolean;
+  /** Stopped for printing nothing for too long (hung), rather than for its overall limit. */
+  idle?: boolean;
   cancelled: boolean;
   output: string;
+  /** The full output, kept when the command was stopped or printed too much to return. */
+  logPath?: string;
   /** The command could not be started at all. */
   startError?: string;
   program?: string;
@@ -64,6 +68,7 @@ export function judgeRun(run: CommandRun, installNeeded: boolean): CommandOutcom
     : classifyFailure({
         exitCode: run.exitCode,
         timedOut: run.timedOut,
+        idle: run.idle,
         cancelled: run.cancelled,
         output: run.output,
         installNeeded,
@@ -125,6 +130,7 @@ function issueLine(issue: Issue): string {
 function describeStatus(outcome: CommandOutcome): string {
   if (outcome.passed) return `passed in ${duration(outcome.durationMs)}`;
   if (outcome.cancelled) return "CANCELLED";
+  if (outcome.timedOut && outcome.idle) return `FAILED: printed nothing for too long and was stopped as hung after ${duration(outcome.durationMs)}`;
   if (outcome.timedOut) return `FAILED: timed out after ${duration(outcome.durationMs)}`;
   if (outcome.startError !== undefined) return "FAILED: could not be started";
   return `FAILED (${outcome.exitCode === null ? "no exit status" : `exit ${outcome.exitCode}`}) in ${duration(outcome.durationMs)}`;
@@ -164,10 +170,12 @@ function describeOutcome(outcome: CommandOutcome, index: number, total: number):
     // The listed errors already say what these lines say, so leave them out of the tail.
     const shown = tail(outcome.output, wanted).filter((line) => !errors.some((issue) => line.includes(issue.message)));
     if (shown.length > 0) {
-      lines.push(`  Output (last ${shown.length} ${shown.length === 1 ? "line" : "lines"}):`);
+      const which = outcome.timedOut || outcome.cancelled ? "where it stopped" : `last ${shown.length} ${shown.length === 1 ? "line" : "lines"}`;
+      lines.push(`  Output (${which}):`);
       lines.push(...shown.map((line) => `    ${line}`));
     }
   }
+  if (outcome.logPath) lines.push(`  Full output: ${outcome.logPath}`);
   return lines;
 }
 

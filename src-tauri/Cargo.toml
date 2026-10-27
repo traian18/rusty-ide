@@ -88,7 +88,7 @@ sha2 = "0.10"
 tempfile = "3"
 # "process"/"time": test_build's own one-shot command execution
 # (shell_exec.rs) -- tokio::process::Command + tokio::time::timeout.
-tokio = { version = "1", features = ["sync", "rt", "macros", "process", "time"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "process", "time", "fs", "io-util"] }
 
 # Path deps into the sibling rusty-core checkout (HARNESS_CONTRACT_PLAN.md
 # §2 "During the transition"). Every one of these is a genuine build-time

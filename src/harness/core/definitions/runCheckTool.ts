@@ -46,8 +46,12 @@ const isCheckId = (value: string): value is CheckId => (CHECK_IDS as readonly st
 type Outcome = Awaited<ReturnType<HostToolHandler>>;
 export type CheckToolOptions = GatedRunCommandOptions & { evidence?: CheckEvidenceLedger };
 
-/** How long each kind of check may run before it is reported as timed out. */
-const DEFAULT_TIMEOUT_MS: Record<CheckId, number> = {
+/**
+ * How long each kind of check may print nothing before it is stopped as hung.
+ * A check is not given a fixed time to finish: a large project's test run
+ * takes ten minutes or more and keeps printing; a hung one goes quiet.
+ */
+const DEFAULT_IDLE_MS: Record<CheckId, number> = {
   install: 10 * 60_000,
   typecheck: 5 * 60_000,
   lint: 5 * 60_000,
@@ -55,6 +59,8 @@ const DEFAULT_TIMEOUT_MS: Record<CheckId, number> = {
   build: 15 * 60_000,
   format: 3 * 60_000,
 };
+/** The most any check may run in all, and what it gets when none is asked for. */
+export const CHECK_MAX_MS = 60 * 60_000;
 
 export const RUN_CHECK_TOOL: HostToolSpec = {
   name: "run_check",
@@ -78,7 +84,7 @@ export const RUN_CHECK_TOOL: HostToolSpec = {
         type: "string",
         description: "Only for check: test. Run only the tests in this file, relative to the workspace root, for example src/math.test.ts. For cargo it must be a file under tests/; for go it runs that file's package.",
       },
-      timeout_seconds: { type: "number", description: "How long to let it run, 1 to 1800 seconds. Defaults to a sensible limit for the kind of check." },
+      timeout_seconds: { type: "number", description: "An overall limit, 1 to 3600 seconds. Usually leave it out: a check runs for as long as it keeps printing (up to an hour), and one that prints nothing for several minutes is stopped as hung." },
     },
     required: ["check"],
   },
@@ -145,7 +151,8 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
   const only = narrowing ? describeSelector(parsed.selector) : undefined;
 
   const seconds = Number(input.timeout_seconds);
-  const timeoutMs = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : DEFAULT_TIMEOUT_MS[id];
+  const timeoutMs = Number.isFinite(seconds) && seconds > 0 ? Math.min(Math.max(seconds * 1000, 1000), CHECK_MAX_MS) : CHECK_MAX_MS;
+  const idleTimeoutMs = Math.min(DEFAULT_IDLE_MS[id], timeoutMs);
   // Dependencies being missing only explains a failure of the checks that need them.
   const installNeeded = selection.installNeeded && !installing;
 
@@ -162,14 +169,15 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
   for (const [index, detected] of commands.entries()) {
     let command: NormalizedCommand;
     try {
-      command = normalizeCommand({ program: detected.program, args: detected.args, cwd: detected.cwd, timeoutMs }, workspaceRoot);
+      // run_command caps its own limit lower; a check is bounded by its idle limit instead.
+      command = { ...normalizeCommand({ program: detected.program, args: detected.args, cwd: detected.cwd }, workspaceRoot), timeoutMs };
     } catch (error: unknown) {
       return { ok: false, error: message(error) };
     }
     const qualifiers = [total > 1 ? `${index + 1} of ${total}` : undefined, only ? `only ${only}` : undefined].filter(Boolean);
     const which = qualifiers.length > 0 ? ` (${qualifiers.join(", ")})` : "";
     const purpose = installing ? "install the project's dependencies" : `run the project's ${id} check`;
-    const run = await runWithApproval(command, options, signal, `The agent wants to ${purpose}${which}: ${formatCommand(command)}`);
+    const run = await runWithApproval(command, options, signal, `The agent wants to ${purpose}${which}: ${formatCommand(command)}`, idleTimeoutMs);
 
     if (run.status === "refused") {
       const consequence = installing ? "so nothing was installed" : "so this check is incomplete and proves nothing";
@@ -180,7 +188,10 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
     outcomes.push(
       judgeRun(
         run.status === "ran"
-          ? { ...base, exitCode: run.result.exit_code, durationMs: run.durationMs, timedOut: run.result.timed_out, cancelled: run.result.cancelled === true, output: run.result.output }
+          ? {
+            ...base, exitCode: run.result.exit_code, durationMs: run.durationMs, timedOut: run.result.timed_out, cancelled: run.result.cancelled === true,
+            idle: run.result.idle === true, output: run.result.output, logPath: run.result.log_path ?? undefined,
+          }
           : { ...base, exitCode: null, durationMs: 0, timedOut: false, cancelled: false, output: "", startError: run.error },
         installNeeded,
       ),
@@ -221,7 +232,7 @@ export const INSTALL_DEPENDENCIES_TOOL: HostToolSpec = {
     type: "object",
     properties: {
       path: { type: "string", description: "The project's folder, relative to the workspace root. Needed when more than one project needs installing." },
-      timeout_seconds: { type: "number", description: "How long to let it run, 1 to 1800 seconds. Defaults to ten minutes." },
+      timeout_seconds: { type: "number", description: "An overall limit, 1 to 3600 seconds. Usually leave it out: it runs for as long as it keeps printing (up to an hour), and is stopped as hung after ten minutes without output." },
     },
     required: [],
   },

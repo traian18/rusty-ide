@@ -74,21 +74,26 @@ impl ToolExecutor for HostToolExecutor {
 fn host_call_timeout(tool: &str, arguments: &Value, default: Duration) -> Option<Duration> {
     // Time spent waiting for the user to answer an approval or a question.
     const WAIT_FOR_USER: Duration = Duration::from_secs(30 * 60);
-    let own = |key: &str, scale: f64| {
+    // A check runs for as long as it keeps printing, up to an hour
+    // (runCheckTool.ts's CHECK_MAX_MS); it stops itself when it goes quiet.
+    const CHECK_MAX: Duration = Duration::from_secs(60 * 60);
+    let own = |key: &str, scale: f64, max: Duration| {
         arguments
             .get(key)
             .and_then(Value::as_f64)
             .filter(|value| *value > 0.0)
-            .map(|value| Duration::from_secs_f64((value * scale).min(30.0 * 60.0)))
+            .map(|value| Duration::from_secs_f64(value * scale).min(max))
     };
     match tool {
         "ask_user_question" => None,
-        "run_check" | "install_dependencies" => Some(
-            own("timeout_seconds", 1.0).unwrap_or(Duration::from_secs(10 * 60)) + WAIT_FOR_USER,
-        ),
-        "run_command" => {
-            Some(own("timeoutMs", 0.001).unwrap_or(Duration::from_secs(2 * 60)) + WAIT_FOR_USER)
+        "run_check" | "install_dependencies" => {
+            Some(own("timeout_seconds", 1.0, CHECK_MAX).unwrap_or(CHECK_MAX) + WAIT_FOR_USER)
         }
+        "run_command" => Some(
+            own("timeoutMs", 0.001, Duration::from_secs(30 * 60))
+                .unwrap_or(Duration::from_secs(2 * 60))
+                + WAIT_FOR_USER,
+        ),
         _ => Some(default),
     }
 }
@@ -260,5 +265,11 @@ mod tests {
             "{command:?}"
         );
         assert!(host_call_timeout("run_check", &none, default).unwrap() > default);
+        // A check left to run as long as it prints may take its full hour, plus the approval.
+        let open = host_call_timeout("run_check", &none, default).unwrap();
+        assert!(open >= Duration::from_secs(90 * 60), "{open:?}");
+        let capped =
+            host_call_timeout("run_check", &json!({"timeout_seconds": 99_999}), default).unwrap();
+        assert_eq!(capped, open);
     }
 }

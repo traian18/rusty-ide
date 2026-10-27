@@ -40,13 +40,27 @@ pub struct CommandOutput {
     /// cancelled, or (rare, only on some platforms) terminated by a signal
     /// rather than exiting.
     pub exit_code: Option<i32>,
-    /// stdout and stderr, concatenated in that order -- callers that need
-    /// them separated should say so; nothing here has needed it yet.
+    /// stdout and stderr as they arrived. Kept when the command is stopped,
+    /// so a caller can say how far it got; only the last [`MAX_CAPTURE`]
+    /// bytes when it printed more (the whole of it is in `log_path`).
     pub output: String,
     pub timed_out: bool,
+    /// Stopped because it printed nothing for `idle_timeout_ms` (a hang),
+    /// rather than for its overall limit. `timed_out` is set too.
+    pub idle: bool,
     /// The caller cancelled it via `cancel_shell_command` before it exited.
     pub cancelled: bool,
+    /// `output` lost its beginning because the command printed more than
+    /// [`MAX_CAPTURE`] bytes.
+    pub truncated: bool,
+    /// The full output, kept when the command was stopped or `output` was
+    /// truncated; removed otherwise.
+    pub log_path: Option<String>,
+    pub elapsed_ms: u64,
 }
+
+/// How much output is held in memory and returned; the rest is in the log.
+const MAX_CAPTURE: usize = 2 * 1024 * 1024;
 
 /// In-flight executions that were started with an `execution_id`, so
 /// `cancel_shell_command` can reach them. Entries are removed when the
@@ -102,12 +116,113 @@ fn kill_process_group(pid: Option<u32>) {
 #[cfg(not(unix))]
 fn kill_process_group(_pid: Option<u32>) {}
 
-/// Spawns `program args...` in `cwd`, waits up to `timeout_ms` (or until
-/// `cancel_shell_command(execution_id)` is called), and returns its
-/// captured output. A `program` that doesn't exist, or a `cwd` that
-/// doesn't, surfaces as `Err` (a real invocation failure, not a command
-/// that ran and failed) -- everything else, including a nonzero exit code,
-/// comes back as `Ok(CommandOutput)` for the caller to interpret.
+/// What a command printed so far: the last [`MAX_CAPTURE`] bytes in memory,
+/// all of it in a log file.
+struct Capture {
+    bytes: Vec<u8>,
+    truncated: bool,
+    log: Option<(std::path::PathBuf, tokio::fs::File)>,
+}
+
+impl Capture {
+    async fn open() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let dir = std::env::temp_dir().join("rusty-commands");
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_millis());
+        let number = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let path = dir.join(format!("{stamp}-{}-{number}.log", std::process::id()));
+        let log = match tokio::fs::create_dir_all(&dir).await {
+            Ok(()) => tokio::fs::File::create(&path)
+                .await
+                .ok()
+                .map(|file| (path, file)),
+            Err(_) => None,
+        };
+        Self {
+            bytes: Vec::new(),
+            truncated: false,
+            log,
+        }
+    }
+
+    async fn push(&mut self, chunk: &[u8]) {
+        use tokio::io::AsyncWriteExt;
+        if let Some((_, file)) = &mut self.log {
+            let _ = file.write_all(chunk).await;
+        }
+        self.bytes.extend_from_slice(chunk);
+        if self.bytes.len() > MAX_CAPTURE {
+            let cut = self.bytes.len() - MAX_CAPTURE;
+            self.bytes.drain(..cut);
+            self.truncated = true;
+        }
+    }
+
+    /// The output, and the log's path when it is worth keeping.
+    async fn finish(mut self, keep_log: bool) -> (String, bool, Option<String>) {
+        use tokio::io::AsyncWriteExt;
+        let keep = keep_log || self.truncated;
+        let path = match self.log.take() {
+            Some((path, mut file)) => {
+                let _ = file.flush().await;
+                drop(file);
+                if keep {
+                    Some(path.to_string_lossy().into_owned())
+                } else {
+                    let _ = tokio::fs::remove_file(&path).await;
+                    None
+                }
+            }
+            None => None,
+        };
+        (
+            String::from_utf8_lossy(&self.bytes).into_owned(),
+            self.truncated,
+            path,
+        )
+    }
+}
+
+/// Forwards what `reader` prints as it arrives, until it closes.
+fn forward(
+    mut reader: impl tokio::io::AsyncRead + Unpin + Send + 'static,
+    chunks: tokio::sync::mpsc::UnboundedSender<Vec<u8>>,
+) {
+    use tokio::io::AsyncReadExt;
+    tokio::spawn(async move {
+        let mut buffer = vec![0u8; 16 * 1024];
+        loop {
+            match reader.read(&mut buffer).await {
+                Ok(0) | Err(_) => break,
+                Ok(read) => {
+                    if chunks.send(buffer[..read].to_vec()).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+}
+
+/// Why a command stopped before it exited.
+enum Stopped {
+    Timeout,
+    Idle,
+    Cancelled,
+}
+
+/// Spawns `program args...` in `cwd` and returns what it printed and how it
+/// ended. It is stopped (its whole process group killed) after `timeout_ms`,
+/// after `idle_timeout_ms` without printing anything when that is given (a
+/// long build or test run keeps printing; a hung one does not), or when
+/// `cancel_shell_command(execution_id)` is called. A stopped command keeps
+/// the output it had printed, and its full log. A `program` that doesn't
+/// exist, or a `cwd` that doesn't, surfaces as `Err` (a real invocation
+/// failure, not a command that ran and failed) -- everything else,
+/// including a nonzero exit code, comes back as `Ok(CommandOutput)` for the
+/// caller to interpret.
 #[tauri::command]
 pub async fn run_shell_command(
     program: String,
@@ -115,6 +230,7 @@ pub async fn run_shell_command(
     cwd: String,
     timeout_ms: u64,
     execution_id: Option<String>,
+    idle_timeout_ms: Option<u64>,
 ) -> Result<CommandOutput, String> {
     println!(
         "Rust [run_shell_command] {} {} (cwd: {})",
@@ -136,49 +252,86 @@ pub async fn run_shell_command(
         .current_dir(&cwd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        // If the timeout or a cancel fires below, `wait_with_output()`'s
-        // `Child` is dropped without being awaited to completion --
-        // kill_on_drop turns that drop into an actual kill signal to the
-        // OS process, instead of leaving it orphaned and still running.
+        // If the command is stopped below, the `Child` is dropped without
+        // being awaited to completion -- kill_on_drop turns that drop into an
+        // actual kill signal to the OS process, instead of leaving it
+        // orphaned and still running.
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
 
-    let child = command
+    let started = tokio::time::Instant::now();
+    let mut child = command
         .spawn()
         .map_err(|error| format!("Failed to start '{program}': {error}"))?;
     let pid = child.id();
+    let (chunks, mut printed) = tokio::sync::mpsc::unbounded_channel();
+    if let Some(stdout) = child.stdout.take() {
+        forward(stdout, chunks.clone());
+    }
+    if let Some(stderr) = child.stderr.take() {
+        forward(stderr, chunks.clone());
+    }
+    drop(chunks);
 
-    let waited = tokio::select! {
-        waited = tokio::time::timeout(Duration::from_millis(timeout_ms.max(1)), child.wait_with_output()) => waited,
-        _ = registration.notify.notified() => {
-            kill_process_group(pid);
-            return Ok(CommandOutput { exit_code: None, output: String::new(), timed_out: false, cancelled: true });
+    let mut capture = Capture::open().await;
+    let deadline = started + Duration::from_millis(timeout_ms.max(1));
+    let idle = idle_timeout_ms.map(|ms| Duration::from_millis(ms.max(1)));
+    let mut last_output = started;
+    let mut exit_status = None;
+    // A process it started in the background can keep the streams open after
+    // it exits; what it printed by then is read for a moment, not waited for.
+    let mut drained_by = deadline;
+    let mut streams_open = true;
+    let stopped = loop {
+        let idle_deadline = idle.map(|idle| last_output + idle).unwrap_or(deadline);
+        if exit_status.is_some() && (!streams_open || tokio::time::Instant::now() >= drained_by) {
+            break None;
+        }
+        tokio::select! {
+            chunk = printed.recv(), if streams_open => match chunk {
+                Some(chunk) => {
+                    last_output = tokio::time::Instant::now();
+                    capture.push(&chunk).await;
+                }
+                None => streams_open = false,
+            },
+            status = child.wait(), if exit_status.is_none() => match status {
+                Ok(status) => {
+                    exit_status = Some(status);
+                    drained_by = tokio::time::Instant::now() + Duration::from_secs(2);
+                }
+                Err(error) => return Err(format!("'{program}' failed: {error}")),
+            },
+            _ = tokio::time::sleep_until(drained_by), if exit_status.is_some() => {}
+            _ = tokio::time::sleep_until(deadline) => break Some(Stopped::Timeout),
+            _ = tokio::time::sleep_until(idle_deadline), if exit_status.is_none() && idle.is_some() => break Some(Stopped::Idle),
+            _ = registration.notify.notified() => break Some(Stopped::Cancelled),
         }
     };
-
-    match waited {
-        Ok(Ok(output)) => {
-            let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
-            combined.push_str(&String::from_utf8_lossy(&output.stderr));
-            Ok(CommandOutput {
-                exit_code: output.status.code(),
-                output: combined,
-                timed_out: false,
-                cancelled: false,
-            })
-        }
-        Ok(Err(error)) => Err(format!("'{program}' failed: {error}")),
-        Err(_elapsed) => {
-            kill_process_group(pid);
-            Ok(CommandOutput {
-                exit_code: None,
-                output: String::new(),
-                timed_out: true,
-                cancelled: false,
-            })
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    if stopped.is_some() {
+        kill_process_group(pid);
+        // What it printed before it died is still worth having.
+        while let Ok(chunk) = printed.try_recv() {
+            capture.push(&chunk).await;
         }
     }
+    let (output, truncated, log_path) = capture.finish(stopped.is_some()).await;
+    Ok(CommandOutput {
+        exit_code: if stopped.is_some() {
+            None
+        } else {
+            exit_status.and_then(|status| status.code())
+        },
+        output,
+        timed_out: matches!(stopped, Some(Stopped::Timeout | Stopped::Idle)),
+        idle: matches!(stopped, Some(Stopped::Idle)),
+        cancelled: matches!(stopped, Some(Stopped::Cancelled)),
+        truncated,
+        log_path,
+        elapsed_ms,
+    })
 }
 
 /// Kills the in-flight `run_shell_command` started with this
@@ -201,10 +354,16 @@ mod tests {
 
     #[tokio::test]
     async fn captures_stdout_and_a_zero_exit_code() {
-        let result =
-            run_shell_command("echo".into(), vec!["hello".into()], ".".into(), 5_000, None)
-                .await
-                .expect("echo should run");
+        let result = run_shell_command(
+            "echo".into(),
+            vec!["hello".into()],
+            ".".into(),
+            5_000,
+            None,
+            None,
+        )
+        .await
+        .expect("echo should run");
         assert_eq!(result.exit_code, Some(0));
         assert!(
             result.output.contains("hello"),
@@ -223,6 +382,7 @@ mod tests {
             ".".into(),
             5_000,
             None,
+            None,
         )
         .await
         .expect("sh should run");
@@ -237,6 +397,7 @@ mod tests {
             vec!["-c".into(), "sleep 5".into()],
             ".".into(),
             100,
+            None,
             None,
         )
         .await
@@ -254,6 +415,7 @@ mod tests {
             ".".into(),
             5_000,
             None,
+            None,
         )
         .await;
         assert!(result.is_err());
@@ -268,6 +430,7 @@ mod tests {
             ".".into(),
             60_000,
             Some(id.clone()),
+            None,
         ));
         // Give the command a moment to register and spawn.
         for _ in 0..50 {
@@ -312,9 +475,105 @@ mod tests {
             ".".into(),
             5_000,
             Some(id.clone()),
+            None,
         )
         .await
         .expect("echo should run");
         assert!(!cancel_registry().lock().unwrap().contains_key(&id));
+    }
+
+    #[tokio::test]
+    async fn a_stopped_command_keeps_what_it_printed_and_its_log() {
+        let result = run_shell_command(
+            "sh".into(),
+            vec!["-c".into(), "echo compiling crate-a; sleep 5".into()],
+            ".".into(),
+            300,
+            None,
+            None,
+        )
+        .await
+        .expect("the timeout path is Ok, not Err");
+        assert!(result.timed_out && !result.idle);
+        assert!(
+            result.output.contains("compiling crate-a"),
+            "{:?}",
+            result.output
+        );
+        let log = result.log_path.expect("a stopped command keeps its log");
+        assert!(std::fs::read_to_string(&log)
+            .unwrap()
+            .contains("compiling crate-a"));
+        let _ = std::fs::remove_file(log);
+    }
+
+    #[tokio::test]
+    async fn a_command_that_stops_printing_is_stopped_for_idleness() {
+        let started = std::time::Instant::now();
+        let result = run_shell_command(
+            "sh".into(),
+            vec!["-c".into(), "echo started; sleep 30".into()],
+            ".".into(),
+            60_000,
+            None,
+            Some(300),
+        )
+        .await
+        .expect("the idle path is Ok, not Err");
+        assert!(result.timed_out && result.idle);
+        assert!(result.output.contains("started"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "it did not wait for the overall limit"
+        );
+        if let Some(log) = result.log_path {
+            let _ = std::fs::remove_file(log);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_long_command_that_keeps_printing_is_not_idle() {
+        // Longer than the idle limit in all, but never quiet for that long.
+        let result = run_shell_command(
+            "sh".into(),
+            vec![
+                "-c".into(),
+                "for i in 1 2 3 4 5 6; do echo step $i; sleep 0.1; done".into(),
+            ],
+            ".".into(),
+            10_000,
+            None,
+            Some(400),
+        )
+        .await
+        .expect("sh should run");
+        assert_eq!(result.exit_code, Some(0));
+        assert!(!result.timed_out);
+        assert!(result.output.contains("step 6"));
+        assert!(
+            result.log_path.is_none(),
+            "a command that finished normally leaves no log"
+        );
+        assert!(result.elapsed_ms >= 500);
+    }
+
+    #[tokio::test]
+    async fn stdout_and_stderr_are_both_captured() {
+        let result = run_shell_command(
+            "sh".into(),
+            vec!["-c".into(), "echo out; echo err 1>&2; exit 2".into()],
+            ".".into(),
+            5_000,
+            None,
+            None,
+        )
+        .await
+        .expect("sh should run");
+        assert_eq!(result.exit_code, Some(2));
+        assert!(
+            result.output.contains("out") && result.output.contains("err"),
+            "{:?}",
+            result.output
+        );
     }
 }

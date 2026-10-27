@@ -132,6 +132,8 @@ export async function runWithApproval(
   options: GatedRunCommandOptions,
   signal: AbortSignal,
   description: string = `The agent wants to run: ${formatCommand(command)}`,
+  /** Stop the command once it has printed nothing for this long (a check). */
+  idleTimeoutMs?: number,
 ): Promise<ApprovedRun> {
   const { sessionId, host, onEvent } = options;
   const risk = classifyCommandRisk(command);
@@ -161,7 +163,7 @@ export async function runWithApproval(
   onEvent({ kind: "log", message: `Running approved command: ${formatCommand(command)}` });
   try {
     const started = Date.now();
-    const result = await runShellCommand(command.program, command.args, command.cwd, command.timeoutMs, signal);
+    const result = await runShellCommand(command.program, command.args, command.cwd, command.timeoutMs, signal, idleTimeoutMs);
     const durationMs = Date.now() - started;
     if (result.output) onEvent({ kind: "command_output", content: result.output });
     onEvent({ kind: "command_complete" });
@@ -188,9 +190,27 @@ export function gatedRunCommandTool(options: GatedRunCommandOptions): HostToolHa
     if (run.status !== "ran") return { ok: false, error: run.error };
     const { result } = run;
     const status = describeExit(result);
-    const truncated = result.output.length > MAX_TOOL_OUTPUT_CHARS
+    const shown = result.output.length > MAX_TOOL_OUTPUT_CHARS || result.truncated
       ? `...(truncated)...\n${result.output.slice(-MAX_TOOL_OUTPUT_CHARS)}`
       : result.output;
-    return { ok: true, output: `${truncated}${truncated && !truncated.endsWith("\n") ? "\n" : ""}(command ${status})` };
+    const text = `${shown}${shown && !shown.endsWith("\n") ? "\n" : ""}(command ${status})`;
+    // A command that was stopped did not finish: what it printed is how far it got,
+    // and the model must not read it as a result.
+    if (result.timed_out || result.cancelled) return { ok: false, error: `${text}\n${stoppedNote(result, run.durationMs)}` };
+    const log = result.log_path ? `\nFull output: ${result.log_path}` : "";
+    return { ok: true, output: `${text}${log}` };
   };
+}
+
+/** What to do about a command that was stopped before it finished. */
+export function stoppedNote(result: CommandOutput, durationMs: number): string {
+  const log = result.log_path ? ` Full output so far: ${result.log_path}.` : "";
+  if (result.cancelled) return `It was cancelled after ${seconds(durationMs)} and did not finish.${log}`;
+  if (result.idle) return `It printed nothing for too long and was stopped as hung after ${seconds(durationMs)}; the output above is where it stopped.${log}`;
+  return `It ran out of its time limit after ${seconds(durationMs)} and did not finish; the output above is how far it got. If it is just slow, run it again with a larger timeoutMs (up to 30 minutes), or run a narrower command.${log}`;
+}
+
+function seconds(ms: number): string {
+  const total = Math.round(ms / 1000);
+  return total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s`;
 }

@@ -314,6 +314,8 @@ const MISSING_PACKAGE = new RegExp([
 export interface FailureInput {
   exitCode: number | null;
   timedOut: boolean;
+  /** Stopped for printing nothing for too long, rather than for its overall limit. */
+  idle?: boolean;
   cancelled: boolean;
   output: string;
   /** The project's dependencies are known not to be installed. */
@@ -333,7 +335,10 @@ export interface FailureInput {
 export function classifyFailure(input: FailureInput): Failure {
   const output = stripAnsi(input.output);
   if (input.cancelled) return { kind: "cancelled", hint: "The check was cancelled before it finished, so it proved nothing." };
-  if (input.timedOut) return { kind: "timeout", hint: "The check timed out. It may be hung or just slow: try again with a larger timeout_seconds, or run a narrower command with run_command." };
+  if (input.timedOut && input.idle) {
+    return { kind: "timeout", hint: "The check printed nothing for several minutes, so it was stopped as hung; the output below is where it stopped. Look there for the test or step that hangs (a deadlock, a test waiting for input or the network, another process holding a lock). Running it again unchanged will hang again." };
+  }
+  if (input.timedOut) return { kind: "timeout", hint: "The check ran out of its overall limit while still working; the output below is how far it got. Run it again without timeout_seconds (it then runs for as long as it keeps printing), or run a narrower check." };
   if (input.startError !== undefined) {
     return { kind: "missing-tool", hint: `The program${input.program ? ` '${input.program}'` : ""} could not be started (${input.startError}). It is probably not installed or not on PATH; editing code will not fix that.` };
   }

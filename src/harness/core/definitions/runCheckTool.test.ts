@@ -102,7 +102,7 @@ describe("runCheckTool", () => {
       }),
       signal,
     );
-    expect(executed).toEqual([expect.objectContaining({ program: "npm", args: ["run", "typecheck"], cwd: "/ws/ide", timeoutMs: 300_000 })]);
+    expect(executed).toEqual([expect.objectContaining({ program: "npm", args: ["run", "typecheck"], cwd: "/ws/ide", timeoutMs: 3_600_000, idleTimeoutMs: 300_000 })]);
 
     expect(outcome.ok).toBe(false);
     if (outcome.ok) throw new Error("expected a failure");
@@ -216,7 +216,7 @@ describe("runCheckTool", () => {
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) throw new Error("expected ok");
       expect(String(outcome.output).startsWith("install for ide: PASSED")).toBe(true);
-      expect(executed[0]).toMatchObject({ program: "npm", args: ["install"], cwd: "/ws/ide", timeoutMs: 600_000 });
+      expect(executed[0]).toMatchObject({ program: "npm", args: ["install"], cwd: "/ws/ide", timeoutMs: 3_600_000, idleTimeoutMs: 600_000 });
       expect(requestPermission).toHaveBeenCalledWith(expect.objectContaining({ description: "The agent wants to install the project's dependencies: npm install" }), signal);
     });
 
@@ -270,17 +270,33 @@ describe("runCheckTool", () => {
       expect(outcome.error).toContain("timeout_seconds");
     });
 
-    it("uses a per-check default timeout and clamps the one the model asks for", async () => {
+    it("lets a check run as long as it keeps printing, stopping one that goes quiet, within an overall hour", async () => {
       const used = async (extra: Record<string, unknown>, check = "typecheck") => {
         const { tool, executed } = setup(ide, [ok()]);
         await tool({ check, ...extra }, signal);
-        return executed[0].timeoutMs;
+        return [executed[0].timeoutMs, executed[0].idleTimeoutMs];
       };
-      expect(await used({})).toBe(300_000);
-      expect(await used({}, "test")).toBe(600_000);
-      expect(await used({ timeout_seconds: 30 })).toBe(30_000);
-      expect(await used({ timeout_seconds: 99_999 })).toBe(1_800_000);
-      expect(await used({ timeout_seconds: "soon" })).toBe(300_000);
+      // A ten-minute test run is not cut off: only silence is.
+      expect(await used({})).toEqual([3_600_000, 300_000]);
+      expect(await used({}, "test")).toEqual([3_600_000, 600_000]);
+      // An overall limit the model asks for is kept, and the idle limit never exceeds it.
+      expect(await used({ timeout_seconds: 30 })).toEqual([30_000, 30_000]);
+      expect(await used({ timeout_seconds: 99_999 })).toEqual([3_600_000, 300_000]);
+      expect(await used({ timeout_seconds: "soon" })).toEqual([3_600_000, 300_000]);
+    });
+
+    it("reports a check that went quiet as hung, with where it stopped and its full log", async () => {
+      const { tool } = setup(ide, [{
+        exit_code: null, output: "running 12 tests\ntest replay::resumes ... ", timed_out: true, idle: true,
+        log_path: "/tmp/rusty-commands/7.log",
+      }]);
+      const outcome = await tool({ check: "typecheck" }, signal);
+      if (outcome.ok) throw new Error("expected a failure");
+      expect(outcome.error).toContain("stopped as hung");
+      expect(outcome.error).toContain("Output (where it stopped):");
+      expect(outcome.error).toContain("test replay::resumes");
+      expect(outcome.error).toContain("Full output: /tmp/rusty-commands/7.log");
+      expect(outcome.error).toContain("will hang again");
     });
 
     it("reports a program that could not be started as a missing tool, not a code error", async () => {
