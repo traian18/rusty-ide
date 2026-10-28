@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const invoke = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...args: unknown[]) => invoke(...args) }));
 
-import { codeGuidelinesTool, guidelineNotice, withGuidelineNotices, workspaceRelative } from "./guidelinesTool";
+import { codeGuidelinesTool, guidelineBrief, guidelineNotice, newGuidelineBriefs, withGuidelineNotices, workspaceRelative } from "./guidelinesTool";
 
 const signal = {} as never;
 
@@ -63,6 +63,27 @@ describe("edit notices", () => {
 
     invoke.mockResolvedValue(violations(0, []));
     expect(await withGuidelineNotices(edit, "/ws", undefined)({ path: "src/a.rs" }, signal)).toEqual({ ok: true, output: "Edited /ws/src/a.rs" });
+  });
+
+  it("tells the first edit to a file which guidelines apply, once per set in a run", async () => {
+    const applies = { result: { status: "ok", sections: { files: [{ path: "src/a.rs", rules: [{ id: "no-unwrap", severity: "error", message: "no unwrap outside tests" }], style: ["# Good Rust\n## 1. Ownership\n```bash\n# not a heading\n```\n## 2. Errors\nmore"] }] } } };
+    const mode = (call: unknown) => (call as { arguments?: { mode?: string } } | undefined)?.arguments?.mode;
+    invoke.mockImplementation((_cmd: string, call: unknown) => Promise.resolve(mode(call) === "rules" ? applies : violations(0, [])));
+    const edit = vi.fn().mockResolvedValue({ ok: true, output: "Edited" });
+    const tool = withGuidelineNotices(edit, "/ws", undefined, newGuidelineBriefs());
+    const first = await tool({ path: "/ws/src/a.rs" }, signal);
+    expect(first.ok && first.output).toContain("Guidelines for src/a.rs");
+    expect(first.ok && first.output).toContain("- error [no-unwrap]: no unwrap outside tests");
+    expect(first.ok && first.output).toContain("Style guide: Good Rust; 1. Ownership; 2. Errors");
+    // The same file again, and another file with the same guidelines: not repeated.
+    expect(await tool({ path: "/ws/src/a.rs" }, signal)).toEqual({ ok: true, output: "Edited" });
+    expect(await tool({ path: "/ws/src/b.rs" }, signal)).toEqual({ ok: true, output: "Edited" });
+    expect(invoke.mock.calls.filter(([, call]) => mode(call) === "rules")).toHaveLength(2);
+  });
+
+  it("has no brief when nothing applies or the project has no guidelines", () => {
+    expect(guidelineBrief({ status: "not_configured" })).toBeUndefined();
+    expect(guidelineBrief({ status: "ok", sections: { files: [{ path: "a.rs", rules: [], style: [] }] } })).toBeUndefined();
   });
 
   it("leaves a failed edit alone", async () => {

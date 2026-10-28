@@ -18,8 +18,9 @@ use super::{
     routing::route,
 };
 
-/// Files one measurement covers at most.
-pub const MAX_FILES: usize = 40;
+/// Files one measurement covers at most. A pass prompt lists only the worst of them, so a whole
+/// repository is measured, not the first files by name.
+pub const MAX_FILES: usize = 2000;
 const FINDINGS_PER_FILE: usize = 8;
 
 fn severity(finding: &Finding) -> Severity {
@@ -98,6 +99,53 @@ fn measure_file(
         errors,
         warnings,
     ))
+}
+
+/// Scope items that name nothing in the workspace: no file, folder or glob. A goal measured on
+/// them would measure nothing and be "met" at once.
+pub fn unknown_items(workspace: &str, scope: &[String]) -> Vec<String> {
+    let root = std::path::Path::new(workspace);
+    scope
+        .iter()
+        .filter(|item| {
+            let item = item.trim().trim_start_matches("./").trim_end_matches('/');
+            !(root.join(item).exists() || item.contains(['*', '?', '{']))
+        })
+        .cloned()
+        .collect()
+}
+
+/// What a goal with no scope but targets on the files is measured on: the repository the
+/// instruction names, else the active one, else the only one (`**` when it is the workspace
+/// folder itself). `None` when that cannot be told.
+pub fn default_scope(
+    state: &RepositoryState,
+    workspace: &str,
+    instruction: &str,
+    active: Option<&str>,
+) -> Result<Option<String>, RepositoryError> {
+    let repositories = state.directory().repositories(workspace)?;
+    let words: Vec<String> = instruction
+        .split(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+        .map(str::to_lowercase)
+        .collect();
+    let named = repositories
+        .iter()
+        .find(|r| words.contains(&r.name.to_lowercase()));
+    let active = active.and_then(|a| {
+        let a = a.trim().trim_end_matches('/');
+        repositories.iter().find(|r| {
+            r.id == a || r.relative == a || r.name == a || r.root == std::path::Path::new(a)
+        })
+    });
+    let only = (repositories.len() == 1).then(|| &repositories[0]);
+    Ok(named.or(active).or(only).map(|r| {
+        if r.relative.is_empty() {
+            "**".to_owned()
+        } else {
+            r.relative.clone()
+        }
+    }))
 }
 
 /// The workspace-relative files `scope` names: files as they are, folders as everything under them,

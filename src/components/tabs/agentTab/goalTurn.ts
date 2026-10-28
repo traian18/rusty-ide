@@ -5,8 +5,9 @@
 // ============================================================
 
 import { goalClient, type GoalStep, type PassCheckOutcome, type PassReport } from "../../../goals/goalClient";
-import { parseGoalCommand } from "../../../goals/goalCommand";
+import { parseGoalCommand, type GoalStart } from "../../../goals/goalCommand";
 import { workspaceRelative } from "../../../harness/core/definitions/guidelinesTool";
+import type { Todo } from "../../../harness/core/definitions/todoTool";
 import { notify } from "../../../notificationStore";
 import { repositoryContextInput } from "../../../services/repositoryContextInput";
 import { useWorkspaceStore } from "../../../store";
@@ -23,11 +24,12 @@ export interface GoalPass {
 /** Starts a run for a pass: the chat's send path with the pass attached. */
 export type SendPass = (prompt: string, pass: GoalPass) => Promise<void>;
 
-/** What a finished pass left: its answer, changed files and the checks it ran. */
+/** What a finished pass left: its answer, changed files, the checks it ran and its to-do list. */
 export interface PassResult {
   response: string;
   modifiedFiles: string[];
   checks?: PassCheckOutcome[];
+  plan?: Todo[];
 }
 
 function activeRepository(root: string): string | undefined {
@@ -43,17 +45,21 @@ function failure(error: unknown): string {
 /** The last `Name: value` line of `text`, lower-cased, without markdown around it. */
 function lastLine(text: string, name: string): string | undefined {
   const pattern = new RegExp(`^\\W*${name}\\s*:\\s*(.+)$`, "i");
-  const lines = text.split("\n").map((line) => line.trim().replace(/[*_`]/g, "")).reverse();
+  // Bold, code and underscore emphasis go; an underscore inside a word (task_queue.rs) stays.
+  const lines = text.split("\n").map((line) => line.trim().replace(/[*`]/g, "").replace(/(^|\s)_+|_+(?=\s|$)/g, "$1")).reverse();
   const found = lines.map((line) => pattern.exec(line)).find(Boolean);
   return found?.[1]?.trim();
 }
 
-/** What the pass said about itself: its status line, and its judgement of a goal in words. */
+/** What the pass said about itself: its status line, what it left for the next pass, and its
+ * judgement of a goal in words. */
 export function passReport(response: string): PassReport {
   const status = lastLine(response, "status");
   const judged = lastLine(response, "done when");
+  const next = lastLine(response, "next");
   const report: PassReport = {};
   if (status) report.agent_status = status;
+  if (next) report.next = next;
   if (judged) {
     report.done_when_met = /^yes\b/i.test(judged);
     report.judge_reason = judged.replace(/^(yes|no)\b\W*/i, "") || undefined;
@@ -95,11 +101,18 @@ async function chatGoal(turn: AgentTurn): Promise<GoalStep | undefined> {
   return goals.find((step) => step.goal.chat_id === turn.chatId && step.goal.status !== "cleared");
 }
 
+/** How the goal ends, said once when it starts. */
+function kindNote(command: GoalStart): string {
+  const { minFileHealth, minMeanHealth, maxSeverity } = command.targets;
+  if (minFileHealth !== undefined || minMeanHealth !== undefined || maxSeverity !== undefined) return "";
+  return "A task goal: the first pass plans it, later passes carry the plan on. It ends when every step is closed, the checks run pass and the result is judged done. (For a measured code health goal, give health=, mean= or severity=.)\n\n";
+}
+
 async function start(turn: AgentTurn, command: Extract<ReturnType<typeof parseGoalCommand>, { kind: "start" }>, send: SendPass) {
   turn.ui.setStreamingLabel("Measuring the goal's scope…");
   const step = await goalClient.create(turn.rootPath, activeRepository(turn.rootPath), command, turn.chatId)
     .finally(() => turn.ui.setStreamingLabel(DEFAULT_STREAMING_LABEL));
-  addAssistantMessage(turn, `${step.status}\n\nStarting pass 1.`);
+  addAssistantMessage(turn, `${step.status}\n\n${kindNote(command)}Starting pass 1.`);
   if (!step.prompt) return;
   const pass = passOf(step);
   turn.state.goal = pass;
@@ -157,7 +170,8 @@ export async function continueGoal(turn: AgentTurn, pass: GoalPass, result: Pass
   if (turn.state.disposed) return;
   try {
     const touched = result.modifiedFiles.map((file) => workspaceRelative(turn.rootPath, file));
-    const step = await goalClient.afterPass(turn.rootPath, activeRepository(turn.rootPath), pass.id, passReport(result.response), passChecks(pass.checks, result.checks), touched);
+    const report: PassReport = { ...passReport(result.response), ...(result.plan?.length ? { plan: result.plan.map(({ content, status }) => ({ content, status })) } : {}) };
+    const step = await goalClient.afterPass(turn.rootPath, activeRepository(turn.rootPath), pass.id, report, passChecks(pass.checks, result.checks), touched);
     if (turn.state.disposed) return;
     addAssistantMessage(turn, passMessage(step, pass.pass));
     void turn.chat.save();

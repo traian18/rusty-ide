@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_MIN_HEALTH, isGoalCommand, parseGoalCommand } from "./goalCommand";
+import { isGoalCommand, parseGoalCommand } from "./goalCommand";
 
 describe("/goal", () => {
   it("is recognised only as the leading word", () => {
@@ -21,9 +21,24 @@ describe("/goal", () => {
     });
   });
 
-  it("aims at healthy code when no target is given", () => {
-    const command = parseGoalCommand("/goal make the parser readable");
-    expect(command).toMatchObject({ kind: "start", instruction: "make the parser readable", targets: { minFileHealth: DEFAULT_MIN_HEALTH, guidelines: true }, keepBest: true });
+  it("is a task goal, with no code health target, when none is given", () => {
+    const command = parseGoalCommand("/goal add CSV export to the report page");
+    expect(command).toMatchObject({ kind: "start", instruction: "add CSV export to the report page", targets: { checks: [], guidelines: true }, keepBest: true });
+    expect(command.kind === "start" && command.targets.minFileHealth).toBeUndefined();
+  });
+
+  it("reads a quoted scope with spaces as words, and a path list otherwise", () => {
+    expect(parseGoalCommand('/goal scope="the task queue and what schedules it" health=8 make it fast')).toMatchObject({ scope: [], scopeNote: "the task queue and what schedules it", instruction: "make it fast" });
+    expect(parseGoalCommand('/goal scope="rusty-core" tidy')).toMatchObject({ scope: ["rusty-core"], instruction: "tidy" });
+    expect(parseGoalCommand("/goal scope=The general health is 8.2")).toMatchObject({ scope: ["The"], instruction: "general health is 8.2" });
+  });
+
+  it("takes a mean target for general health, which counts as a target", () => {
+    expect(parseGoalCommand("/goal mean=8.5 health=6 raise rusty-core")).toMatchObject({ instruction: "raise rusty-core", targets: { minMeanHealth: 8.5, minFileHealth: 6 } });
+    const mean = parseGoalCommand("/goal mean=8 raise it");
+    expect(mean).toMatchObject({ targets: { minMeanHealth: 8 } });
+    expect(mean.kind === "start" && mean.targets.minFileHealth).toBeUndefined();
+    expect(parseGoalCommand("/goal mean=11 x")).toMatchObject({ kind: "invalid", message: expect.stringContaining("1 to 10") });
   });
 
   it("has controls, and says what is wrong with a bad option", () => {

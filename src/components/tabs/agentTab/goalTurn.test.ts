@@ -40,6 +40,7 @@ describe("goal passes", () => {
     expect(passReport("Fixed it.\n\n**Done when:** no — load() reads the disk\n\nStatus: done")).toEqual({ agent_status: "done", done_when_met: false, judge_reason: "load() reads the disk" });
     expect(passReport("Status: blocked — needs a key")).toEqual({ agent_status: "blocked — needs a key" });
     expect(passReport("nothing")).toEqual({});
+    expect(passReport("Split compiler.rs.\n\nNext: split task_queue.rs\nStatus: done")).toEqual({ agent_status: "done", next: "split task_queue.rs" });
   });
 
   it("counts a required check the pass did not run as not run", () => {
@@ -63,8 +64,10 @@ describe("goal passes", () => {
     expect(client.afterPass).toHaveBeenCalledWith("/ws", undefined, "g-1", { agent_status: "done" }, [{ name: "test", passed: false, ran: false, summary: "not run" }], ["src/a.ts"]);
     expect(send).toHaveBeenLastCalledWith("pass 2 prompt", { id: "g-1", pass: 2, checks: ["test"] });
 
+    // The pass's to-do list goes with its report: a task goal keeps it as its plan.
     client.afterPass.mockResolvedValue(step("done", 2, null, "done"));
-    await continueGoal(chat, chat.state.goal!, { response: "", modifiedFiles: [] }, send);
+    await continueGoal(chat, chat.state.goal!, { response: "", modifiedFiles: [], plan: [{ content: "Split run.ts", status: "completed" }] }, send);
+    expect(client.afterPass).toHaveBeenLastCalledWith("/ws", undefined, "g-1", { plan: [{ content: "Split run.ts", status: "completed" }] }, expect.anything(), []);
     expect(send).toHaveBeenCalledTimes(2);
     expect(chat.state.goal).toBeUndefined();
     expect(chat.messages.at(-1)?.content).toContain("Goal pass 2: goal reached");

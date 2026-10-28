@@ -6,21 +6,30 @@
 //
 // Options come before the instruction, each key=value (a value with spaces in double quotes):
 //   scope=src/run.ts,src/run/**   files, folders or globs the targets are measured on
+//                                 (scope=changed: the files the passes change)
+//   scope="the task queue and what schedules it"
+//                                 a scope in words (quoted, with spaces): the passes work out the
+//                                 files from it; unquoted words that are not paths are read as the
+//                                 start of the instruction
 //   health=8.5                    every file in scope scores at least this (1-10)
+//   mean=8.5                      the mean score of the files in scope ("general health")
 //   severity=medium               no code health finding above low|medium|high|critical
 //   checks=typecheck,test         checks that must pass (run by each pass)
 //   passes=8                      passes before the goal pauses
 //   guidelines=off                do not require "no guideline errors"
 //   keep=all                      keep a pass even when it makes things worse
 //   done="..."                    a result in words, judged once everything measured is met
-// Files attached to the message are added to the scope. With no target given, the goal is
-// health=8.5.
+// Files attached to the message are added to the scope. With no scope, a goal on code health is
+// measured on the repository the instruction names (else the active one). With no target on code
+// health the goal is a task goal (any kind of work): planned in its first pass, the plan carried
+// over, done when the plan is closed, the checks run pass and the pass judges the result done.
 // ============================================================
 
 export type Severity = "low" | "medium" | "high" | "critical";
 
 export interface GoalTargets {
   minFileHealth?: number;
+  minMeanHealth?: number;
   maxSeverity?: Severity;
   checks: string[];
   guidelines: boolean;
@@ -31,6 +40,8 @@ export interface GoalStart {
   kind: "start";
   instruction: string;
   scope: string[];
+  /** The scope in words, from a quoted `scope="..."` with spaces. */
+  scopeNote?: string;
   targets: GoalTargets;
   maxPasses?: number;
   keepBest: boolean;
@@ -41,23 +52,22 @@ export type GoalCommand =
   | { kind: "status" | "pause" | "resume" | "clear" }
   | { kind: "invalid"; message: string };
 
-export const DEFAULT_MIN_HEALTH = 8.5;
 const SEVERITIES: readonly Severity[] = ["low", "medium", "high", "critical"];
 const CHECKS = ["typecheck", "lint", "test", "build", "format"];
 const CONTROLS = ["status", "pause", "resume", "clear"] as const;
 
 export const GOAL_USAGE =
-  "Usage: /goal [scope=paths] [health=8.5] [severity=medium] [checks=typecheck,test] [passes=8] [guidelines=off] [keep=all] [done=\"...\"] <what to do>; or /goal status | pause | resume | clear.";
+  "Usage: /goal [scope=paths or scope=\"in words\"] [health=8.5] [mean=8.5] [severity=medium] [checks=typecheck,test] [passes=8] [guidelines=off] [keep=all] [done=\"...\"] <what to do>; or /goal status | pause | resume | clear.";
 
 export function isGoalCommand(text: string): boolean {
   return /^\/goal(\s|$)/.test(text.trim());
 }
 
 /** The next `key=value` option at the start of `rest`, and what follows it. */
-function nextOption(rest: string): { key: string; value: string; rest: string } | undefined {
+function nextOption(rest: string): { key: string; value: string; quoted: boolean; rest: string } | undefined {
   const match = /^([a-z_]+)=("([^"]*)"|\S+)\s*/.exec(rest);
   if (!match) return undefined;
-  return { key: match[1], value: match[3] ?? match[2], rest: rest.slice(match[0].length) };
+  return { key: match[1], value: match[3] ?? match[2], quoted: match[3] !== undefined, rest: rest.slice(match[0].length) };
 }
 
 function list(value: string): string[] {
@@ -72,15 +82,22 @@ export function parseGoalCommand(text: string, attached: string[] = []): GoalCom
   const start: GoalStart = { kind: "start", instruction: "", scope: [...attached], targets: { checks: [], guidelines: true }, keepBest: true };
   for (let option = nextOption(rest); option; option = nextOption(rest)) {
     rest = option.rest;
-    const { key, value } = option;
+    const { key, value, quoted } = option;
     switch (key) {
       case "scope":
-        start.scope.push(...list(value));
+        if (quoted && /\s/.test(value.trim())) start.scopeNote = [start.scopeNote, value.trim()].filter(Boolean).join("; ");
+        else start.scope.push(...list(value));
         break;
       case "health": {
         const health = Number(value);
         if (!Number.isFinite(health) || health < 1 || health > 10) return { kind: "invalid", message: "health must be a number from 1 to 10." };
         start.targets.minFileHealth = health;
+        break;
+      }
+      case "mean": {
+        const mean = Number(value);
+        if (!Number.isFinite(mean) || mean < 1 || mean > 10) return { kind: "invalid", message: "mean must be a number from 1 to 10." };
+        start.targets.minMeanHealth = mean;
         break;
       }
       case "severity":
@@ -115,8 +132,6 @@ export function parseGoalCommand(text: string, attached: string[] = []): GoalCom
   }
   start.instruction = rest.trim();
   if (!start.instruction) return { kind: "invalid", message: `say what the goal is. ${GOAL_USAGE}` };
-  const { minFileHealth, maxSeverity, checks, doneWhen } = start.targets;
-  if (minFileHealth === undefined && maxSeverity === undefined && checks.length === 0 && !doneWhen) start.targets.minFileHealth = DEFAULT_MIN_HEALTH;
   start.scope = [...new Set(start.scope)];
   return start;
 }

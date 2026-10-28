@@ -15,7 +15,8 @@ export interface Goal {
   status: GoalStatus;
   instruction: string;
   scope: string[];
-  targets: { min_file_health?: number; max_severity?: string; checks: string[]; guidelines: boolean; done_when?: string };
+  scope_note?: string;
+  targets: { min_file_health?: number; min_mean_health?: number; max_severity?: string; checks: string[]; guidelines: boolean; done_when?: string };
   budget: { max_passes: number; no_progress_passes: number };
   chat_id?: string;
   passes: number;
@@ -41,7 +42,7 @@ export interface GoalStep {
 }
 
 export interface PassCheckOutcome { name: string; passed: boolean; ran: boolean; summary: string }
-export interface PassReport { agent_status?: string; done_when_met?: boolean; judge_reason?: string }
+export interface PassReport { agent_status?: string; done_when_met?: boolean; judge_reason?: string; next?: string; plan?: Array<{ content: string; status: string }> }
 
 const now = () => new Date().toISOString();
 
@@ -54,7 +55,8 @@ export const goalClient = {
       request: {
         instruction: start.instruction,
         scope: start.scope,
-        targets: { min_file_health: targets.minFileHealth, max_severity: targets.maxSeverity, checks: targets.checks, guidelines: targets.guidelines, done_when: targets.doneWhen },
+        scopeNote: start.scopeNote ?? null,
+        targets: { min_file_health: targets.minFileHealth, min_mean_health: targets.minMeanHealth, max_severity: targets.maxSeverity, checks: targets.checks, guidelines: targets.guidelines, done_when: targets.doneWhen },
         budget: start.maxPasses ? { max_passes: start.maxPasses, no_progress_passes: 2 } : null,
         keepBest: start.keepBest,
         chatId,

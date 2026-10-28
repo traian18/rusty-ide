@@ -97,7 +97,7 @@ import { analyzeProject, formatProjectBrief } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
 import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSection } from "./repoAgentTools";
-import { codeGuidelinesTool, withGuidelineNotices } from "./guidelinesTool";
+import { codeGuidelinesTool, newGuidelineBriefs, withGuidelineNotices, type GuidelineBriefs } from "./guidelinesTool";
 import { countingEdits, PassCheckLog, recordingChecks } from "./passChecks";
 import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
 import { SPEC_TASKS_CHECK_TOOL, specTasksCheckTool } from "./specTasksCheckTool";
@@ -415,6 +415,10 @@ ${longResponseGuideline(toolNames)}${mcpSection}${skillGuidance}${taskDependency
     : "";
 
 
+  const styleGuideline = toolNames.includes("code_guidelines") && toolNames.some((name) => name === "edit_file" || name === "write_file")
+    ? "\n- The project may have its own code guidelines (.rusty/guidelines): the first edit to a file ends with the rules and the style guide's outline that apply to it. Follow them in that edit and every later one; for the full text of a rule or style section, call 'code_guidelines' with mode 'rules' and the file. An edit that breaks a rule says so: fix every guideline error before you finish."
+    : "";
+
   const checkGuideline = toolNames.includes("run_check")
     ? "\n- To verify a build, call 'run_check' (typecheck, lint, test, build) instead of guessing commands with 'run_command'. Its result starts with PASSED or FAILED. Do not say something builds, passes or is fixed unless a check in this conversation reported PASSED after your last change; if one fails, fix the errors it lists and run it again. While you work on one failing test you can run just that test with 'test_name' or 'test_file', but run the whole test check before you finish. If it says the cause is the environment (a missing tool or uninstalled dependencies), call 'install_dependencies' and run the check again instead of editing code."
     : "";
@@ -426,7 +430,7 @@ You have access to tools:
 ${toolListText}${mcpSection}
 
 Guidelines:
-${fileGuidelines}${projectGuideline}${checkGuideline}
+${fileGuidelines}${projectGuideline}${styleGuideline}${checkGuideline}
 - Keep changes to what the request needs; do not make unrelated changes.
 - Output clean code without placeholder comments.
 - Once done, summarize the changes you made.
@@ -701,9 +705,10 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     handlers.code_guidelines = codeGuidelinesTool(input.workspaceRoot, activeRepository, modifiedFiles);
     const passChecks = (ctx.scratch.passChecks ??= new PassCheckLog()) as PassCheckLog;
     if (handlers.run_check) handlers.run_check = recordingChecks(handlers.run_check, passChecks);
+    const briefs = (ctx.scratch.guidelineBriefs ??= newGuidelineBriefs()) as GuidelineBriefs;
     for (const name of ["write_file", "edit_file"]) {
       const handler = handlers[name];
-      if (handler) handlers[name] = countingEdits(withGuidelineNotices(handler, input.workspaceRoot, activeRepository), passChecks);
+      if (handler) handlers[name] = countingEdits(withGuidelineNotices(handler, input.workspaceRoot, activeRepository, briefs), passChecks);
     }
     handlers.report_progress = reportProgressTool(onEvent);
     if (names.has(UPDATE_TODOS_TOOL.name)) {

@@ -159,7 +159,7 @@ async function onCompleted(run: LaunchedRun, result: AgentChatResult) {
   void turn.chat.save();
   turn.chat.refreshHistorySummary(run.provider, run.model.modelId, run.compaction);
   if (run.plan.spec?.step === "capability") void run.next();
-  if (run.plan.goal) void run.goalPassEnded(run.plan.goal, result);
+  if (run.plan.goal) void run.goalPassEnded(run.plan.goal, { ...result, plan: run.progress.todos });
 }
 
 /** An Implement run ticks each task in the change folder as soon as the queue accepts it. */

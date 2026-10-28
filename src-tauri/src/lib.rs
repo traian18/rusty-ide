@@ -12,6 +12,7 @@ mod observability_store;
 mod project_search;
 #[cfg(feature = "core-harness")]
 mod repository;
+mod rusty_folder;
 mod secure_key;
 mod shell_exec;
 mod shell_progress;
@@ -653,6 +654,8 @@ async fn save_chat_history(
     );
     let chats_dir = PathBuf::from(&root_dir).join(".rusty").join("chats");
     std::fs::create_dir_all(&chats_dir).map_err(|e| e.to_string())?;
+    // The folder may be new: give it its guide and ignore file (best effort).
+    let _ = rusty_folder::ensure(Path::new(&root_dir));
 
     // One file per chat, identified by chat_id. Overwrites so all requests/replies
     // in a conversation accumulate in the same file.

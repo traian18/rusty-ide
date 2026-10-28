@@ -1,4 +1,5 @@
 import type { CommonEvent } from "../../../harness/contract";
+import type { Todo } from "../../../harness/core/definitions/todoTool";
 import { mergeStepPlan } from "../../agent/stepPlans";
 import { scheduleTreeRefresh } from "../../filetree/FileTreePresenter";
 import { useWorkflowRunStore } from "../behaviors/workflowRunStore";
@@ -15,6 +16,8 @@ export interface RunProgress {
   changed: Set<string>;
   /** Called with each workflow checkpoint (an Implement run ticks its accepted tasks). */
   onCheckpoint?: (state: unknown) => void;
+  /** The run's own to-do list as it last set it (a goal keeps it as its plan). */
+  todos?: Todo[];
 }
 
 type EventOf<K extends CommonEvent["kind"]> = Extract<CommonEvent, { kind: K }>;
@@ -107,7 +110,14 @@ const handlers: Handlers = {
     turn.state.responseStream?.append(event.content, event.messageId);
     scheduleResponseFlush(turn.state);
   },
-  plan: (turn, _run, { todos, step }) => (step ? turn.ui.setStepPlans((plans) => mergeStepPlan(plans, step, todos)) : turn.ui.setPlan(todos)),
+  plan: (turn, run, { todos, step }) => {
+    if (step) {
+      turn.ui.setStepPlans((plans) => mergeStepPlan(plans, step, todos));
+      return;
+    }
+    run.todos = todos;
+    turn.ui.setPlan(todos);
+  },
   progress: (turn, _run, event) => turn.activity.report(event.content),
   workflow_checkpoint: (turn, run, event) => {
     turn.state.lastWorkflowState = event.state;

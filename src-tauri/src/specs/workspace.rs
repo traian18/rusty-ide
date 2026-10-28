@@ -12,20 +12,19 @@ use harness_specs::{layout::CONFIG_PATH, FsStore, SpecStore};
 use serde::Serialize;
 
 use super::commands::{blocking, folder, spec_error};
-use crate::repository::error::RepositoryError;
+use crate::{
+    repository::error::RepositoryError,
+    rusty_folder::{self, Part, PARTS},
+};
 
 /// Where the workspace's specs live, relative to the workspace folder.
 pub const WORKSPACE_SPECS_ROOT: &str = ".rusty/specs";
 
-/// What the workspace repository keeps; everything else in the folder is ignored.
-const SHARED: [&str; 6] = [
-    ".rusty/specs/",
-    ".rusty/specs.json",
-    ".rusty/skills/",
-    ".rusty/workflows/",
-    ".rusty/profiles/",
-    ".rusty/canvas/",
-];
+/// What the workspace repository keeps, with what goes into each: the shared parts of `.rusty`
+/// (see `rusty_folder`). Everything else in the folder is ignored.
+fn shared() -> impl Iterator<Item = &'static Part> {
+    PARTS.iter().filter(|part| part.shared)
+}
 /// The first line of the block written into `.gitignore`, so it is written once.
 const IGNORE_MARKER: &str = "# Rusty workspace repository";
 
@@ -42,6 +41,7 @@ fn prepare(workspace: &Path) -> Result<String, RepositoryError> {
         let config = format!("{{\n  \"root\": \"{WORKSPACE_SPECS_ROOT}\"\n}}\n");
         store.write(CONFIG_PATH, &config).map_err(spec_error)?;
     }
+    rusty_folder::ensure(workspace).map_err(io_error)?;
     Ok(harness_specs::layout::resolve_root(&store))
 }
 
@@ -55,14 +55,20 @@ pub struct WorkspaceRepository {
     pub reason: Option<String>,
 }
 
-/// Whether the workspace folder is inside a Git repository of its own.
+/// Whether the workspace folder is inside a Git repository of its own. A repository Rusty made
+/// gets the shared parts added since to its `.gitignore` block (to commit with the next change).
 #[tauri::command]
 pub async fn workspace_repository_status(
     workspace: String,
 ) -> Result<WorkspaceRepository, RepositoryError> {
     blocking(move || {
+        let workspace = folder(&workspace)?;
+        let exists = is_repository(&workspace);
+        if exists {
+            write_ignore(&workspace)?;
+        }
         Ok(WorkspaceRepository {
-            exists: is_repository(&folder(&workspace)?),
+            exists,
             committed: false,
             reason: None,
         })
@@ -88,6 +94,7 @@ fn create(workspace: &Path) -> Result<WorkspaceRepository, RepositoryError> {
         });
     }
     git(workspace, &["init", "-q"])?;
+    rusty_folder::ensure(workspace).map_err(io_error)?;
     write_ignore(workspace)?;
     git(workspace, &["add", "-A"])?;
     let commit = git(
@@ -106,27 +113,47 @@ fn create(workspace: &Path) -> Result<WorkspaceRepository, RepositoryError> {
     })
 }
 
-/// Adds the block that ignores everything but the shared files, after what `.gitignore` has.
+fn io_error(error: std::io::Error) -> RepositoryError {
+    RepositoryError::new("io_error", error.to_string())
+}
+
+/// One shared part's lines in the block: what goes into it, then the line that keeps it.
+fn entry(part: &Part) -> String {
+    format!("# {}: {}\n!/.rusty/{}\n", part.path, part.holds, part.path)
+}
+
+/// Adds the block that ignores everything but the shared files, after what `.gitignore` has. A
+/// block written before gets the shared parts added since, so new kinds of files are kept too.
 fn write_ignore(workspace: &Path) -> Result<(), RepositoryError> {
     let path = workspace.join(".gitignore");
     let existing = std::fs::read_to_string(&path).unwrap_or_default();
     if existing.contains(IGNORE_MARKER) {
-        return Ok(());
+        let missing: String = shared()
+            .filter(|part| {
+                !existing
+                    .lines()
+                    .any(|line| line.trim() == format!("!/.rusty/{}", part.path))
+            })
+            .map(entry)
+            .collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        let text = format!("{}\n{missing}", existing.trim_end());
+        return std::fs::write(&path, text).map_err(io_error);
     }
     let mut block = format!(
-        "{IGNORE_MARKER}: only the shared specs, skills and workflows.\n\
-         # The repositories in the workspace, chats, runs, metrics and traces stay out.\n\
+        "{IGNORE_MARKER}: only the shared parts of .rusty (specs, skills, workflows, guidelines, ...).\n\
+         # The repositories in the workspace, chats, runs, goals, metrics and traces stay out.\n\
          /*\n!/.gitignore\n!/.rusty/\n/.rusty/*\n"
     );
-    for shared in SHARED {
-        block.push_str(&format!("!/{shared}\n"));
-    }
+    block.extend(shared().map(entry));
     let text = if existing.trim().is_empty() {
         block
     } else {
         format!("{}\n\n{block}", existing.trim_end())
     };
-    std::fs::write(&path, text).map_err(|error| RepositoryError::new("io_error", error.to_string()))
+    std::fs::write(&path, text).map_err(io_error)
 }
 
 fn is_repository(workspace: &Path) -> bool {
@@ -187,7 +214,9 @@ mod tests {
             ".rusty/specs/changes/0001-a/spec.md",
             ".rusty/skills/review.json",
             ".rusty/workflows/build.json",
+            ".rusty/guidelines/rules.json",
             ".rusty/chats/one.json",
+            ".rusty/goals/g-1.json",
             ".rusty/observability/trace.jsonl",
             "ide/src/main.rs",
             "notes.txt",
@@ -210,6 +239,9 @@ mod tests {
             files,
             [
                 ".gitignore",
+                ".rusty/.gitignore",
+                ".rusty/README.md",
+                ".rusty/guidelines/rules.json",
                 ".rusty/skills/review.json",
                 ".rusty/specs/changes/0001-a/spec.md",
                 ".rusty/workflows/build.json",
@@ -219,5 +251,24 @@ mod tests {
         assert!(ignore.starts_with("/tmp\n"));
         // A second call leaves the repository alone.
         assert!(create(root).unwrap().reason.is_some());
+    }
+
+    #[test]
+    fn a_block_written_before_gets_the_shared_parts_added_since() {
+        let workspace = tempfile::tempdir().unwrap();
+        let old = format!("/tmp\n\n{IGNORE_MARKER}: only the shared specs.\n/*\n!/.gitignore\n!/.rusty/\n/.rusty/*\n!/.rusty/specs/\n");
+        std::fs::write(workspace.path().join(".gitignore"), &old).unwrap();
+        write_ignore(workspace.path()).unwrap();
+        let ignore = std::fs::read_to_string(workspace.path().join(".gitignore")).unwrap();
+        assert!(ignore.starts_with(&old));
+        assert_eq!(ignore.matches("!/.rusty/specs/").count(), 1);
+        assert!(ignore.contains("# guidelines/: the project's code guidelines"));
+        assert!(ignore.contains("!/.rusty/guidelines/\n"));
+        assert!(!ignore.contains("!/.rusty/chats/"));
+        write_ignore(workspace.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join(".gitignore")).unwrap(),
+            ignore
+        );
     }
 }

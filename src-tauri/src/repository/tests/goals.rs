@@ -76,3 +76,26 @@ async fn a_scope_is_measured_live_with_its_guideline_errors_and_a_fingerprint() 
     assert_eq!(edited.guideline_errors[0].rule, "no-unwrap");
     assert_ne!(edited.fingerprint, one.fingerprint);
 }
+
+#[tokio::test]
+async fn a_scope_naming_nothing_is_caught_and_no_scope_means_the_repository() {
+    use crate::repository::goal_measure::{default_scope, unknown_items};
+    let (dir, _entry) = health_entry().await;
+    let root = dir.path().to_string_lossy().into_owned();
+    let state = RepositoryState::new();
+
+    // `scope=The ...`: a word, not a path, would measure nothing and be "met" at once.
+    let scope = ["The".to_owned(), "src".to_owned(), "src/*.rs".to_owned()];
+    assert_eq!(unknown_items(&root, &scope), vec!["The".to_owned()]);
+
+    // The fixture is one repository at the workspace folder: all of it.
+    let scope = default_scope(&state, &root, "raise the health", None).unwrap();
+    assert_eq!(scope.as_deref(), Some("**"));
+    let whole = measure(&state, &root, None, &["**".into()], &[])
+        .await
+        .unwrap();
+    let folder = measure(&state, &root, None, &["src".into()], &[])
+        .await
+        .unwrap();
+    assert!(whole.files.len() >= folder.files.len() && !whole.files.is_empty());
+}

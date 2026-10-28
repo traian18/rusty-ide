@@ -1,10 +1,12 @@
 // ============================================================
 // definitions/guidelinesTool.ts -- code_guidelines: the project's own style and rules
 // (.rusty/guidelines/rules.json and style.md), answered by the host from the files on disk.
-// Three uses: the model reads what applies before editing ('rules') and checks its work
-// ('check'); every edit_file / write_file result gets a short notice when the edit broke a rule;
-// and the completion gate calls it with {gate: true}, which checks the files the run changed and
-// fails while the change introduced a guideline error.
+// Four uses: the model reads what applies before editing ('rules') and checks its work
+// ('check'); the first edit_file / write_file to a file in a run ends with a brief of the rules
+// and the style guide's outline that apply to it (so the guidelines reach the model without it
+// asking); every edit's result gets a short notice when the edit broke a rule; and the
+// completion gate calls it with {gate: true}, which checks the files the run changed and fails
+// while the change introduced a guideline error.
 // ============================================================
 
 import { invoke } from "@tauri-apps/api/core";
@@ -36,6 +38,11 @@ export const CODE_GUIDELINES_GUIDE =
 const NOTICE_DEADLINE_MS = 3000;
 /** Violations an edit notice lists. */
 const NOTICE_LINES = 3;
+/** Rules and style headings a first-edit brief lists. */
+const BRIEF_RULES = 12;
+const BRIEF_HEADINGS = 24;
+/** Answer size asked for a brief: the style guide is read whole for its headings. */
+const BRIEF_BUDGET = 24000;
 
 interface Violation { rule?: string; severity?: string; lines?: string; message?: string; in?: string | null }
 interface FileSection { path?: string; violations?: Violation[] }
@@ -128,24 +135,82 @@ export function guidelineNotice(result: ToolResult): string {
   return `\n\n${lead}\n${shown.join("\n")}${more}`;
 }
 
+interface RuleEntry { id?: string; kind?: string; severity?: string; message?: string; text?: string; pattern?: string }
+interface RulesFile { path?: string; rules?: RuleEntry[]; style?: string[] }
+
+/** The headings of a style text, outside code blocks: its outline. */
+function outline(text: string): string[] {
+  const headings: string[] = [];
+  let fenced = false;
+  for (const line of text.split("\n").map((l) => l.trim())) {
+    if (line.startsWith("```")) fenced = !fenced;
+    const heading = fenced ? undefined : /^#{1,4}\s+(.+)$/.exec(line)?.[1]?.trim();
+    if (heading) headings.push(heading);
+  }
+  return headings;
+}
+
+function ruleLine(rule: RuleEntry): string {
+  const what = rule.message ?? rule.text ?? (rule.pattern ? `must not match ${rule.pattern}` : rule.kind ?? "");
+  return `- ${rule.severity ?? "error"} [${rule.id ?? "rule"}]: ${what}`.trim();
+}
+
+/**
+ * The brief a first edit to a file ends with: the rules and the style guide's outline that apply
+ * to it, with `key` naming that set so a run shows each set once. Undefined when none apply.
+ */
+export function guidelineBrief(result: ToolResult): { key: string; text: string } | undefined {
+  if (result.status !== "ok") return undefined;
+  const file = parts(result).flatMap((part) => (part.sections?.files as RulesFile[] | undefined) ?? [])[0];
+  if (!file) return undefined;
+  const rules = file.rules ?? [];
+  const headings = (file.style ?? []).flatMap(outline);
+  if (rules.length === 0 && headings.length === 0) return undefined;
+  const lines = [`\n\nGuidelines for ${file.path ?? "this file"} (shown on the first edit; follow them in this and every later edit, and fix any error an edit reports before finishing; code_guidelines with mode rules has the full text):`];
+  if (rules.length > 0) {
+    lines.push("Rules:", ...rules.slice(0, BRIEF_RULES).map(ruleLine));
+    if (rules.length > BRIEF_RULES) lines.push(`- and ${rules.length - BRIEF_RULES} more`);
+  }
+  if (headings.length > 0) {
+    const shown = headings.slice(0, BRIEF_HEADINGS).join("; ");
+    lines.push(`Style guide: ${shown}${headings.length > BRIEF_HEADINGS ? "; …" : ""}`);
+  }
+  return { key: JSON.stringify([rules.map((r) => r.id), headings]), text: lines.join("\n") };
+}
+
 function editedPath(args: unknown): string {
   return String((args as { path?: unknown } | undefined)?.path ?? "").trim();
 }
 
 /**
- * An edit tool whose successful result says what the edit broke of the guidelines. The check is
- * best effort: past a short deadline, or when it fails, the edit's result is returned as it is.
+ * An edit tool whose successful result says what the edit broke of the guidelines, and on the
+ * first edit to a file in the run, which guidelines apply to it. `briefed` is the run's record of
+ * what it was shown (the same set shared by every edit tool of the run). Both are best effort:
+ * past a short deadline, or when the host fails, the edit's result is returned as it is.
  */
-export function withGuidelineNotices(handler: HostToolHandler, workspaceRoot: string, activeRepository: string | undefined): HostToolHandler {
+export function withGuidelineNotices(handler: HostToolHandler, workspaceRoot: string, activeRepository: string | undefined, briefed: GuidelineBriefs = newGuidelineBriefs()): HostToolHandler {
   return async (args, signal, observer, call) => {
     const outcome = await handler(args, signal, observer, call);
     const path = editedPath(args);
     if (!outcome.ok || !path || !workspaceRoot.trim()) return outcome;
     const target = workspaceRelative(workspaceRoot, path);
+    const firstEdit = !briefed.files.has(target);
+    briefed.files.add(target);
     const check = callHost(workspaceRoot, activeRepository, { mode: "check", targets: [target], changed_only: true }).catch(() => undefined);
+    const rules = firstEdit ? callHost(workspaceRoot, activeRepository, { mode: "rules", targets: [target], budget: BRIEF_BUDGET }).catch(() => undefined) : Promise.resolve(undefined);
     const deadline = new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), NOTICE_DEADLINE_MS));
-    const result = await Promise.race([check, deadline]);
-    const notice = result ? guidelineNotice(result) : "";
+    const [result, applies] = await Promise.all([Promise.race([check, deadline]), Promise.race([rules, deadline])]);
+    const brief = applies ? guidelineBrief(applies) : undefined;
+    const shown = brief && !briefed.sets.has(brief.key) ? brief.text : "";
+    if (brief) briefed.sets.add(brief.key);
+    const notice = `${shown}${result ? guidelineNotice(result) : ""}`;
     return notice ? { ...outcome, output: `${outcome.output}${notice}` } : outcome;
   };
+}
+
+/** What a run's edits were told of the guidelines: the files edited, the briefs shown. */
+export interface GuidelineBriefs { files: Set<string>; sets: Set<string> }
+
+export function newGuidelineBriefs(): GuidelineBriefs {
+  return { files: new Set(), sets: new Set() };
 }

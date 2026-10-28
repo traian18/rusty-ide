@@ -62,6 +62,9 @@ pub async fn watch_workspace(
     if !root.exists() {
         return Err(format!("Directory does not exist: {}", root_dir));
     }
+    // Opening a workspace keeps its .rusty folders' guide and ignore file current.
+    let opened = root.clone();
+    tauri::async_runtime::spawn_blocking(move || crate::rusty_folder::ensure_workspace(&opened));
 
     let mut guard = state.0.lock().map_err(|e| e.to_string())?;
     if let Some(existing) = guard.as_ref() {

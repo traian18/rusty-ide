@@ -11,7 +11,11 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use super::store;
-use crate::repository::{error::RepositoryError, goal_measure::measure, RepositoryState};
+use crate::repository::{
+    error::RepositoryError,
+    goal_measure::{default_scope, measure, unknown_items},
+    RepositoryState,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -19,6 +23,9 @@ pub struct GoalRequest {
     pub instruction: String,
     #[serde(default)]
     pub scope: Vec<String>,
+    /// The scope in words (`scope="..."`).
+    #[serde(default)]
+    pub scope_note: Option<String>,
     #[serde(default)]
     pub targets: Targets,
     #[serde(default)]
@@ -81,6 +88,9 @@ fn step(goal: Goal, decision: Option<Decision>, undone: Vec<String>) -> GoalStep
     }
 }
 
+/// The scope item for "the files the passes change".
+const CHANGED: &str = "changed";
+
 fn new_id(now: &str) -> String {
     let digits: String = now.chars().filter(char::is_ascii_digit).take(14).collect();
     let nonce = std::process::id() ^ (std::time::Instant::now().elapsed().subsec_nanos());
@@ -108,9 +118,51 @@ pub async fn goal_create(
             store::save(&path, &other)?;
         }
     }
-    let mut goal = Goal::new(new_id(&now), request.instruction.trim().to_owned(), now);
-    goal.scope = request.scope;
+    // `scope=changed`: measured on the files the passes change, which is an empty scope.
+    let changed = request.scope.iter().any(|item| item == CHANGED);
+    let mut scope: Vec<String> = request
+        .scope
+        .into_iter()
+        .filter(|item| item != CHANGED)
+        .collect();
+    // Plain words that are not paths (`scope=The general health is ...`) were meant as the start
+    // of the instruction; something that looks like a path but is not there is a mistake.
+    let (words, unknown): (Vec<String>, Vec<String>) = unknown_items(&root, &scope)
+        .into_iter()
+        .partition(|item| !item.contains(['/', '.', '\\']));
+    scope.retain(|item| !words.contains(item));
+    let instruction = [words.join(" "), request.instruction.trim().to_owned()]
+        .join(" ")
+        .trim()
+        .to_owned();
+    let note = request
+        .scope_note
+        .map(|note| note.trim().to_owned())
+        .filter(|note| !note.is_empty());
+    if !unknown.is_empty() {
+        return Err(RepositoryError::invalid(format!(
+            "scope {} names no file, folder or glob in the workspace (scope= takes paths, like scope=rusty-core or scope=src/**/*.rs)",
+            unknown.iter().map(|u| format!("'{u}'")).collect::<Vec<_>>().join(", ")
+        )));
+    }
+    let mut goal = Goal::new(new_id(&now), instruction, now);
+    goal.scope = scope;
+    goal.scope_note = note;
     goal.targets = request.targets;
+    if goal.scope.is_empty() && !changed && goal.targets.on_files() {
+        let words = format!(
+            "{} {}",
+            goal.scope_note.as_deref().unwrap_or_default(),
+            goal.instruction
+        );
+        let scope = default_scope(&state, &root, &words, active_repository.as_deref())?
+            .ok_or_else(|| {
+                RepositoryError::invalid(
+                    "say which files the goal is measured on, with scope=<repository or folder>",
+                )
+            })?;
+        goal.scope = vec![scope];
+    }
     goal.budget = request.budget.unwrap_or_default();
     goal.keep_best = request.keep_best.unwrap_or(true);
     goal.chat_id = request.chat_id;
@@ -124,6 +176,13 @@ pub async fn goal_create(
         )
         .await?,
     );
+    let measured = goal.baseline.as_ref().map_or(0, |b| b.scored().count());
+    if goal.targets.on_files() && !goal.scope.is_empty() && measured == 0 {
+        return Err(RepositoryError::invalid(format!(
+            "nothing in scope ({}) has a code health score, so the goal could not be measured",
+            goal.scope.join(", ")
+        )));
+    }
     checkpoint(&path, &goal).await?;
     store::save(&path, &goal)?;
     Ok(step(goal, None, Vec::new()))
