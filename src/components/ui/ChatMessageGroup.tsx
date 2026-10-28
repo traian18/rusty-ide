@@ -2,7 +2,8 @@
 // or (with turn layout) one balloon per agent turn.
 
 import type React from "react";
-import { FileText, Folder, Pin } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, Copy, FileText, Folder, Pin } from "lucide-react";
 import type { ChatSearchMatch } from "./chatSearch";
 import { AgentActivityCard } from "./SubagentActivityPanel";
 import { ChatMessageContent } from "./ChatMessageContent";
@@ -45,26 +46,70 @@ function searchProps(messageId: string, search: MessageRenderContext["search"]) 
   };
 }
 
-function PinButton({ message, onTogglePin }: { message: Message; onTogglePin: (messageId: string, pinned: boolean) => void }) {
+/** How long "Copied" shows after a copy. */
+const COPIED_MS = 1500;
+
+/** Copies the message as it was written (its Markdown), and says so for a moment. */
+function CopyButton({ message }: { message: Message }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), COPIED_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+    } catch {
+      // The clipboard can be refused (no focus, no permission); nothing was copied.
+    }
+  };
+  return (
+    <button
+      type="button"
+      className={`${styles.pinButton} ${copied ? styles.pinned : ""}`}
+      aria-label={copied ? "Copied" : "Copy message"}
+      title="Copy this message as Markdown"
+      onClick={() => void copy()}
+    >
+      {copied ? <Check size={12} aria-hidden="true" /> : <Copy size={12} aria-hidden="true" />}
+      {copied && <span>Copied</span>}
+    </button>
+  );
+}
+
+function MessageActions({ message, copyable, onTogglePin }: { message: Message; copyable: boolean; onTogglePin?: (messageId: string, pinned: boolean) => void }) {
   return (
     <div className={styles.messageActions} data-message-actions>
-      <button
-        type="button"
-        className={`${styles.pinButton} ${message.pinned ? styles.pinned : ""}`}
-        aria-pressed={Boolean(message.pinned)}
-        aria-label={message.pinned ? "Unpin message" : "Pin message"}
-        title={message.pinned ? "Pinned: kept word for word when this chat is trimmed. Click to unpin." : "Pin: keep this word for word when this chat is trimmed"}
-        onClick={() => onTogglePin(message.id, !message.pinned)}
-      >
-        <Pin size={12} aria-hidden="true" />
-        {message.pinned && <span>Pinned</span>}
-      </button>
+      {copyable && <CopyButton message={message} />}
+      {onTogglePin && <PinButton message={message} onTogglePin={onTogglePin} />}
     </div>
+  );
+}
+
+function PinButton({ message, onTogglePin }: { message: Message; onTogglePin: (messageId: string, pinned: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      className={`${styles.pinButton} ${message.pinned ? styles.pinned : ""}`}
+      aria-pressed={Boolean(message.pinned)}
+      aria-label={message.pinned ? "Unpin message" : "Pin message"}
+      title={message.pinned ? "Pinned: kept word for word when this chat is trimmed. Click to unpin." : "Pin: keep this word for word when this chat is trimmed"}
+      onClick={() => onTogglePin(message.id, !message.pinned)}
+    >
+      <Pin size={12} aria-hidden="true" />
+      {message.pinned && <span>Pinned</span>}
+    </button>
   );
 }
 
 export function MessageBody({ message, context }: { message: Message; context: MessageRenderContext }) {
   const { registerMessage, activeMessageId, onTogglePin } = context;
+  const streaming = message.role === "assistant" && message.id === context.streamingAnswerId;
+  // An answer is copied once it is written; a pin works on questions and answers alike.
+  const copyable = message.role === "assistant" && !streaming && message.content.trim().length > 0;
+  const pinnable = Boolean(onTogglePin) && isPinnable(message);
   return (
     <div
       ref={(element) => registerMessage(message.id, element)}
@@ -72,11 +117,11 @@ export function MessageBody({ message, context }: { message: Message; context: M
       id={`chat-message-${message.id}`}
       className={`${styles.groupedItem} ${activeMessageId === message.id ? styles.activeMessage : ""}`}
     >
-      {onTogglePin && isPinnable(message) && <PinButton message={message} onTogglePin={onTogglePin} />}
+      {(copyable || pinnable) && <MessageActions message={message} copyable={copyable} onTogglePin={pinnable ? onTogglePin : undefined} />}
       <ChatMessageContent
         content={message.content}
         onLinkClick={context.onLinkClick}
-        streaming={message.role === "assistant" && message.id === context.streamingAnswerId}
+        streaming={streaming}
         liveMarkdown={context.liveMarkdown}
         {...searchProps(message.id, context.search)}
       />

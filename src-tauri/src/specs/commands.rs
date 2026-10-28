@@ -371,6 +371,25 @@ pub async fn specs_export(
     .await
 }
 
+/// A task list about to become a change's `tasks.md`, checked against its `spec.md`: criteria no
+/// task names, ids that are not in the spec, cycles, tasks that name no criterion. Empty when
+/// there is nothing to fix.
+#[tauri::command]
+pub async fn specs_tasks_check(
+    root: String,
+    change: String,
+    tasks: String,
+) -> Result<Vec<harness_specs::Warning>, RepositoryError> {
+    blocking(move || {
+        let store = FsStore::new(folder(&root)?);
+        let layout = Layout::of(&store);
+        Ok(harness_specs::validate::check_task_list(
+            &store, &layout, &change, &tasks,
+        ))
+    })
+    .await
+}
+
 /// Ticks or unticks one task in a change's `tasks.md`.
 #[tauri::command]
 pub async fn specs_task_tick(

@@ -209,7 +209,8 @@ it("bounds rendering of a large saved response without removing the full text", 
     expect(markdownRender).not.toHaveBeenCalled();
     expect(mount.querySelector("pre")?.textContent).toHaveLength(CHAT_PREVIEW_CHARS);
     expect(mount.querySelectorAll('[data-testid="chat-search-highlight"]')).toHaveLength(1);
-    await act(async () => mount.querySelector<HTMLButtonElement>("button")!.click());
+    const showFull = [...mount.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.startsWith("Show full response"));
+    await act(async () => showFull!.click());
     expect(mount.querySelector("pre")?.textContent).toBe(content);
     expect(mount.querySelectorAll('[data-testid="chat-search-highlight"]')).toHaveLength(1);
     expect(markdownRender).not.toHaveBeenCalled();

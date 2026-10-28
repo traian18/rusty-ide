@@ -177,7 +177,7 @@
     {
       "schema_version": 1,
       "id": "rusty-ide.builtin.plan",
-      "revision": 10,
+      "revision": 11,
       "name": "Plan",
       "description": "Works as a technical lead turning a request into a plan: investigates the code and constraints first, writes requirements with observable acceptance criteria, orders small tasks that each change the workspace and name the criteria they satisfy, and calls out risks and follow-ups. Read-only; the plan is something a person can approve before anything is built.",
       "status": "published",
@@ -250,6 +250,16 @@
               }
             },
             "feedback": "You have not looked at the code yet. Explore the relevant files before proposing a plan."
+          },
+          {
+            "id": "tasks-cover-the-spec",
+            "evaluator": {
+              "type": "tool",
+              "tool": "spec_tasks_check",
+              "answer_arg": "tasks"
+            },
+            "error_policy": "pass",
+            "waive_when_exhausted": true
           },
           {
             "id": "todos-done",

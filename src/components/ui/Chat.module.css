@@ -203,6 +203,7 @@
 .messageActions {
   display: flex;
   justify-content: flex-end;
+  gap: 2px;
   min-height: 0;
 }
 

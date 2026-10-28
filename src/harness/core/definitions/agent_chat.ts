@@ -100,6 +100,7 @@ import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSect
 import { codeGuidelinesTool, withGuidelineNotices } from "./guidelinesTool";
 import { countingEdits, PassCheckLog, recordingChecks } from "./passChecks";
 import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
+import { SPEC_TASKS_CHECK_TOOL, specTasksCheckTool } from "./specTasksCheckTool";
 import { activeSpecBrief } from "../../../specs/activeBrief";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
@@ -331,6 +332,11 @@ function toolSpecsFor(skill: SkillLike | undefined, mode: ChatMode): HostToolSpe
   // A check or command can run as a background job; this reads it.
   const jobTool = structuralNames.some((name) => name === "run_check" || name === "run_command") ? [JOB_OUTPUT_TOOL] : [];
   return [...structural, ...planTool, ...jobTool, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, SPEC_CONTEXT_TOOL, REPORT_PROGRESS_TOOL, ASK_USER_QUESTION_TOOL, ...todoTool];
+}
+
+/** A Design & tasks run of a change: its Tasks step's gate checks the task list against the spec. */
+function plansTasks(input: AgentChatInput): boolean {
+  return input.specRun?.step === "plan" && Boolean(input.workflow);
 }
 
 /** How a background check is named to the model: "run_check test (rusty-core, test_name replay)". */
@@ -592,7 +598,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       throw new Error(`CoreHarness: agent_chat cannot run on core -- ${mapped.reason}`);
     }
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly), workflow: Boolean(input.workflow) };
-    const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : [])];
+    const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : []), ...(plansTasks(input) ? [SPEC_TASKS_CHECK_TOOL] : [])];
     const mcpConfigs = asMcpServerConfigs(input.mcpServers);
     const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
     for (const { reason } of skipped) console.warn(`[agent_chat] ${reason}`);
@@ -689,6 +695,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     handlers.repo_context = repoContextTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.spec_context = specContextTool(input.workspaceRoot);
+    if (plansTasks(input)) handlers.spec_tasks_check = specTasksCheckTool(input.specRun!);
     const activeRepository = input.repositoryContext?.activeRepository;
     for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, activeRepository);
     handlers.code_guidelines = codeGuidelinesTool(input.workspaceRoot, activeRepository, modifiedFiles);

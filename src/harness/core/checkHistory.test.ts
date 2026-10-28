@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { formatDuration, lastDuration, recordDuration, repositoryOf, resetCheckHistory, takeProjectTurn, takesTurn } from "./checkHistory";
+import { formatDuration, lastDuration, recordDuration, repositoryOf, resetCheckHistory, setWorkspaceRepositories, takeProjectTurn, takesTurn } from "./checkHistory";
 
 const key = { workspaceRoot: "/ws", project: "rusty-core", check: "test" };
 
@@ -74,6 +74,19 @@ describe("which repository and which commands", () => {
     expect(repositoryOf("/ws", "./rusty-ide/src-tauri")).toBe("rusty-ide");
     expect(repositoryOf("/ws", "/ws")).toBe(".");
     expect(repositoryOf("/ws", ".")).toBe(".");
+  });
+
+  it("uses the discovered repositories, wherever they are grouped, once discovery ran", () => {
+    setWorkspaceRepositories("/ws", ["/ws", "/ws/services/payments/api", "/ws/services/web", "/ws/rusty-core", "/elsewhere/linked"]);
+    expect(repositoryOf("/ws", "/ws/services/payments/api/src/main.rs")).toBe("services/payments/api");
+    expect(repositoryOf("/ws", "services/web")).toBe("services/web");
+    expect(repositoryOf("/ws", "/ws/rusty-core/sdk")).toBe("rusty-core");
+    // In the workspace repository itself, not in a folder of its own.
+    expect(repositoryOf("/ws", "/ws/services/README.md")).toBe(".");
+    expect(repositoryOf("/ws", ".")).toBe(".");
+    // Another workspace falls back to the first folder.
+    expect(repositoryOf("/other", "/other/a/b")).toBe("a");
+    setWorkspaceRepositories("", []);
   });
 
   it("makes build and test programs take turns, and lets quick ones through", () => {

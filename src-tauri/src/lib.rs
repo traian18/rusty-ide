@@ -1469,6 +1469,8 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             specs::commands::specs_task_tick,
             #[cfg(feature = "core-harness")]
+            specs::commands::specs_tasks_check,
+            #[cfg(feature = "core-harness")]
             specs::commands::specs_tasks,
             #[cfg(feature = "core-harness")]
             specs::commands::specs_context,

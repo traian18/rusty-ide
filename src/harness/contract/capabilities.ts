@@ -87,6 +87,8 @@ export interface AgentChatInput {
    * single agent loop: `input` is the workflow's run input. Its agent steps
    * use this chat's provider, model and tools. */
   workflow?: { definition: unknown; input: unknown; checkpoint?: unknown; options?: WorkflowRunOptions; library?: unknown[] };
+  /** The change a spec workflow run works on (set up from the Specs page). */
+  specRun?: { root: string; change: string; step: string };
 }
 
 /** Choices made when a workflow run starts rather than in its definition. */

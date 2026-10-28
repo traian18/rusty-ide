@@ -10,7 +10,7 @@ import { workspaceRelative } from "../../../harness/core/definitions/guidelinesT
 import { notify } from "../../../notificationStore";
 import { repositoryContextInput } from "../../../services/repositoryContextInput";
 import { useWorkspaceStore } from "../../../store";
-import { addAssistantMessage, type AgentTurn } from "./turn";
+import { addAssistantMessage, DEFAULT_STREAMING_LABEL, nextMessageId, type AgentTurn } from "./turn";
 
 /** The pass of a goal a run is. */
 export interface GoalPass {
@@ -97,7 +97,8 @@ async function chatGoal(turn: AgentTurn): Promise<GoalStep | undefined> {
 
 async function start(turn: AgentTurn, command: Extract<ReturnType<typeof parseGoalCommand>, { kind: "start" }>, send: SendPass) {
   turn.ui.setStreamingLabel("Measuring the goal's scope…");
-  const step = await goalClient.create(turn.rootPath, activeRepository(turn.rootPath), command, turn.chatId);
+  const step = await goalClient.create(turn.rootPath, activeRepository(turn.rootPath), command, turn.chatId)
+    .finally(() => turn.ui.setStreamingLabel(DEFAULT_STREAMING_LABEL));
   addAssistantMessage(turn, `${step.status}\n\nStarting pass 1.`);
   if (!step.prompt) return;
   const pass = passOf(step);
@@ -110,7 +111,7 @@ async function start(turn: AgentTurn, command: Extract<ReturnType<typeof parseGo
  * pauses, resumes or clears the chat's goal.
  */
 export async function handleGoalCommand(turn: AgentTurn, draft: string, attached: string[], send: SendPass): Promise<void> {
-  turn.addMessage({ id: `msg_${Date.now()}`, role: "user", content: draft.trim(), timestamp: new Date().toISOString() });
+  turn.addMessage({ id: nextMessageId(), role: "user", content: draft.trim(), timestamp: new Date().toISOString() });
   const command = parseGoalCommand(draft, attached.map((path) => workspaceRelative(turn.rootPath, path)));
   try {
     if (command.kind === "invalid") {

@@ -68,18 +68,45 @@ export const LONG_RUN_IDLE_MS = 10 * 60_000;
 
 // ---- One check at a time per repository ---------------------------------
 
+/** The repositories discovered in the open workspace, relative to it ("" for the workspace
+ * itself), deepest first: set by the Git discovery the IDE runs anyway. */
+let discovered: { root: string; repositories: string[] } = { root: "", repositories: [] };
+
+function normalizedRoot(workspaceRoot: string): string {
+  return workspaceRoot.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/** Records the repositories found in `workspaceRoot` (their working-tree paths); ones outside
+ * it (an external linked worktree) are left out. */
+export function setWorkspaceRepositories(workspaceRoot: string, worktreePaths: string[]) {
+  const root = normalizedRoot(workspaceRoot);
+  const repositories = worktreePaths
+    .map((path) => path.replace(/\\/g, "/").replace(/\/+$/, ""))
+    .filter((path) => path === root || path.startsWith(`${root}/`))
+    .map((path) => (path === root ? "" : path.slice(root.length + 1)))
+    .sort((a, b) => b.split("/").length - a.split("/").length);
+  discovered = { root, repositories };
+}
+
 /**
- * The repository a workspace path belongs to: its first folder below the
- * workspace (`rusty-core` for `rusty-core/sdk/typescript`), or "." for the
- * workspace itself. Checks and build commands take turns per repository,
- * since that is what shares a build directory and its lock.
+ * The repository a workspace path belongs to, or "." for the workspace itself. The innermost
+ * discovered repository holding it (`services/api` for `services/api/src`, wherever the
+ * repositories are grouped); before discovery, or for a path in none, its first folder below
+ * the workspace (`rusty-core` for `rusty-core/sdk/typescript`). Checks and build commands take
+ * turns per repository, since that is what shares a build directory and its lock.
  */
 export function repositoryOf(workspaceRoot: string, path: string): string {
-  const root = workspaceRoot.replace(/\\/g, "/").replace(/\/+$/, "");
+  const root = normalizedRoot(workspaceRoot);
   let relative = path.replace(/\\/g, "/");
   if (relative === root) return ".";
   if (relative.startsWith(`${root}/`)) relative = relative.slice(root.length + 1);
-  const first = relative.replace(/^\.\/+/, "").split("/").find((part) => part && part !== ".");
+  relative = relative.replace(/^\.\/+/, "").replace(/\/+$/, "");
+  if (discovered.root === root) {
+    const holder = discovered.repositories.find((repository) => repository && (relative === repository || relative.startsWith(`${repository}/`)));
+    if (holder) return holder;
+    if (discovered.repositories.includes("")) return ".";
+  }
+  const first = relative.split("/").find((part) => part && part !== ".");
   return first ?? ".";
 }
 

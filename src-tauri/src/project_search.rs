@@ -76,23 +76,41 @@ fn build_regex_matcher(options: &SearchOptions) -> Result<Option<Arc<Regex>>, St
         .map(Some)
 }
 
-/// The repositories directly inside a workspace folder. Each is searched
-/// from its own root, so the workspace repository's ignore rules (which may
-/// leave every repository in it out) do not hide its files; its own do.
+/// Folder levels below the workspace searched for repositories at most.
+const MAX_REPOSITORY_DEPTH: usize = 8;
+
+/// The repositories inside a workspace folder at any depth: directly in it,
+/// grouped in plain folders (`services/api`) or inside other repositories.
+/// Each is searched from its own root, so the workspace repository's ignore
+/// rules (which may leave every repository in it out) do not hide its files;
+/// its own do. Hidden, dependency and build folders are not looked into, and
+/// symlinks are not followed.
 fn nested_repositories(root_path: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = std::fs::read_dir(root_path) else {
-        return Vec::new();
-    };
-    let mut repositories: Vec<PathBuf> = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_dir() && path.join(".git").exists())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| !name.starts_with('.') && !is_excluded_directory_name(name))
-        })
-        .collect();
+    let mut repositories = Vec::new();
+    let mut folders = vec![(root_path.to_path_buf(), 0usize)];
+    while let Some((folder, depth)) = folders.pop() {
+        if depth >= MAX_REPOSITORY_DEPTH {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.filter_map(Result::ok) {
+            let is_dir = entry.file_type().map(|kind| kind.is_dir()).unwrap_or(false);
+            let searched = entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| !name.starts_with('.') && !is_excluded_directory_name(name));
+            if !is_dir || !searched {
+                continue;
+            }
+            let path = entry.path();
+            if path.join(".git").exists() {
+                repositories.push(path.clone());
+            }
+            folders.push((path, depth + 1));
+        }
+    }
     repositories.sort();
     repositories
 }
@@ -112,12 +130,13 @@ fn search_files(
         builder.add(repository);
     }
     // A nested repository is walked from its own root (added above); reached
-    // again from the workspace folder it is skipped, or its files would count twice.
+    // again from the workspace folder or a repository around it, it is skipped,
+    // or its files would count twice.
     let skipped = repositories.clone();
     let walker = builder
         .hidden(true)
         .filter_entry(move |entry| {
-            entry.depth() != 1 || !skipped.iter().any(|repository| repository == entry.path())
+            entry.depth() == 0 || !skipped.iter().any(|repository| repository == entry.path())
         })
         .build_parallel();
 
@@ -441,6 +460,44 @@ mod tests {
         assert_eq!(
             found,
             vec!["core/src/lib.rs".to_string(), "notes.md".to_string()]
+        );
+    }
+
+    #[test]
+    fn searches_repositories_grouped_in_folders_and_inside_repositories_once_each() {
+        let workspace = tempfile::tempdir().unwrap();
+        let root = workspace.path();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::write(root.join(".gitignore"), "/*\n!/.gitignore\n").unwrap();
+        let grouped = root.join("services/payments/api");
+        std::fs::create_dir_all(grouped.join(".git")).unwrap();
+        std::fs::write(grouped.join("main.rs"), "needle\n").unwrap();
+        let inner = root.join("core/plugins/extra");
+        std::fs::create_dir_all(root.join("core/.git")).unwrap();
+        std::fs::write(root.join("core/lib.rs"), "needle\n").unwrap();
+        std::fs::create_dir_all(inner.join(".git")).unwrap();
+        std::fs::write(inner.join("x.rs"), "needle\n").unwrap();
+
+        let mut found: Vec<String> = search_project(search_options(root, "needle"))
+            .unwrap()
+            .iter()
+            .filter(|result| result.is_content_match)
+            .map(|result| {
+                std::path::Path::new(&result.path)
+                    .strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                "core/lib.rs",
+                "core/plugins/extra/x.rs",
+                "services/payments/api/main.rs"
+            ]
         );
     }
 

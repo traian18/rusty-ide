@@ -162,6 +162,7 @@ export function agentChatInput(
     contextCompaction,
     ...optionalInputs(turn, model, plan, contextCompaction),
     workflow: workflowRun(turn, message, chatHistory, plan),
+    ...(plan.spec ? { specRun: { root: plan.spec.root, change: plan.spec.change, step: plan.spec.step } } : {}),
   };
 }
 

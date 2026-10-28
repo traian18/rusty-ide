@@ -168,8 +168,18 @@ export function cancelResponseFlush(state: TurnState) {
   state.streamingResponseFlushTimeout = null;
 }
 
+let lastMessageTime = 0;
+
+/** A chat message id, `msg_<time>`: never the same twice, even for messages added in the same
+ * millisecond (a goal's status line and the pass it starts), since the chat keys its rows by it
+ * and a repeated key leaves a stale row on screen. */
+export function nextMessageId(): string {
+  lastMessageTime = Math.max(Date.now(), lastMessageTime + 1);
+  return `msg_${lastMessageTime}`;
+}
+
 export function addAssistantMessage(turn: AgentTurn, content: string) {
-  turn.addMessage({ id: `msg_${Date.now()}`, role: "assistant", content, timestamp: new Date().toISOString() });
+  turn.addMessage({ id: nextMessageId(), role: "assistant", content, timestamp: new Date().toISOString() });
 }
 
 /** Ends the turn before any run started: says why in the chat and in a notification. */

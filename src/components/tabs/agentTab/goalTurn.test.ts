@@ -8,17 +8,17 @@ vi.mock("../../../store", () => ({ useWorkspaceStore: { getState: () => ({}) } }
 
 import type { GoalStep } from "../../../goals/goalClient";
 import { continueGoal, handleGoalCommand, passChecks, passReport } from "./goalTurn";
-import { createTurnState, type AgentTurn } from "./turn";
+import { createTurnState, nextMessageId, type AgentTurn } from "./turn";
 
-function turn(): AgentTurn & { messages: Array<{ role: string; content: string }> } {
-  const messages: Array<{ role: string; content: string }> = [];
+function turn(): AgentTurn & { messages: Array<{ id: string; role: string; content: string }> } {
+  const messages: Array<{ id: string; role: string; content: string }> = [];
   return {
     chatId: "chat-1",
     rootPath: "/ws",
     state: createTurnState(),
     ui: { setStreamingLabel: vi.fn() },
     chat: { save: vi.fn().mockResolvedValue(undefined) },
-    addMessage: (message: { role: string; content: string }) => messages.push(message),
+    addMessage: (message: { id: string; role: string; content: string }) => messages.push(message),
     messages,
   } as unknown as AgentTurn & { messages: typeof messages };
 }
@@ -68,6 +68,14 @@ describe("goal passes", () => {
     expect(send).toHaveBeenCalledTimes(2);
     expect(chat.state.goal).toBeUndefined();
     expect(chat.messages.at(-1)?.content).toContain("Goal pass 2: goal reached");
+    // The chat keys its rows by id: a repeated one leaves a stale row on screen in other chats.
+    expect(new Set(chat.messages.map((m) => m.id)).size).toBe(chat.messages.length);
+  });
+
+  it("never hands out the same message id twice, even within one millisecond", () => {
+    const ids = Array.from({ length: 50 }, () => nextMessageId());
+    expect(new Set(ids).size).toBe(50);
+    expect(ids.every((id) => /^msg_\d+$/.test(id))).toBe(true);
   });
 
   it("does not go on when the goal was paused while the pass ran", async () => {

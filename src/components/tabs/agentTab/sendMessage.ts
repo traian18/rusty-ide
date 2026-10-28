@@ -19,7 +19,7 @@ import { handleRunOutcome, implementTicks, trackWorkflowRun, type LaunchedRun } 
 import { agentChatInput, flowCandidateName, workflowStepTypesOf, type LaunchPlan, type TurnMessage } from "./runRequest";
 import { continueGoal, handleGoalCommand, pauseGoal, type GoalPass } from "./goalTurn";
 import { isGoalCommand } from "../../../goals/goalCommand";
-import { abandonTurn, DEFAULT_STREAMING_LABEL, startResponseStream, type AgentTurn } from "./turn";
+import { abandonTurn, DEFAULT_STREAMING_LABEL, nextMessageId, startResponseStream, type AgentTurn } from "./turn";
 
 const MAX_FLOW_SWITCHES_PER_MESSAGE = 2;
 
@@ -51,16 +51,16 @@ async function readFollowedWorkflow(turn: AgentTurn, path: string | undefined): 
 /** Adds the user's message and the console message its activity goes to,
  * and starts the turn. */
 async function postMessage(turn: AgentTurn, draft: string, attachedFiles: AttachedFile[]): Promise<TurnMessage> {
-  const now = Date.now();
+  const messageId = nextMessageId();
   const attachments = attachedFiles.map((a) => ({ path: a.path, name: a.name, isDir: a.isDir }));
   const attachmentContext = await buildAttachmentContext(attachedFiles);
   const text = draft.trim() || (attachments.length > 0 ? "Inspect the attached context." : "");
   const timestamp = new Date().toISOString();
   const userMessage: AgentMessage = {
-    id: `msg_${now}`, role: "user", content: text, timestamp, phase: "query", attachments,
+    id: messageId, role: "user", content: text, timestamp, phase: "query", attachments,
     attachmentContext: attachmentContext || undefined,
   };
-  const consoleMessageId = `msg_${now}_console`;
+  const consoleMessageId = `${messageId}_console`;
   turn.addMessage(userMessage);
   turn.addMessage({ id: consoleMessageId, role: "console", content: "", timestamp, phase: "activity" });
   turn.activity.writeTo(consoleMessageId);

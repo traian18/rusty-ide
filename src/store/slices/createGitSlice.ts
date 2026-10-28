@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { GitHeadState, GitRepository, GitStatusResult, SubmoduleState } from "../types";
 import type { WorkspaceSliceCreator } from "../sliceTypes";
+import { setWorkspaceRepositories } from "../../harness/core/checkHistory";
 
 /** Shared by both the deprecated single-slot loader and the per-repository
     one below -- git_status's wire shape hasn't changed, only who calls it. */
@@ -134,6 +135,7 @@ export const createGitSlice: WorkspaceSliceCreator = (set, get) => {
         const raw = await invoke<any[]>("git_discover_workspace_repositories", { rootDir: rootPath });
         if (sequence !== discoverySequence || get().rootPath !== rootPath) return;
         const repositories = raw.map(mapGitRepository);
+        setWorkspaceRepositories(rootPath, repositories.map((repo) => repo.worktreePath));
         set((state) => ({
           repositories,
           statusByRepositoryId: Object.fromEntries(Object.entries(state.statusByRepositoryId)

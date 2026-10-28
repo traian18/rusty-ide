@@ -451,6 +451,32 @@ describe("Chat component rendering", () => {
   });
 });
 
+describe("Chat copy", () => {
+  it("offers a copy button on finished answers and copies their Markdown", async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const messages: Message[] = [
+      { id: "u", role: "user", content: "question", timestamp: "" },
+      { id: "a", role: "assistant", content: "**answer** with `code`", timestamp: "" },
+      { id: "c", role: "console", content: "log line", timestamp: "" },
+    ];
+
+    await act(async () => root.render(<Chat messages={messages} />));
+    const copies = [...container.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy message"]')];
+    expect(copies).toHaveLength(1);
+    await act(async () => copies[0]!.click());
+    expect(writeText).toHaveBeenCalledWith("**answer** with `code`");
+    expect(container.querySelector('button[aria-label="Copied"]')).not.toBeNull();
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+});
+
 describe("Chat pins", () => {
   it("offers a pin on user and assistant messages only when a handler is given, and reports the toggle", async () => {
     (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
