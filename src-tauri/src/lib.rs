@@ -844,20 +844,19 @@ async fn create_terminal_session(
     Ok(())
 }
 
+type SpawnedTerminal = (
+    Box<dyn MasterPty + Send>,
+    Box<dyn Write + Send>,
+    Box<dyn portable_pty::Child + Send + Sync>,
+    Box<dyn Read + Send>,
+);
+
 fn spawn_terminal(
     shell: &(String, Vec<&'static str>),
     cols: u16,
     rows: u16,
     cwd: Option<&str>,
-) -> Result<
-    (
-        Box<dyn MasterPty + Send>,
-        Box<dyn Write + Send>,
-        Box<dyn portable_pty::Child + Send + Sync>,
-        Box<dyn Read + Send>,
-    ),
-    String,
-> {
+) -> Result<SpawnedTerminal, String> {
     let pty_system = NativePtySystem::default();
     let pair = pty_system
         .openpty(PtySize {
