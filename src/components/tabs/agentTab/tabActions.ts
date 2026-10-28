@@ -1,14 +1,17 @@
 import type React from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { clearTodos } from "../../../harness/core/definitions/todoTool";
 import type { WorkflowAnswer, WorkflowQuestion } from "../../../harness/contract";
 import { useWorkspaceStore } from "../../../store";
 import type { AgentQuestion } from "../../ui/ChatInput";
 import { readSavedChat, type SavedChat } from "./savedChats";
+import { readChatWorkflow } from "../../../services/agentChatPersistence";
+import { workflowCatalogService } from "../../../services/workflowCatalogService";
+import { BUILTIN_WORKFLOW_PATH } from "../behaviors/starterFlow";
+import { adoptsBuiltinPath } from "./useWorkflowCatalog";
 import { useWorkflowRunStore } from "../behaviors/workflowRunStore";
 import { stopActiveSubagents } from "./subagents";
 import { cancelResponseFlush, DEFAULT_STREAMING_LABEL, releasePendingQuestions, type AgentTurn } from "./turn";
-import { disposeChat, disposeTabChats, openChat } from "./chats/chatLifecycle";
+import { disposeChat, disposeTabChats, openChat, replaceChat } from "./chats/chatLifecycle";
 import { chatRuntime } from "./chats/chatRuntime";
 import { chatView, isChatBusy, tabChatIds, useChatStore } from "./chats/chatStore";
 import { chatSessionFor, chatTurn, type ChatTabContext } from "./chats/chatTurn";
@@ -55,28 +58,26 @@ export function closeTab(tabId: string) {
   disposeTabChats(tabId);
 }
 
-/** A chat with nothing in it and nothing running: a new chat or a loaded one may take its place. */
+/** A chat with nothing in it, nothing running and nothing prepared (a Specs page run waiting to be
+ * sent, a spec queue, a goal): a new chat or a loaded one may take its place. A prepared chat is a
+ * conversation that has not started yet, so it stays and the other opens beside it. */
 function isBlank(chatId: string): boolean {
-  return !isChatBusy(chatView(chatId)) && (useWorkspaceStore.getState().agentChats[chatId] || []).length === 0;
+  const { state } = chatRuntime(chatId);
+  const prepared = Boolean(state.specRun || state.goal) || state.specQueue.length > 0;
+  return !prepared && !isChatBusy(chatView(chatId)) && (useWorkspaceStore.getState().agentChats[chatId] || []).length === 0;
 }
 
 function activeChatId(tabId: string): string | undefined {
   return useChatStore.getState().tabs[tabId]?.activeChatId;
 }
 
-/** Starts the shown chat over when it is blank (forgetting its workflow and save), else opens
- * another chat beside it; any chat that runs goes on running. The chat to use. */
+/** A fresh chat: in place of the shown one when that is blank (it is closed with everything its
+ * runtime held), else beside it; any chat that runs goes on running. Never the same runtime for
+ * another conversation. The chat to use. */
 export function newChat(context: ChatTabContext): string {
-  const current = activeChatId(context.tab.id);
-  if (!current || !isBlank(current)) return openChat(context.tab.id);
-  const turn = chatTurn(context, current);
-  useWorkspaceStore.getState().clearAgentMessages(current);
-  chatSessionFor(context, current).reset();
-  clearTodos(current);
-  turn.ui.setPlan([]);
-  turn.ui.setStepPlans([]);
-  turn.ui.setSubagents([]);
-  return current;
+  const tabId = context.tab.id;
+  const current = activeChatId(tabId);
+  return current && isBlank(current) ? replaceChat(tabId, current) : openChat(tabId);
 }
 
 /** Closes a chat from the strip; a running one is stopped first (what it showed so far is saved). */
@@ -91,8 +92,8 @@ export function openChatSavedAt(tabId: string, path: string): string | undefined
   return tabChatIds(tabId).find((chatId) => chatRuntime(chatId).state.chatSaveQueue.path === path);
 }
 
-/** Shows a saved chat: the open one when it is open, else it is read into the shown chat when
- * that is blank, or into a new one beside it. */
+/** Shows a saved chat: the open one when it is open, else it is read into a chat of its own, in
+ * place of the shown chat when that is blank, or beside it. */
 export async function loadChat(context: ChatTabContext, chat: SavedChat) {
   const tabId = context.tab.id;
   const open = openChatSavedAt(tabId, chat.path);
@@ -101,16 +102,28 @@ export async function loadChat(context: ChatTabContext, chat: SavedChat) {
     return;
   }
   const current = activeChatId(tabId);
-  const target = current && isBlank(current) ? current : openChat(tabId);
+  // The saved conversation gets a chat of its own: a blank one shown now makes room for it.
+  const target = current && isBlank(current) ? replaceChat(tabId, current) : openChat(tabId);
   const session = chatSessionFor(context, target);
   try {
-    await session.saved("loading another chat");
     const file = await readSavedChat(chat.path);
     useWorkspaceStore.getState().setAgentMessages(target, file.messages);
     session.restore(chat.path, file);
     chatTurn(context, target).ui.setSubagents([]);
+    void adoptBuiltinWorkflow(context.rootPath, readChatWorkflow(file.workflow), session.adoptChatWorkflowPath);
   } catch (e) {
     console.error("Failed to load chat:", e);
+  }
+}
+
+/** The loaded chat follows the built-in workflow by its own path, when it followed it by an older one. */
+async function adoptBuiltinWorkflow(rootPath: string, path: string | undefined, adopt: (path: string) => void) {
+  if (!path || !rootPath) return;
+  try {
+    const document = await workflowCatalogService.workflow(rootPath, path);
+    if (adoptsBuiltinPath(path, document)) adopt(BUILTIN_WORKFLOW_PATH);
+  } catch {
+    // An unreadable workflow is reported when the chat sends; nothing to adopt now.
   }
 }
 

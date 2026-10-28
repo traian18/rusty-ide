@@ -12,6 +12,8 @@ import { useWorkspaceStore, type AgentMessage } from "../../../store";
 import { resolveExecutionProvider } from "../../../store/resolveExecutionProvider";
 import type { SpecRun } from "../../../specs/run";
 import { AUTO_FLOW, shortWorkflowId } from "../behaviors/flowCatalog";
+import { BUILTIN_WORKFLOW_PATH } from "../behaviors/starterFlow";
+import { adoptsBuiltinPath } from "./useWorkflowCatalog";
 import { runEventHandler, type RunProgress } from "./runEvents";
 import { agentRunHost } from "./runHost";
 import { resolveRunModel } from "./runModel";
@@ -20,6 +22,7 @@ import { agentChatInput, flowCandidateName, workflowStepTypesOf, type LaunchPlan
 import { continueGoal, handleGoalCommand, pauseGoal, type GoalPass } from "./goalTurn";
 import { isGoalCommand } from "../../../goals/goalCommand";
 import { abandonTurn, DEFAULT_STREAMING_LABEL, nextMessageId, startResponseStream, type AgentTurn } from "./turn";
+import { cancelContinue } from "./usageLimit";
 
 const MAX_FLOW_SWITCHES_PER_MESSAGE = 2;
 
@@ -41,7 +44,9 @@ function workflowIdOf(definition: WorkflowDefinition | undefined): string {
 async function readFollowedWorkflow(turn: AgentTurn, path: string | undefined): Promise<WorkflowDefinition | undefined | null> {
   if (!path) return undefined;
   try {
-    return await workflowCatalogService.workflow(turn.rootPath, path);
+    const definition = await workflowCatalogService.workflow(turn.rootPath, path);
+    if (adoptsBuiltinPath(path, definition)) turn.chat.adoptChatWorkflowPath(BUILTIN_WORKFLOW_PATH);
+    return definition;
   } catch (error) {
     notify("Workflow unavailable", `Could not read ${path}: ${String(error)}. Choose another in the Mode picker.`, "error");
     return null;
@@ -61,6 +66,8 @@ async function postMessage(turn: AgentTurn, draft: string, attachedFiles: Attach
     attachmentContext: attachmentContext || undefined,
   };
   const consoleMessageId = `${messageId}_console`;
+  // A new message in this chat replaces a continue it had scheduled after a usage limit.
+  cancelContinue(turn);
   turn.addMessage(userMessage);
   turn.addMessage({ id: consoleMessageId, role: "console", content: "", timestamp, phase: "activity" });
   turn.activity.writeTo(consoleMessageId);

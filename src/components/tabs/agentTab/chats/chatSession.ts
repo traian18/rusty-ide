@@ -80,18 +80,6 @@ export function chatSession(chatId: string, rootPath: string, runtime: ChatRunti
     if (rootPath) refreshSummaryInBackground({ state, chatId, rootPath, save }, provider, model, compaction);
   };
 
-  /** Starts a conversation that is not saved yet. */
-  const reset = () => {
-    setActiveChatPath(null);
-    state.chatSaveQueue = new AgentChatSaveQueue();
-    resetHistorySummary();
-    setModifiedFiles([]);
-    setChatWorkflow(undefined, { persist: false });
-    setFlowSwitching(false, { persist: false });
-    state.lastWorkflowRun = undefined;
-    state.followedSpec = undefined;
-  };
-
   /** Shows the chat saved at `path`, as `file` holds it. */
   const restore = (path: string, file: SavedChatFile) => {
     setActiveChatPath(path);
@@ -122,7 +110,7 @@ export function chatSession(chatId: string, rootPath: string, runtime: ChatRunti
 
   return {
     setAutoWorkflow, save, saved, savingTo, setModifiedFiles, setWorkflowCheckpoint, setChatWorkflow, adoptChatWorkflowPath, setFlowSwitching,
-    refreshHistorySummary, reset, restore, forget,
+    refreshHistorySummary, restore, forget,
   };
 }
 

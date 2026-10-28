@@ -46,15 +46,13 @@ export function useWorkflowOptions(rootPath: string, catalogVersion: number): Wo
 }
 
 /** The followed workflow's document, for the bar's step list. With Auto that
- * is whichever workflow was chosen for the latest message. A chat that
- * follows the built-in workflow under another path is moved to its own
- * (`adoptBuiltinPath`). */
+ * is whichever workflow was chosen for the latest message. It only reads: what
+ * the chat follows is set by the chat's own actions, never by the view showing it. */
 export function useWorkflowDocument(
   rootPath: string,
   chatWorkflow: string | undefined,
   autoWorkflow: string | undefined,
   catalogVersion: number,
-  adoptBuiltinPath: (path: string) => void,
 ): JsonObject | undefined {
   const [workflowDocument, setWorkflowDocument] = useState<JsonObject | undefined>();
   const activeWorkflowPath = chatWorkflow === AUTO_FLOW ? autoWorkflow : chatWorkflow;
@@ -66,16 +64,19 @@ export function useWorkflowDocument(
     let cancelled = false;
     workflowCatalogService.workflow(rootPath, activeWorkflowPath)
       .then((document) => {
-        if (cancelled) return;
-        setWorkflowDocument(document);
-        const followsBuiltinElsewhere = chatWorkflow !== AUTO_FLOW && document.id === BUILTIN_WORKFLOW_ID && chatWorkflow !== BUILTIN_WORKFLOW_PATH;
-        if (followsBuiltinElsewhere) adoptBuiltinPath(BUILTIN_WORKFLOW_PATH);
+        if (!cancelled) setWorkflowDocument(document);
       })
       .catch(() => !cancelled && setWorkflowDocument(undefined));
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkflowPath, chatWorkflow, rootPath, catalogVersion]);
+  }, [activeWorkflowPath, rootPath, catalogVersion]);
   return workflowDocument;
+}
+
+/** A chat that follows the built-in workflow under an older path (a saved chat, a workspace copy)
+ * follows it by its own path from now on, so the Mode picker shows it. Called by the chat's own
+ * actions (loading it, sending in it) with that chat's `adopt`. */
+export function adoptsBuiltinPath(followedPath: string | undefined, document: Record<string, unknown> | undefined): boolean {
+  return Boolean(followedPath) && followedPath !== AUTO_FLOW && followedPath !== BUILTIN_WORKFLOW_PATH && document?.id === BUILTIN_WORKFLOW_ID;
 }

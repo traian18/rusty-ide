@@ -20,6 +20,7 @@ import { AUTO_FLOW } from "./behaviors/flowCatalog";
 import { workflowKind } from "./behaviors/starterFlow";
 import { BUILTIN_WORKFLOWS, answerCatalogCommand } from "../../test/fakeWorkflowCatalog";
 import { useWorkflowRunStore } from "./behaviors/workflowRunStore";
+import { useChatStore } from "./agentTab/chats/chatStore";
 import { useSpecLaunch } from "../../specs/launchStore";
 
 const FLOW_PATH = "/ws/.rusty/workflows/flow.json";
@@ -188,13 +189,19 @@ describe("Agent chat workflows", () => {
     expect(useWorkflowRunStore.getState().agentRequest).toBeUndefined();
   });
 
-  it("runs a Specify launched from the Specs page in its workflow, even after New chat", async () => {
+  it("keeps a Specify launched from the Specs page in its own chat when New chat opens another", async () => {
     await act(async () => {
       useSpecLaunch.getState().request({ tabId: "agent", run: { root: "/ws", change: "0001-dark", step: "specify" }, message: "Write the spec of change 0001 Dark.\n\nNotes: " });
     });
     await flush();
     expect(select().textContent).toBe("Stage: Specify a change");
+    const prepared = useChatStore.getState().tabs.agent!.activeChatId;
     await act(async () => (container.querySelector('[title="New chat"]') as HTMLButtonElement).click());
+    await flush();
+    // The new chat is empty and follows nothing; the prepared one is still there, unchanged.
+    expect((container.querySelector("textarea") as HTMLTextAreaElement).value).toBe("");
+    expect(useChatStore.getState().tabs.agent!.order).toContain(prepared);
+    await act(async () => useChatStore.getState().select("agent", prepared));
     await flush();
     const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
     expect(textarea.value).toContain("Write the spec of change 0001 Dark.");

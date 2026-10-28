@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import type { AgentMessage } from "../../../store/types";
+import type { AgentTurn } from "./turn";
 
 /** How long after the reset the run goes on, so the provider has surely let go. */
 export const CONTINUE_AFTER_RESET_MS = 60_000;
@@ -28,31 +28,45 @@ export interface UsageLimitContinue {
   cancel: () => void;
 }
 
+/** Stops the chat's scheduled continue, if it has one. */
+export function cancelContinue(turn: AgentTurn) {
+  if (turn.state.continueTimer) clearTimeout(turn.state.continueTimer);
+  turn.state.continueTimer = null;
+  turn.ui.setContinueAt(undefined);
+}
+
 /**
- * The chat's last message is a run stopped by a usage limit: offers to go on
- * by itself once the limit resets (sending "continue", which resumes the
- * failed run and keeps its finished tasks). `undefined` otherwise.
+ * Continues this chat by itself once the limit resets: the timer belongs to the chat it was
+ * scheduled in (not to whichever chat is shown when it fires), is stopped when that chat is closed
+ * or gets another message, and sends nothing while it is busy.
  */
-export function useUsageLimitContinue(messages: readonly AgentMessage[], busy: boolean, onContinue: () => void): UsageLimitContinue | undefined {
+export function scheduleContinue(turn: AgentTurn, resetsAt: Date, send: (turn: AgentTurn) => void) {
+  cancelContinue(turn);
+  turn.ui.setContinueAt(resetsAt.toISOString());
+  turn.state.continueTimer = setTimeout(() => {
+    turn.state.continueTimer = null;
+    turn.ui.setContinueAt(undefined);
+    if (!turn.state.disposed && !turn.state.isStreaming) send(turn);
+  }, continueDelay(resetsAt, Date.now()));
+}
+
+/**
+ * The chat's last message is a run stopped by a usage limit: offers to go on by itself once the
+ * limit resets (sending "continue", which resumes the failed run and keeps its finished tasks).
+ * `undefined` otherwise. It only reads; scheduling is the chat's (`scheduleContinue`).
+ */
+export function usageLimitOffer(
+  messages: readonly AgentMessage[],
+  continueAt: string | undefined,
+  actions: { schedule: (resetsAt: Date) => void; cancel: () => void },
+): UsageLimitContinue | undefined {
   const last = messages[messages.length - 1];
   const resetsAt = last?.role === "assistant" ? usageLimitReset(last.content) : undefined;
-  const key = resetsAt?.toISOString();
-  const [scheduled, setScheduled] = useState(false);
-  const latest = useRef({ busy, onContinue });
-  latest.current = { busy, onContinue };
-
-  // Another failure, or a new message: whatever was scheduled is off.
-  useEffect(() => setScheduled(false), [key]);
-
-  useEffect(() => {
-    if (!scheduled || !key) return;
-    const timer = setTimeout(() => {
-      setScheduled(false);
-      if (!latest.current.busy) latest.current.onContinue();
-    }, continueDelay(new Date(key), Date.now()));
-    return () => clearTimeout(timer);
-  }, [scheduled, key]);
-
   if (!resetsAt) return undefined;
-  return { resetsAt, scheduled, schedule: () => setScheduled(true), cancel: () => setScheduled(false) };
+  return {
+    resetsAt,
+    scheduled: continueAt === resetsAt.toISOString(),
+    schedule: () => actions.schedule(resetsAt),
+    cancel: actions.cancel,
+  };
 }

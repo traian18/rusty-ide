@@ -24,7 +24,7 @@ function useWorkflows(rootPath: string, chatId: string, session: ChatSession) {
   const catalogVersion = useWorkflowRunStore((s) => s.catalogVersion);
   const chatRun = useWorkflowRunStore((s) => s.chatRuns[chatId]);
   const options = useWorkflowOptions(rootPath, catalogVersion);
-  const document = useWorkflowDocument(rootPath, session.chatWorkflow, session.autoWorkflow, catalogVersion, session.adoptChatWorkflowPath);
+  const document = useWorkflowDocument(rootPath, session.chatWorkflow, session.autoWorkflow, catalogVersion);
   // The bar reads runs by workflow id: only this chat's own run is offered.
   const runs = useMemo<Record<string, WorkflowRunView>>(() => (chatRun?.workflowId ? { [chatRun.workflowId]: chatRun } : {}), [chatRun]);
   return { options, document, runs };

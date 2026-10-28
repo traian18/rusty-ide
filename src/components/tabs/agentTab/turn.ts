@@ -67,6 +67,8 @@ export interface TurnState {
   specQueue: QueuedSpecRun[];
   /** The goal whose pass runs or is about to (see goalTurn.ts); a message from the user pauses it. */
   goal: GoalPass | undefined;
+  /** The scheduled "continue" after a usage limit resets (see usageLimit.ts). */
+  continueTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export function createTurnState(): TurnState {
@@ -97,6 +99,7 @@ export function createTurnState(): TurnState {
     lastWorkflowState: undefined,
     specQueue: [],
     goal: undefined,
+    continueTimer: null,
   };
 }
 
@@ -113,6 +116,7 @@ export interface TurnUi {
   setPlan: (todos: Todo[]) => void;
   setStepPlans: Dispatch<SetStateAction<StepPlan[]>>;
   setMessage: (message: string) => void;
+  setContinueAt: (at: string | undefined) => void;
 }
 
 /** The chat-level operations a run calls. */
@@ -120,6 +124,8 @@ export interface TurnChat {
   setModifiedFiles(files: string[]): void;
   setWorkflowCheckpoint(value: unknown): void;
   setChatWorkflow(path: string | undefined): void;
+  /** Follows the same workflow by another path (the built-in one by its own), keeping the run state. */
+  adoptChatWorkflowPath(path: string): void;
   clearWorkflowQuestions(): void;
   save(): Promise<void>;
   refreshHistorySummary(provider: CustomProvider, model: string, compaction: ContextCompactionRunConfig): void;

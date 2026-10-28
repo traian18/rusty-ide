@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const releaseSession = vi.hoisted(() => vi.fn(async () => {}));
 vi.mock("../../../../harness", () => ({ harness: { run: vi.fn(), releaseSession } }));
+const readSavedChat = vi.hoisted(() => vi.fn());
+vi.mock("../savedChats", () => ({ readSavedChat }));
+vi.mock("../../../../services/workflowCatalogService", () => ({ workflowCatalogService: { workflow: vi.fn(async () => ({ id: "x" })) } }));
 
 import { chatTodoScope, todosFor, updateTodosTool } from "../../../../harness/core/definitions/todoTool";
 import { commandPermissionService } from "../../../../services/commandPermissionService";
@@ -10,7 +13,7 @@ import { fakeChatTab } from "../../../../test/fakeChatTab";
 import { useWorkflowRunStore } from "../../behaviors/workflowRunStore";
 import { agentRunHost } from "../runHost";
 import { runEventHandler } from "../runEvents";
-import { answerWorkflowQuestion, closeChat, newChat, stopTurn } from "../tabActions";
+import { answerWorkflowQuestion, closeChat, loadChat, newChat, stopTurn } from "../tabActions";
 import { disposeChat, openChat } from "./chatLifecycle";
 import { chatRuntime } from "./chatRuntime";
 import { tabChatIds, useChatStore } from "./chatStore";
@@ -46,18 +49,58 @@ describe("chat store", () => {
     expect(useChatStore.getState().chats[second]).toBeUndefined();
   });
 
-  it("New chat starts a blank chat over in place, and opens another beside one with a conversation", () => {
+  it("New chat replaces a blank chat with a fresh one in its place, and opens another beside one with a conversation", () => {
+    const tab = fakeChatTab("t");
+    const first = openChat("t");
+    useChatStore.getState().select("t", "t");
+    useChatStore.getState().patch("t", { chatWorkflow: "flow", message: "draft" });
+    const replaced = newChat(tab.chats.context());
+    expect(replaced).not.toBe("t");
+    // Same place in the strip, the draft kept, nothing else.
+    expect(tabChatIds("t")).toEqual([replaced, first]);
+    expect(useChatStore.getState().chats[replaced]).toMatchObject({ message: "draft", chatWorkflow: undefined });
+    expect(useChatStore.getState().chats.t).toBeUndefined();
+
+    useWorkspaceStore.getState().addAgentMessage(replaced, { id: "m", role: "user", content: "hi", timestamp: "t" });
+    const opened = newChat(tab.chats.context());
+    expect(opened).not.toBe(replaced);
+    expect(tabChatIds("t")).toEqual([replaced, first, opened]);
+    expect(useWorkspaceStore.getState().agentChats[replaced]).toHaveLength(1);
+    expect(useWorkspaceStore.getState().agentChats[opened]).toEqual([]);
+  });
+
+  it("never hands one conversation's waiting run, goal or queue to another", async () => {
+    // The 2026-10-28 spillover: a Specs page run waited in a blank chat, a saved chat was loaded
+    // into it, and the next question there ran the spec's workflow.
+    const tab = fakeChatTab("t");
+    const pending = tab.chats.turnFor("t");
+    pending.state.specRun = { root: "/ws", change: "0001-x", step: "plan", workflowPath: "builtin:spec-plan" };
+    pending.state.specQueue = [{ message: "next", run: { root: "/ws", change: "0001-x", step: "capability" } }] as never;
+    pending.state.goal = { id: "g-1", pass: 1, checks: [] };
+    tab.chats.sessionFor("t").setChatWorkflow("builtin:spec-plan", { persist: false });
+
+    readSavedChat.mockResolvedValue({ messages: [{ id: "q", role: "user", content: "Rust guide", timestamp: "t" }] });
+    await loadChat(tab.chats.context(), { path: "/ws/.rusty/chats/rust.json" } as never);
+    const loaded = tab.activeChatId();
+    expect(loaded).not.toBe("t");
+    const { state, view } = tab.active();
+    expect([state.specRun, state.specQueue, state.goal]).toEqual([undefined, [], undefined]);
+    expect(view.chatWorkflow).toBeUndefined();
+    expect(useWorkspaceStore.getState().agentChats[loaded]).toHaveLength(1);
+    // The prepared chat is a conversation of its own: it stays, with its run still waiting.
+    expect(tabChatIds("t")).toEqual(["t", loaded]);
+    expect(chatRuntime("t").state.specRun?.change).toBe("0001-x");
+  });
+
+  it("puts a loaded chat in place of a blank one, which takes nothing with it", async () => {
     const tab = fakeChatTab("t");
     useChatStore.getState().patch("t", { chatWorkflow: "flow" });
-    expect(newChat(tab.chats.context())).toBe("t");
-    expect(useChatStore.getState().chats.t.chatWorkflow).toBeUndefined();
-
-    useWorkspaceStore.getState().addAgentMessage("t", { id: "m", role: "user", content: "hi", timestamp: "t" });
-    const opened = newChat(tab.chats.context());
-    expect(opened).not.toBe("t");
-    expect(tabChatIds("t")).toEqual(["t", opened]);
-    expect(useWorkspaceStore.getState().agentChats.t).toHaveLength(1);
-    expect(useWorkspaceStore.getState().agentChats[opened]).toEqual([]);
+    readSavedChat.mockResolvedValue({ messages: [{ id: "q", role: "user", content: "hello", timestamp: "t" }] });
+    await loadChat(tab.chats.context(), { path: "/ws/.rusty/chats/hello.json" } as never);
+    const loaded = tab.activeChatId();
+    expect(tabChatIds("t")).toEqual([loaded]);
+    expect(loaded).not.toBe("t");
+    expect(tab.active().view.chatWorkflow).toBeUndefined();
   });
 });
 

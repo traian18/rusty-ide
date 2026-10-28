@@ -25,15 +25,16 @@ export function chatUi(chatId: string, runtime: ChatRuntime): Omit<TurnUi, "setA
     setWorkflowRunning: (workflowRunning) => patch({ workflowRunning }),
     setPlan: (plan) => patch({ plan }),
     setMessage: (message) => patch({ message }),
+    setContinueAt: (continueAt) => patch({ continueAt }),
   };
 }
 
 /** What the tab shows of a chat's run in progress: its status, plan, subagents,
  * usage, and what it asks of the user. */
 export function turnUiView(view: ChatView, ui: Omit<TurnUi, "setAutoWorkflow">) {
-  const { message, isStreaming, subagents, runUsage, streamingLabel, agentQuestions, workflowQuestions, workflowRunning, plan, stepPlans } = view;
+  const { message, isStreaming, subagents, runUsage, streamingLabel, agentQuestions, workflowQuestions, workflowRunning, plan, stepPlans, continueAt } = view;
   return {
-    ui, message, isStreaming, subagents, runUsage, streamingLabel, agentQuestions, workflowQuestions, workflowRunning, plan, stepPlans,
+    ui, message, isStreaming, subagents, runUsage, streamingLabel, agentQuestions, workflowQuestions, workflowRunning, plan, stepPlans, continueAt,
     hasActiveSubagents: subagents.some(isActiveSubagent), isAgentBusy: isChatBusy(view),
   };
 }

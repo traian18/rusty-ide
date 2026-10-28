@@ -40,7 +40,8 @@ describe("usePendingSpecRun", () => {
     useSpecLaunch.getState().request(pending);
     await mount(tab.agent);
     const { view, state } = tab.active();
-    expect(tab.activeChatId()).toBe("t1");
+    // A fresh chat in place of the blank one: the run starts its own conversation.
+    expect(tabChatIds("t1")).toEqual([tab.activeChatId()]);
     expect(view.chatWorkflow).toBe("builtin/specify");
     expect(view.message).toBe("Write the spec.\n\nNotes: ");
     expect(state.specRun).toEqual({ root: "/repo", change: "0001-albums", step: "specify", workflowPath: "builtin/specify" });

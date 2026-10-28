@@ -43,6 +43,8 @@ export interface ChatView {
   autoWorkflow: string | undefined;
   flowSwitching: boolean;
   workflowCheckpoint: FailedWorkflowCheckpoint | undefined;
+  /** The usage-limit reset this chat continues after by itself (ISO), once asked to. */
+  continueAt: string | undefined;
 }
 
 interface TabChats {
@@ -53,8 +55,8 @@ interface TabChats {
 interface ChatStore {
   chats: Record<string, ChatView>;
   tabs: Record<string, TabChats>;
-  /** Adds the chat to the tab, after the others, and shows it. */
-  add(tabId: string, chatId: string, plan?: Todo[]): void;
+  /** Adds the chat to the tab, after the others or at strip position `at`, and shows it. */
+  add(tabId: string, chatId: string, plan?: Todo[], at?: number): void;
   select(tabId: string, chatId: string): void;
   /** Takes the chat out of its tab; the one next to it is shown. */
   remove(chatId: string): void;
@@ -68,17 +70,21 @@ export function emptyChatView(tabId: string, chatId: string, plan: Todo[] = []):
     chatId, tabId, message: "", isStreaming: false, subagents: [], runUsage: null, streamingLabel: DEFAULT_STREAMING_LABEL,
     agentQuestions: [], workflowQuestions: [], workflowRunning: false, plan, stepPlans: [],
     activeChatPath: null, modifiedFiles: [], chatWorkflow: undefined, autoWorkflow: undefined, flowSwitching: false, workflowCheckpoint: undefined,
+    continueAt: undefined,
   };
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
   chats: {},
   tabs: {},
-  add: (tabId, chatId, plan) => set((state) => {
+  add: (tabId, chatId, plan, at) => set((state) => {
     const order = state.tabs[tabId]?.order ?? [];
+    const placed = order.includes(chatId) ? order
+      : at === undefined ? [...order, chatId]
+      : [...order.slice(0, at), chatId, ...order.slice(at)];
     return {
       chats: { ...state.chats, [chatId]: emptyChatView(tabId, chatId, plan) },
-      tabs: { ...state.tabs, [tabId]: { order: order.includes(chatId) ? order : [...order, chatId], activeChatId: chatId } },
+      tabs: { ...state.tabs, [tabId]: { order: placed, activeChatId: chatId } },
     };
   }),
   select: (tabId, chatId) => set((state) => {

@@ -15,7 +15,7 @@ import { sendMessage, type AttachedFile } from "./agentTab/sendMessage";
 import { answerAgentQuestion, answerWorkflowQuestion, closeChat, deleteChat, loadChat, newChat, openChatSavedAt, stopTurn } from "./agentTab/tabActions";
 import { useAgentTab, type AgentTabModel } from "./agentTab/useAgentTab";
 import { usePendingSpecRun } from "./agentTab/usePendingSpecRun";
-import { CONTINUE_MESSAGE, useUsageLimitContinue } from "./agentTab/usageLimit";
+import { cancelContinue, CONTINUE_MESSAGE, scheduleContinue, usageLimitOffer } from "./agentTab/usageLimit";
 
 interface AgentTabProps {
   tab: TabOfType<"agent">;
@@ -101,8 +101,10 @@ function Composer({ agent }: { agent: AgentTabModel }) {
     session.setWorkflowCheckpoint(undefined);
     void session.save();
   };
-  const usageLimit = useUsageLimitContinue(agent.agentChats, run.isAgentBusy, () => {
-    void sendMessage(turn(), CONTINUE_MESSAGE, [], skill.hasSelectedSkill);
+  // The continue belongs to this chat: it is scheduled on its turn and sent to it, whichever chat is shown then.
+  const usageLimit = usageLimitOffer(agent.agentChats, run.continueAt, {
+    schedule: (resetsAt) => scheduleContinue(turn(), resetsAt, (owner) => void sendMessage(owner, CONTINUE_MESSAGE, [], skill.hasSelectedSkill)),
+    cancel: () => cancelContinue(turn()),
   });
   return (
     <AgentComposer
