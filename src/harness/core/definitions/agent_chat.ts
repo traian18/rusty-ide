@@ -114,6 +114,7 @@ import { runWebSearch, type WebSearchApiKeys, type WebSearchOptions } from "./we
 import { workingMethod } from "./agentWorkingMethod";
 import { SINGLE_AGENT_PROFILE } from "./singleAgentProfile";
 import { UPDATE_TODOS_GUIDE, UPDATE_TODOS_TOOL, chatTodoScope, openTodosReminder, stepTodoScope, updateTodosTool, type TodoLists } from "./todoTool";
+import { AUTO_DECIDE, isAutoMode } from "../../autoMode";
 
 function asMcpServerConfigs(value: unknown): McpServerConfig[] {
   return Array.isArray(value)
@@ -512,6 +513,10 @@ function askUserQuestionTool(host: RunHost): HostToolHandler {
       .slice(0, 4);
     try {
       const answer = await host.askQuestion({ requestId: crypto.randomUUID(), question, options }, signal);
+      if (isAutoMode()) {
+        const taken = answer === AUTO_DECIDE ? "" : ` The first suggestion was taken: ${answer}.`;
+        return { ok: true, output: `Auto mode is on: the user does not answer questions and will not see this one.${taken} Decide anything else yourself, say in your final answer what you chose and why, and carry on without asking again.` };
+      }
       return { ok: true, output: answer.trim() || "The user did not provide an answer." };
     } catch (error: unknown) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };

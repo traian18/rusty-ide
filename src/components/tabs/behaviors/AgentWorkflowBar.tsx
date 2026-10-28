@@ -43,7 +43,7 @@ export interface AgentWorkflowBarProps {
   /** A running workflow may hand over to another at a step boundary. */
   flowSwitching?: boolean;
   onFlowSwitchingChange?: (allowed: boolean) => void;
-  /** Approval steps pass without asking (only those that allow it). */
+  /** Auto mode is on: nothing waits for the user (harness/autoMode.ts). */
   autoApprove?: boolean;
   onAutoApproveChange?: (enabled: boolean) => void;
   /** Stops the running workflow; offered from the "no activity" notice. */
@@ -111,7 +111,7 @@ const WorkflowChip: React.FC<{ name: string; running: boolean; disabled: boolean
 
 const HANDS_OVER_TITLE = "After each step Rusty checks whether what it found means another workflow is the right one, and hands over with the work so far. Switching to a workflow that edits files asks you first.";
 const NO_HANDOVER_TITLE = "This workflow does not declare any workflow to hand over to.";
-const AUTO_APPROVE_TITLE = "Approval steps (such as reviewing the plan) pass without asking you. Steps that must always be seen by a person still ask, and so do questions about failures.";
+const AUTO_MODE_TITLE = "Auto mode: nothing waits for you. Commands and file writes are allowed, workflow steps are approved, a failed task is tried once more and then skipped, and the agent's questions take its first suggestion or are left for it to decide. Applies to every chat at once, including what is waiting now.";
 
 interface ToggleProps {
   title: string;
@@ -133,27 +133,28 @@ const Toggle: React.FC<ToggleProps> = ({ title, checked, disabled, onChange, chi
   </label>
 );
 
-type WorkflowTogglesProps = Pick<AgentWorkflowBarProps, "disabled" | "flowSwitching" | "onFlowSwitchingChange" | "autoApprove" | "onAutoApproveChange"> & {
+type WorkflowTogglesProps = Pick<AgentWorkflowBarProps, "disabled" | "flowSwitching" | "onFlowSwitchingChange"> & {
   view: WorkflowBarView;
 };
+
+/** Auto mode's switch: always shown, and never disabled, so a running chat can be left to itself. */
+const AutoModeToggle: React.FC<Pick<AgentWorkflowBarProps, "autoApprove" | "onAutoApproveChange">> = ({ autoApprove = false, onAutoApproveChange }) =>
+  onAutoApproveChange ? (
+    <Toggle title={AUTO_MODE_TITLE} checked={autoApprove} disabled={false} onChange={onAutoApproveChange}>
+      Auto mode
+    </Toggle>
+  ) : null;
 
 const WorkflowToggles: React.FC<WorkflowTogglesProps> = ({
   view,
   disabled,
   flowSwitching = false,
   onFlowSwitchingChange,
-  autoApprove = false,
-  onAutoApproveChange,
 }) => (
   <>
     {onFlowSwitchingChange ? (
       <Toggle title={view.handsOver ? HANDS_OVER_TITLE : NO_HANDOVER_TITLE} checked={flowSwitching} disabled={disabled} onChange={onFlowSwitchingChange}>
         Allow flow switching
-      </Toggle>
-    ) : null}
-    {onAutoApproveChange && view.hasApprovals ? (
-      <Toggle title={AUTO_APPROVE_TITLE} checked={autoApprove} disabled={disabled} onChange={onAutoApproveChange}>
-        Auto-approve
       </Toggle>
     ) : null}
   </>
@@ -169,6 +170,7 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = (props) => {
   if (collapsed) return (
     <div className={styles.collapsed}>
       <span className={styles.summary}>{view.collapsedSummary}</span>
+      <AutoModeToggle autoApprove={props.autoApprove} onAutoApproveChange={props.onAutoApproveChange} />
       <IconButton icon={<ChevronDown size={14} />} label="Show workflow bar" aria-expanded={false} onClick={toggleCollapsed} />
     </div>
   );
@@ -194,6 +196,7 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = (props) => {
         <span className={styles.summary}>
           {view.summary}
         </span>
+        <AutoModeToggle autoApprove={props.autoApprove} onAutoApproveChange={props.onAutoApproveChange} />
       </div>
       <IdleNotice quietMs={view.quietMs} stallMs={view.stallMs} onStop={props.onStop} />
       {selected ? (
@@ -202,8 +205,6 @@ export const AgentWorkflowBar: React.FC<AgentWorkflowBarProps> = (props) => {
           disabled={disabled}
           flowSwitching={props.flowSwitching}
           onFlowSwitchingChange={props.onFlowSwitchingChange}
-          autoApprove={props.autoApprove}
-          onAutoApproveChange={props.onAutoApproveChange}
         />
       ) : null}
     </div>

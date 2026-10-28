@@ -15,7 +15,9 @@
 //   mean=8.5                      the mean score of the files in scope ("general health")
 //   severity=medium               no code health finding above low|medium|high|critical
 //   checks=typecheck,test         checks that must pass (run by each pass)
-//   passes=8                      passes before the goal pauses
+//   loops=8                       passes before the goal pauses (passes= is the same); without
+//                                 it there is no limit: passes go on until the goal is done,
+//                                 blocked, or two passes in a row make no progress
 //   guidelines=off                do not require "no guideline errors"
 //   keep=all                      keep a pass even when it makes things worse
 //   done="..."                    a result in words, judged once everything measured is met
@@ -43,6 +45,7 @@ export interface GoalStart {
   /** The scope in words, from a quoted `scope="..."` with spaces. */
   scopeNote?: string;
   targets: GoalTargets;
+  /** `loops=`: passes before the goal pauses; none means no limit. */
   maxPasses?: number;
   keepBest: boolean;
 }
@@ -57,7 +60,7 @@ const CHECKS = ["typecheck", "lint", "test", "build", "format"];
 const CONTROLS = ["status", "pause", "resume", "clear"] as const;
 
 export const GOAL_USAGE =
-  "Usage: /goal [scope=paths or scope=\"in words\"] [health=8.5] [mean=8.5] [severity=medium] [checks=typecheck,test] [passes=8] [guidelines=off] [keep=all] [done=\"...\"] <what to do>; or /goal status | pause | resume | clear.";
+  "Usage: /goal [scope=paths or scope=\"in words\"] [health=8.5] [mean=8.5] [severity=medium] [checks=typecheck,test] [loops=8] [guidelines=off] [keep=all] [done=\"...\"] <what to do>; or /goal status | pause | resume | clear.";
 
 export function isGoalCommand(text: string): boolean {
   return /^\/goal(\s|$)/.test(text.trim());
@@ -111,9 +114,10 @@ export function parseGoalCommand(text: string, attached: string[] = []): GoalCom
         start.targets.checks = checks;
         break;
       }
+      case "loops":
       case "passes": {
         const passes = Number(value);
-        if (!Number.isInteger(passes) || passes < 1 || passes > 50) return { kind: "invalid", message: "passes must be a whole number from 1 to 50." };
+        if (!Number.isInteger(passes) || passes < 1 || passes > 100) return { kind: "invalid", message: `${key} must be a whole number from 1 to 100.` };
         start.maxPasses = passes;
         break;
       }

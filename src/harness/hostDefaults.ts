@@ -5,11 +5,13 @@
 // dialog for free) and defaulting readFile/writeFile/writePlan/
 // askQuestion to a clear rejection for a capability that has no business
 // needing them (e.g. inline_chat, which the sidecar never sends file or
-// question RPC for) rather than silently hanging.
+// question RPC for) rather than silently hanging. Every prompt to the user
+// goes through auto mode (autoMode.ts), which answers it while it is on.
 // ============================================================
 
 import { commandPermissionService } from "../services/commandPermissionService";
 import { notificationCoordinator } from "../services/notificationRuntime";
+import { AUTO_PERMISSION, autoQuestionAnswer, autoWorkflowAnswer, unlessAuto } from "./autoMode";
 import type { RunHost } from "./contract";
 
 export interface RunHostOptions {
@@ -20,7 +22,7 @@ export interface RunHostOptions {
   askWorkflowInput?: RunHost["askWorkflowInput"];
 }
 
-const askQuestionThroughNotifications: RunHost["askQuestion"] = async (question, signal) => {
+const askQuestionThroughNotifications: NonNullable<RunHost["askQuestion"]> = async (question, signal) => {
   const response = await notificationCoordinator.register({
     requestId: question.requestId,
     kind: "model_question",
@@ -49,12 +51,16 @@ function unsupported(kind: string): () => Promise<never> {
 }
 
 export function createRunHost(options: RunHostOptions = {}): RunHost {
+  const askQuestion = options.askQuestion ?? askQuestionThroughNotifications;
+  const askWorkflowInput = options.askWorkflowInput;
   return {
     readFile: options.readFile ?? unsupported("readFile"),
     writeFile: options.writeFile ?? unsupported("writeFile"),
     writePlan: options.writePlan,
-    askQuestion: options.askQuestion ?? askQuestionThroughNotifications,
-    askWorkflowInput: options.askWorkflowInput,
-    requestPermission: (request, signal) => commandPermissionService.request(request, signal),
+    askQuestion: (question, signal) => unlessAuto(() => autoQuestionAnswer(question), (asking) => askQuestion(question, asking), signal),
+    askWorkflowInput: askWorkflowInput
+      ? (question, signal) => unlessAuto(() => autoWorkflowAnswer(question), (asking) => askWorkflowInput(question, asking), signal)
+      : undefined,
+    requestPermission: (request, signal) => unlessAuto(() => AUTO_PERMISSION, (asking) => commandPermissionService.request(request, asking), signal),
   };
 }

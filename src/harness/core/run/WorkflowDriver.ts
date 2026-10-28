@@ -181,7 +181,13 @@ export class WorkflowDriver<K extends CapabilityName> {
   /** Shows the question, then sends the answer back; an answer the run refuses is asked again. */
   private askUntilAccepted(question: WorkflowQuestion): void {
     void this.run.host.askWorkflowInput!(question, this.run.signal)
-      .then((answer) => this.resolveInput(question.requestId, answer))
+      .then((answer) => {
+        if (answer.auto) {
+          const label = question.decisions.find((decision) => decision.id === answer.decision)?.label ?? answer.decision;
+          this.run.log(`${question.step}: "${label}" was chosen by auto mode.`);
+        }
+        return this.resolveInput(question.requestId, answer);
+      })
       .catch((error: unknown) => {
         if (!this.run.isLive()) return;
         this.run.log(`The answer was not accepted: ${errorMessage(error)}`);

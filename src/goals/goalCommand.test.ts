@@ -41,6 +41,14 @@ describe("/goal", () => {
     expect(parseGoalCommand("/goal mean=11 x")).toMatchObject({ kind: "invalid", message: expect.stringContaining("1 to 10") });
   });
 
+  it("takes a number of loops, and has no pass limit without one", () => {
+    expect(parseGoalCommand("/goal loops=12 add CSV export")).toMatchObject({ maxPasses: 12, instruction: "add CSV export" });
+    expect(parseGoalCommand("/goal passes=3 add CSV export")).toMatchObject({ maxPasses: 3 });
+    const unlimited = parseGoalCommand("/goal add CSV export");
+    expect(unlimited.kind === "start" && unlimited.maxPasses).toBeUndefined();
+    expect(parseGoalCommand("/goal loops=0 x")).toMatchObject({ kind: "invalid", message: "loops must be a whole number from 1 to 100." });
+  });
+
   it("has controls, and says what is wrong with a bad option", () => {
     expect(parseGoalCommand("/goal")).toEqual({ kind: "status" });
     expect(parseGoalCommand("/goal pause")).toEqual({ kind: "pause" });

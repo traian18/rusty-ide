@@ -5,7 +5,7 @@ import type { TabOfType } from "../../../tabs/types";
 import { openAgentChangedFile } from "../AgentTabChangedFile";
 import { useWorkflowRunStore, type WorkflowRunView } from "../behaviors/workflowRunStore";
 import type { AgentTurn } from "./turn";
-import { useAgentModel, useAutoApprove, useSkillChoice } from "./useAgentModel";
+import { useAgentModel, useAutoMode, useSkillChoice } from "./useAgentModel";
 import { useChatSearch } from "./useChatSearch";
 import { useSavedChats } from "./useSavedChats";
 import { useTabLifecycle } from "./useTabLifecycle";
@@ -43,7 +43,7 @@ export function useAgentTab(tab: TabOfType<"agent">, chatId: string) {
   const skill = useSkillChoice();
   const search = useChatSearch(agentChats);
   const savedChats = useSavedChats(rootPath);
-  const [autoApprove, setAutoApprove] = useAutoApprove();
+  const [autoApprove, setAutoApprove] = useAutoMode();
   const openChangedFile = (path: string) => openAgentChangedFile(openTab, path, rootPath, repositories);
   const context = (): ChatTabContext => ({
     tab, rootPath, openChangedFile, autoApprove,

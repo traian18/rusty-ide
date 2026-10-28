@@ -179,16 +179,16 @@ describe("AgentWorkflowBar", () => {
       nodes: [...WORKFLOW.nodes, { id: "approve", name: "Plan approval", type: "approval" }],
     };
 
-    it("offers auto-approve only for a workflow that has an approval step", async () => {
+    it("offers auto mode with or without a workflow, and even while a run goes on", async () => {
       const onAutoApproveChange = vi.fn();
-      await render({ selected: "/w/flow.json", definition: WORKFLOW, onAutoApproveChange });
-      expect(container.textContent).not.toContain("Auto-approve");
-      await render({ selected: "/w/flow.json", definition: WITH_APPROVAL, onAutoApproveChange });
-      const box = [...container.querySelectorAll<HTMLLabelElement>("label")]
-        .find((label) => label.textContent?.includes("Auto-approve"))!
+      const box = () => [...container.querySelectorAll<HTMLLabelElement>("label")]
+        .find((label) => label.textContent?.includes("Auto mode"))!
         .querySelector("input")!;
-      expect(box.checked).toBe(false);
-      await act(async () => box.click());
+      await render({ onAutoApproveChange });
+      expect(box().checked).toBe(false);
+      await render({ selected: "/w/flow.json", definition: WORKFLOW, running: true, disabled: true, onAutoApproveChange });
+      expect(box().disabled).toBe(false);
+      await act(async () => box().click());
       expect(onAutoApproveChange).toHaveBeenCalledWith(true);
     });
 

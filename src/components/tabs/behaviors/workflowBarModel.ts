@@ -80,8 +80,6 @@ export interface WorkflowBarView {
   options: Choice[];
   /** The workflow declares others to hand over to (always so with Auto). */
   handsOver: boolean;
-  /** Some step may ask for approval (always so with Auto). */
-  hasApprovals: boolean;
   /** The run whose progress the step list shows, if any. */
   shownRun?: WorkflowRunView;
   activeStep?: ActiveStep;
@@ -132,10 +130,6 @@ function modeOptions({ workflows, selected, autoAvailable }: WorkflowBarInput, c
     ...workflows.map(workflowOption),
     ...missing,
   ];
-}
-
-function hasApprovalStep(definition: JsonObject | undefined): boolean {
-  return stepsOf(definition ?? {}).some((step) => step.type === "approval");
 }
 
 /** The latest run shows while this chat runs it, and once it has finished. */
@@ -191,7 +185,6 @@ export function workflowBarView(input: WorkflowBarInput): WorkflowBarView {
     options: modeOptions(input, current, name),
     handsOver: auto || workflowSwitchTargets(input.definition).length > 0,
     // With Auto the workflow is chosen per message, so any of them may ask.
-    hasApprovals: auto || hasApprovalStep(input.definition),
     shownRun: showsRun(input) ? input.run : undefined,
     activeStep,
     summary: runSummary(input.running, input.steps.length, activeStep, progress),

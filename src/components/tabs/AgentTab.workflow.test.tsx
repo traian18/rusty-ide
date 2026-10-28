@@ -685,7 +685,7 @@ describe("Agent chat workflows", () => {
 
     describe("flow switching", () => {
       const toggleOn = async () => {
-        await act(async () => (container.querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+        await act(async () => ([...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Allow flow switching"))!.querySelector("input") as HTMLInputElement).click());
       };
       const handOver = (id: string, name: string, path: string) => ({
         runId: "r",
@@ -803,10 +803,10 @@ describe("Agent chat workflows", () => {
     it("remembers Auto and the flow switching choice with the chat", async () => {
       respond("investigate", 0.9, { investigate: 0.9, single_agent: 0.1 });
       await choose(AUTO_FLOW);
-      const toggle = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+      const toggle = [...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Allow flow switching"))!.querySelector("input") as HTMLInputElement;
       expect(toggle.checked).toBe(false);
       await act(async () => toggle.click());
-      expect((container.querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(true);
+      expect(([...container.querySelectorAll("label")].find((label) => label.textContent?.includes("Allow flow switching"))!.querySelector("input") as HTMLInputElement).checked).toBe(true);
       await send("how does sync work");
       const saved = JSON.parse(String((invoke.mock.calls.filter(([command]) => command === "save_chat_history").at(-1)![1] as { content: string }).content));
       expect(saved.workflow).toBe(AUTO_FLOW);

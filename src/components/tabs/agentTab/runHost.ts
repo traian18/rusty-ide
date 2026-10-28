@@ -6,9 +6,15 @@ import type { AgentQuestion } from "../../ui/ChatInput";
 import type { AgentTurn } from "./turn";
 import { isShownChat, noticeFor } from "./chats/chatTitle";
 
-/** A run's question to the user, answered from the chat box. */
-function askQuestion(turn: AgentTurn, question: AgentQuestion): Promise<string> {
-  return new Promise<string>((resolve) => {
+/** A run's question to the user, answered from the chat box; withdrawn when `signal` aborts (the run
+ * stopped, or auto mode answered it). */
+function askQuestion(turn: AgentTurn, question: AgentQuestion, signal: AbortSignal): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    signal.addEventListener("abort", () => {
+      turn.state.questionResolvers.delete(question.requestId);
+      turn.ui.setAgentQuestions((prev) => prev.filter((q) => q.requestId !== question.requestId));
+      reject(new DOMException("The question was withdrawn", "AbortError"));
+    }, { once: true });
     turn.state.questionResolvers.set(question.requestId, resolve);
     turn.ui.setAgentQuestions((prev) => prev.some((q) => q.requestId === question.requestId) ? prev : [...prev, question]);
     // The shown chat asks in its box; another chat's question would go unseen.
@@ -43,7 +49,7 @@ export function agentRunHost(turn: AgentTurn) {
     writeFile: async (path, content) => {
       await invoke("write_file_disk", { path, content });
     },
-    askQuestion: (question) => askQuestion(turn, question),
+    askQuestion: (question, signal) => askQuestion(turn, question, signal),
     askWorkflowInput: (question, signal) => askWorkflowInput(turn, question, signal),
   });
 }

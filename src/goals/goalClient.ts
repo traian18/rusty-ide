@@ -17,7 +17,8 @@ export interface Goal {
   scope: string[];
   scope_note?: string;
   targets: { min_file_health?: number; min_mean_health?: number; max_severity?: string; checks: string[]; guidelines: boolean; done_when?: string };
-  budget: { max_passes: number; no_progress_passes: number };
+  /** `max_passes` is null when the goal has no pass limit. */
+  budget: { max_passes: number | null; no_progress_passes: number };
   chat_id?: string;
   passes: number;
   reason?: string;

@@ -66,6 +66,8 @@ export interface WorkflowAnswer {
   /** One of the question's decision ids. */
   decision: string;
   text?: string;
+  /** Answered by auto mode, not by the user. */
+  auto?: boolean;
 }
 
 export interface RunHost {

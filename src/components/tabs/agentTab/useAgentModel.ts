@@ -4,6 +4,7 @@ import { useSelectableModels } from "../../../hooks/useSelectableModels";
 import { loadAgentModelSelection, saveAgentModelSelection } from "../../../preferences/agentModelSelection";
 import { AUTO_MODEL_ID, findOpenRouterJevProvider, resolveLevelCandidates } from "../../../services/intelligentModelSelector";
 import { useWorkspaceStore } from "../../../store";
+import { isAutoMode, onAutoMode, setAutoMode } from "../../../harness/autoMode";
 
 /** The Agent tab's model choice: its own, seeded once from the global default.
  * AUTO is offered when intelligent selection can run. */
@@ -81,28 +82,10 @@ export function useSkillChoice() {
   return { selectedSkillId, selectSkill, hasSelectedSkill, options };
 }
 
-const AUTO_APPROVE_KEY = "rusty_workflow_auto_approve";
-
-function readAutoApprove(): boolean {
-  try {
-    return localStorage.getItem(AUTO_APPROVE_KEY) === "true";
-  } catch (error) {
-    console.warn("Could not read the workflow auto-approve preference; asking for approvals:", error);
-    return false;
-  }
-}
-
-/** Approval steps pass without asking. Remembered across chats (an optional
- * preference: storage may be unavailable), chosen per run. */
-export function useAutoApprove(): [boolean, (enabled: boolean) => void] {
-  const [autoApprove, setAutoApproveState] = useState(readAutoApprove);
-  const setAutoApprove = (enabled: boolean) => {
-    setAutoApproveState(enabled);
-    try {
-      localStorage.setItem(AUTO_APPROVE_KEY, String(enabled));
-    } catch (error) {
-      console.warn("Could not remember the workflow auto-approve preference; it applies to this session only:", error);
-    }
-  };
-  return [autoApprove, setAutoApprove];
+/** Auto mode (harness/autoMode.ts): nothing waits for the user. One switch for the whole app; a
+ * workflow run started while it is on also passes its approval steps itself. */
+export function useAutoMode(): [boolean, (enabled: boolean) => void] {
+  const [enabled, setEnabled] = useState(isAutoMode);
+  useEffect(() => onAutoMode(setEnabled), []);
+  return [enabled, setAutoMode];
 }
