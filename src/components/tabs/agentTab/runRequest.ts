@@ -14,6 +14,7 @@ import { workflowSwitchTargets } from "../behaviors/flowCatalog";
 import type { SpecRun } from "../../../specs/run";
 import type { RunModel } from "./runModel";
 import type { AgentTurn } from "./turn";
+import type { GoalPass } from "./goalTurn";
 
 /** The message a turn sends. */
 export interface TurnMessage {
@@ -39,6 +40,8 @@ export interface LaunchPlan {
   spec?: SpecRun;
   /** Extra run inputs a workflow binds (an Implement run's task plans). */
   inputs?: Record<string, unknown>;
+  /** The run is a pass of a goal: when it ends, the goal is measured and may go on. */
+  goal?: GoalPass;
 }
 
 /** How a workflow is named to the routers. */

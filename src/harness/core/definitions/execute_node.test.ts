@@ -118,7 +118,7 @@ describe("executeNodeDefinition", () => {
   it("recipe() routes to the host-routed backend with the full tool set by default", () => {
     const recipe = executeNodeDefinition.recipe!(input());
     expect(recipe.integration).toBe("host");
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["edit_file", "list_files", "open_document", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "search_codebase", "spec_context", "write_file"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["code_guidelines", "edit_file", "list_files", "open_document", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "search_codebase", "spec_context", "write_file"]);
     expect(recipe.execution_params).toEqual({ model: "claude-opus-4-20250514", max_tokens: 128_000, reasoning_effort: undefined });
     expect(recipe.system_prompt).toContain("bounded task executor");
     expect(recipe.system_prompt).toContain("Add a health-check endpoint.");
@@ -148,7 +148,7 @@ describe("executeNodeDefinition", () => {
 
   it("recipe() restricts host_tools to the skill's enabledTools when set", () => {
     const recipe = executeNodeDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "list_files"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["list_files", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "spec_context"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["code_guidelines", "list_files", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "spec_context"]);
     expect(recipe.system_prompt).toContain("'read_file'");
     expect(recipe.system_prompt).not.toContain("'write_file'");
   });
@@ -170,12 +170,12 @@ describe("executeNodeDefinition", () => {
 
   it("recipe() registers no tools when the skill's enabledTools is explicitly empty -- matching the sidecar's [] !== default quirk", () => {
     const recipe = executeNodeDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name)).toEqual(["repo_context", "repo_overview", "repo_health", "repo_risk", "repo_symbol", "repo_wiki", "spec_context"]);
+    expect(recipe.host_tools?.map((t) => t.name)).toEqual(["repo_context", "repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines", "repo_wiki", "spec_context"]);
   });
 
   it("recipe() filters out run_command even if a skill requests it -- task nodes never get shell access", () => {
     const recipe = executeNodeDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "run_command"] } }));
-    expect(recipe.host_tools?.map((t) => t.name)).toEqual(["read_file", "repo_context", "repo_overview", "repo_health", "repo_risk", "repo_symbol", "repo_wiki", "spec_context"]);
+    expect(recipe.host_tools?.map((t) => t.name)).toEqual(["read_file", "repo_context", "repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines", "repo_wiki", "spec_context"]);
   });
 
   it("recipe() lists the connected input files and folds upstream task output into the system prompt", () => {
@@ -232,7 +232,7 @@ describe("executeNodeDefinition", () => {
     const anInput = input({ workspaceRoot: "/ws" });
     const runContext = ctx();
     const tools = executeNodeDefinition.hostTools?.(anInput, fakeHost, runContext, () => {});
-    expect(Object.keys(tools ?? {}).sort()).toEqual(["edit_file", "list_files", "open_document", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "search_codebase", "spec_context", "write_file"]);
+    expect(Object.keys(tools ?? {}).sort()).toEqual(["code_guidelines", "edit_file", "list_files", "open_document", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "search_codebase", "spec_context", "write_file"]);
     expect(exploreTools.editTool).toHaveBeenCalledWith("/ws", fakeHost, expect.any(Set), anInput.inputFiles);
     expect(exploreTools.readTool).toHaveBeenCalledWith("/ws", fakeHost, anInput.inputFiles);
     expect(exploreTools.listFilesTool).toHaveBeenCalledWith("/ws");
@@ -244,7 +244,7 @@ describe("executeNodeDefinition", () => {
   it("hostTools() only wires the tools the skill's enabledTools allows", () => {
     const runContext = ctx();
     const tools = executeNodeDefinition.hostTools?.(input({ skill: { enabledTools: ["read_file"] } }), fakeHost, runContext, () => {});
-    expect(Object.keys(tools ?? {})).toEqual(["read_file", "repo_context", "repo_wiki", "spec_context", "repo_overview", "repo_health", "repo_risk", "repo_symbol"]);
+    expect(Object.keys(tools ?? {})).toEqual(["read_file", "repo_context", "repo_wiki", "spec_context", "repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]);
   });
 
   it("hostTools() stashes the modifiedFiles set it hands to writeTool into ctx.scratch", () => {

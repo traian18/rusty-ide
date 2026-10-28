@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "optimize",
-  "revision": 9,
+  "revision": 10,
   "name": "Optimize",
   "description": "Works as a performance engineer: defines what to improve and how to measure it, records a baseline, finds the real bottleneck with profiling or measurement instead of intuition, makes the smallest change that helps, re-measures under the same conditions, and reports only the improvement it can show along with its trade-offs.",
   "status": "published",
@@ -52,6 +52,19 @@
           }
         },
         "feedback": "Inspect the actual workspace before implementing or reporting."
+      },
+      {
+        "id": "guidelines",
+        "evaluator": {
+          "type": "tool",
+          "tool": "code_guidelines",
+          "args": {
+            "gate": true
+          }
+        },
+        "feedback": "Your change breaks the project's code guidelines. Fix every error listed, then check again with code_guidelines (mode check, changed_only true).",
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       },
       {
         "id": "todos-done",

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "refactor",
-  "revision": 9,
+  "revision": 10,
   "name": "Refactor",
   "description": "Works as a refactoring specialist: pins the current behaviour with tests before changing structure, makes small behaviour-preserving steps that follow the project's conventions, keeps public APIs stable, re-runs the checks after the last edit, and reports what changed and the evidence that behaviour did not.",
   "status": "published",
@@ -52,6 +52,19 @@
           }
         },
         "feedback": "Inspect the actual workspace before implementing or reporting."
+      },
+      {
+        "id": "guidelines",
+        "evaluator": {
+          "type": "tool",
+          "tool": "code_guidelines",
+          "args": {
+            "gate": true
+          }
+        },
+        "feedback": "Your change breaks the project's code guidelines. Fix every error listed, then check again with code_guidelines (mode check, changed_only true).",
+        "error_policy": "pass",
+        "waive_when_exhausted": true
       },
       {
         "id": "todos-done",

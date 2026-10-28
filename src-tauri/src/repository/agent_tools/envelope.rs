@@ -73,6 +73,15 @@ impl Args {
             .map_or(default, |n| (n as usize).clamp(min, max))
     }
 
+    /// A boolean; `"true"` counts too, since models sometimes quote it.
+    pub fn flag(&self, key: &str) -> bool {
+        match self.map.get(key) {
+            Some(Value::Bool(value)) => *value,
+            Some(Value::String(text)) => text.eq_ignore_ascii_case("true"),
+            _ => false,
+        }
+    }
+
     pub fn budget(&self) -> usize {
         self.number("budget", DEFAULT_BUDGET, MIN_BUDGET, MAX_BUDGET)
     }

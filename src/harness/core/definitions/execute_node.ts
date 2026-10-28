@@ -50,6 +50,7 @@ import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSection } from "./repoAgentTools";
+import { codeGuidelinesTool, withGuidelineNotices } from "./guidelinesTool";
 import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
@@ -249,8 +250,8 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     const names = new Set(toolSpecsFor(asSkill(input.skill)).map((spec) => spec.name));
     const handlers: Record<string, HostToolHandler> = {};
     if (names.has("read_file")) handlers.read_file = readTool(input.workspaceRoot, host, input.inputFiles);
-    if (names.has("edit_file")) handlers.edit_file = editTool(input.workspaceRoot, host, modifiedFiles, input.inputFiles);
-    if (names.has("write_file")) handlers.write_file = writeTool(input.workspaceRoot, host, modifiedFiles, input.inputFiles);
+    if (names.has("edit_file")) handlers.edit_file = withGuidelineNotices(editTool(input.workspaceRoot, host, modifiedFiles, input.inputFiles), input.workspaceRoot, undefined);
+    if (names.has("write_file")) handlers.write_file = withGuidelineNotices(writeTool(input.workspaceRoot, host, modifiedFiles, input.inputFiles), input.workspaceRoot, undefined);
     if (names.has("list_files")) handlers.list_files = listFilesTool(input.workspaceRoot);
     if (names.has("search_codebase")) handlers.search_codebase = searchCodebaseTool(input.workspaceRoot);
     if (names.has("open_document")) handlers.open_document = openDocumentTool(input.workspaceRoot, input.inputFiles);
@@ -258,6 +259,7 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot);
     handlers.spec_context = specContextTool(input.workspaceRoot);
     for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot);
+    handlers.code_guidelines = codeGuidelinesTool(input.workspaceRoot, undefined, modifiedFiles);
     return handlers;
   },
 

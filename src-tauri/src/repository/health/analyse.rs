@@ -101,7 +101,7 @@ pub fn analyse(entry: &Entry, snapshot: &RepositorySnapshot, cache: &HealthCache
         .map(|f| facts.dependent_files(&f.path).len() as u32)
         .collect();
     let repo_p80 = p80(importers.clone());
-    let detectors = DetectorConfig::default();
+    let detectors = super::super::guidelines::detectors(&entry.root);
     let scoring = harness_infra_analysis::scoring_config();
     let summary = git.as_ref().map(|g| g.index.signal_summary.clone());
     struct Measured {
@@ -292,7 +292,9 @@ impl Entry {
             .current()
             .map(|g| g.id.0.clone())
             .unwrap_or_default();
-        let key = format!("{}:{git}", snapshot.id.0);
+        // The project's thresholds are part of the key: editing the guidelines re-scores.
+        let thresholds = super::super::guidelines::detectors(&self.root).digest();
+        let key = format!("{}:{git}:{}", snapshot.id.0, &thresholds[..8]);
         Ok(self
             .health
             .analysis(&key, || analyse(self, &snapshot, &self.health)))

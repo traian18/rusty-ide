@@ -18,6 +18,8 @@ mod dto;
 mod entry;
 pub mod error;
 mod freshness;
+pub mod goal_measure;
+mod guidelines;
 pub mod health;
 pub mod jobs;
 mod levels;

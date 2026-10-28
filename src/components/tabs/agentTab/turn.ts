@@ -18,6 +18,7 @@ import type { AgentQuestion } from "../../ui/ChatInput";
 import type { TokenUsageLike } from "../../ui/TokenBadge/TokenBadge";
 import type { WorkflowChoice } from "../behaviors/AgentWorkflowBar";
 import type { ActivityLog } from "./activityLog";
+import type { GoalPass } from "./goalTurn";
 
 export { DEFAULT_STREAMING_LABEL } from "./chats/chatStore";
 import { DEFAULT_STREAMING_LABEL } from "./chats/chatStore";
@@ -64,6 +65,8 @@ export interface TurnState {
   lastWorkflowState: unknown;
   /** Capability specs still to be written after the one that runs, each started when the previous completes. */
   specQueue: QueuedSpecRun[];
+  /** The goal whose pass runs or is about to (see goalTurn.ts); a message from the user pauses it. */
+  goal: GoalPass | undefined;
 }
 
 export function createTurnState(): TurnState {
@@ -93,6 +96,7 @@ export function createTurnState(): TurnState {
     followedSpec: undefined,
     lastWorkflowState: undefined,
     specQueue: [],
+    goal: undefined,
   };
 }
 

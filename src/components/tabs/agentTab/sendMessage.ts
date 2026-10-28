@@ -17,6 +17,8 @@ import { agentRunHost } from "./runHost";
 import { resolveRunModel } from "./runModel";
 import { handleRunOutcome, implementTicks, trackWorkflowRun, type LaunchedRun } from "./runOutcome";
 import { agentChatInput, flowCandidateName, workflowStepTypesOf, type LaunchPlan, type TurnMessage } from "./runRequest";
+import { continueGoal, handleGoalCommand, pauseGoal, type GoalPass } from "./goalTurn";
+import { isGoalCommand } from "../../../goals/goalCommand";
 import { abandonTurn, DEFAULT_STREAMING_LABEL, startResponseStream, type AgentTurn } from "./turn";
 
 const MAX_FLOW_SWITCHES_PER_MESSAGE = 2;
@@ -175,6 +177,9 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
     compaction,
     relaunch: (next) => launch(turn, message, next),
     next: () => continueSpecQueue(turn),
+    goalPassEnded: (pass, result) => result
+      ? continueGoal(turn, pass, result, (prompt, nextPass) => sendMessage(turn, prompt, [], true, { goal: nextPass }))
+      : pauseGoal(turn, pass, "the pass did not finish."),
   };
   // A closed chat's run was cancelled with it; what it left goes nowhere.
   void run.done.then((outcome) => turn.state.disposed ? undefined : handleRunOutcome(launched, outcome));
@@ -182,8 +187,26 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
 }
 
 /** Sends the chat box's message: in the chat's workflow, the one Auto
- * chooses, or to the single agent. */
-export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles: AttachedFile[], hasSelectedSkill: boolean) {
+ * chooses, or to the single agent. A /goal message starts or controls the
+ * chat's goal; a pass of a goal always runs on the single agent, and any
+ * other message pauses a running goal (the user takes over). */
+export async function sendMessage(turn: AgentTurn, draft: string, attachedFiles: AttachedFile[], hasSelectedSkill: boolean, options: { goal?: GoalPass } = {}) {
+  if (!options.goal && isGoalCommand(draft)) {
+    if (!hasSelectedSkill) {
+      notify("Skill Required", "Select an Agent Tab skill before starting a goal: its passes run on the single agent.", "error");
+      return;
+    }
+    turn.ui.setMessage("");
+    await handleGoalCommand(turn, draft, attachedFiles.map((file) => file.path), (prompt, pass) => sendMessage(turn, prompt, [], true, { goal: pass }));
+    return;
+  }
+  if (!options.goal && turn.state.goal) void pauseGoal(turn, turn.state.goal, "you sent a message.");
+  if (options.goal) {
+    if (!hasSelectedSkill) return;
+    const message = await postMessage(turn, draft, []);
+    await launch(turn, message, { workflowDefinition: undefined, workflowId: "", switchesLeft: 0, visited: [], goal: options.goal });
+    return;
+  }
   // A run set up from the Specs page runs in its step's workflow, even when the chat was started
   // over (New chat) after it was set up; choosing another workflow in the Mode picker drops it.
   const specRun = turn.state.specRun;

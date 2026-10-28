@@ -129,6 +129,7 @@ describe("agentChatDefinition", () => {
     expect(recipe.integration).toBe("host");
     expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual([
       "ask_user_question",
+      "code_guidelines",
       "edit_file",
       "install_dependencies",
       "job_output",
@@ -205,7 +206,7 @@ describe("agentChatDefinition", () => {
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
     // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
   });
 
   it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
@@ -220,7 +221,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
@@ -267,7 +268,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos", "web_search"]);
   });
 
   it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
@@ -358,6 +359,7 @@ describe("agentChatDefinition", () => {
     const tools = agentChatDefinition.hostTools?.(input({ workspaceRoot: "/ws" }), host, runContext, () => {});
     expect(Object.keys(tools ?? {}).sort()).toEqual([
       "ask_user_question",
+      "code_guidelines",
       "edit_file",
       "install_dependencies",
       "job_output",
@@ -475,12 +477,12 @@ describe("agentChatDefinition", () => {
   it("toResult() reports modified files and the transcript's last message", () => {
     const runContext: RunContext = { scratch: { modifiedFiles: new Set(["/workspace/src/a.ts"]) } };
     const result = agentChatDefinition.toResult?.(transcriptWith("Added the endpoint."), input(), runContext);
-    expect(result).toEqual({ response: "Added the endpoint.", modifiedFiles: ["/workspace/src/a.ts"], subagents: [] });
+    expect(result).toEqual({ response: "Added the endpoint.", modifiedFiles: ["/workspace/src/a.ts"], subagents: [], checks: [] });
   });
 
   it("toResult() defaults to no modified files, empty subagents, and a fallback response", () => {
     const result = agentChatDefinition.toResult?.(createTranscript(), input(), ctx());
-    expect(result).toEqual({ response: "Task completed.", modifiedFiles: [], subagents: [] });
+    expect(result).toEqual({ response: "Task completed.", modifiedFiles: [], subagents: [], checks: [] });
   });
 
   it("usageContext() carries the run's workspaceRoot and model", () => {
@@ -651,7 +653,7 @@ describe("question-shaped repository tools in the plain loop", () => {
   const names = (overrides: Partial<AgentChatInput> = {}) => agentChatDefinition.recipe!(input(overrides)).host_tools?.map((tool) => tool.name) ?? [];
 
   it("offers overview, health, risk and symbol, and tells the model when to use each", () => {
-    expect(names()).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]));
+    expect(names()).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]));
     const prompt = agentChatDefinition.recipe!(input()).system_prompt ?? "";
     expect(prompt).toContain("Repository tools (read-only");
     expect(prompt).toContain("'repo_overview', once per conversation");
@@ -662,7 +664,7 @@ describe("question-shaped repository tools in the plain loop", () => {
 
   it("offers all of them whatever the model's context window", () => {
     const small = { customProvider: { ...(input().customProvider as object), models: [{ id: "claude-opus-4-20250514", contextWindow: 16_000 }] } as never };
-    expect(names(small)).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]));
+    expect(names(small)).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]));
   });
 
   it.each([
@@ -671,14 +673,14 @@ describe("question-shaped repository tools in the plain loop", () => {
     ["plan mode", { planOnly: true }],
     ["virtual-file mode", { vfsOnly: true }],
   ])("are offered and wired in %s", (_name, overrides) => {
-    expect(names(overrides as never)).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]));
+    expect(names(overrides as never)).toEqual(expect.arrayContaining(["repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]));
     const tools = agentChatDefinition.hostTools?.(input(overrides as never), {} as never, { scratch: {} } as never, () => {});
-    for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol"]) expect(Object.keys(tools ?? {})).toContain(name);
+    for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]) expect(Object.keys(tools ?? {})).toContain(name);
   });
 
   it("wires a handler for each offered tool", () => {
     const tools = agentChatDefinition.hostTools?.(input(), {} as never, { scratch: {} } as never, () => {});
-    for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol"]) expect(Object.keys(tools ?? {})).toContain(name);
+    for (const name of ["repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]) expect(Object.keys(tools ?? {})).toContain(name);
   });
 });
 
@@ -692,7 +694,7 @@ describe("agentChatDefinition finishing the request", () => {
     expect(recipe.system_prompt).not.toContain("Only modify what is requested");
     expect(recipe.default_profile).toMatchObject({
       id: "ide.single-agent",
-      completion_gate: { checks: [{ evaluator: { type: "tool", tool: "update_todos" } }] },
+      completion_gate: { checks: [{ evaluator: { type: "tool", tool: "code_guidelines", args: { gate: true } } }, { evaluator: { type: "tool", tool: "update_todos" } }] },
     });
   });
 

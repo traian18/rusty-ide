@@ -97,6 +97,8 @@ import { analyzeProject, formatProjectBrief } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import { PROJECT_INFO_TOOL, projectInfoTool } from "./projectInfoTool";
 import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool, repositoryToolsSection } from "./repoAgentTools";
+import { codeGuidelinesTool, withGuidelineNotices } from "./guidelinesTool";
+import { countingEdits, PassCheckLog, recordingChecks } from "./passChecks";
 import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
 import { activeSpecBrief } from "../../../specs/activeBrief";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
@@ -687,7 +689,15 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     handlers.repo_context = repoContextTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.spec_context = specContextTool(input.workspaceRoot);
-    for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, input.repositoryContext?.activeRepository);
+    const activeRepository = input.repositoryContext?.activeRepository;
+    for (const spec of REPO_AGENT_TOOLS) handlers[spec.name] = repoAgentTool(spec.name, input.workspaceRoot, activeRepository);
+    handlers.code_guidelines = codeGuidelinesTool(input.workspaceRoot, activeRepository, modifiedFiles);
+    const passChecks = (ctx.scratch.passChecks ??= new PassCheckLog()) as PassCheckLog;
+    if (handlers.run_check) handlers.run_check = recordingChecks(handlers.run_check, passChecks);
+    for (const name of ["write_file", "edit_file"]) {
+      const handler = handlers[name];
+      if (handler) handlers[name] = countingEdits(withGuidelineNotices(handler, input.workspaceRoot, activeRepository), passChecks);
+    }
     handlers.report_progress = reportProgressTool(onEvent);
     if (names.has(UPDATE_TODOS_TOOL.name)) {
       const currentStep = () => {
@@ -709,7 +719,8 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
 
   toResult: (transcript: Transcript, _input, ctx): CapabilityResult<"agent_chat"> => {
     const modifiedFiles = (ctx.scratch.modifiedFiles as Set<string> | undefined) ?? new Set<string>();
-    return { response: transcript.lastMessageText() || "Task completed.", modifiedFiles: Array.from(modifiedFiles), subagents: [] };
+    const checks = (ctx.scratch.passChecks as PassCheckLog | undefined)?.results() ?? [];
+    return { response: transcript.lastMessageText() || "Task completed.", modifiedFiles: Array.from(modifiedFiles), subagents: [], checks };
   },
 
   usageContext: (input) => ({ workspaceRoot: input.workspaceRoot, model: input.model }),

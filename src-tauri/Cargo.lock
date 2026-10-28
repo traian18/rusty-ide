@@ -1914,6 +1914,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "harness-goals"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "harness-guidelines"
+version = "0.1.0"
+dependencies = [
+ "harness-code-analysis",
+ "harness-code-health",
+ "regex",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "tree-sitter",
+]
+
+[[package]]
 name = "harness-infra-analysis"
 version = "0.1.0"
 dependencies = [
@@ -4619,6 +4640,8 @@ dependencies = [
  "harness-engine",
  "harness-findings",
  "harness-git-analysis",
+ "harness-goals",
+ "harness-guidelines",
  "harness-infra-analysis",
  "harness-integration-anthropic",
  "harness-integration-codex",

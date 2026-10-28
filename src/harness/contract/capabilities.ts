@@ -218,7 +218,8 @@ export interface CapabilityMap {
   agent_chat: {
     input: AgentChatInput;
     event: CommonEvent;
-    result: { response: string; modifiedFiles: string[]; subagents: unknown[]; switchTo?: WorkflowSwitch };
+    /** `checks`: what each whole check the run ran last said, and whether it ran after the last edit. */
+    result: { response: string; modifiedFiles: string[]; subagents: unknown[]; switchTo?: WorkflowSwitch; checks?: Array<{ name: string; passed: boolean; ran: boolean; summary: string }> };
   };
   execute_node: {
     input: ExecuteNodeInput;

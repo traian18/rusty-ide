@@ -165,7 +165,7 @@ impl Entry {
             .map(str::to_owned)
             .collect();
         let chosen = sample(&commits, points);
-        let detectors = DetectorConfig::default();
+        let detectors = super::super::guidelines::detectors(&self.root);
         let scoring = harness_infra_analysis::scoring_config();
         let digest = digest(&detectors);
         let mut cache: HashMap<(git2::Oid, &'static str), Option<Arc<FileMetrics>>> =

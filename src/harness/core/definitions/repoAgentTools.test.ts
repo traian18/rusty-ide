@@ -28,7 +28,7 @@ describe("repository agent tools", () => {
   });
 
   it("has one schema per tool, all read-only questions", () => {
-    expect(REPO_AGENT_TOOLS.map((t) => t.name)).toEqual(["repo_overview", "repo_health", "repo_risk", "repo_symbol"]);
+    expect(REPO_AGENT_TOOLS.map((t) => t.name)).toEqual(["repo_overview", "repo_health", "repo_risk", "repo_symbol", "code_guidelines"]);
     for (const tool of REPO_AGENT_TOOLS) expect(tool.description.length).toBeGreaterThan(100);
   });
 });

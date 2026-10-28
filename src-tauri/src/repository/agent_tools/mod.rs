@@ -2,10 +2,12 @@
 //! `repo_overview` (what is this repository), `repo_health` (how healthy is it, and is the file I
 //! just edited better or worse), `repo_risk` (is it risky to touch, and what may a change break),
 //! `repo_symbol` (one function's body), and `repo_context` with the host's extensions (several
-//! targets at once, symbols, a skeleton, health and owners). All read only; all answer with the
-//! shared [`envelope`].
+//! targets at once, symbols, a skeleton, health and owners), and `code_guidelines` (the project's
+//! own style and rules, and what an edit broke of them). All read only; all answer with the shared
+//! [`envelope`].
 mod context;
 pub mod envelope;
+mod guidelines;
 mod health;
 mod next_calls;
 mod overview;
@@ -20,7 +22,13 @@ use serde_json::Value;
 use super::{entry::Entry, error::RepositoryError};
 
 /// The tools answered here rather than by the core tool set.
-pub const HOST_TOOLS: [&str; 4] = ["repo_overview", "repo_health", "repo_risk", "repo_symbol"];
+pub const HOST_TOOLS: [&str; 5] = [
+    "repo_overview",
+    "repo_health",
+    "repo_risk",
+    "repo_symbol",
+    "code_guidelines",
+];
 
 async fn blocking<T: Send + 'static>(
     work: impl FnOnce() -> Result<T, RepositoryError> + Send + 'static,
@@ -38,6 +46,11 @@ pub async fn run(
 ) -> Result<Value, RepositoryError> {
     if !HOST_TOOLS.contains(&tool) && tool != "repo_context" {
         return entry.agent_tool(tool, arguments).await;
+    }
+    // Guidelines read the files themselves and use the index only when it exists: checking an
+    // edit must not wait for a first index build.
+    if tool == "code_guidelines" {
+        return blocking(move || guidelines::run(&entry, arguments)).await;
     }
     if entry.graph.current().is_none() {
         entry.refresh(true).await?;

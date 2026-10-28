@@ -10,6 +10,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
+import { CODE_GUIDELINES_GUIDE, CODE_GUIDELINES_TOOL } from "./guidelinesTool";
 
 const REPOSITORY = { type: "string", description: "Which repository, by name or path, when the workspace holds several. Optional when a path names it." };
 const BUDGET = { type: "integer", minimum: 1000, maximum: 24000, description: "Approximate answer size in characters." };
@@ -79,7 +80,7 @@ export const REPO_SYMBOL_TOOL: HostToolSpec = {
 };
 
 /** Always offered, like repo_context: in every loop, mode and skill, and in workflow steps. */
-export const REPO_AGENT_TOOLS: HostToolSpec[] = [REPO_OVERVIEW_TOOL, REPO_HEALTH_TOOL, REPO_RISK_TOOL, REPO_SYMBOL_TOOL];
+export const REPO_AGENT_TOOLS: HostToolSpec[] = [REPO_OVERVIEW_TOOL, REPO_HEALTH_TOOL, REPO_RISK_TOOL, REPO_SYMBOL_TOOL, CODE_GUIDELINES_TOOL];
 
 /** The lines the system prompt lists for these tools. */
 export const REPO_AGENT_GUIDES: Record<string, string> = {
@@ -87,6 +88,7 @@ export const REPO_AGENT_GUIDES: Record<string, string> = {
   repo_health: "- 'repo_health': Code health: what to fix first ({}), whether edited files got better or worse ({\"targets\": [\"path\"]}), how to fix one finding ({\"finding\": \"id\"}).",
   repo_risk: "- 'repo_risk': Before editing: hotspots, bug-fix history, owners, co-changing files, dependents, tests ({\"targets\": [\"path\"]}); for a change, what may break and which tests to run ({\"changed_files\": [...]}).",
   repo_symbol: "- 'repo_symbol': One function, method or class body, or a line range, line-numbered from disk ({\"target\": \"path::Name\" | \"path:10-60\"}).",
+  code_guidelines: CODE_GUIDELINES_GUIDE,
 };
 
 /**
@@ -103,6 +105,7 @@ export function repositoryToolsSection(toolNames: string[]): string {
     has("search_codebase") && "- Text such as strings, configuration and documentation, which the index does not hold: 'search_codebase'.",
     has("repo_risk") && "- Before your first edit to a file: 'repo_risk' on it (several files at once); for a change spanning files, pass them as changed_files to see what may break and which tests to run.",
     "- Before moving, renaming, splitting, merging or deleting files or changing a public name: 'repo_context' mode 'blast_radius' on each file ('orient' on the folder).",
+    has("code_guidelines") && "- Before your first edit to a file: 'code_guidelines' mode 'rules' on it, and follow what applies; after your last edit: mode 'check' with changed_only true, and fix every error it reports.",
     has("repo_health") && `- After your last edit to a file: 'repo_health' with the edited files as targets; if a score dropped, fix what it lists${has("run_check") ? ", then verify with 'run_check'" : ""}.`,
     has("repo_health") && "- Asked what to improve or refactor: 'repo_health' with no arguments, then 'repo_health' with a finding id for exact instructions.",
   ].filter(Boolean);

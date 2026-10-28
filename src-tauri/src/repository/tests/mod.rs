@@ -10,6 +10,8 @@ mod background;
 mod dashboard;
 mod documentation;
 mod frameworks;
+mod goals;
+mod guidelines;
 mod health;
 mod kotlin;
 mod levels;

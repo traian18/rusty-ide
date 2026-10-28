@@ -509,7 +509,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_single_agent_profile_is_a_valid_profile_with_a_todo_gate() {
+    fn the_single_agent_profile_is_a_valid_profile_with_a_guidelines_and_todo_gate() {
         let document: serde_json::Value = serde_json::from_str(include_str!(
             "../../../src/harness/core/definitions/singleAgentProfile.json"
         ))
@@ -518,9 +518,18 @@ mod tests {
             .register_json(document.clone())
             .expect("rusty-core accepts the single-agent profile");
         assert_eq!(reference.id.as_str(), "ide.single-agent");
-        let check = &document["completion_gate"]["checks"][0];
-        assert_eq!(check["evaluator"]["tool"], "update_todos");
-        assert_eq!(check["error_policy"], "pass");
+        let checks = document["completion_gate"]["checks"].as_array().unwrap();
+        let tools: Vec<&str> = checks
+            .iter()
+            .map(|c| c["evaluator"]["tool"].as_str().unwrap())
+            .collect();
+        assert_eq!(tools, ["code_guidelines", "update_todos"]);
+        assert_eq!(checks[0]["evaluator"]["args"]["gate"], true);
+        for check in checks {
+            // Neither may fail a run because it could not run.
+            assert_eq!(check["error_policy"], "pass");
+            assert_eq!(check["waive_when_exhausted"], true);
+        }
     }
 
     #[test]

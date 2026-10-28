@@ -1,13 +1,19 @@
 {
   "schema_version": 1,
   "id": "ide.single-agent",
-  "revision": 1,
+  "revision": 2,
   "name": "Single agent",
-  "description": "Holds the run open while the chat's task list has unfinished items.",
+  "description": "Holds the run open while the chat's task list has unfinished items, or while the change breaks the project's code guidelines.",
   "completion_gate": {
     "max_continuations": 3,
     "on_exhausted": "accept",
     "checks": [
+      {
+        "id": "guidelines",
+        "evaluator": { "type": "tool", "tool": "code_guidelines", "args": { "gate": true } },
+        "error_policy": "pass",
+        "waive_when_exhausted": true
+      },
       {
         "id": "todos_done",
         "evaluator": { "type": "tool", "tool": "update_todos" },

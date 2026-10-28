@@ -36,6 +36,8 @@ core-harness = [
   "dep:harness-repository-wiki",
   "dep:harness-code-analysis",
   "dep:harness-code-health",
+  "dep:harness-guidelines",
+  "dep:harness-goals",
   "dep:harness-infra-analysis",
   "dep:harness-specs",
   "dep:harness-context-repository",
@@ -110,6 +112,8 @@ harness-context-repository = { path = "../../rusty-core/crates/harness-context-r
 harness-repository-wiki = { path = "../../rusty-core/crates/harness-repository-wiki", optional = true }
 harness-code-analysis = { path = "../../rusty-core/crates/harness-code-analysis", optional = true }
 harness-code-health = { path = "../../rusty-core/crates/harness-code-health", optional = true }
+harness-guidelines = { path = "../../rusty-core/crates/harness-guidelines", optional = true }
+harness-goals = { path = "../../rusty-core/crates/harness-goals", optional = true }
 harness-infra-analysis = { path = "../../rusty-core/crates/harness-infra-analysis", optional = true }
 harness-specs = { path = "../../rusty-core/crates/harness-specs", optional = true }
 harness-tool-repository-intelligence = { path = "../../rusty-core/crates/tools/repository-intelligence", optional = true }

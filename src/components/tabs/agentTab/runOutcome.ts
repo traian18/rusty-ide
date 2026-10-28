@@ -15,6 +15,7 @@ import type { RunProgress } from "./runEvents";
 import type { RunModel } from "./runModel";
 import { saveRunReport, type LaunchPlan, type TurnMessage } from "./runRequest";
 import { completedSubagents } from "./subagents";
+import type { GoalPass, PassResult } from "./goalTurn";
 import { addAssistantMessage, cancelResponseFlush, endTurn, startResponseStream, type AgentTurn } from "./turn";
 
 /** One run of a turn, as its outcome is handled. */
@@ -32,6 +33,8 @@ export interface LaunchedRun {
   relaunch(plan: LaunchPlan): Promise<void>;
   /** Starts the next capability spec of a batch, if one is waiting. */
   next(): Promise<void>;
+  /** A goal pass ended: with its result when it completed, without when it failed or was stopped. */
+  goalPassEnded(pass: GoalPass, result?: PassResult): Promise<void>;
 }
 
 type AgentChatResult = CapabilityResult<"agent_chat">;
@@ -156,6 +159,7 @@ async function onCompleted(run: LaunchedRun, result: AgentChatResult) {
   void turn.chat.save();
   turn.chat.refreshHistorySummary(run.provider, run.model.modelId, run.compaction);
   if (run.plan.spec?.step === "capability") void run.next();
+  if (run.plan.goal) void run.goalPassEnded(run.plan.goal, result);
 }
 
 /** An Implement run ticks each task in the change folder as soon as the queue accepts it. */
@@ -196,4 +200,5 @@ export async function handleRunOutcome(run: LaunchedRun, outcome: RunOutcome<"ag
     run.turn.state.specQueue = [];
     keepImplementProgress(run);
   }
+  if (outcome.status !== "completed" && run.plan.goal) void run.goalPassEnded(run.plan.goal);
 }

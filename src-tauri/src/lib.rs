@@ -4,6 +4,8 @@ mod dir_listing;
 mod fs_watch;
 mod git;
 #[cfg(feature = "core-harness")]
+mod goals;
+#[cfg(feature = "core-harness")]
 mod harness;
 mod notifications;
 mod observability_store;
@@ -1438,6 +1440,14 @@ pub fn run() {
             repository::commands::repository_context,
             repository::commands::repository_wiki_tool,
             repository::commands::repository_workspace_overview,
+            #[cfg(feature = "core-harness")]
+            goals::commands::goal_create,
+            #[cfg(feature = "core-harness")]
+            goals::commands::goal_after_pass,
+            #[cfg(feature = "core-harness")]
+            goals::commands::goal_control,
+            #[cfg(feature = "core-harness")]
+            goals::commands::goal_list,
             #[cfg(feature = "core-harness")]
             specs::commands::specs_overview,
             #[cfg(feature = "core-harness")]
