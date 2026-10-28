@@ -92,7 +92,12 @@ fn create(workspace: &Path) -> Result<WorkspaceRepository, RepositoryError> {
     git(workspace, &["add", "-A"])?;
     let commit = git(
         workspace,
-        &["commit", "-q", "-m", "Workspace: specs, skills and workflows"],
+        &[
+            "commit",
+            "-q",
+            "-m",
+            "Workspace: specs, skills and workflows",
+        ],
     );
     Ok(WorkspaceRepository {
         exists: true,
@@ -133,7 +138,9 @@ fn git(root: &Path, args: &[&str]) -> Result<(), RepositoryError> {
         .args(args)
         .current_dir(root)
         .output()
-        .map_err(|error| RepositoryError::new("git_error", format!("Git could not be started: {error}")))?;
+        .map_err(|error| {
+            RepositoryError::new("git_error", format!("Git could not be started: {error}"))
+        })?;
     if output.status.success() {
         Ok(())
     } else {

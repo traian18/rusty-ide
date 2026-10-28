@@ -74,7 +74,10 @@ mod tests {
 
     #[test]
     fn a_typed_name_wins_and_an_empty_one_falls_back_to_the_default() {
-        assert_eq!(chosen_name(Some(" feature/dark "), "spec/0001-a"), "feature/dark");
+        assert_eq!(
+            chosen_name(Some(" feature/dark "), "spec/0001-a"),
+            "feature/dark"
+        );
         assert_eq!(chosen_name(Some("  "), "spec/0001-a"), "spec/0001-a");
         assert_eq!(chosen_name(None, "spec/0001-a"), "spec/0001-a");
     }
