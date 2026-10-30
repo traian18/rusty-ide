@@ -3,7 +3,9 @@
 // run answers its own prompts (see `withAutoMode` in hostDefaults.ts):
 //  - commands and file writes are allowed (once each, no session grant);
 //  - a question takes its first suggestion, or the agent is told to decide;
-//  - a workflow step is approved; a failed task is tried once more, then skipped.
+//  - a workflow step is approved; a failed task is tried once more, then skipped;
+//  - a task the step planner cannot plan without a design decision revises the plan; without a plan to
+//    revise, the planner is told to take its own recommendation once, and a second gap stops the run.
 // It is one switch for the whole app, remembered across restarts, and takes
 // effect at once: turning it on also answers what is waiting now.
 // ============================================================
@@ -71,7 +73,22 @@ export function autoWorkflowAnswer(question: WorkflowQuestion): WorkflowAnswer {
   const preferred = PREFERRED.find(offered);
   if (preferred) return { decision: preferred, auto: true };
   if (question.kind === "task_failure") {
+    // A design gap is a question about the design, not a failed build: trying again asks it again, and
+    // skipping skips every task built on it. Revising the plan settles it, taking the planner's own answer.
+    const gap = question.subject as { design_gap?: unknown; problem?: unknown } | null;
     const task = question.requestId.replace(/:\d+$/, "");
+    if (gap?.design_gap === true) {
+      if (offered("revise_plan")) {
+        return { decision: "revise_plan", text: `Auto mode: the step planner found a design gap no builder can settle. Revise the design and the task list so this task can be built, taking the planner's recommended answer and adding any prerequisite tasks it needs:\n${String(gap.problem ?? "")}`, auto: true };
+      }
+      // No plan to revise (the task list is the spec's own): answer the planner once with its own recommendation.
+      if (offered("retry") && !retried.has(task)) {
+        retried.add(task);
+        return { decision: "retry", text: "Auto mode: nobody will answer, so take your own recommended answer. Its prerequisites may be built as part of this task: if that is more than one builder session, split the task into steps.", auto: true };
+      }
+      // Still a gap: stop with the question rather than skip this task and every task built on it.
+      if (offered("stop")) return { decision: "stop", auto: true };
+    }
     if (offered("retry") && !retried.has(task)) {
       retried.add(task);
       return { decision: "retry", text: "Auto mode: try once more, with a different approach if the first one failed for a reason it can't get past.", auto: true };

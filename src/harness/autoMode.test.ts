@@ -30,6 +30,15 @@ describe("auto mode", () => {
     expect(autoWorkflowAnswer(question("other", "x:1", ["stop", "revise_plan"]))).toMatchObject({ decision: "revise_plan", text: expect.any(String) });
   });
 
+  it("revises the plan for a design gap instead of skipping the task and everything built on it", () => {
+    const gap = { ...question("task_failure", "build:1:T2:0", ["retry", "skip", "revise_plan", "stop"]), subject: { task: "T2", problem: "Where does routeId come from? Recommended: the IDE launch.", design_gap: true } };
+    expect(autoWorkflowAnswer(gap)).toMatchObject({ decision: "revise_plan", text: expect.stringContaining("Where does routeId come from?"), auto: true });
+    // Without a plan to revise: the planner takes its own recommendation once, then the run stops with the question.
+    const noPlan = (n: number) => ({ ...gap, requestId: `build:1:T9:${n}`, decisions: gap.decisions.filter((d) => d.id !== "revise_plan") });
+    expect(autoWorkflowAnswer(noPlan(0))).toMatchObject({ decision: "retry", text: expect.stringContaining("recommended answer") });
+    expect(autoWorkflowAnswer(noPlan(1))).toEqual({ decision: "stop", auto: true });
+  });
+
   it("takes a question's first suggestion, or leaves the decision to the agent", () => {
     expect(autoQuestionAnswer({ requestId: "q", question: "Allow?", options: [{ label: "Allow" }, { label: "Block" }] })).toBe("Allow");
     expect(autoQuestionAnswer({ requestId: "q", question: "Which?", options: [] })).toBe(AUTO_DECIDE);
