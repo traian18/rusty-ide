@@ -20,6 +20,8 @@
 //                          .owns / .recall  the full output back by its id
 //   Chat history         chooseHistoryTurns(turns, budget, plainSelection)
 //   Model switches       checkModelSwitch(change) -> { allowed, reason }
+//   Agent tool results   createToolOutputOptimizer().wrap(tool, handler): repeats
+//                        become pointers, very large reports are cut
 //
 // Inside, one folder per concern; each is replaceable behind the
 // functions above:
@@ -27,10 +29,12 @@
 //   recall/         content ids, the RecallStore seam, reading back
 //   history/        stepped turn selection
 //   modelSwitch/    the warm-cache rule
+//   toolOutput/     repeat pointers and size limits for the agent's own tools
 //   safeguards/     never worse, fail open, stamps
 // ============================================================
 
 import { Condenser, type CondenserDeps } from "./commandOutput/condenser";
+import { ToolOutputOptimizer } from "./toolOutput/optimizer";
 import type { CommandOutputCondenser } from "./commandOutput/types";
 
 export { TOKEN_OPTIMIZATIONS, SAFEGUARDS, optimizationById, type OptimizationId, type Safeguard, type TokenOptimization } from "./catalog";
@@ -50,6 +54,12 @@ export { MemoryRecallStore, type RecallStore } from "./recall/store";
 export { parseStamps, type Stamp } from "./safeguards/stamps";
 export { chooseHistoryTurns, type HistoryTurn, type TurnSelection } from "./history";
 export { checkModelSwitch, estimateConversationTokens, type ModelSwitch, type ModelSwitchVerdict } from "./modelSwitch";
+export { ToolOutputOptimizer, TOOL_OUTPUT_LIMITS } from "./toolOutput/optimizer";
+
+/** Wraps the agent's own tools (read_file, spec_context, repo_context...) so their results cost less; one per run. */
+export function createToolOutputOptimizer(): ToolOutputOptimizer {
+  return new ToolOutputOptimizer();
+}
 
 /**
  * A command-output condenser. With no argument it uses the app's switches,

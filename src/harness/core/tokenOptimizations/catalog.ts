@@ -7,7 +7,7 @@
 // optimisations safe to leave on.
 // ============================================================
 
-export type OptimizationId = "command-output" | "recall" | "stable-history" | "warm-cache-guard";
+export type OptimizationId = "command-output" | "recall" | "repeat-results" | "tool-output-limits" | "stable-history" | "warm-cache-guard";
 
 export interface TokenOptimization {
   id: OptimizationId;
@@ -36,6 +36,24 @@ export const TOKEN_OPTIMIZATIONS: readonly TokenOptimization[] = [
     details:
       "A condensed result ends with a stamp naming an id such as out-3f9c2a81d4e70b5a; job_output reads it whole, by line range or by pattern. The id is a hash of the output, so the same output always has the same id. Outputs stay in memory until Rusty quits (the last 30). How often each filter's output is read back is shown below: a high rate means that filter leaves out too much.",
     actsOn: "job_output",
+    defaultEnabled: true,
+  },
+  {
+    id: "repeat-results",
+    name: "Don't resend what the agent already has",
+    summary: "When a tool would give an agent exactly what it already received in this session (the same file read, the same spec document), it gets a one-line pointer instead.",
+    details:
+      "Agents re-read the files they work on and ask for the spec and design again and again; each copy is paid for on every later request. Only identical content counts: a file that changed since, or other lines of it, come back in full. The pointer names an id, so the full text is one job_output call away if the earlier copy was shortened. A workflow step or sub-agent has its own conversation and gets everything once.",
+    actsOn: "read_file, spec_context documents, repo_context, project_info, code_guidelines, search_codebase and the other repo_ tools",
+    defaultEnabled: true,
+  },
+  {
+    id: "tool-output-limits",
+    name: "Limit very large tool reports",
+    summary: "Cuts a reporting tool's result over 12,000 characters to its beginning and end, keeping the full text recallable.",
+    details:
+      "Repository context, project information, guidelines and search reports can run to tens of thousands of characters, most of it never used. The first 9,000 and last 2,000 characters are kept, with a stamp naming a job_output id for the rest. Files (read_file) and spec documents are never cut.",
+    actsOn: "repo_context, project_info, code_guidelines, search_codebase, list_files and the repo_ tools",
     defaultEnabled: true,
   },
   {

@@ -46,6 +46,29 @@ always has the same id. Rusty keeps the last 30 outputs until it quits.
 The Settings page shows how often each filter's output was read back. A high **recall rate** means
 the filter leaves out something models keep needing; that filter should keep more.
 
+### Don't resend what the agent already has (`repeat-results`)
+
+Measured on a real Implement run, command output was under 3% of what tools returned; `read_file`
+was 40% and `spec_context` 22%, much of it the same content sent again (one file was read 13 times;
+the spec and design were fetched four times). When a tool would give an agent session exactly what
+it already received (the same file with the same arguments, the same spec document) it gets a
+one-line pointer instead:
+
+```text
+[unchanged since this session last received it: it is still in your context above, or read it again with job_output id="out-…"]
+```
+
+Only identical content counts: a file edited since, or other lines of it, come back in full. For
+`spec_context` only the documents are replaced; the change's status and open tasks are always
+current. A workflow step or sub-agent has its own conversation and receives everything once.
+
+### Limit very large tool reports (`tool-output-limits`)
+
+`repo_context`, `project_info`, `code_guidelines`, `search_codebase`, `list_files` and the `repo_`
+tools can return tens of thousands of characters. Above 12,000 characters a result keeps its first
+9,000 and last 2,000, with a stamp naming the full text's job_output id. Files and spec documents
+are never cut.
+
 ### Cache-friendly chat history (`stable-history`)
 
 Providers bill a cached prompt prefix at about a tenth of the normal price, but only while the
@@ -81,6 +104,7 @@ it). Inside:
 |---|---|---|
 | `commandOutput/` | the condenser, the generic layer, one filter per command family | a new `filters/<family>/<tool>.ts` exporting a `CommandFilter`, added to `registry.ts` |
 | `recall/` | content ids, the `RecallStore` interface, reading back | another `RecallStore` (on disk, say) passed to `createCommandOutputCondenser` |
+| `toolOutput/` | repeat pointers and size limits for the agent's own tools | `REPEAT_TOOLS`, `LIMITED_TOOLS`; a tool with its own layout gets a sectioner in `sections.ts` |
 | `history/` | stepped turn selection | `CUT_STEP_SHARE` |
 | `modelSwitch/` | the warm-cache rule | `judgeModelSwitch` |
 | `safeguards/` | never worse, fail open, the stamp grammar | the stamp grammar is shared with rusty-core's `harness-context`: change both |

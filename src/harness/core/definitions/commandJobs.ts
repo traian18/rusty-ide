@@ -17,7 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 import { formatDuration } from "../checkHistory";
-import { createCommandOutputCondenser, type CommandOutputCondenser } from "../tokenOptimizations";
+import { createCommandOutputCondenser, createToolOutputOptimizer, type CommandOutputCondenser } from "../tokenOptimizations";
 
 type Outcome = Awaited<ReturnType<HostToolHandler>>;
 
@@ -75,6 +75,8 @@ export class CommandJobs {
   private next = 1;
   /** The run's condensed command outputs: run_command condenses into it, job_output reads the full text back. */
   readonly outputs: CommandOutputCondenser = createCommandOutputCondenser();
+  /** The run's agent-tool results: repeats a session already has become pointers, huge reports are cut. */
+  readonly toolOutputs = createToolOutputOptimizer();
 
   /** `currentStep` names the workflow step running now, if any. */
   constructor(private readonly currentStep: () => string | undefined, runSignal?: AbortSignal) {

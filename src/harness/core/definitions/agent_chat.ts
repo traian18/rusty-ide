@@ -730,7 +730,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       if (handler) handlers[name] = async (...args) => { evidence.invalidate(); try { return await handler(...args); } finally { evidence.invalidate(); } };
     }
     // Whatever the model calls next hears of a background job that finished meanwhile.
-    for (const [name, handler] of Object.entries(handlers)) handlers[name] = withJobNotices(handler, jobs);
+    for (const [name, handler] of Object.entries(handlers)) handlers[name] = withJobNotices(jobs.toolOutputs.wrap(name, handler), jobs);
     return handlers;
   },
 
