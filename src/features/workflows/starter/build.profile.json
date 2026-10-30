@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "id": "build",
-  "revision": 14,
+  "revision": 15,
   "name": "Build",
   "description": "Works as a careful implementer: reads the code and conventions before touching anything, makes the smallest correct change for the task, keeps unrelated work intact, runs the project's own checks after the last edit and reads their output, and reports honestly what was changed, what passed and what could not be run.",
   "status": "published",
@@ -68,6 +68,18 @@
           ]
         },
         "feedback": "Your report says work is left, or it has no status line. Do not hand over yet. If anything you were given is not implemented, continue now: take the next unfinished task, implement it, add its tests, run the checks, and repeat until all of it is done; then end your report with `Status: done` (when your response format has its own status field, set it to complete instead). Only if something you cannot remove yourself stops you (a decision only the user can make, a missing credential, tool or service), end with `Status: blocked — <what is needed>`, or the blocked status your response format offers.",
+        "waive_when_exhausted": true
+      },
+      {
+        "id": "attempted-before-checkpoint",
+        "require": {
+          "any": [
+            { "not": { "final_status": "checkpoint" } },
+            { "not": { "tool_offered": "write_file" } },
+            { "calls": { "tool": "write_file", "outcome": "succeeded", "gte": 1 } }
+          ]
+        },
+        "feedback": "You reported checkpoint without changing a single file. Checkpoint is for an attempt that got stuck after real edits, not for a task that looks large, risky or widely used. A wide blast radius means more mechanical edits and more tests, never a reason to stop. Re-open your task list (do not cancel implementation items), make the first change of your step plan now with edit_file or write_file, then continue item by item and run the checks.",
         "waive_when_exhausted": true
       },
       {

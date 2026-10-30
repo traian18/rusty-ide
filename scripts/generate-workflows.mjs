@@ -156,7 +156,7 @@ const stepPlanText=lines(
   'When previous_attempt is present, this step was reopened or tried before: plan the fix for what it names, on top of the code already there.',
  ]),
  '','What happens next',
- 'A fresh builder, possibly a smaller model, follows your plan, then a reviewer checks the step\'s criteria before the next step is planned. So name real paths and symbols and concrete changes, never "investigate X". Your whole reply is the step plan. Do not change any files.',
+ 'A fresh builder, possibly a smaller model, follows your plan, then a reviewer checks the step\'s criteria before the next step is planned. So name real paths and symbols and concrete changes, never "investigate X": settle it yourself from the code now. Your whole reply is the step plan, unless the step is too big for one session or needs a decision only the person can make: the shapes for those follow. Do not change any files.',
 );
 const criteriaRule='Report every requirement and every problem you find as a criterion: pass when it is done properly, fail followed by what is wrong. Use manual only for what cannot be checked here (it needs a person, a device, an external service, or a command that cannot run in this environment), and read the code for it first: a problem found by reading is fail. For a manual criterion, how_to_test gives the user the exact steps or command; leave it empty otherwise.';
 const verifyText=({focus,queued,next})=>lines(

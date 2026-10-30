@@ -44,7 +44,7 @@ export function specTasksCheckTool(change: PlannedChange): HostToolHandler {
       if (blocking.length === 0) return { ok: true, output: "The task list covers every criterion of the spec." };
       return {
         ok: false,
-        error: `The task list does not match spec.md yet. Fix each point and reply with the whole corrected task list (it is saved as tasks.md):\n${blocking.map(describe).join("\n")}`,
+        error: `The task list is not ready yet: it must cover spec.md, and each task must fit one builder session. Fix each point and reply with the whole corrected task list (it is saved as tasks.md):\n${blocking.map(describe).join("\n")}`,
       };
     } catch (error: unknown) {
       // A check that cannot run must not hold the plan back; the Specs page still shows warnings.
