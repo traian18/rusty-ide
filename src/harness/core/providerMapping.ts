@@ -33,7 +33,7 @@
 // these three; no capability-specific wiring is needed beyond this mapping.
 // ============================================================
 
-import { baseModelReference, parseModelReference, providerHasModelReference, resolveProviderModel } from "../../store/providerHelpers";
+import { baseModelReference, parseModelReference, providerHasModelReference, resolveProviderModel } from "../../features/providers";
 import type { CustomProvider } from "../../store/types";
 import { resolveProviderRoute } from "./modelRouting";
 import type { ReasoningEffort as CoreReasoningEffort } from "./SessionRecipe";

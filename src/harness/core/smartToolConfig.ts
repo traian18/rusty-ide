@@ -1,6 +1,6 @@
-import type { SmartToolSettings } from "../../store/smartReadTypes";
+import type { SmartToolSettings } from "../../features/settings";
 import type { CustomProvider, ProviderStatus } from "../../store/types";
-import { providerHasModelReference, selectableModelProviders } from "../../store/providerHelpers";
+import { providerHasModelReference, selectableModelProviders } from "../../features/providers";
 
 /** The selector model a smart tool uses for one run, resolved once at the
  * run boundary together with that tool's mode. */

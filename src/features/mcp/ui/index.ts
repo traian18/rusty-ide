@@ -1,0 +1,1 @@
+export { McpIntegrationTab } from "./McpIntegrationTab";

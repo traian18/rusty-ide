@@ -77,16 +77,16 @@ import { WORKFLOW_CONTEXT_TOOL, workflowContextTool } from "./workflowContextToo
 // ============================================================
 
 import { formatWorkflowOutput } from "../workflowRun";
-import type { McpServerConfig } from "../../../components/mcp/types";
+import type { McpServerConfig } from "../../../features/mcp";
 import type { CustomProvider } from "../../../store/types";
 import type { AgentChatInput, CapabilityEvent, CapabilityResult } from "../../contract";
 import type { RunHost } from "../../contract";
 import type { CoreCapabilityDefinition, HostToolHandler } from "../CoreHarness";
 import { NOOP_TOOL_EXECUTION_OBSERVER } from "../../contract/observability";
-import { CHAT_RENDER_CHARS } from "../../../config/chatLimits";
+import { CHAT_RENDER_CHARS } from "../../../features/agent-chat";
 import { hasTokens } from "../usageAccumulator";
-import { BUILT_IN_SKILL_IDS } from "../../../config/skillDefinitions";
-import { useWorkflowRunStore } from "../../../components/tabs/behaviors/workflowRunStore";
+import { BUILT_IN_SKILL_IDS } from "../../../features/skills";
+import { useWorkflowRunStore } from "../../../features/workflows";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import { skillExecutionPolicy } from "../skillExecutionPolicy";
 import { mcpIntegrationsSection } from "../mcpPrompt";
@@ -101,7 +101,7 @@ import { codeGuidelinesTool, newGuidelineBriefs, withGuidelineNotices, type Guid
 import { countingEdits, PassCheckLog, recordingChecks } from "./passChecks";
 import { SPEC_CONTEXT_GUIDE, SPEC_CONTEXT_TOOL, specContextTool } from "./specContextTool";
 import { SPEC_TASKS_CHECK_TOOL, specTasksCheckTool } from "./specTasksCheckTool";
-import { activeSpecBrief } from "../../../specs/activeBrief";
+import { activeSpecBrief } from "../../../features/specs";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createProviderRegistrySlice } from "../store/slices/createProviderRegistrySlice";
+import { createProviderRegistrySlice } from "../features/providers/state/providerRegistry";
 import type { WorkspaceState } from "../store/types";
 
 /** Composes only createProviderRegistrySlice, which has zero dependencies

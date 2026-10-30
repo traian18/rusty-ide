@@ -18,7 +18,7 @@ macro_rules! starter_file {
     ($path:literal) => {
         include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../src/components/tabs/behaviors/starter/legacy/",
+            "/../src/features/workflows/starter/legacy/",
             $path
         ))
     };

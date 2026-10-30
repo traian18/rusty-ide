@@ -30,7 +30,7 @@
 // ============================================================
 
 import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot } from "../../../store/types";
-import { PRESETS } from "../../../integrations/providerConnectionProfiles";
+import { PRESETS } from "../../../features/providers";
 import { catalogRequest, inferenceProbeRequest, resolveDirectApiKey } from "./catalogProviders";
 import { catalogModelContext, rawModelsFromPayload, toProviderModels } from "./catalogModels";
 

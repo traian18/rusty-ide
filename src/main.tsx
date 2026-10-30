@@ -1,13 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import { ErrorBoundary } from "./components/ErrorBoundary";
-import { ThemeRuntime } from "./components/ThemeRuntime";
-import { TypographyRuntime } from "./components/runtime/TypographyRuntime";
+import { ErrorBoundary } from "./app/ErrorBoundary";
+import { ThemeRuntime } from "./app/ThemeRuntime";
+import { TypographyRuntime } from "./app/runtime/TypographyRuntime";
 import { applyThemeProperties, resolveTheme } from "./theme";
-import { applyTypographyProperties } from "./preferences/typography";
+import { applyTypographyProperties } from "./features/settings/service/typography";
 import { useWorkspaceStore } from "./store";
-import { installJevShadowGate } from "./services/installJevShadowGate";
+import { installJevShadowGate } from "./features/jev/service/installJevShadowGate";
 import "./index.css";
 
 // Slices initialize activeThemeId/typographyPreferences/keyboardShortcuts

@@ -4,8 +4,8 @@
 // its API wants extra headers).
 
 import type { CustomProvider, ProviderModel } from "../../../store/types";
-import { parseModelReference } from "../../../store/providerHelpers";
-import { getProviderHeaders } from "../../../integrations/providerConnectionHeaders";
+import { parseModelReference } from "../../../features/providers";
+import { getProviderHeaders } from "../../../features/providers";
 
 interface ProviderDefaults {
   baseUrl: string;

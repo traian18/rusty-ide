@@ -1,5 +1,5 @@
 import type { McpServerSpec } from "@rusty/harness-sdk";
-import type { McpServerConfig } from "../../components/mcp/types";
+import type { McpServerConfig } from "../../features/mcp";
 import type { SessionRecipe } from "./SessionRecipe";
 import { mcpServerAccess } from "./skillExecutionPolicy";
 

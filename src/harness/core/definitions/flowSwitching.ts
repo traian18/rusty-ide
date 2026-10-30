@@ -12,9 +12,9 @@
  * Agent tab starts the next run with `context` -- everything finished so far.
  */
 
-import { executionObservability } from "../../../observability/executionStore";
-import { jevFlowRecord } from "../../../observability/modelSelectionRecord";
-import { routeBoundary } from "../../../services/flowRouter";
+import { executionObservability } from "../../../features/observability";
+import { jevFlowRecord } from "../../../features/observability";
+import { routeBoundary } from "../../../features/workflows";
 import type { CapabilityResult, WorkflowSwitch } from "../../contract";
 import type { WorkflowBoundaryContext, WorkflowBoundaryDecision } from "../CoreHarness";
 import { type FinishedStep } from "../workflowRun";

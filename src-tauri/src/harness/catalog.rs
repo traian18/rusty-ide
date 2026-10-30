@@ -20,7 +20,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 const BUILTIN_CATALOG: &str =
-    include_str!("../../../src/components/tabs/behaviors/starter/catalog.json");
+    include_str!("../../../src/features/workflows/starter/catalog.json");
 
 /// Where a built-in workflow is listed: `builtin:<id without namespace>`.
 pub const BUILTIN_PATH_PREFIX: &str = "builtin:";
@@ -35,15 +35,15 @@ const PROFILES_CONFIG: &str = "config.json";
 /// workspaces. One left unmodified is the built-in under another name, so it
 /// is not listed and its path opens the built-in.
 const LEGACY_STARTERS: [&str; 9] = [
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v1/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v2/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v3/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v4/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v5/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v6/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v7/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/v8/plan-build-verify.workflow.json"),
-    include_str!("../../../src/components/tabs/behaviors/starter/legacy/before-task-queue/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v1/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v2/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v3/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v4/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v5/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v6/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v7/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/v8/plan-build-verify.workflow.json"),
+    include_str!("../../../src/features/workflows/starter/legacy/before-task-queue/plan-build-verify.workflow.json"),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

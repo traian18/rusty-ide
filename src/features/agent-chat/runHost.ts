@@ -1,0 +1,55 @@
+import { agentChatClient } from "./client";
+import type { WorkflowAnswer, WorkflowQuestion } from "../../harness/contract";
+import { createRunHost } from "../../harness/hostDefaults";
+import { notify } from "../notifications";
+import type { AgentQuestion } from "./ui/ChatInput";
+import type { AgentTurn } from "./ui/turn";
+import { isShownChat, noticeFor } from "./chats/chatTitle";
+
+/** A run's question to the user, answered from the chat box; withdrawn when `signal` aborts (the run
+ * stopped, or auto mode answered it). */
+function askQuestion(turn: AgentTurn, question: AgentQuestion, signal: AbortSignal): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    signal.addEventListener("abort", () => {
+      turn.state.questionResolvers.delete(question.requestId);
+      turn.ui.setAgentQuestions((prev) => prev.filter((q) => q.requestId !== question.requestId));
+      reject(new DOMException("The question was withdrawn", "AbortError"));
+    }, { once: true });
+    turn.state.questionResolvers.set(question.requestId, resolve);
+    turn.ui.setAgentQuestions((prev) => prev.some((q) => q.requestId === question.requestId) ? prev : [...prev, question]);
+    // The shown chat asks in its box; another chat's question would go unseen.
+    if (!isShownChat(turn.chatId)) notify("A chat needs your answer", noticeFor(turn.chatId, question.question), "info");
+  });
+}
+
+/** A workflow step's question (an approval), answered from its card; withdrawn when the workflow stops. */
+function askWorkflowInput(turn: AgentTurn, question: WorkflowQuestion, signal: AbortSignal): Promise<WorkflowAnswer> {
+  return new Promise<WorkflowAnswer>((resolve, reject) => {
+    const forget = () => {
+      turn.state.workflowAnswers.delete(question.requestId);
+      turn.ui.setWorkflowQuestions((prev) => prev.filter((q) => q.requestId !== question.requestId));
+    };
+    signal.addEventListener("abort", () => {
+      forget();
+      reject(new DOMException("The workflow stopped", "AbortError"));
+    }, { once: true });
+    turn.state.workflowAnswers.set(question.requestId, (answer) => {
+      forget();
+      resolve(answer);
+    });
+    turn.ui.setWorkflowQuestions((prev) => prev.some((q) => q.requestId === question.requestId) ? prev : [...prev, question]);
+    notify(`${question.step} needs your answer`, noticeFor(turn.chatId, question.prompt), "info");
+  });
+}
+
+/** The host the Agent tab's runs call back into: the disk, and the user. */
+export function agentRunHost(turn: AgentTurn) {
+  return createRunHost({
+    readFile: (path) => agentChatClient.readFile(path),
+    writeFile: async (path, content) => {
+      await agentChatClient.writeFile(path, content);
+    },
+    askQuestion: (question, signal) => askQuestion(turn, question, signal),
+    askWorkflowInput: (question, signal) => askWorkflowInput(turn, question, signal),
+  });
+}

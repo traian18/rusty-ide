@@ -1,5 +1,5 @@
 import type { HistorySummaryView } from "./definitions/promptHistory";
-import type { AutoLevel } from "../../store/intelligentModelSelectionTypes";
+import type { AutoLevel } from "../../features/providers";
 
 /** The model-facing name of the JEV decision tool. rusty-core allows it
  * under every execution policy (`execution_policy::allows_tool`). */

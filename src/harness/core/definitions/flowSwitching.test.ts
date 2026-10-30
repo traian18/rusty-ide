@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const post = vi.hoisted(() => vi.fn());
-vi.mock("../../../services/intelligentModelSelector", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../../services/intelligentModelSelector")>()),
+vi.mock("../../../features/providers/service/intelligentModelSelector", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../features/providers/service/intelligentModelSelector")>()),
   postJevDecision: post,
 }));
 

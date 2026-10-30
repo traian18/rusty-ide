@@ -19,7 +19,7 @@ import type { CoreCapabilityDefinition } from "../CoreHarness";
 import { CORE_MAX_TOKENS, mapProviderToIntegration } from "../providerMapping";
 import type { SessionRecipe } from "../SessionRecipe";
 import type { Transcript } from "../transcript";
-import { SKILL_TOOLS } from "../../../config/skillTools";
+import { SKILL_TOOLS } from "../../../features/skills";
 
 const AVAILABLE_TOOLS = SKILL_TOOLS.map((tool) => tool.id);
 

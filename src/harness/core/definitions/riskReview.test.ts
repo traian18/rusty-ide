@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CommandPermissionRequest, RunHost } from "../../contract";
 import type { HostToolHandler } from "../CoreHarness";
-import type { postJevDecision } from "../../../services/intelligentModelSelector";
-import { JevReviewStats } from "../../../services/jevReviewStats";
+import type { postJevDecision } from "../../../features/providers";
+import { JevReviewStats } from "../../../features/jev";
 import { createRiskReview } from "./riskReview";
 
 function memoryStorage() {

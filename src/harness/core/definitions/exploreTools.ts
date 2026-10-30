@@ -29,8 +29,8 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import { searchService } from "../../../services/searchService";
-import { isBinaryDocumentFile, parseDocument } from "../../../services/documentParserService";
+import { searchService } from "../../../features/explorer";
+import { isBinaryDocumentFile, parseDocument } from "../../../lib/documents";
 import type { RunHost } from "../../contract";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";

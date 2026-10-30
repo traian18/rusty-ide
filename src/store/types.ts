@@ -5,15 +5,15 @@ import type {
   OnEdgesChange,
   OnNodesChange,
 } from "@xyflow/react";
-import type { McpServerConfig } from "../components/mcp/types";
-import type { TypographyPreferences } from "../preferences/typography";
-import type { KeyboardShortcutPreferences, ShortcutAction } from "../preferences/shortcuts";
-import type { EditorFileSafetyPreferences } from "../preferences/editorFileSafety";
-import type { DrawerView } from "../preferences/shellLayout";
-import type { OpenTabRequest, TabInstance } from "../tabs/types";
-import type { StartupState } from "../startup/types";
-import type { ProviderId, ProviderStatusEntry } from "../integrations/registryTypes";
-import type { UpdateState } from "./slices/createUpdateSlice";
+import type { McpServerConfig } from "../features/mcp";
+import type { TypographyPreferences } from "../features/settings";
+import type { KeyboardShortcutPreferences, ShortcutAction } from "../features/settings";
+import type { EditorFileSafetyPreferences } from "../features/editor";
+import type { DrawerView } from "../app/shellLayout";
+import type { OpenTabRequest, TabInstance } from "../app/tabs/types";
+import type { StartupState } from "../app/startup/types";
+import type { ProviderId, ProviderStatusEntry } from "../features/providers";
+import type { UpdateState } from "../features/updates/state";
 
 export type ReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 
@@ -157,7 +157,7 @@ export interface DevLog {
 }
 
 /**
- * Unified with the previously-drifted copy in components/git/GitActions.ts
+ * Unified with the previously-drifted copy in features/git/model.ts
  * (REFACTOR_PLAN.md PR 5b commit 14) -- that file now re-exports this one
  * instead of declaring its own. "renamed" and "copied" both come from
  * git.rs's `-z` status parser (PR 5a commit 7); "copied" is new there.
@@ -178,7 +178,7 @@ export interface GitStatusResult {
 /**
  * Mirrors git.rs's `GitHeadState` (REFACTOR_PLAN.md PR 5a commit 4), hand-
  * declared per this file's existing convention (no codegen) -- see
- * createGitSlice.ts for the snake_case-wire-to-camelCase-JS field mapping.
+  * features/git/state.ts for the snake_case-wire-to-camelCase-JS field mapping.
  * `mode` is `"branch"`, `"detached"`, or `"unborn"`; `branch` may still be
  * set when `mode === "unborn"` (a freshly `git init`-ed repo already points
  * HEAD at a named branch before the first commit exists), so the two are

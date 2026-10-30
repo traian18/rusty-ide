@@ -1,4 +1,4 @@
-import type { SmartSearchSettings } from "../../store/smartReadTypes";
+import type { SmartSearchSettings } from "../../features/settings";
 import { resolveSelectorModel, type SelectorModelConfig, type SmartToolSettingsSources } from "./smartToolConfig";
 
 declare module "../../harness/contract/capabilities" {

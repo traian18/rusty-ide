@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/components/tabs/behaviors/starter');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../src/features/workflows/starter');
 const read = p => JSON.parse(fs.readFileSync(path.join(root,p),'utf8'));
 const string = {type:'string',minLength:1};
 const array = items => ({type:'array',items});

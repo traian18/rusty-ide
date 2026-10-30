@@ -46,7 +46,7 @@ import type {
 } from "./contract/controlPlane";
 import { managedAuthLogout, managedAuthModels, managedAuthQuota, managedAuthStartLogin, managedAuthStatus, type LoginState, type ManagedAuthProvider, type ManagedModel } from "./managedAuthClient";
 import { mapManagedQuota } from "./managedQuota";
-import { isCodexProvider, isCopilotProvider, isManagedAuthProvider } from "../store/providerHelpers";
+import { isCodexProvider, isCopilotProvider, isManagedAuthProvider } from "../features/providers";
 import type { CustomProvider, ProviderModel, ProviderQuotaSnapshot, ReasoningEffort } from "../store/types";
 
 function loginStateToConnectionStatus(state: LoginState): CopilotConnectionStatus & CodexConnectionStatus {

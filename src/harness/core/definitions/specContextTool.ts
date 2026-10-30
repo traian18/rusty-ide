@@ -8,9 +8,9 @@
 // ============================================================
 
 import { invoke } from "@tauri-apps/api/core";
-import { specsClient, type SpecsClient } from "../../../specs/client";
-import { formatChange, formatSpecList, SPEC_DOCUMENTS } from "../../../specs/chatBrief";
-import type { ChangeSummary, SpecsOverview } from "../../../specs/model";
+import { specsClient, type SpecsClient } from "../../../features/specs";
+import { formatChange, formatSpecList, SPEC_DOCUMENTS } from "../../../features/specs";
+import type { ChangeSummary, SpecsOverview } from "../../../features/specs";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { change, emptyOverview, fakeSpecsClient } from "../../../specs/specs.testing";
-import { activeSpecBrief } from "../../../specs/activeBrief";
+import { change, emptyOverview, fakeSpecsClient } from "../../../features/specs/specs.testing";
+import { activeSpecBrief } from "../../../features/specs/activeBrief";
 import { findChange, specContextTool } from "./specContextTool";
 
 const overview = { ...emptyOverview, exists: true, changes: [change(), change({ dir: "0002-dark-mode", number: 2, title: "Dark mode", status: "draft" })] };

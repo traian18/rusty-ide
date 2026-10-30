@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 
-import type { McpServerConfig } from "../../components/mcp/types";
-import { DEFAULT_SERVER_CONFIG } from "../../components/mcp/types";
+import type { McpServerConfig } from "../../features/mcp";
+import { DEFAULT_SERVER_CONFIG } from "../../features/mcp";
 import { testMcpConnection } from "./mcpTestConnection";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));

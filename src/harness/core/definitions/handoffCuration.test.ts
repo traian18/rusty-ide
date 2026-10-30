@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { JevDecisionResponse, postJevDecision } from "../../../services/intelligentModelSelector";
+import type { JevDecisionResponse, postJevDecision } from "../../../features/providers";
 import type { ExecutionRequest } from "../engine/ExecutionProtocol";
 import {
   curateHandoff,

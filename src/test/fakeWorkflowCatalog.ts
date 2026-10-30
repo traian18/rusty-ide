@@ -4,9 +4,9 @@
  * from an in-memory workspace (`files`: path → content) the way the host
  * does: built-ins first, then the workspace's files by path.
  */
-import catalog from "../components/tabs/behaviors/starter/catalog.json";
-import type { JsonObject } from "../components/tabs/behaviors/behaviorModel";
-import type { CatalogEntry, WorkflowCatalog } from "../services/workflowCatalogService";
+import { builtinCatalog as catalog } from "../features/workflows";
+import type { JsonObject } from "../features/workflows";
+import type { CatalogEntry, WorkflowCatalog } from "../features/workflows";
 
 /** The built-in workflows, as the catalog lists them. */
 export const BUILTIN_WORKFLOWS = catalog.workflows as unknown as JsonObject[];

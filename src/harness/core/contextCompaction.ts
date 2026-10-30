@@ -1,4 +1,4 @@
-import { baseModelReference } from "../../store/providerHelpers";
+import { baseModelReference } from "../../features/providers";
 import type { CustomProvider } from "../../store/types";
 import type { ContextCompactionRunConfig } from "./decideToolConfig";
 import type { ExecutionRequest } from "./engine/ExecutionProtocol";

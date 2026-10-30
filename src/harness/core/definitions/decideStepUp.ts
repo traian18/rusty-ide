@@ -1,6 +1,6 @@
 import type { CustomProvider } from "../../../store/types";
-import { AUTO_LEVELS, type AutoLevel } from "../../../store/intelligentModelSelectionTypes";
-import { AUTO_LEVEL_CRITERIA, AUTO_LEVEL_LABELS, type JevScoreAnswer } from "../../../services/intelligentModelSelector";
+import { AUTO_LEVELS, type AutoLevel } from "../../../features/providers";
+import { AUTO_LEVEL_CRITERIA, AUTO_LEVEL_LABELS, type JevScoreAnswer } from "../../../features/providers";
 import { mapProviderToIntegration } from "../providerMapping";
 import type { ExecutionParams } from "../SessionRecipe";
 import type { DecideStepUpConfig } from "../decideToolConfig";

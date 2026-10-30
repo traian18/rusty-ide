@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../services/commandPermissionService", () => ({
+vi.mock("../features/permissions/service/commandPermissionService", () => ({
   commandPermissionService: { request: vi.fn(() => new Promise(() => undefined)) },
 }));
 
 import { AUTO_DECIDE, autoQuestionAnswer, autoWorkflowAnswer, isAutoMode, setAutoMode, unlessAuto } from "./autoMode";
 import { createRunHost } from "./hostDefaults";
-import { commandPermissionService } from "../services/commandPermissionService";
+import { commandPermissionService } from "../features/permissions";
 import type { CommandPermissionRequest } from "../../shared/agent-protocol";
 import type { WorkflowQuestion } from "./contract";
 

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createPreferencesSlice } from "../store/slices/createPreferencesSlice";
+import { createPreferencesSlice } from "../features/settings/state/preferences";
 import type { WorkspaceState } from "../store/types";
 
 /**

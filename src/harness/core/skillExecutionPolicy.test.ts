@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { mcpServerAccess, skillExecutionPolicy } from "./skillExecutionPolicy";
 import { mcpIntegrationsSection } from "./mcpPrompt";
-import { BUILT_IN_SKILLS } from "../../config/skillDefinitions";
-import type { McpServerConfig } from "../../components/mcp/types";
+import { BUILT_IN_SKILLS } from "../../features/skills";
+import type { McpServerConfig } from "../../features/mcp";
 
 describe("skillExecutionPolicy", () => {
   it("gives every skill, built-in included, exactly the servers ticked for it", () => {

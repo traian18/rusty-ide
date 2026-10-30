@@ -9,7 +9,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { SpecWarning } from "../../../specs/model";
+import type { SpecWarning } from "../../../features/specs";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 

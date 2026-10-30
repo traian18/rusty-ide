@@ -1,10 +1,10 @@
 // Test support: an Agent tab model over the real chat store, without React.
-import type { WorkflowChoice } from "../components/tabs/behaviors/AgentWorkflowBar";
-import type { AgentTabModel } from "../components/tabs/agentTab/useAgentTab";
-import { disposeTabChats, ensureChat, openChat } from "../components/tabs/agentTab/chats/chatLifecycle";
-import { chatRuntime } from "../components/tabs/agentTab/chats/chatRuntime";
-import { chatView, useChatStore } from "../components/tabs/agentTab/chats/chatStore";
-import { chatSessionFor, chatTurn, type ChatTabContext } from "../components/tabs/agentTab/chats/chatTurn";
+import type { WorkflowChoice } from "../features/workflows/ui";
+import type { AgentTabModel } from "../features/agent-chat/ui";
+import { disposeTabChats, ensureChat, openChat } from "../features/agent-chat/ui";
+import { chatRuntime } from "../features/agent-chat/ui";
+import { chatView, useChatStore } from "../features/agent-chat/ui";
+import { chatSessionFor, chatTurn, type ChatTabContext } from "../features/agent-chat/ui";
 
 /** A tab `tabId` with one chat open; `options` are the workflows its picker offers. */
 export function fakeChatTab(tabId: string, options: Array<Pick<WorkflowChoice, "id" | "path">> = []) {

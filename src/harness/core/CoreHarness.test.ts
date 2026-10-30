@@ -12,7 +12,7 @@ import { CoreHarness, enrichedRecipe, type CoreCapabilityDefinition, type Execut
 import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "./engine/ExecutionProtocol";
 import { inlineChatDefinition } from "./definitions/inline_chat";
 import type { SessionRecipe } from "./SessionRecipe";
-import { executionObservability } from "../../observability/executionStore";
+import { executionObservability } from "../../features/observability";
 import { setToolDecisionObserver, type ToolDecisionObserver } from "./toolDecisionObserver";
 
 /**

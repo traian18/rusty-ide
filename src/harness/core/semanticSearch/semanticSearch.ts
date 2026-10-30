@@ -1,7 +1,7 @@
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver } from "../../contract/observability";
 import { logExecutionDiagnostic } from "../executionDiagnostics";
 import type { CustomProvider } from "../../../store/types";
-import type { SearchMatch } from "../../../services/searchService";
+import type { SearchMatch } from "../../../features/explorer";
 import type { SelectorModelInvoker } from "../semanticRead/modelInvoker";
 
 export interface SearchQuery {

@@ -18,7 +18,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { McpServerConfig } from "../../components/mcp/types";
+import type { McpServerConfig } from "../../features/mcp";
 import { mapMcpServerConfig } from "./mcpServerMapping";
 
 export interface McpTestResult {

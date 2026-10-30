@@ -29,7 +29,7 @@
 
 import type { CustomProvider } from "../../store/types";
 import { resolveDirectRuntime } from "./engine/directExecution";
-import { getProviderHeaders } from "../../integrations/providerConnectionHeaders";
+import { getProviderHeaders } from "../../features/providers";
 
 export interface ModelRoute {
   /** Tried in registration order; first match wins. */

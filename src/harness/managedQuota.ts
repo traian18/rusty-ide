@@ -16,7 +16,7 @@
 
 import type { ManagedQuota } from "./managedAuthClient";
 import type { CustomProvider, ProviderQuotaSnapshot, ProviderQuotaWindow } from "../store/types";
-import { isCodexProvider, isCopilotProvider } from "../store/providerHelpers";
+import { isCodexProvider, isCopilotProvider } from "../features/providers";
 
 type Raw = Record<string, unknown>;
 

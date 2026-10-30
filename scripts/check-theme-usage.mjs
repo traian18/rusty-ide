@@ -4,9 +4,9 @@ import { extname, join, relative } from "node:path";
 const sourceRoot = new URL("../src", import.meta.url).pathname;
 const sourceExtensions = new Set([".css", ".ts", ".tsx"]);
 const allowedFixedColorFiles = new Set([
-  "services/fileTypeService.tsx", // Official language and tool artwork.
-  "components/nodes/sticky/StickyNode.tsx", // User-selectable sticky-note ink.
-  "components/nodes/sticky/stickyColors.ts", // User-selectable sticky-note paper.
+  "features/editor/ui/fileTypeService.tsx", // Official language and tool artwork.
+  "features/canvas/ui/nodes/sticky/StickyNode.tsx", // User-selectable sticky-note ink.
+  "features/canvas/ui/nodes/sticky/stickyColors.ts", // User-selectable sticky-note paper.
   "styles/categoricalColors.ts", // The shared palette for telling categories apart.
 ]);
 const forbidden = [
@@ -17,23 +17,25 @@ const forbidden = [
 ];
 const semanticCssModules = [
   /^App\.module\.css$/,
-  /^components\/shell\/(?:AppBootstrapBoundary|AppShell|StartupDegradedBanner)\.module\.css$/,
-  /^components\/workspace\/(?:MainWorkspace|TabStrip|TabOutlet)\.module\.css$/,
-  /^components\/navigation\/NavigationRail\.module\.css$/,
-  /^components\/drawer\/(?:ContextDrawer|DrawerSkeleton)\.module\.css$/,
-  /^components\/(?:Header|TerminalPanel|LocalTerminal|SearchPalette|CustomSelect)\.module\.css$/,
-  /^components\/settings\/.*\.module\.css$/,
-  /^components\/tabs\/SettingsTab\.module\.css$/,
-  /^components\/tabs\/behaviors\/.*\.module\.css$/,
-  /^architecture\/.*\.module\.css$/,
-  /^components\/ui\/(?:Button|FormControls|NumberStepper|Modal|IconButton|Callout|Tooltip)\//,
-  /^components\/ui\/(?:Chat|ChatInput|MarkdownRenderer|SubagentActivityPanel)\.module\.css$/,
-  /^components\/ui\/DiffViewToggle\.module\.css$/,
-  /^components\/nodes\/TaskNode\.module\.css$/,
-  /^components\/nodes\/McpNode\.module\.css$/,
-  /^components\/nodes\/boundary\/BoundaryNode\.module\.css$/,
-  /^components\/(?:CreateDialog|MoveDialog|BranchDialog)\.module\.css$/,
-  /^components\/permissions\/CommandPermissionDialog\.module\.css$/,
+  /^app\/shell\/(?:AppBootstrapBoundary|AppShell|StartupDegradedBanner)\.module\.css$/,
+  /^app\/workspace\/(?:MainWorkspace|TabStrip|TabOutlet)\.module\.css$/,
+  /^app\/navigation\/NavigationRail\.module\.css$/,
+  /^app\/drawer\/(?:ContextDrawer|DrawerSkeleton)\.module\.css$/,
+  /^app\/(?:Header)\.module\.css$/,
+  /^features\/terminal\/ui\/(?:TerminalPanel|LocalTerminal)\.module\.css$/,
+  /^features\/explorer\/ui\/(?:SearchPalette|CreateDialog|MoveDialog)\.module\.css$/,
+  /^features\/(?:settings|updates|editor|providers)\/ui\/(?:AppearanceSettings|EditorFileSafetySettings|KeyboardShortcutsSettings|ManagedAuthSettings|SecretStorageStatus|StorageSettings|TypographySettings|UpdateSettings|WebSearchSettings)\.module\.css$/,
+  /^features\/settings\/ui\/SettingsTab\.module\.css$/,
+  /^features\/workflows\/ui\/.*\.module\.css$/,
+  /^features\/architecture\/ui\/.*\.module\.css$/,
+  /^lib\/ui\/(?:Button|FormControls|NumberStepper|Modal|IconButton|Callout|Tooltip)\//,
+  /^features\/agent-chat\/ui\/(?:Chat|ChatInput|SubagentActivityPanel)\.module\.css$/,
+  /^lib\/ui\/(?:MarkdownRenderer|CustomSelect)\.module\.css$/,
+  /^lib\/ui\/DiffViewToggle\.module\.css$/,
+  /^features\/canvas\/ui\/nodes\/TaskNode\.module\.css$/,
+  /^features\/canvas\/ui\/nodes\/McpNode\.module\.css$/,
+  /^features\/canvas\/ui\/nodes\/boundary\/BoundaryNode\.module\.css$/,
+  /^features\/permissions\/ui\/CommandPermissionDialog\.module\.css$/,
 ];
 const semanticModuleForbidden = [
   {
@@ -51,39 +53,38 @@ const semanticModuleForbidden = [
 ];
 const migratedJsxFiles = new Set([
   "App.tsx",
-  "components/shell/AppBootstrapBoundary.view.tsx",
-  "components/shell/StartupDegradedBanner.tsx",
-  "components/shell/AppShell.view.tsx",
-  "components/workspace/MainWorkspace.tsx",
-  "components/workspace/TabOutlet.tsx",
-  "components/workspace/TabStrip.view.tsx",
-  "components/navigation/NavigationRail.view.tsx",
-  "components/drawer/ContextDrawer.view.tsx",
-  "components/drawer/DrawerSkeleton.tsx",
-  "components/Header.view.tsx",
-  "components/TerminalPanel.tsx",
-  "components/LocalTerminal.tsx",
-  "components/SearchPalette.view.tsx",
-  "components/CustomSelect.view.tsx",
-  "components/ui/DiffViewToggle.tsx",
-  "components/ui/Tooltip/Tooltip.tsx",
-  "components/nodes/TaskNode.tsx",
-  "components/nodes/McpNode.tsx",
-  "components/nodes/boundary/BoundaryNode.tsx",
-  "components/nodes/sticky/StickyNode.tsx",
-  "components/ConfirmModal.tsx",
-  "components/CreateDialog.tsx",
-  "components/MoveDialog.tsx",
-  "components/BranchDialog.tsx",
-  "components/permissions/CommandPermissionDialog.tsx",
-  "components/mcp/McpIntegrationModal.tsx",
-  "components/tabs/behaviors/BehaviorsTab.tsx",
-  "components/tabs/behaviors/BehaviorCanvases.tsx",
-  "components/tabs/behaviors/BehaviorNodes.tsx",
-  "components/tabs/behaviors/ProfileInspector.tsx",
-  "components/tabs/behaviors/WorkflowInspector.tsx",
-  "components/tabs/behaviors/InspectorFields.tsx",
-  "components/tabs/behaviors/AgentWorkflowBar.tsx",
+  "app/shell/AppBootstrapBoundary.view.tsx",
+  "app/shell/StartupDegradedBanner.tsx",
+  "app/shell/AppShell.view.tsx",
+  "app/workspace/MainWorkspace.tsx",
+  "app/workspace/TabOutlet.tsx",
+  "app/workspace/TabStrip.view.tsx",
+  "app/navigation/NavigationRail.view.tsx",
+  "app/drawer/ContextDrawer.view.tsx",
+  "app/drawer/DrawerSkeleton.tsx",
+  "app/Header.view.tsx",
+  "features/terminal/ui/TerminalPanel.tsx",
+  "features/terminal/ui/LocalTerminal.tsx",
+  "features/explorer/ui/SearchPaletteView.tsx",
+  "lib/ui/CustomSelect.view.tsx",
+  "lib/ui/DiffViewToggle.tsx",
+  "lib/ui/Tooltip/Tooltip.tsx",
+  "features/canvas/ui/nodes/TaskNode.tsx",
+  "features/canvas/ui/nodes/McpNode.tsx",
+  "features/canvas/ui/nodes/boundary/BoundaryNode.tsx",
+  "features/canvas/ui/nodes/sticky/StickyNode.tsx",
+  "lib/ui/ConfirmModal.tsx",
+  "features/explorer/ui/CreateDialog.tsx",
+  "features/explorer/ui/MoveDialog.tsx",
+  "features/permissions/ui/CommandPermissionDialog.tsx",
+  "features/mcp/ui/McpIntegrationModal.tsx",
+  "features/workflows/ui/BehaviorsTab.tsx",
+  "features/workflows/ui/BehaviorCanvases.tsx",
+  "features/workflows/ui/BehaviorNodes.tsx",
+  "features/workflows/ui/ProfileInspector.tsx",
+  "features/workflows/ui/WorkflowInspector.tsx",
+  "features/workflows/ui/InspectorFields.tsx",
+  "features/workflows/ui/AgentWorkflowBar.tsx",
 ]);
 
 function walk(directory) {
@@ -115,11 +116,11 @@ for (const path of walk(sourceRoot)) {
 }
 
 const protectedMonacoTypographyConsumers = [
-  "components/tabs/FileTab.tsx",
-  "components/tabs/GitDiffTab.tsx",
-  "components/tabs/TaskTab.tsx",
-  "components/edgeinspector/components/EdgeDiffTabContent.tsx",
-  "components/sidepane/components/DiffTabContent.tsx",
+  "features/editor/ui/FileTab.tsx",
+  "features/git/ui/GitDiffTab.tsx",
+  "features/workflows/ui/TaskTab.tsx",
+  "features/canvas/ui/edgeinspector/components/EdgeDiffTabContent.tsx",
+  "features/canvas/ui/sidepane/components/DiffTabContent.tsx",
 ];
 
 for (const displayPath of protectedMonacoTypographyConsumers) {

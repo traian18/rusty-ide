@@ -32,7 +32,7 @@
 // `enable_web_fetch`.
 // ============================================================
 
-import type { McpServerConfig } from "../../../components/mcp/types";
+import type { McpServerConfig } from "../../../features/mcp";
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult, GlobalExploreInput } from "../../contract";
 import type { RunHost } from "../../contract";

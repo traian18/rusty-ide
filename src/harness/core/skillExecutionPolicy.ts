@@ -1,4 +1,4 @@
-import { SKILL_TOOLS } from "../../config/skillTools";
+import { SKILL_TOOLS } from "../../features/skills";
 import type { SessionRecipe } from "./SessionRecipe";
 
 type ExecutionPolicy = NonNullable<SessionRecipe["execution_policy"]>;

@@ -37,7 +37,7 @@
 // built-in, registered unconditionally via `enable_web_fetch`.
 // ============================================================
 
-import type { McpServerConfig } from "../../../components/mcp/types";
+import type { McpServerConfig } from "../../../features/mcp";
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityResult, ExecuteNodeInput } from "../../contract";
 import type { RunHost } from "../../contract";

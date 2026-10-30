@@ -7,9 +7,9 @@ import { commandRisk, writeRisk } from "../riskyActions";
 import { toolDecisionObserver, type ToolDecisionObserver } from "../toolDecisionObserver";
 import { applyEdit, overwriteRefusal, resolveWriteTarget } from "./exploreTools";
 import { normalizeCommand } from "./runCommandTool";
-import { JEV_CONFIDENCE_THRESHOLD, postJevDecision, type JevDecisionResponse, type JevScoreAnswer } from "../../../services/intelligentModelSelector";
-import { JEV_ACTION_CRITERIA, JEV_ACTION_LABELS, actionDecisionBody, buildReviewState, parseActionAnswer, type ScoredAction } from "../../../services/jevShadowGate";
-import { jevReviewStats, type JevReviewOutcome, type JevReviewStats } from "../../../services/jevReviewStats";
+import { JEV_CONFIDENCE_THRESHOLD, postJevDecision, type JevDecisionResponse, type JevScoreAnswer } from "../../../features/providers";
+import { JEV_ACTION_CRITERIA, JEV_ACTION_LABELS, actionDecisionBody, buildReviewState, parseActionAnswer, type ScoredAction } from "../../../features/jev";
+import { jevReviewStats, type JevReviewOutcome, type JevReviewStats } from "../../../features/jev";
 
 export interface RiskReviewDependencies {
   config: JevRiskReviewRunConfig;

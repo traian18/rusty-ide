@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createUiSlice } from "../store/slices/createUiSlice";
+import { createUiSlice } from "../app/state/ui";
 import type { WorkspaceState } from "../store/types";
 
 /**

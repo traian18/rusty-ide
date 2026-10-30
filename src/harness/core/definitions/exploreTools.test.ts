@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
 
-import { searchService } from "../../../services/searchService";
+import { searchService } from "../../../features/explorer";
 import type { RunHost } from "../../contract";
 import {
   EDIT_FILE_TOOL,
@@ -19,7 +19,7 @@ import {
 import * as XLSX from "xlsx";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-vi.mock("../../../services/searchService", () => ({ searchService: { searchProject: vi.fn() } }));
+vi.mock("../../../features/explorer/service/searchService", () => ({ searchService: { searchProject: vi.fn() } }));
 
 const invokeMock = vi.mocked(invoke);
 const searchProjectMock = vi.mocked(searchService.searchProject);

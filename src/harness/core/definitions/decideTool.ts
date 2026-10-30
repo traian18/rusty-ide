@@ -4,11 +4,11 @@ import type { HostToolHandler, RunContext } from "../CoreHarness";
 import { toolDecisionObserver, type ToolDecisionObserver } from "../toolDecisionObserver";
 import type { HostToolSpec, SessionRecipe } from "../SessionRecipe";
 import { DECIDE_TOOL_NAME, type DecideToolRunConfig } from "../decideToolConfig";
-import { AUTO_LEVEL_LABELS, JEV_CONFIDENCE_THRESHOLD, postJevDecision, type JevDecisionResponse, type JevScoreAnswer } from "../../../services/intelligentModelSelector";
-import type { AutoLevel } from "../../../store/intelligentModelSelectionTypes";
+import { AUTO_LEVEL_LABELS, JEV_CONFIDENCE_THRESHOLD, postJevDecision, type JevDecisionResponse, type JevScoreAnswer } from "../../../features/providers";
+import type { AutoLevel } from "../../../features/providers";
 import type { CustomProvider } from "../../../store/types";
 import { assessLevel, levelQuestion, stepUpTargets } from "./decideStepUp";
-import { jevDecisionStats, type JevDecisionBand, type JevDecisionStats } from "../../../services/jevDecisionStats";
+import { jevDecisionStats, type JevDecisionBand, type JevDecisionStats } from "../../../features/jev";
 
 export const DECIDE_TOOL: HostToolSpec = {
   name: DECIDE_TOOL_NAME,

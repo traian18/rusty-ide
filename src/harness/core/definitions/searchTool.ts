@@ -5,7 +5,7 @@ import type { SearchToolRunConfig } from "../searchToolConfig";
 import { RoutedSelectorModelInvoker, type SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT, semanticSearch, smartSearchTracer } from "../semanticSearch/semanticSearch";
 import { requestTerms } from "../semanticRead/plainExcerpt";
-import { searchService, type SearchMatch } from "../../../services/searchService";
+import { searchService, type SearchMatch } from "../../../features/explorer";
 import { SEARCH_CODEBASE_TOOL, searchCodebaseTool } from "./exploreTools";
 
 export const RANKED_SEARCH_CODEBASE_TOOL: HostToolSpec = {

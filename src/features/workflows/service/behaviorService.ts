@@ -1,0 +1,99 @@
+/**
+ * behaviorService.ts — writing workspace behavior files and core validation
+ * for the Behaviors canvas. Reading what exists is the workflow catalog
+ * service's job (src/services/workflowCatalogService.ts).
+ *
+ * Profiles live in `.rusty/profiles/<id>.json` (the directory rusty-core's
+ * `SessionBuilder::workspace_profiles` loads, with `config.json` naming the
+ * workspace default); workflows in `.rusty/workflows/<id>.json`.
+ */
+
+import { workflowClient } from "../client";
+import { type Issue, type Json, type JsonObject, isObject, stableStringify } from "../model";
+import { isBuiltinWorkflowPath } from "../model/starterFlow";
+
+export const PROFILES_DIR = ".rusty/profiles";
+export const WORKFLOWS_DIR = ".rusty/workflows";
+export const PROFILES_CONFIG = "config.json";
+
+export interface StoredDocument {
+  /** Absolute path of the file, or where it will be written. */
+  path: string;
+  document: JsonObject;
+  /** Serialized form as last read or written, for dirty tracking. */
+  saved: string;
+}
+
+export interface LoadFailure {
+  path: string;
+  error: string;
+}
+
+export function profilePath(rootPath: string, id: string): string {
+  return `${rootPath}/${PROFILES_DIR}/${id}.json`;
+}
+
+export function workflowPath(rootPath: string, id: string): string {
+  return `${rootPath}/${WORKFLOWS_DIR}/${id}.json`;
+}
+
+export const behaviorService = {
+  /** The workspace default profile id from `config.json`, if any. */
+  async loadDefaultProfile(rootPath: string): Promise<string | undefined> {
+    try {
+      const text = await workflowClient.readFile(`${rootPath}/${PROFILES_DIR}/${PROFILES_CONFIG}`);
+      const config = JSON.parse(text) as Json;
+      if (isObject(config) && isObject(config.default) && typeof config.default.id === "string") {
+        return config.default.id;
+      }
+    } catch {
+      // No config: the built-in default applies.
+    }
+    return undefined;
+  },
+
+  /** Writes `config.json`, keeping any other keys it already has. */
+  async saveDefaultProfile(rootPath: string, id: string | undefined): Promise<void> {
+    const path = `${rootPath}/${PROFILES_DIR}/${PROFILES_CONFIG}`;
+    let config: JsonObject = {};
+    try {
+      const existing = JSON.parse(await workflowClient.readFile(path)) as Json;
+      if (isObject(existing)) config = existing;
+    } catch {
+      // Start fresh.
+    }
+    if (id) config.default = { id };
+    else delete config.default;
+    await ensureDir(`${rootPath}/${PROFILES_DIR}`);
+    await workflowClient.writeFile(path, stableStringify(config));
+  },
+
+  async save(path: string, document: JsonObject): Promise<string> {
+    if (isBuiltinWorkflowPath(path)) throw new Error("Built-in workflows are read-only");
+    await ensureDir(path.slice(0, path.lastIndexOf("/")));
+    const content = stableStringify(document);
+    await workflowClient.writeFile(path, content);
+    return content;
+  },
+
+  async remove(path: string): Promise<void> {
+    if (isBuiltinWorkflowPath(path)) throw new Error("Built-in workflows cannot be deleted");
+    await workflowClient.deleteFileOrDir(path);
+  },
+
+  validateProfile(document: JsonObject, library: JsonObject[]): Promise<Issue[]> {
+    return workflowClient.validateProfile(document, library);
+  },
+
+  validateWorkflow(document: JsonObject, profiles: JsonObject[]): Promise<Issue[]> {
+    return workflowClient.validateWorkflow(document, profiles);
+  },
+};
+
+async function ensureDir(path: string) {
+  try {
+    await workflowClient.createDirectory(path);
+  } catch {
+    // Already exists.
+  }
+}

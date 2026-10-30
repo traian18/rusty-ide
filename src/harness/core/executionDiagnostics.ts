@@ -1,4 +1,4 @@
-import { tauriPersistence } from "../../observability/persistence";
+import { tauriPersistence } from "../../features/observability";
 
 export type ExecutionDiagnosticLevel = "info" | "warn" | "error";
 

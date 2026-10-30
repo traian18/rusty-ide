@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { JevDecisionResponse, JevDecisionTrace } from "../../../services/intelligentModelSelector";
+import type { JevDecisionResponse, JevDecisionTrace } from "../../../features/providers";
 import type { CustomProvider } from "../../../store/types";
 import type { StepModelRunConfig } from "../decideToolConfig";
 import type { ExecutionRequest } from "../engine/ExecutionProtocol";

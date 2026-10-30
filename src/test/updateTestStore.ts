@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createUpdateSlice } from "../store/slices/createUpdateSlice";
+import { createUpdateSlice } from "../features/updates/state";
 import type { WorkspaceState } from "../store/types";
 
 /** Composes only createUpdateSlice, whose only dependencies (updateService,

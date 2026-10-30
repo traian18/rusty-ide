@@ -1,11 +1,11 @@
-import { AlertModal } from "./components/AlertModal";
-import { DisclaimerModal } from "./components/DisclaimerModal";
-import { UpdateAvailableModal } from "./components/UpdateAvailableModal";
-import { AppBootstrapBoundary } from "./components/shell/AppBootstrapBoundary";
-import { AppShell } from "./components/shell/AppShell";
-import { DevLogBridge } from "./components/shell/DevLogBridge";
-import { GlobalShortcuts } from "./components/shell/GlobalShortcuts";
-import { StartupDegradedBanner } from "./components/shell/StartupDegradedBanner";
+import { AlertModal } from "./app/AlertModal";
+import { DisclaimerModal } from "./features/onboarding/ui";
+import { UpdateAvailableModal } from "./features/updates/ui/UpdateAvailableModal";
+import { AppBootstrapBoundary } from "./app/shell/AppBootstrapBoundary";
+import { AppShell } from "./app/shell/AppShell";
+import { DevLogBridge } from "./app/shell/DevLogBridge";
+import { GlobalShortcuts } from "./app/shell/GlobalShortcuts";
+import { StartupDegradedBanner } from "./app/shell/StartupDegradedBanner";
 import styles from "./App.module.css";
 
 function App() {

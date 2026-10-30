@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { createAgentSlice } from "../store/slices/createAgentSlice";
-import { createTabsSlice } from "../store/slices/createTabsSlice";
+import { createAgentSlice } from "../features/agent-chat";
+import { createTabsSlice } from "../app/state/tabs";
 import type { WorkspaceState } from "../store/types";
 
 /**

@@ -2,7 +2,7 @@ import type { AgentEventEnvelope } from "@rusty/harness-sdk";
 import type { TokenUsage } from "../../contract";
 import type { UsageRecordSample } from "../../contract/controlPlane";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../../contract/observability";
-import { executionObservability, parseUsageTokens } from "../../../observability/executionStore";
+import { executionObservability, parseUsageTokens } from "../../../features/observability";
 import { addUsage, hasTokens, mapAgentUsage, UsageAccumulator, usageRequestKey } from "../usageAccumulator";
 import { ignoreFailure, observe } from "./failures";
 

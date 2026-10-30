@@ -1,8 +1,8 @@
 import type { AgentEventEnvelope } from "@rusty/harness-sdk";
 import type { CapabilityName, RunHost } from "../../contract";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver } from "../../contract/observability";
-import { executionObservability } from "../../../observability/executionStore";
-import { trajectories } from "../../../observability/trajectoryStore";
+import { executionObservability } from "../../../features/observability";
+import { trajectories } from "../../../features/observability";
 import type { ExecutionAnswerer, HostToolHandler } from "../CoreHarness";
 import type { BridgeEvent, CoreEngine } from "../engine/CoreEngineClient";
 import type { SessionRecipe } from "../SessionRecipe";

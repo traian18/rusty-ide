@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createStartupSlice } from "../store/slices/createStartupSlice";
+import { createStartupSlice } from "../app/state/startup";
 import type { WorkspaceState } from "../store/types";
 
 /** Composes only createStartupSlice, which has zero dependencies -- no

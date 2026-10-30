@@ -3,7 +3,7 @@
 // whether the run carries on or switches to another workflow.
 
 import type { CapabilityEvent, CapabilityName } from "../../contract";
-import { trajectories } from "../../../observability/trajectoryStore";
+import { trajectories } from "../../../features/observability";
 import type { WorkflowBoundaryDecision } from "../CoreHarness";
 import { finishedAgentSteps, remainingAgentSteps, type WorkflowEventEnvelope } from "../workflowRun";
 import { errorMessage, ignoreFailure, observe } from "./failures";

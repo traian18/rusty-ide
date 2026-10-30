@@ -5,9 +5,9 @@
 
 import type { AgentEvent, AgentEventEnvelope, PermissionDecision, ToolCall, ToolResultSummary } from "@rusty/harness-sdk";
 import type { CapabilityEvent, CapabilityInput, CapabilityName, RunHandle, RunHost, RunOutcome } from "../../contract";
-import type { ExecutionOrigin } from "../../../observability/types";
-import { executionObservability } from "../../../observability/executionStore";
-import { trajectories } from "../../../observability/trajectoryStore";
+import type { ExecutionOrigin } from "../../../features/observability";
+import { executionObservability } from "../../../features/observability";
+import { trajectories } from "../../../features/observability";
 import type { CoreCapabilityDefinition, ExecutionAnswerer, HostToolHandler, RunContext } from "../CoreHarness";
 import { compactionRecipe, isContextSummaryRequest } from "../contextCompaction";
 import type { ContextCompactionRunConfig } from "../decideToolConfig";

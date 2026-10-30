@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ToolExecutionObserver } from "../../contract";
-import type { SearchMatch } from "../../../services/searchService";
+import type { SearchMatch } from "../../../features/explorer";
 import type { CustomProvider } from "../../../store/types";
 import type { SelectorModelInvoker } from "../semanticRead/modelInvoker";
 import { globToRegExp, semanticSearch, validateQueries, type SemanticSearchOptions } from "./semanticSearch";

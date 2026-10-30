@@ -1,4 +1,4 @@
-import { CHAT_RENDER_CHARS } from "../../../config/chatLimits";
+import { CHAT_RENDER_CHARS } from "../../../features/agent-chat";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentChatInput } from "../../contract";
@@ -10,7 +10,7 @@ import * as runCommandTool from "./runCommandTool";
 import type { ProjectFs } from "../projectInfo";
 import { scanProject } from "../projectScan";
 import { agentChatDefinition, longResponseGuideline } from "./agent_chat";
-import { BUILT_IN_SKILLS, BUILT_IN_SKILL_IDS, toSkillData } from "../../../config/skillDefinitions";
+import { BUILT_IN_SKILLS, BUILT_IN_SKILL_IDS, toSkillData } from "../../../features/skills";
 
 vi.mock("./runCommandTool", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./runCommandTool")>();

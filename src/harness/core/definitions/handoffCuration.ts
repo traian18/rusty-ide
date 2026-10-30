@@ -17,7 +17,7 @@
  * as it was: curating is an optimization and must never stop a step.
  */
 
-import { JEV_CONFIDENCE_THRESHOLD, postJevDecision } from "../../../services/intelligentModelSelector";
+import { JEV_CONFIDENCE_THRESHOLD, postJevDecision } from "../../../features/providers";
 import type { CapabilityEvent } from "../../contract";
 import type { ExecutionRequest } from "../engine/ExecutionProtocol";
 import { withTimeout } from "./stepModelSelection";

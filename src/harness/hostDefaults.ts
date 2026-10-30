@@ -9,8 +9,8 @@
 // goes through auto mode (autoMode.ts), which answers it while it is on.
 // ============================================================
 
-import { commandPermissionService } from "../services/commandPermissionService";
-import { notificationCoordinator } from "../services/notificationRuntime";
+import { commandPermissionService } from "../features/permissions";
+import { notificationCoordinator } from "../features/notifications";
 import { AUTO_PERMISSION, autoQuestionAnswer, autoWorkflowAnswer, unlessAuto } from "./autoMode";
 import type { RunHost } from "./contract";
 

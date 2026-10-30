@@ -19,7 +19,7 @@
 // Phase 2's `directExecution.ts` already documented for `resolveProviderApiKey`.
 // ============================================================
 
-import type { AuthConfig, McpServerConfig } from "../../components/mcp/types";
+import type { AuthConfig, McpServerConfig } from "../../features/mcp";
 import type { McpServerSpec } from "@rusty/harness-sdk";
 
 export type McpServerMappingResult = { ok: true; spec: McpServerSpec } | { ok: false; reason: string };

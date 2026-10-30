@@ -4,8 +4,8 @@
 
 import type { AgentEvent, AgentEventEnvelope, ToolCall } from "@rusty/harness-sdk";
 import type { CapabilityEvent, CapabilityName, CapabilityResult, WorkflowAnswer, WorkflowQuestion } from "../../contract";
-import { executionObservability } from "../../../observability/executionStore";
-import { trajectories } from "../../../observability/trajectoryStore";
+import { executionObservability } from "../../../features/observability";
+import { trajectories } from "../../../features/observability";
 import type { SessionRecipe } from "../SessionRecipe";
 import { describeWorkflowEvent, stepNames, workflowOutcome, type WorkflowEventEnvelope } from "../workflowRun";
 import type { CommandJobs } from "../definitions/commandJobs";

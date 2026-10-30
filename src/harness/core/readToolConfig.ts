@@ -1,4 +1,4 @@
-import type { SmartReadSettings } from "../../store/smartReadTypes";
+import type { SmartReadSettings } from "../../features/settings";
 import { resolveSelectorModel, type SelectorModelConfig, type SmartToolSettingsSources } from "./smartToolConfig";
 
 declare module "../../harness/contract/capabilities" {

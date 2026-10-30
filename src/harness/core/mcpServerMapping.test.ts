@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { McpServerConfig } from "../../components/mcp/types";
-import { DEFAULT_SERVER_CONFIG } from "../../components/mcp/types";
+import type { McpServerConfig } from "../../features/mcp";
+import { DEFAULT_SERVER_CONFIG } from "../../features/mcp";
 import { mapMcpServerConfig, mapMcpServerConfigs } from "./mcpServerMapping";
 
 function server(overrides: Partial<McpServerConfig>): McpServerConfig {

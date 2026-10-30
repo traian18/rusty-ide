@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { createIntegrationSlice } from "../store/slices/createIntegrationSlice";
+import { createIntegrationSlice } from "../features/providers/state/integration";
 import type { WorkspaceState } from "../store/types";
 
 /**

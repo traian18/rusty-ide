@@ -16,7 +16,7 @@
  * optimization and must never stop a step.
  */
 
-import { AUTO_LEVELS, type AutoLevel } from "../../../store/intelligentModelSelectionTypes";
+import { AUTO_LEVELS, type AutoLevel } from "../../../features/providers";
 import {
   AUTO_LEVEL_CRITERIA,
   AUTO_LEVEL_LABELS,
@@ -25,7 +25,7 @@ import {
   type JevDecisionResponse,
   type JevDecisionTrace,
   type JevScoreAnswer,
-} from "../../../services/intelligentModelSelector";
+} from "../../../features/providers";
 import type { CustomProvider } from "../../../store/types";
 import type { CapabilityEvent } from "../../contract";
 import type { StepModelRunConfig } from "../decideToolConfig";
