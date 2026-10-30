@@ -1,0 +1,9 @@
+src/harness/core/checkReport.ts:10:import { classifyFailure, parseCheckOutput, stripAnsi, type Failure, type Issue } from "./checkOutput";
+src/harness/core/checkReport.ts:108:  const all = stripAnsi(output).split(/\r?\n/);
+src/harness/core/checkOutput.ts:57:export const stripAnsi = (text: string): string => text.replace(ANSI, "");
+src/harness/core/checkOutput.ts:68:  const lines = stripAnsi(raw).split(/\r?\n/);
+src/harness/core/checkOutput.ts:336:  const output = stripAnsi(input.output);
+src/harness/core/checkOutput.test.ts:3:import { classifyFailure, parseCheckOutput, stripAnsi, type FailureInput } from "./checkOutput";
+src/harness/core/checkOutput.test.ts:196:    expect(stripAnsi("\u001b[1;32mok\u001b[0m")).toBe("ok");
+src/harness/core/commandFilters/generic.ts:29:export const stripAnsi = (text: string): string => text.replace(ANSI, "");
+src/harness/core/commandFilters/generic.ts:42:export const normalize = (text: string): string => collapseRedraws(stripAnsi(text));

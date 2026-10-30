@@ -1,0 +1,36 @@
+commit a297ac4e4ecf5f61e21f46587756b41a7febdfeb
+Author: Dev Person <dev@example.com>
+Date:   Fri Oct 30 17:31:56 2026 +0200
+
+    Frontend: group code by feature
+    
+    Move the frontend from layer folders (components/, services/, store/slices/)
+    to feature folders under src/features/, with shared building blocks in
+    src/lib/ and the app composition in src/app/.
+    
+    Each feature has the same shape: ui/ for React, service, state, a typed
+    client for its Tauri commands, a model, and an index.ts as its public API
+    (ui/index.ts for views). Native calls now go through client.ts files, and
+    large components and hooks are split below 300 (.tsx) and 400 (.ts) lines.
+    
+    src/boundaries.test.ts enforces the rules with shrinking allowlists:
+    Tauri only from clients, features reach each other through index.ts,
+    lib/ and the harness stay below features, React stays in ui/, and file
+    size limits. scripts/move-module.mjs moves files and rewrites imports.
+    
+    The Rust host reads the workflow starter files from their new location
+    (src/features/workflows/starter).
+
+commit 49c9cb6e099e5f3a2b1babccc555ab712660fad2
+Author: Dev Person <dev@example.com>
+Date:   Wed Oct 28 21:55:54 2026 +0200
+
+    Release v0.1.65
+    
+    /goal loops=N with no pass limit by default, and an app-wide auto mode.
+
+commit 5b185f89be5731f6e330c8594597201bc248e831
+Author: Dev Person <dev@example.com>
+Date:   Wed Oct 28 21:55:54 2026 +0200
+
+    Terminal: name the spawn result type, which clippy found too complex

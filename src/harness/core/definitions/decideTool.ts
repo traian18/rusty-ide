@@ -374,11 +374,11 @@ export function decideTool(dependencies: DecideToolDependencies): HostToolHandle
           stats.update(statsId, { steppedUpTo: target.level });
           observer.step("info", `Stepped the run up to ${AUTO_LEVEL_LABELS[target.level]}: ${target.name}.`, {
             from: { level: currentLevel, model: currentModel },
-            jevLevel: assessed.level,
+            jevLevel: assessed.level, cache: assessed.cacheNote,
             confidence: assessed.confidence,
             params: target.params,
           });
-          dependencies.log?.(`Switched to ${target.name} (${AUTO_LEVEL_LABELS[target.level]}): JEV rated the remaining work as ${AUTO_LEVEL_LABELS[assessed.level]} at ${percent(assessed.confidence)} confidence.`);
+          dependencies.log?.(`Switched to ${target.name} (${AUTO_LEVEL_LABELS[target.level]}): JEV rated the remaining work as ${AUTO_LEVEL_LABELS[assessed.level]} at ${percent(assessed.confidence)} confidence.${assessed.cacheNote ? ` ${assessed.cacheNote}` : ""}`);
         } catch (error: unknown) {
           observer.step("warn", "Stepping the run up failed; it continues on its current model", {
             target: target.name,

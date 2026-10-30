@@ -670,7 +670,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (names.has("write_plan")) handlers.write_plan = writePlanTool(host);
     const stepId = () => (typeof ctx.scratch.workflowStepId === "string" ? ctx.scratch.workflowStepId : undefined);
     const jobs = runJobs(ctx.scratch, stepId, ctx.signal);
-    const commandOptions = { workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent };
+    const commandOptions = { workspaceRoot: input.workspaceRoot, sessionId: input.tabId, host, onEvent, outputs: jobs.outputs };
     if (names.has("run_check")) {
       handlers.run_check = backgroundable((onExecution) => runCheckTool({ ...commandOptions, evidence, onExecution }), checkJobLabel, jobs);
     }

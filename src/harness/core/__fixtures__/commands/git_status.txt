@@ -1,0 +1,39 @@
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	deleted:    specs/README.md
+	deleted:    specs/onboarding.md
+	deleted:    specs/project.md
+
+Changes not staged for commit:
+  (use "git add <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	modified:   scripts/generate-workflows.mjs
+	modified:   scripts/workflow-catalog-source.json
+	modified:   src-tauri/src/repository/agent_tools/guidelines.rs
+	modified:   src-tauri/src/repository/tests/guidelines.rs
+	modified:   src/features/agent-chat/activityLog.ts
+	modified:   src/features/agent-chat/chats/chatInstances.test.ts
+	modified:   src/features/agent-chat/runEvents.ts
+	modified:   src/features/workflows/starter/build.profile.json
+	modified:   src/features/workflows/starter/catalog.json
+	modified:   src/harness/contract/events.ts
+	modified:   src/harness/core/definitions/agentWorkingMethod.ts
+	modified:   src/harness/core/definitions/agent_chat.ts
+	modified:   src/harness/core/definitions/commandJobs.ts
+	modified:   src/harness/core/definitions/promptHistory.test.ts
+	modified:   src/harness/core/definitions/promptHistory.ts
+	modified:   src/harness/core/definitions/runCommandTool.ts
+	modified:   src/harness/core/definitions/specTasksCheckTool.ts
+	modified:   src/store/types.ts
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	.impeccable/
+	src/harness/contract/events.test.ts
+	src/harness/core/__fixtures__/commands/
+	src/harness/core/commandFilters/
+

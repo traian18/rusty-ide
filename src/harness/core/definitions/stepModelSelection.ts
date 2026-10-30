@@ -33,6 +33,7 @@ import type { ExecutionRequest } from "../engine/ExecutionProtocol";
 import { recordAppliedModel } from "../appliedModels";
 import { mapProviderToIntegration } from "../providerMapping";
 import { inPlaceLevelTargets, type StepUpTarget } from "./decideStepUp";
+import { checkModelSwitch, estimateConversationTokens } from "../tokenOptimizations";
 
 /** JEV shares a 32k-token window between state and rubric. The head of a step
  * prompt says what the step does; the tail holds the latest hand-off. */
@@ -193,6 +194,13 @@ export async function selectStepModel(deps: StepModelSelectionDeps): Promise<Ste
     const target = pickTarget(level, targets);
     if (!target) {
       trace.error = "No model is available in place for this step's level.";
+      return undefined;
+    }
+    // A step normally starts cold; one that already has model turns is cached on the base model.
+    const hasModelTurns = request.messages.some((message) => message.role === "Assistant");
+    const verdict = target.model === baseModel ? undefined : checkModelSwitch({ direction: "unknown", hasModelTurns, conversationTokens: estimateConversationTokens(request.messages) });
+    if (verdict && !verdict.allowed) {
+      trace.error = verdict.reason;
       return undefined;
     }
     trace.jevLevel = jevLevel;

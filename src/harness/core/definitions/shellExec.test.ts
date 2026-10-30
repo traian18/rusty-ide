@@ -77,7 +77,7 @@ describe("runCommandTool", () => {
   });
 
   it("truncates output over the cap, keeping the tail", async () => {
-    const longOutput = "x".repeat(9_000);
+    const longOutput = Array.from({ length: 250 }, (_, i) => `line ${i} ${"x".repeat(40)}`).join("\n");
     invokeMock.mockResolvedValue({ exit_code: 1, output: longOutput, timed_out: false });
     const tool = runCommandTool("/workspace");
     const outcome = await tool({ command: "cat big.log" }, signal);

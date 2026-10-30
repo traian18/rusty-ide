@@ -207,12 +207,17 @@ async function runDetected(options: CheckToolOptions, id: CheckId, input: Detect
       return { ok: false, error: outcomes.length > 0 ? `${formatCheckReport(report())}\n\n${stopped}` : stopped };
     }
     const base = { command: formatCommand(command), cwd: detected.cwd, note: detected.note, program: command.program };
+    // The report is judged on the raw output; its tail shows the condensed one and points at the full one.
+    const condensed = run.status === "ran"
+      ? options.outputs?.condense({ program: command.program, args: command.args, exitCode: run.result.exit_code, output: run.result.output, captureTruncated: run.result.truncated })
+      : undefined;
     outcomes.push(
       judgeRun(
         run.status === "ran"
           ? {
             ...base, exitCode: run.result.exit_code, durationMs: run.durationMs, timedOut: run.result.timed_out, cancelled: run.result.cancelled === true,
             idle: run.result.idle === true, output: run.result.output, logPath: run.result.log_path ?? undefined,
+            shownOutput: condensed?.body, recallId: condensed?.recallId,
           }
           : { ...base, exitCode: null, durationMs: 0, timedOut: false, cancelled: false, output: "", startError: run.error },
         installNeeded,

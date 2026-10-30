@@ -19,6 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
+import { createCommandOutputCondenser } from "../tokenOptimizations";
 
 export interface CommandOutput {
   exit_code: number | null;
@@ -80,6 +81,7 @@ export const RUN_COMMAND_TOOL: HostToolSpec = {
 
 const CMD_TIMEOUT_MS = 60_000;
 const MAX_CMD_OUTPUT_CHARS = 8_000;
+const shellOutputs = createCommandOutputCondenser();
 
 /** Runs `command` via `sh -c` (matching the sidecar's own `run_command`
  * tool -- allows pipes/redirects/globs, at the cost of the model being
@@ -91,9 +93,11 @@ export function runCommandTool(workspaceRoot: string): HostToolHandler {
     if (!command.trim()) return { ok: false, error: "run_command requires a 'command' argument." };
     try {
       const result = await runShellCommand("sh", ["-c", command], workspaceRoot, CMD_TIMEOUT_MS);
-      const truncated = result.output.length > MAX_CMD_OUTPUT_CHARS
-        ? `...(truncated)...\n${result.output.slice(-MAX_CMD_OUTPUT_CHARS)}`
-        : result.output;
+      // This tool's model has no job_output, so nothing is kept for recall; the stamp says what was left out.
+      const { text } = shellOutputs.condense({ program: "sh", args: ["-c", command], exitCode: result.exit_code, output: result.output, captureTruncated: result.truncated, recallable: false });
+      const truncated = text.length > MAX_CMD_OUTPUT_CHARS
+        ? `...(truncated)...\n${text.slice(-MAX_CMD_OUTPUT_CHARS)}`
+        : text;
       const exitInfo = result.timed_out ? " (timed out)" : ` (exit ${result.exit_code ?? "null"})`;
       return { ok: true, output: truncated + exitInfo };
     } catch (error: unknown) {

@@ -4,6 +4,7 @@ import { AUTO_LEVEL_CRITERIA, AUTO_LEVEL_LABELS, type JevScoreAnswer } from "../
 import { mapProviderToIntegration } from "../providerMapping";
 import type { ExecutionParams } from "../SessionRecipe";
 import type { DecideStepUpConfig } from "../decideToolConfig";
+import { checkModelSwitch } from "../tokenOptimizations";
 
 /** A more capable AUTO level the running session can switch to. */
 export interface StepUpTarget {
@@ -106,6 +107,8 @@ export interface LevelAssessment {
   confidence: number;
   /** Set when the run should switch: the most capable target at or below `level`. */
   target?: StepUpTarget;
+  /** What switching costs the prompt cache, or why it was refused (tokenOptimizations' warm-cache guard). */
+  cacheNote?: string;
 }
 
 /**
@@ -129,6 +132,11 @@ export function assessLevel(
   const level = ranked[0].level;
   const assessment: LevelAssessment = { level, confidence: answer.confidence };
   if (answer.confidence < minConfidence || levelIndex(level) <= levelIndex(currentLevel)) return assessment;
-  assessment.target = targets.filter((target) => levelIndex(target.level) <= levelIndex(level)).at(-1);
+  const target = targets.filter((candidate) => levelIndex(candidate.level) <= levelIndex(level)).at(-1);
+  if (!target) return assessment;
+  // A step-up happens mid-run, where the conversation is cached on the current model.
+  const verdict = checkModelSwitch({ direction: "up", hasModelTurns: true });
+  assessment.cacheNote = verdict.reason;
+  if (verdict.allowed) assessment.target = target;
   return assessment;
 }

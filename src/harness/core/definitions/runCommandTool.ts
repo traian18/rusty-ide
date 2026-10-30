@@ -36,10 +36,11 @@ import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 import { runShellCommand, type CommandOutput } from "./shellExec";
 import { LONG_RUN_IDLE_MS, LONG_RUN_MAX_MS, formatDuration, repositoryOf, takeProjectTurn, takesTurn, type ProjectTurn } from "../checkHistory";
+import { createCommandOutputCondenser, type CommandOutputCondenser } from "../tokenOptimizations";
 
 export const GATED_RUN_COMMAND_TOOL: HostToolSpec = {
   name: "run_command",
-  description: "Runs a program on the user's machine after they approve it, and returns its output. Use it for builds, tests, package managers, generators, git and any other command the work needs. The project's own typecheck, lint, test, build and format checks also have run_check, which reports a clear pass or fail; prefer that for them. Use Rusty's read_file, edit_file, write_file, list_files, and search_codebase tools for workspace files; never use this tool to inspect, search, create, edit, move, or delete files. Give program and args separately and literally (program `./mvnw`, args `[\"test\"]`, cwd the project folder); do not wrap the line in sh or bash. The result is the command's output followed by `(command exited with code N)`: a non-zero code is the answer to read and act on, not a reason to stop.",
+  description: "Runs a program on the user's machine after they approve it, and returns its output. Use it for builds, tests, package managers, generators, git and any other command the work needs. The project's own typecheck, lint, test, build and format checks also have run_check, which reports a clear pass or fail; prefer that for them. Use Rusty's read_file, edit_file, write_file, list_files, and search_codebase tools for workspace files; never use this tool to inspect, search, create, edit, move, or delete files. Give program and args separately and literally (program `./mvnw`, args `[\"test\"]`, cwd the project folder); do not wrap the line in sh or bash. The result is the command's output followed by `(command exited with code N)`: a non-zero code is the answer to read and act on, not a reason to stop. Output of common tools (git, tests, builds, installs, docker, kubectl, terraform, ls, find, grep) is condensed: progress, passing tests and repeated noise are left out, errors and summaries are kept. When something was left out the result names a job_output id holding the full output; read that rather than running the command again.",
   input_schema: {
     type: "object",
     properties: {
@@ -48,6 +49,7 @@ export const GATED_RUN_COMMAND_TOOL: HostToolSpec = {
       cwd: { type: "string", description: "Workspace-relative working directory. Defaults to the workspace root." },
       timeoutMs: { type: "number", description: "Timeout in milliseconds, between 1 second and 30 minutes." },
       background: { type: "boolean", description: "Run it as a background job and return at once, for something slow (a full build or test run): you keep working and are told when it finishes; read it with job_output." },
+      raw: { type: "boolean", description: "Return the output exactly as printed, without condensing. Only for output whose exact bytes matter (a patch to apply, text to compare)." },
     },
     required: ["program"],
   },
@@ -58,10 +60,13 @@ export const MAX_TIMEOUT_MS = 30 * 60_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_ARGS = 256;
 const MAX_ARG_CHARS = 16_384;
-/** Tail of the combined output handed back to the model; the full text
- * (bounded by the UI's own console buffer) still goes to the console via
- * the `command_output` event. */
+/** Tail of the combined output handed back to the model (commandFilters'
+ * own budget); the full text (bounded by the UI's own console buffer) still
+ * goes to the console via the `command_output` event. */
 export const MAX_TOOL_OUTPUT_CHARS = 32_000;
+
+/** Fits output to the budget without condensing, for callers that keep no recall store. */
+const uncondensed = createCommandOutputCondenser();
 
 /** Validates the model's raw tool input into the exact command that will
  * be shown in the dialog and executed. Throws on anything malformed. */
@@ -112,6 +117,8 @@ export interface GatedRunCommandOptions {
   onExecution?: (executionId: string) => void;
   /** The call runs as a background job: it may take up to an hour, and is stopped only when it goes quiet. */
   background?: boolean;
+  /** Condenses the output and keeps the full text for job_output; without it the output is only fitted to the budget. */
+  outputs?: CommandOutputCondenser;
 }
 
 function describeExit(result: { exit_code: number | null; timed_out: boolean; cancelled?: boolean }): string {
@@ -225,9 +232,16 @@ export function gatedRunCommandTool(options: GatedRunCommandOptions): HostToolHa
     const waited = turn && turn.waitedMs >= 1000
       ? `\nWaited ${formatDuration(turn.waitedMs)} for another check or build command on ${repositoryOf(workspaceRoot, command.cwd)} to finish first.`
       : "";
-    const shown = result.output.length > MAX_TOOL_OUTPUT_CHARS || result.truncated
-      ? `...(truncated)...\n${result.output.slice(-MAX_TOOL_OUTPUT_CHARS)}`
-      : result.output;
+    const condensed = (options.outputs ?? uncondensed).condense({
+      program: command.program,
+      args: command.args,
+      exitCode: result.exit_code,
+      output: result.output,
+      captureTruncated: result.truncated,
+      raw: !options.outputs || (args as { raw?: unknown } | null)?.raw === true,
+    });
+    if (condensed.summary) options.onEvent({ kind: "log", message: condensed.summary });
+    const shown = condensed.text;
     const text = `${shown}${shown && !shown.endsWith("\n") ? "\n" : ""}(command ${status})`;
     // A command that was stopped did not finish: what it printed is how far it got,
     // and the model must not read it as a result.

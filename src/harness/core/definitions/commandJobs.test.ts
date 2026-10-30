@@ -103,7 +103,22 @@ describe("background jobs", () => {
     const missing = await jobs.handler()({ id: "job-7" }, signal);
     expect(missing.ok).toBe(false);
   });
+
+  it("reads a condensed command's full output by its out- id, by range or pattern", async () => {
+    const jobs = createJobs();
+    const lines = Array.from({ length: 400 }, (_, i) => `line ${i + 1}${i === 250 ? " ERROR here" : ""}`).join("\n");
+    const { recallId } = jobs.outputs.condense({ program: "tool", args: [], exitCode: 1, output: lines });
+    const read = jobs.handler();
+    expect(await read({ id: recallId, pattern: "error" }, signal)).toEqual({ ok: true, output: `${recallId} (tool): 1 of 400 lines match /error/.\n251: line 251 ERROR here` });
+    expect(await read({ id: recallId, start_line: "399" }, signal)).toEqual({ ok: true, output: `${recallId} (tool): lines 399-400 of 400.\n399: line 399\n400: line 400` });
+    expect(await read({ id: "out-0000000000000000" }, signal)).toMatchObject({ ok: false, error: expect.stringContaining("No stored output out-0000000000000000") });
+    // Outputs are kept for the app session, so a later run (the next chat turn) reads them too.
+    expect(await createJobs().handler()({ id: recallId, start_line: 251, end_line: 251 }, signal)).toMatchObject({ ok: true, output: expect.stringContaining("251: line 251 ERROR here") });
+    expect(await read({ id: recallId }, signal)).toMatchObject({ ok: true, output: expect.stringContaining("lines 1-400 of 400") });
+  });
 });
+
+const createJobs = () => new CommandJobs(() => undefined);
 
 describe("a tool that can run in the background", () => {
   it("runs in the foreground unless asked, and as a job without the background flag when asked", async () => {

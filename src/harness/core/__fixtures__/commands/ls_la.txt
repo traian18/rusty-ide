@@ -1,0 +1,21 @@
+total 144
+drwxr-xr-x@ 20 dev  staff   640 Oct  1 22:42 .
+drwxr-xr-x@  4 dev  staff   128 Oct 30 21:12 ..
+-rw-r--r--@  1 dev  staff   721 Oct  1 21:21 cargo_check.txt
+-rw-r--r--@  1 dev  staff    79 Oct  1 21:21 cargo_no_manifest.txt
+-rw-r--r--@  1 dev  staff   844 Oct  1 21:21 cargo_test.txt
+-rw-r--r--@  1 dev  staff   477 Oct  1 22:42 cargo_test_match.txt
+-rw-r--r--@  1 dev  staff   480 Oct  1 22:42 cargo_test_nomatch.txt
+-rw-r--r--@  1 dev  staff   220 Oct  1 21:21 npm_missing_script.txt
+-rw-r--r--@  1 dev  staff    55 Oct  1 21:21 npm_missing_tool.txt
+-rw-r--r--@  1 dev  staff  1008 Oct  1 21:21 pytest.txt
+-rw-r--r--@  1 dev  staff   344 Oct  1 22:42 pytest_file_nomatch.txt
+-rw-r--r--@  1 dev  staff   812 Oct  1 21:21 pytest_import_error.txt
+-rw-r--r--@  1 dev  staff   405 Oct  1 22:42 pytest_match.txt
+-rw-r--r--@  1 dev  staff   324 Oct  1 22:42 pytest_nomatch.txt
+-rw-r--r--@  1 dev  staff   624 Oct  1 21:21 ruff.txt
+-rw-r--r--@  1 dev  staff   271 Oct  1 21:21 tsc.txt
+-rw-r--r--@  1 dev  staff  1219 Oct  1 21:21 vitest.txt
+-rw-r--r--@  1 dev  staff   189 Oct  1 22:42 vitest_file_nomatch.txt
+-rw-r--r--@  1 dev  staff   205 Oct  1 22:42 vitest_name_match.txt
+-rw-r--r--@  1 dev  staff   195 Oct  1 22:42 vitest_name_nomatch.txt

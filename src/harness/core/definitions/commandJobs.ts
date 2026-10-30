@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 import { formatDuration } from "../checkHistory";
+import { createCommandOutputCondenser, type CommandOutputCondenser } from "../tokenOptimizations";
 
 type Outcome = Awaited<ReturnType<HostToolHandler>>;
 
@@ -51,12 +52,15 @@ const PROGRESS_LINES = 40;
 export const JOB_OUTPUT_TOOL: HostToolSpec = {
   name: "job_output",
   description:
-    "Read a background job started by run_check or run_command with background: true. Returns its result when it has finished; otherwise what it printed so far and how long it has run. Give wait_seconds to wait for it to finish (up to 1800) when you have nothing else to do meanwhile. Without an id, lists the jobs of this step.",
+    "Read a background job started by run_check or run_command with background: true. Returns its result when it has finished; otherwise what it printed so far and how long it has run. Give wait_seconds to wait for it to finish (up to 1800) when you have nothing else to do meanwhile. Without an id, lists the jobs of this step. Also reads the full output of a run_command result that was condensed: give the out- id it named, and pattern (a regular expression, returns matching lines with their numbers) or start_line/end_line to read only part of it.",
   input_schema: {
     type: "object",
     properties: {
-      id: { type: "string", description: "The job id the starting call returned, such as job-1." },
+      id: { type: "string", description: "The job id the starting call returned, such as job-1, or a condensed output's id, such as out-2." },
       wait_seconds: { type: "number", description: "How long to wait for it to finish before answering with its progress; 0 (the default) answers at once." },
+      pattern: { type: "string", description: "For an out- id: only the lines matching this regular expression (case-insensitive)." },
+      start_line: { type: "number", description: "For an out- id: the first line to return (1-based)." },
+      end_line: { type: "number", description: "For an out- id: the last line to return." },
     },
     required: [],
   },
@@ -69,6 +73,8 @@ const tail = (text: string, lines: number) => text.split("\n").slice(-lines).joi
 export class CommandJobs {
   private readonly jobs = new Map<string, Job>();
   private next = 1;
+  /** The run's condensed command outputs: run_command condenses into it, job_output reads the full text back. */
+  readonly outputs: CommandOutputCondenser = createCommandOutputCondenser();
 
   /** `currentStep` names the workflow step running now, if any. */
   constructor(private readonly currentStep: () => string | undefined, runSignal?: AbortSignal) {
@@ -101,12 +107,17 @@ export class CommandJobs {
     };
   }
 
-  /** The `job_output` tool. */
-  handler(): HostToolHandler {
+  /** The `job_output` tool; `outputs` answers the ids of condensed command outputs. */
+  handler(outputs: CommandOutputCondenser = this.outputs): HostToolHandler {
     return async (args, signal) => {
-      const input = (args ?? {}) as { id?: unknown; wait_seconds?: unknown };
+      const input = (args ?? {}) as { id?: unknown; wait_seconds?: unknown; pattern?: unknown; start_line?: unknown; end_line?: unknown };
       const id = typeof input.id === "string" ? input.id.trim() : "";
       if (!id) return { ok: true, output: this.list() };
+      if (outputs.owns(id)) {
+        const number = (value: unknown) => (Number.isFinite(Number(value)) && value !== undefined && value !== null && value !== "" ? Number(value) : undefined);
+        const recalled = outputs.recall(id, { pattern: typeof input.pattern === "string" ? input.pattern : undefined, startLine: number(input.start_line), endLine: number(input.end_line) });
+        return recalled.ok ? { ok: true, output: recalled.text } : { ok: false, error: recalled.error };
+      }
       const job = this.jobs.get(id);
       if (!job) return { ok: false, error: `No job ${id}. ${this.list()}` };
       const seconds = Number(input.wait_seconds);
@@ -154,7 +165,8 @@ export class CommandJobs {
     if (!job.execution) return `${running} No command is running yet: it may be waiting for the user to approve it.`;
     const progress = await invoke<CommandProgress | null>("shell_command_progress", { executionId: job.execution }).catch(() => null);
     if (!progress) return `${running} Its current command is just finishing; ask again in a moment.`;
-    const shown = tail(progress.output, PROGRESS_LINES);
+    // Progress redraws and repeated lines would fill the tail with noise.
+    const shown = tail(this.outputs.shape({ program: "", args: [], exitCode: null, output: progress.output }), PROGRESS_LINES);
     return [
       running,
       shown ? `Output so far (last lines):\n${shown}` : "It has printed nothing yet.",

@@ -12,6 +12,8 @@
 // structurally validated at that call site.
 // ============================================================
 
+import { chooseHistoryTurns } from "../tokenOptimizations";
+
 interface Turn {
   role: "user" | "assistant" | "summary";
   content: string;
@@ -103,7 +105,8 @@ export function flattenHistory(
     }));
   const turns = applySummary(parsed, options.summary);
   if (turns.length === 0) return "";
-  const { kept } = options.budgetChars === undefined ? { kept: turns.map(() => true) } : selectTurns(turns, options.budgetChars);
+  // Cache-friendly when that optimisation is on: the cut moves in steps, so the prompt prefix repeats.
+  const { kept } = options.budgetChars === undefined ? { kept: turns.map(() => true) } : chooseHistoryTurns(turns, options.budgetChars, selectTurns);
   const lines: string[] = [];
   let gap = 0;
   const flushGap = () => {

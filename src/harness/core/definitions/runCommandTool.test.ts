@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { CapabilityEvent, CommandPermissionRequest, RunHost } from "../../contract";
 import { DEFAULT_TIMEOUT_MS, GATED_RUN_COMMAND_TOOL, MAX_TIMEOUT_MS, MAX_TOOL_OUTPUT_CHARS, gatedRunCommandTool, normalizeCommand } from "./runCommandTool";
 import { resetCheckHistory, takeProjectTurn } from "../checkHistory";
+import { createCommandOutputCondenser } from "../tokenOptimizations";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -31,7 +32,7 @@ describe("GATED_RUN_COMMAND_TOOL", () => {
   it("is the structured program/args shape, not a sh -c string", () => {
     expect(GATED_RUN_COMMAND_TOOL.name).toBe("run_command");
     const schema = GATED_RUN_COMMAND_TOOL.input_schema as { properties: object; required: string[] };
-    expect(Object.keys(schema.properties).sort()).toEqual(["args", "background", "cwd", "program", "timeoutMs"]);
+    expect(Object.keys(schema.properties).sort()).toEqual(["args", "background", "cwd", "program", "raw", "timeoutMs"]);
     expect(schema.required).toEqual(["program"]);
   });
 });
@@ -179,6 +180,28 @@ describe("gatedRunCommandTool", () => {
     expect(String(outcome.output)).toContain("(command exited with code 1)");
     expect(String(outcome.output).length).toBeLessThan(longOutput.length);
     expect(events.find((e) => e.kind === "command_output")).toEqual({ kind: "command_output", content: longOutput });
+  });
+
+  it("condenses output through the run's condenser, logs the saving and keeps the full text for job_output", async () => {
+    const log = Array.from({ length: 40 }, (_, i) => `commit ${String(i).padStart(7, "0")}abc\nAuthor: A <a@x>\nDate:   Fri Oct 30 17:31:56 2026 +0200\n\n    Subject ${i}\n`).join("\n");
+    invokeMock.mockResolvedValue({ exit_code: 0, output: log, timed_out: false, cancelled: false });
+    const outputs = createCommandOutputCondenser();
+    const events: CapabilityEvent<"agent_chat">[] = [];
+    const run = gatedRunCommandTool({ workspaceRoot: "/workspace", sessionId: "tab-1", host: fakeHost(), onEvent: (event) => events.push(event), outputs });
+
+    const outcome = await run({ program: "git", args: ["log"] }, new AbortController().signal);
+    if (!outcome.ok) throw new Error("expected ok");
+    const text = String(outcome.output);
+    expect(text.split("\n")[0]).toBe("0000000 2026-10-30 [A] Subject 0");
+    const recallId = /job_output id="(out-[0-9a-f]{16})"/.exec(text)?.[1];
+    expect(recallId).toBeDefined();
+    expect(text.endsWith("(command exited with code 0)")).toBe(true);
+    expect(events).toContainEqual({ kind: "log", message: expect.stringMatching(/^Condensed the output of git log/) });
+    expect(events.find((e) => e.kind === "command_output")).toEqual({ kind: "command_output", content: log });
+    expect(outputs.recall(recallId!)).toMatchObject({ ok: true, text: expect.stringContaining("Subject 39") });
+
+    const raw = await run({ program: "git", args: ["log"], raw: true }, new AbortController().signal);
+    expect(raw).toEqual({ ok: true, output: `${log}(command exited with code 0)` });
   });
 
   it("reports a spawn failure as an error outcome and logs it", async () => {

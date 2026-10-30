@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": [
+          "src/harness/core/tokenOptimizations/commandOutput/filters/infra/gh.ts"
+        ],
+        "createdAt": "2026-10-30T19:09:11.603Z",
+        "reason": "Claude: <img in a regex that strips image lines from gh markdown output, not rendered markup"
+      }
+    ]
+  }
+}

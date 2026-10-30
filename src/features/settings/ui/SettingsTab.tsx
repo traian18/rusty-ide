@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FileText, MonitorCog, Palette, Sparkles, type LucideIcon } from "lucide-react";
+import { FileText, Gauge, MonitorCog, Palette, Sparkles, type LucideIcon } from "lucide-react";
 import { AppearanceSettings } from "./AppearanceSettings";
 import { TypographySettings } from "./TypographySettings";
 import { EditorFileSafetySettings } from "../../editor/ui";
@@ -13,9 +13,10 @@ import { JevRiskReviewSettings } from "../../jev/ui";
 import { KeyboardShortcutsSettings } from "./KeyboardShortcutsSettings";
 import { UpdateSettings } from "../../updates/ui";
 import { StorageSettings } from "./StorageSettings";
+import { TokenOptimizationSettings } from "./TokenOptimizationSettings";
 import styles from "./SettingsTab.module.css";
 
-type SettingsCategoryId = "appearance" | "editor" | "intelligence" | "system";
+type SettingsCategoryId = "appearance" | "editor" | "intelligence" | "tokens" | "system";
 
 interface SettingsCategory {
   id: SettingsCategoryId;
@@ -28,6 +29,7 @@ const settingsCategories: SettingsCategory[] = [
   { id: "appearance", label: "Appearance", description: "Personalize the application theme and typography.", icon: Palette },
   { id: "editor", label: "Editor", description: "Configure editor file safety behavior.", icon: FileText },
   { id: "intelligence", label: "Intelligence", description: "Configure model selection, web search, and smart content tools.", icon: Sparkles },
+  { id: "tokens", label: "Token optimisations", description: "Send models fewer tokens: condense command output, keep it recallable, and keep the prompt cache warm.", icon: Gauge },
   { id: "system", label: "System", description: "Check the installed version, install updates, and manage local cache.", icon: MonitorCog },
 ];
 
@@ -52,6 +54,8 @@ const CategorySettings: React.FC<{ categoryId: SettingsCategoryId }> = ({ catego
         <div className={styles.panel}><SmartSearchSettings /></div>
         <div className={styles.panel}><SmartWebExtractSettings /></div>
       </>;
+    case "tokens":
+      return <div className={styles.panel}><TokenOptimizationSettings /></div>;
     case "system":
       return <>
         <div className={styles.panel}><UpdateSettings /></div>

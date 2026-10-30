@@ -49,7 +49,12 @@ describe("assessLevel", () => {
   const heavy: StepUpTarget = { level: "heavy", name: "Opus", model: "o", params: { model: "o" } };
 
   it("steps up to the most capable target at or below JEV's level when it is confident", () => {
-    expect(assessLevel(scoreAnswer([0.05, 0.1, 0.85], 0.8), "light", [standard, heavy], 0.6)).toEqual({ level: "heavy", confidence: 0.8, target: heavy });
+    expect(assessLevel(scoreAnswer([0.05, 0.1, 0.85], 0.8), "light", [standard, heavy], 0.6)).toEqual({
+      level: "heavy",
+      confidence: 0.8,
+      target: heavy,
+      cacheNote: "Switching to a more capable model re-reads the cached conversation once at the new model's full price.",
+    });
     expect(assessLevel(scoreAnswer([0.05, 0.85, 0.1], 0.8), "light", [standard, heavy], 0.6)?.target).toBe(standard);
     // Heavy work, but only Standard is reachable on this provider: still better than staying.
     expect(assessLevel(scoreAnswer([0.05, 0.1, 0.85], 0.8), "light", [standard], 0.6)?.target).toBe(standard);

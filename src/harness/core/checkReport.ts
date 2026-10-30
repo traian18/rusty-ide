@@ -34,6 +34,10 @@ export interface CommandRun {
   output: string;
   /** The full output, kept when the command was stopped or printed too much to return. */
   logPath?: string;
+  /** The output as condensed for the model (tokenOptimizations); the tail is taken from it. */
+  shownOutput?: string;
+  /** job_output id of the full output, when it was kept for recall. */
+  recallId?: string;
   /** The command could not be started at all. */
   startError?: string;
   program?: string;
@@ -168,7 +172,7 @@ function describeOutcome(outcome: CommandOutcome, index: number, total: number):
   if (!outcome.passed) {
     const wanted = outcome.failure && outcome.failure.kind !== "code" ? TAIL_LINES_NOT_CODE : errors.length === 0 ? TAIL_LINES_NO_ERRORS : TAIL_LINES_WITH_ERRORS;
     // The listed errors already say what these lines say, so leave them out of the tail.
-    const shown = tail(outcome.output, wanted).filter((line) => !errors.some((issue) => line.includes(issue.message)));
+    const shown = tail(outcome.shownOutput ?? outcome.output, wanted).filter((line) => !errors.some((issue) => line.includes(issue.message)));
     if (shown.length > 0) {
       const which = outcome.timedOut || outcome.cancelled ? "where it stopped" : `last ${shown.length} ${shown.length === 1 ? "line" : "lines"}`;
       lines.push(`  Output (${which}):`);
@@ -176,6 +180,7 @@ function describeOutcome(outcome: CommandOutcome, index: number, total: number):
     }
   }
   if (outcome.logPath) lines.push(`  Full output: ${outcome.logPath}`);
+  if (outcome.recallId && !outcome.passed) lines.push(`  Full output: job_output id="${outcome.recallId}" (add pattern, or start_line and end_line, to read part)`);
   return lines;
 }
 

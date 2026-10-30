@@ -34,6 +34,7 @@ describe("compactionRecipe", () => {
 
 import { historyBudgetChars } from "./contextCompaction";
 import { flattenHistory } from "./definitions/promptHistory";
+import { setOptimizationEnabled } from "./tokenOptimizations";
 
 describe("historyBudgetChars", () => {
   it("is 40% of the window in characters, and absent when the window is unknown", () => {
@@ -67,10 +68,34 @@ describe("flattenHistory with a budget", () => {
     expect(text).toContain("[… 1 earlier message omitted to save context]");
   });
 
-  it("fills the remaining budget with the newest turns", () => {
-    const text = flattenHistory(history, { budgetChars: 150 });
-    expect(text).toContain("yyyy");
-    expect(text).not.toContain("xxxx");
+  it("fills the remaining budget with the newest turns when cache-friendly history is off", () => {
+    setOptimizationEnabled("stable-history", false);
+    try {
+      const text = flattenHistory(history, { budgetChars: 150 });
+      expect(text).toContain("yyyy");
+      expect(text).not.toContain("xxxx");
+    } finally {
+      setOptimizationEnabled("stable-history", true);
+    }
+  });
+
+  it("with cache-friendly history on, starts the same way after more turns are added", () => {
+    // 12 turns of ~102 chars over a 1,100 budget; one more 80-char turn stays within the same cut step.
+    const long = Array.from({ length: 12 }, (_, i) => turn(i % 2 === 0 ? "user" : "assistant", `${i}:${"z".repeat(100)}`));
+    const more = [...long, turn("assistant", "a".repeat(80))];
+    const prefixOf = (text: string) => text.slice(0, text.lastIndexOf("User: 10:"));
+    const before = flattenHistory(long, { budgetChars: 1_100 });
+    expect(prefixOf(before)).toContain("earlier messages omitted");
+    expect(flattenHistory(more, { budgetChars: 1_100 }).startsWith(prefixOf(before))).toBe(true);
+
+    // The plain selection moves its cut with every turn, so the prompt starts differently.
+    setOptimizationEnabled("stable-history", false);
+    try {
+      const plainBefore = flattenHistory(long, { budgetChars: 1_100 });
+      expect(flattenHistory(more, { budgetChars: 1_100 }).startsWith(prefixOf(plainBefore))).toBe(false);
+    } finally {
+      setOptimizationEnabled("stable-history", true);
+    }
   });
 });
 
