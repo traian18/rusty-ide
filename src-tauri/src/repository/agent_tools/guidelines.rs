@@ -62,16 +62,25 @@ fn rules(guidelines: &Guidelines, paths: &[String]) -> Envelope {
         .section("rules", json!(all))
         .section("style", json!(style));
     }
+    // Files under the same guidelines are told once: the others point at the first, so a call on
+    // several files of one crate is not the same rule list repeated per file.
+    let mut shown: Vec<(Value, String)> = Vec::new();
     let files: Vec<Value> = paths
         .iter()
         .take(MAX_TARGETS)
         .map(|path| {
-            json!({
-                "path": path,
+            let applies = json!({
                 "limits": guidelines.limits_for(path),
                 "rules": guidelines.rules_for(path).iter().map(|r| rule_json(r)).collect::<Vec<_>>(),
                 "style": guidelines.style().for_path(path).iter().map(|s| s.text.clone()).collect::<Vec<_>>(),
-            })
+            });
+            if let Some((_, first)) = shown.iter().find(|(seen, _)| *seen == applies) {
+                return json!({"path": path, "same_as": first});
+            }
+            shown.push((applies.clone(), path.clone()));
+            let mut file = applies;
+            file["path"] = json!(path);
+            file
         })
         .collect();
     Envelope::new(

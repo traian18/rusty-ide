@@ -47,6 +47,16 @@ async fn rules_are_read_and_only_what_a_change_introduced_counts() {
     assert_eq!(file["limits"]["max_complexity"], 5);
     assert_eq!(file["style"][0], "Keep modules small.");
 
+    // Two files under the same guidelines: the rules are told once.
+    let both = call(
+        &entry,
+        json!({"mode": "rules", "targets": ["src/tangled.rs", "src/other.rs"]}),
+    )
+    .await;
+    let second = &both["sections"]["files"][1];
+    assert_eq!(second["same_as"], "src/tangled.rs", "{both}");
+    assert!(second.get("rules").is_none(), "{both}");
+
     // Everything in the file: the tangled function is over the complexity limit.
     let all = call(
         &entry,
