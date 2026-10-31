@@ -1,5 +1,5 @@
 import React from "react";
-import { History, Layers, Repeat, Scissors, ShieldCheck, Undo2, Zap, type LucideIcon } from "lucide-react";
+import { FolderOpen, History, Layers, Repeat, Scissors, ShieldCheck, Undo2, Zap, type LucideIcon } from "lucide-react";
 import {
   SAFEGUARDS,
   TOKEN_OPTIMIZATIONS,
@@ -15,6 +15,7 @@ const ICONS: Record<OptimizationId, LucideIcon> = {
   recall: Undo2,
   "repeat-results": Repeat,
   "tool-output-limits": Scissors,
+  "working-set": FolderOpen,
   "stable-history": History,
   "warm-cache-guard": Zap,
 };

@@ -21,11 +21,15 @@ import { failOpen, neverWorse } from "../safeguards/guards";
 import { hasStamp, renderStamp } from "../safeguards/stamps";
 import { recordCondensed } from "../stats";
 import { isOptimizationEnabled } from "../switches";
+import { changeSinceLastRead } from "../fileState/rereads";
+import { noteToolUse } from "../workingSet";
 import { sectionsOf } from "./sections";
 
 export const TOOL_OUTPUT_LIMITS = {
   /** A part shorter than this is resent rather than pointed at: the pointer would save little. */
   repeatFromChars: 400,
+  /** File texts remembered across all sessions of a run, so a re-read can be answered with its change. */
+  maxRememberedChars: 8_000_000,
   /** Results of the limited tools above this many characters are cut... */
   maxChars: 12_000,
   /** ...to this head... */
@@ -38,6 +42,9 @@ export const TOOL_OUTPUT_LIMITS = {
 export const LIMITED_TOOLS = ["repo_context", "project_info", "code_guidelines", "search_codebase", "repo_symbol", "repo_overview", "repo_health", "repo_risk", "list_files"];
 /** Tools whose repeated results are pointed at. */
 export const REPEAT_TOOLS = ["read_file", "spec_context", "repo_context", "project_info", "code_guidelines", "repo_symbol", "repo_overview", "repo_health", "repo_risk", "search_codebase", "list_files"];
+
+/** Tools whose calls say where things are, for a chat's working set. */
+const WORKING_SET_TOOLS = ["read_file", "edit_file", "write_file", "search_codebase", "repo_symbol", "repo_context"];
 
 export type ToolOutcomeLike = { ok: true; output: unknown } | { ok: false; error: unknown };
 export interface ToolCallLike {
@@ -67,19 +74,25 @@ function headAndTail(text: string): { text: string; hidden: number } {
 
 export class ToolOutputOptimizer {
   private readonly deps: ToolOutputDeps;
-  /** Per agent session: section key -> content id of what it last received. */
-  private readonly sent = new Map<string, Map<string, string>>();
+  /** Per agent session and section: the content id it last received, and for file reads the text. */
+  private readonly sent = new Map<string, { id: string; text?: string }>();
+  private keptChars = 0;
 
   constructor(deps: Partial<ToolOutputDeps> = {}) {
     this.deps = { ...appDeps, ...deps };
   }
 
-  /** `handler` with its results optimised; any other tool is returned unchanged. */
-  wrap<H extends (...args: never[]) => Promise<unknown>>(tool: string, handler: H): H {
-    if (!REPEAT_TOOLS.includes(tool) && !LIMITED_TOOLS.includes(tool)) return handler;
+  /**
+   * `handler` with its results optimised; any other tool is returned unchanged.
+   * With `chat`, successful calls also go into that chat's working set for its next turns.
+   */
+  wrap<H extends (...args: never[]) => Promise<unknown>>(tool: string, handler: H, chat?: string): H {
+    const noted = Boolean(chat) && WORKING_SET_TOOLS.includes(tool);
+    if (!REPEAT_TOOLS.includes(tool) && !LIMITED_TOOLS.includes(tool) && !noted) return handler;
     const inner = handler as unknown as ToolHandlerLike;
     const wrapped: ToolHandlerLike = async (args, signal, observer, call) => {
       const outcome = await inner(args, signal, observer, call);
+      if (outcome.ok && noted) noteToolUse(chat!, tool, args);
       if (!outcome.ok || typeof outcome.output !== "string" || hasStamp(outcome.output)) return outcome;
       const output = outcome.output;
       return { ok: true, output: failOpen(() => this.optimize(tool, output, args, call?.sessionId ?? ""), output) };
@@ -94,15 +107,37 @@ export class ToolOutputOptimizer {
     return neverWorse(output, text).text;
   }
 
+  /** Remembers what `key` last sent; file reads keep their text (bounded) so a later read can be answered with the change. */
+  private remember(key: string, id: string, text: string | undefined): void {
+    const old = this.sent.get(key);
+    if (old?.text) this.keptChars -= old.text.length;
+    this.sent.delete(key);
+    this.sent.set(key, { id, text });
+    if (text) this.keptChars += text.length;
+    for (const [oldest, entry] of this.sent) {
+      if (this.keptChars <= TOOL_OUTPUT_LIMITS.maxRememberedChars) break;
+      if (entry.text) this.keptChars -= entry.text.length;
+      this.sent.delete(oldest);
+    }
+  }
+
   private pointAtRepeats(tool: string, output: string, args: unknown, session: string): string {
-    const memory = this.sent.get(session) ?? new Map<string, string>();
-    this.sent.set(session, memory);
     let saved = 0;
     const parts = sectionsOf(tool, output, args).map((section) => {
-      const key = `${tool}|${section.key}`;
+      const key = `${session}|${tool}|${section.key}`;
       const id = contentId(section.text);
-      const repeated = memory.get(key) === id && !section.alwaysSend && section.text.length >= TOOL_OUTPUT_LIMITS.repeatFromChars;
-      memory.set(key, id);
+      const before = this.sent.get(key);
+      const repeated = before?.id === id && !section.alwaysSend && section.text.length >= TOOL_OUTPUT_LIMITS.repeatFromChars;
+      this.remember(key, id, tool === "read_file" ? section.text : undefined);
+      if (!repeated && before?.text && tool === "read_file") {
+        // Read again after it changed (usually by this session's own edit): send only what changed.
+        const recallId = this.deps.store.put({ label: `${tool} (changed)`, source: `changed ${tool}`, text: section.text });
+        const change = changeSinceLastRead(before.text, section.text, recallId);
+        if (change && change.length < section.text.length) {
+          saved += section.text.length - change.length;
+          return change;
+        }
+      }
       if (!repeated) return section.text;
       this.deps.store.put({ label: `${tool} (repeat)`, source: `repeat ${tool}`, text: section.text });
       const heading = tool === "spec_context" ? `${section.text.split("\n")[0]}\n\n` : "";

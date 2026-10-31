@@ -20,8 +20,11 @@
 //                          .owns / .recall  the full output back by its id
 //   Chat history         chooseHistoryTurns(turns, budget, plainSelection)
 //   Model switches       checkModelSwitch(change) -> { allowed, reason }
-//   Agent tool results   createToolOutputOptimizer().wrap(tool, handler): repeats
-//                        become pointers, very large reports are cut
+//   Agent tool results   createToolOutputOptimizer().wrap(tool, handler, chat?): repeats
+//                        become pointers, re-reads of changed files the change,
+//                        very large reports are cut; with chat, calls are noted
+//   Across chat turns    workingSetFor(chat): the next turn's "Working set" section
+//   Edit results         describeEdit(before, after): the lines an edit left
 //
 // Inside, one folder per concern; each is replaceable behind the
 // functions above:
@@ -30,6 +33,8 @@
 //   history/        stepped turn selection
 //   modelSwitch/    the warm-cache rule
 //   toolOutput/     repeat pointers and size limits for the agent's own tools
+//   fileState/      changed regions: what an edit left, what changed since a read
+//   workingSet/     what a chat already explored, for its next turns
 //   safeguards/     never worse, fail open, stamps
 // ============================================================
 
@@ -55,6 +60,8 @@ export { parseStamps, type Stamp } from "./safeguards/stamps";
 export { chooseHistoryTurns, type HistoryTurn, type TurnSelection } from "./history";
 export { checkModelSwitch, estimateConversationTokens, type ModelSwitch, type ModelSwitchVerdict } from "./modelSwitch";
 export { ToolOutputOptimizer, TOOL_OUTPUT_LIMITS } from "./toolOutput/optimizer";
+export { describeEdit } from "./fileState/region";
+export { forgetWorkingSet, noteToolUse, workingSetFor, WORKING_SET_LIMITS } from "./workingSet";
 
 /** Wraps the agent's own tools (read_file, spec_context, repo_context...) so their results cost less; one per run. */
 export function createToolOutputOptimizer(): ToolOutputOptimizer {

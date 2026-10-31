@@ -62,6 +62,26 @@ Only identical content counts: a file edited since, or other lines of it, come b
 `spec_context` only the documents are replaced; the change's status and open tasks are always
 current. A workflow step or sub-agent has its own conversation and receives everything once.
 
+A file read again **after it changed** (usually by the agent's own edit) comes back as only the
+changed lines, numbered as the file is now, with the whole file one job_output call away. And
+`edit_file` / `write_file` return the lines they changed, so there is nothing to read back.
+
+### Carry the working set across turns (`working-set`)
+
+Each chat message starts a fresh agent session that sees the earlier messages' text but none of
+their tool results, so it explores again. The next turn's prompt gets a short section after the
+earlier turns:
+
+```text
+## Working set from earlier turns
+- rusty-core/crates/harness-context/src/policy.rs: edited; read lines 120-160
+- rusty-ide/src/features/agent-chat/runEvents.ts: read for: how observations are routed
+Searches already run: "context pressure" (search_codebase)
+```
+
+It says where things are, not what they say (at most 30 files, 2,500 characters), so the agent reads
+exactly what it needs. It is kept per chat, across restarts.
+
 ### Limit very large tool reports (`tool-output-limits`)
 
 `repo_context`, `project_info`, `code_guidelines`, `search_codebase`, `list_files` and the `repo_`
@@ -86,6 +106,21 @@ refused. Moving to a more capable model (AUTO's step-up) is allowed, because it 
 answer; the log says what it costs. Choosing a model when a workflow step starts is unaffected:
 nothing is cached yet.
 
+## In workflows and sub-agents (no switch)
+
+Part of how the task queue and `agent_spawn` hand work over, in rusty-core, so each new session
+starts with what the one before it learned:
+
+- **The step plan carries the material.** A task's planner ends its plan with a `## Material`
+  section quoting the design passages and code the task needs (`path:start-end`, under about 6,000
+  characters). The builder and reviewer use it instead of reading those again.
+- **Locations carry forward.** Builders and reviewers report `locations` (one `path:lines` each);
+  later tasks' planners and builders get them as `known_locations`.
+- **The active-spec brief** tells a workflow step that its spec and design are already in its input,
+  instead of asking every session to fetch them with `spec_context`.
+- **Sub-agents** are asked to end their reply with `Locations:`, and the parent is told to put what
+  it already knows into the child's task.
+
 ## Safeguards (always on)
 
 - **Never worse.** An optimisation that would not make the text smaller is not applied.
@@ -105,6 +140,8 @@ it). Inside:
 | `commandOutput/` | the condenser, the generic layer, one filter per command family | a new `filters/<family>/<tool>.ts` exporting a `CommandFilter`, added to `registry.ts` |
 | `recall/` | content ids, the `RecallStore` interface, reading back | another `RecallStore` (on disk, say) passed to `createCommandOutputCondenser` |
 | `toolOutput/` | repeat pointers and size limits for the agent's own tools | `REPEAT_TOOLS`, `LIMITED_TOOLS`; a tool with its own layout gets a sectioner in `sections.ts` |
+| `fileState/` | changed regions: what an edit left, what changed since a read | `REGION_LIMITS` |
+| `workingSet/` | what a chat already explored, for its next turns | `WORKING_SET_LIMITS`; a new tool's arguments in `SEARCH_TOOLS` |
 | `history/` | stepped turn selection | `CUT_STEP_SHARE` |
 | `modelSwitch/` | the warm-cache rule | `judgeModelSwitch` |
 | `safeguards/` | never worse, fail open, the stamp grammar | the stamp grammar is shared with rusty-core's `harness-context`: change both |

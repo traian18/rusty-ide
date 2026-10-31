@@ -308,7 +308,8 @@ describe("editTool", () => {
     const outcome = await tool({ path: "src/a.ts", old_string: "b = 2", new_string: "b = 3" }, signal);
     expect(readFile).toHaveBeenCalledWith("/workspace/src/a.ts", signal);
     expect(writeFile).toHaveBeenCalledWith("/workspace/src/a.ts", "export const a = 1;\nexport const b = 3;\n", signal);
-    expect(outcome).toEqual({ ok: true, output: "Edited /workspace/src/a.ts: replaced at line 2." });
+    // The result shows what the edit left, so the agent need not read the file back.
+    expect(outcome).toEqual({ ok: true, output: "Edited /workspace/src/a.ts: replaced at line 2.\nThe file now has 3 lines. Lines 1-3 now read:\n1: export const a = 1;\n2: export const b = 3;\n3: " });
     expect(modifiedFiles).toEqual(new Set(["/workspace/src/a.ts"]));
   });
 
@@ -316,7 +317,7 @@ describe("editTool", () => {
     const readFile = vi.fn().mockResolvedValue("x x x");
     const tool = editTool("/workspace", fakeHost({ readFile }), new Set());
     const outcome = await tool({ path: "a.ts", old_string: "x", new_string: "y", replace_all: true }, signal);
-    expect(outcome).toEqual({ ok: true, output: "Edited /workspace/a.ts: replaced 3 occurrences, the first at line 1." });
+    expect(outcome).toEqual({ ok: true, output: "Edited /workspace/a.ts: replaced 3 occurrences, the first at line 1.\nThe file now has 1 line. Lines 1-1 now read:\n1: y y y" });
   });
 
   it("resolves a connected input file by name like write_file does", async () => {

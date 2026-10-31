@@ -28,12 +28,12 @@
 // ============================================================
 
 import { invoke } from "@tauri-apps/api/core";
-
 import { searchService } from "../../../features/explorer";
 import { isBinaryDocumentFile, parseDocument } from "../../../lib/documents";
 import type { RunHost } from "../../contract";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
+import { describeEdit } from "../tokenOptimizations";
 import {
   MAX_DEPTH as MAX_LISTING_DEPTH,
   normalizeBase,
@@ -311,7 +311,7 @@ export function writeTool(workspaceRoot: string, host: RunHost, modifiedFiles: S
     try {
       await host.writeFile(absolute, content, signal);
       modifiedFiles.add(absolute);
-      return { ok: true, output: `File successfully written to: ${absolute}` };
+      return { ok: true, output: `File successfully written to: ${absolute}${previous?.trim() ? describeEdit(previous, content) : ` (${content.split("\n").length} lines)`}` };
     } catch (error: unknown) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -447,7 +447,7 @@ export function editTool(workspaceRoot: string, host: RunHost, modifiedFiles: Se
     }
     modifiedFiles.add(absolute);
     const where = outcome.replaced === 1 ? `at line ${outcome.line}` : `${outcome.replaced} occurrences, the first at line ${outcome.line}`;
-    return { ok: true, output: `Edited ${absolute}: replaced ${where}.` };
+    return { ok: true, output: `Edited ${absolute}: replaced ${where}.${describeEdit(previous, outcome.next)}` };
   };
 }
 

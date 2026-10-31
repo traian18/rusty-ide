@@ -14,6 +14,9 @@
 
 import { chooseHistoryTurns } from "../tokenOptimizations";
 
+/** What the chat's agent already explored in earlier turns: files and searches, after the earlier turns themselves. */
+export { workingSetFor } from "../tokenOptimizations";
+
 interface Turn {
   role: "user" | "assistant" | "summary";
   content: string;

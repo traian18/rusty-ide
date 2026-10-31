@@ -41,7 +41,13 @@ const specContext: Sectioner = (output) => {
   return sections;
 };
 
-const SECTIONERS: Record<string, Sectioner> = { spec_context: specContext };
+/** A file read is the same read whatever the request text asked for: the path and the lines decide. */
+const fileRead: Sectioner = (output, args) => {
+  const { request: _request, ...rest } = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+  return [{ key: stableArgs(rest), text: output }];
+};
+
+const SECTIONERS: Record<string, Sectioner> = { spec_context: specContext, read_file: fileRead };
 
 export function sectionsOf(tool: string, output: string, args: unknown): Section[] {
   return (SECTIONERS[tool] ?? whole)(output, args);

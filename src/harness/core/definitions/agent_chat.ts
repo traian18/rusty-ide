@@ -106,7 +106,7 @@ import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoCo
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
-import { flattenHistory } from "./promptHistory";
+import { flattenHistory, workingSetFor } from "./promptHistory";
 import { historyBudgetChars } from "../contextCompaction";
 import { GATED_RUN_COMMAND_TOOL, gatedRunCommandTool } from "./runCommandTool";
 import { JOB_OUTPUT_TOOL, backgroundable, runJobs, withJobNotices } from "./commandJobs";
@@ -651,7 +651,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     return brief ? { ...recipe, system_prompt: `${recipe.system_prompt ?? ""}\n\n${brief}` } : undefined;
   },
 
-  promptText: (input) => `${flattenHistory(input.chatHistory, { budgetChars: historyBudgetChars(input.customProvider, input.model), summary: input.historySummary })}${input.planOnly || input.workflow ? "" : openTodosReminder(input.tabId)}${input.message}`,
+  promptText: (input) => `${flattenHistory(input.chatHistory, { budgetChars: historyBudgetChars(input.customProvider, input.model), summary: input.historySummary })}${workingSetFor(input.tabId)}${input.planOnly || input.workflow ? "" : openTodosReminder(input.tabId)}${input.message}`,
 
   hostTools: (input, host: RunHost, ctx, onEvent): Record<string, HostToolHandler> => {
     const modifiedFiles = (ctx.scratch.modifiedFiles ??= new Set<string>()) as Set<string>;
@@ -730,7 +730,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       if (handler) handlers[name] = async (...args) => { evidence.invalidate(); try { return await handler(...args); } finally { evidence.invalidate(); } };
     }
     // Whatever the model calls next hears of a background job that finished meanwhile.
-    for (const [name, handler] of Object.entries(handlers)) handlers[name] = withJobNotices(jobs.toolOutputs.wrap(name, handler), jobs);
+    for (const [name, handler] of Object.entries(handlers)) handlers[name] = withJobNotices(jobs.toolOutputs.wrap(name, handler, input.tabId), jobs);
     return handlers;
   },
 

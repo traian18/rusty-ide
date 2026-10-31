@@ -7,7 +7,7 @@
 // optimisations safe to leave on.
 // ============================================================
 
-export type OptimizationId = "command-output" | "recall" | "repeat-results" | "tool-output-limits" | "stable-history" | "warm-cache-guard";
+export type OptimizationId = "command-output" | "recall" | "repeat-results" | "tool-output-limits" | "working-set" | "stable-history" | "warm-cache-guard";
 
 export interface TokenOptimization {
   id: OptimizationId;
@@ -43,7 +43,7 @@ export const TOKEN_OPTIMIZATIONS: readonly TokenOptimization[] = [
     name: "Don't resend what the agent already has",
     summary: "When a tool would give an agent exactly what it already received in this session (the same file read, the same spec document), it gets a one-line pointer instead.",
     details:
-      "Agents re-read the files they work on and ask for the spec and design again and again; each copy is paid for on every later request. Only identical content counts: a file that changed since, or other lines of it, come back in full. The pointer names an id, so the full text is one job_output call away if the earlier copy was shortened. A workflow step or sub-agent has its own conversation and gets everything once.",
+      "Agents re-read the files they work on and ask for the spec and design again and again; each copy is paid for on every later request. A file read again after it changed (usually by the agent's own edit) comes back as just the changed lines, numbered as the file is now; other lines of a file come back in full. Edits themselves return the lines they changed, so there is nothing to read back. The pointer names an id, so the full text is one job_output call away if the earlier copy was shortened. A workflow step or sub-agent has its own conversation and gets everything once.",
     actsOn: "read_file, spec_context documents, repo_context, project_info, code_guidelines, search_codebase and the other repo_ tools",
     defaultEnabled: true,
   },
@@ -54,6 +54,15 @@ export const TOKEN_OPTIMIZATIONS: readonly TokenOptimization[] = [
     details:
       "Repository context, project information, guidelines and search reports can run to tens of thousands of characters, most of it never used. The first 9,000 and last 2,000 characters are kept, with a stamp naming a job_output id for the rest. Files (read_file) and spec documents are never cut.",
     actsOn: "repo_context, project_info, code_guidelines, search_codebase, list_files and the repo_ tools",
+    defaultEnabled: true,
+  },
+  {
+    id: "working-set",
+    name: "Carry the working set across turns",
+    summary: "Tells each new message's agent which files the chat already read or changed, and which searches it ran, so it reads exactly what it needs instead of exploring again.",
+    details:
+      "Every message starts a fresh agent that sees the earlier messages but none of their tool results. A short section (at most 30 files, 2,500 characters) lists where things are, not what they say. It is placed after the earlier turns, so the cached part of the prompt does not change. Kept per chat until Rusty forgets the chat.",
+    actsOn: "agent chats: the prompt of each new message",
     defaultEnabled: true,
   },
   {
