@@ -65,7 +65,7 @@ const NOT_PASSED_ON='Only your final message is passed on as your hand-off. Of t
 // each role is shown. Plan and research judge the request afresh; a builder
 // sent back needs everything that happened; a verifier sees the work it judges.
 const ACCESS={build:'all',verify:['build'],post:['build','verify','gate']};
-const JOURNAL_LINE=steps=>`workflow_journal (after your input): what ${steps} did so far: the files they changed, the commands and checks they ran, their hand-offs, and how the acceptance checks judged them. Build on it instead of redoing their work.`;
+const JOURNAL_LINE=steps=>`workflow_journal (after your input): what ${steps} did so far: the files they changed and read, where research found things, the commands and checks they ran, their hand-offs, and how the acceptance checks judged them. Build on it instead of redoing their work.`;
 const PREVIOUS_LINE='previous_attempt (only when you are sent back): what your last attempt changed and ran, and the report it gave. Its changes are still in the workspace: continue from them and fix what the rejection names, do not start over.';
 const planSteps=queued=>[
  'Read the request, the context and the results of the steps before you. Treat decisions recorded there as made.',
@@ -289,6 +289,9 @@ for(const [id,preps,writer,post] of catalog){
   while(body[0]==='')body.shift();
   const given=n.input_bindings.map(b=>INPUTS[b.target==='build'&&queued?'queuedBuild':b.target]);
   if(n.config.task_queue)given.push(...QUEUE_INPUTS,STEP_PLAN_INPUT);
+  // A step after the first sees what the earlier ones did (their journal, with the files they read and
+  // where research found things), so it does not read and search for the same code again.
+  if(n.config.context_access===undefined&&agents.indexOf(n)>0)n.config.context_access={steps:agents.slice(0,agents.indexOf(n)).map(o=>o.id)};
   const access=n.config.context_access;
   const seen=access==='all'?nodes.filter(o=>o!==n&&(o.type==='agent'||o.type==='verify')).map(o=>o.name):access?.steps?.map(id=>nodes.find(o=>o.id===id).name);
   if(seen?.length)given.push(JOURNAL_LINE([...new Set(seen)].join(', ').replace(/, ([^,]*)$/,' and $1')));
