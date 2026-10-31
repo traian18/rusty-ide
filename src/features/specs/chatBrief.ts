@@ -76,6 +76,6 @@ export function formatActiveBrief(specsRoot: string, change: ChangeSummary, task
   const open = openTasks(tasks, BRIEF_TASKS);
   if (open.length) lines.push("Open tasks:", ...open);
   if (change.openQuestions) lines.push(`The spec has ${change.openQuestions} open question${change.openQuestions === 1 ? "" : "s"}.`);
-  lines.push(`Call spec_context with {"change": "${change.dir}"} to read its spec, design and tasks before changing code for it. The spec files are the source of truth: when a requirement changes, change the spec first.`);
+  lines.push(`Before changing code for it, know its spec, design and tasks: a spec workflow's step already has them in its input (workflow_input.context, or the step plan); otherwise call spec_context with {"change": "${change.dir}"} once, for only the documents you lack. The spec files are the source of truth: when a requirement changes, change the spec first.`);
   return lines.join("\n");
 }
