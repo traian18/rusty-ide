@@ -19,7 +19,6 @@ import { CONTINUE_AGENT_PROMPT, IncompleteAgentRun } from "../incompleteAgentRun
 import type { ExecutionParams, SessionRecipe } from "../SessionRecipe";
 import { toolDecisionObserver } from "../toolDecisionObserver";
 import { createTranscript } from "../transcript";
-import { mapModelUsage } from "../usageAccumulator";
 import {
   BEHAVIOR_LOGS,
   dispatchAgentEvent,
@@ -282,6 +281,7 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
 
   onAgentEvent(envelope: AgentEventEnvelope): void {
     observe(() => executionObservability.ingest(this.runId, envelope));
+    observe(() => this.usage.observe(envelope));
     observe(() => toolDecisionObserver()?.observe(this.runId, envelope));
     if (this.settled || isChildOwnedEvent(envelope)) return;
     if (!envelope.parent_agent_id) this.incompleteAgentRun?.observe(envelope.event as AgentEvent);
@@ -444,7 +444,7 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
     // its tokens are accounted as their own surface.
     const contextSummary = isContextSummaryRequest(data.input);
     const recordSummaryUsage = (result: ExecutionResult) =>
-      this.usage.background(data.input.params?.model ?? this.definition.usageContext(this.input).model, mapModelUsage(result.usage), "context_summary");
+      this.usage.background(data.input.params?.model ?? this.definition.usageContext(this.input).model, result.usage, "context_summary");
     answerExecuteCall(this.engine, sid, data.call_id, (onEvent) => this.runModelTurn(data.input, contextSummary, onEvent), contextSummary ? recordSummaryUsage : undefined);
   }
 

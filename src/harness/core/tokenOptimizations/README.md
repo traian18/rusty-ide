@@ -106,6 +106,24 @@ refused. Moving to a more capable model (AUTO's step-up) is allowed, because it 
 answer; the log says what it costs. Choosing a model when a workflow step starts is unaffected:
 nothing is cached yet.
 
+### Measuring the prompt cache (no switch: it changes nothing)
+
+Every request of an agent resends the previous prompt plus a little more, so a follow-up request
+should read about the whole previous prompt from the cache. `promptCache/watch.ts` judges each
+finished request: a follow-up that read less than half the previous prompt **missed**, for one of
+three causes, checked in this order:
+
+| Cause | Meaning |
+|---|---|
+| Prompt or tools changed | rusty-core's `PromptPrefixChanged`: the system prompt or tool list differed from the run's previous request |
+| Cache expired | more than five minutes since the previous request (the default cache lifetime) |
+| History rewritten | anything else: compaction, trimming or replaced reads changed earlier turns, or the provider dropped the cache |
+
+Prompts under 1,024 tokens are not judged (nothing is cached), nor are requests from providers that
+report no cache reads. Anthropic counts input without cached tokens and reports cache writes; OpenAI
+and Gemini include cached tokens in input; the prompt size uses whichever applies. The Settings page
+shows the hit rate and the misses by cause.
+
 ## In workflows and sub-agents (no switch)
 
 Part of how the task queue and `agent_spawn` hand work over, in rusty-core, so each new session

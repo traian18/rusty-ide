@@ -25,6 +25,8 @@
 //                        very large reports are cut; with chat, calls are noted
 //   Across chat turns    workingSetFor(chat): the next turn's "Working set" section
 //   Edit results         describeEdit(before, after): the lines an edit left
+//   Prompt cache         createPromptCacheWatch(): one per run; feed it usage
+//                        and prefix changes, it counts hits and misses
 //
 // Inside, one folder per concern; each is replaceable behind the
 // functions above:
@@ -36,6 +38,7 @@
 //   fileState/      changed regions: what an edit left, what changed since a read
 //   workingSet/     what a chat already explored, for its next turns
 //   safeguards/     never worse, fail open, stamps
+//   promptCache/    judging each request's cache use (measures only)
 // ============================================================
 
 import { Condenser, type CondenserDeps } from "./commandOutput/condenser";
@@ -45,11 +48,13 @@ import type { CommandOutputCondenser } from "./commandOutput/types";
 export { TOKEN_OPTIMIZATIONS, SAFEGUARDS, optimizationById, type OptimizationId, type Safeguard, type TokenOptimization } from "./catalog";
 export { isOptimizationEnabled, optimizationSwitches, setOptimizationEnabled, subscribeToOptimizationSwitches } from "./switches";
 export {
+  cacheHitRate,
   recallRate,
   resetTokenOptimizationStats,
   subscribeToTokenOptimizationStats,
   tokenOptimizationStats,
   type FilterStats,
+  type PromptCacheStats,
   type TokenOptimizationStats,
 } from "./stats";
 
@@ -61,6 +66,7 @@ export { chooseHistoryTurns, type HistoryTurn, type TurnSelection } from "./hist
 export { checkModelSwitch, estimateConversationTokens, type ModelSwitch, type ModelSwitchVerdict } from "./modelSwitch";
 export { ToolOutputOptimizer, TOOL_OUTPUT_LIMITS } from "./toolOutput/optimizer";
 export { describeEdit } from "./fileState/region";
+export { createPromptCacheWatch, PromptCacheWatch, type CachedRequest, type MissCause } from "./promptCache";
 export { forgetWorkingSet, noteToolUse, workingSetFor, WORKING_SET_LIMITS } from "./workingSet";
 
 /** Wraps the agent's own tools (read_file, spec_context, repo_context...) so their results cost less; one per run. */

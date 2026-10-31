@@ -2,6 +2,7 @@ import React from "react";
 import { BarChart3 } from "lucide-react";
 import { recallRate, resetTokenOptimizationStats, type FilterStats } from "../../../harness/core/tokenOptimizations";
 import { useTokenOptimizationStats } from "./useTokenOptimizations";
+import { PromptCacheStats } from "./PromptCacheStats";
 
 /** Filters that pass output on unchanged, shown apart from the ones that condense. */
 const PASS_THROUGH = new Set(["raw", "off", "stamped", "none"]);
@@ -86,6 +87,8 @@ export const TokenOptimizationStats: React.FC = () => {
           </table>
         </div>
       )}
+
+      <PromptCacheStats stats={stats.promptCache} />
     </section>
   );
 };

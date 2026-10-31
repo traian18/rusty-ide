@@ -3,7 +3,8 @@ import type { TokenUsage } from "../../contract";
 import type { UsageRecordSample } from "../../contract/controlPlane";
 import { NOOP_TOOL_EXECUTION_OBSERVER, type ToolExecutionObserver, type ToolExecutor } from "../../contract/observability";
 import { executionObservability, parseUsageTokens } from "../../../features/observability";
-import { addUsage, hasTokens, mapAgentUsage, UsageAccumulator, usageRequestKey } from "../usageAccumulator";
+import { createPromptCacheWatch } from "../tokenOptimizations";
+import { addUsage, hasTokens, mapAgentUsage, mapModelUsage, UsageAccumulator, usageRequestKey } from "../usageAccumulator";
 import { ignoreFailure, observe } from "./failures";
 
 export interface UsageContext {
@@ -62,10 +63,12 @@ export interface UsageSinks {
  * Observability, `usage` events, live metrics listeners) and into
  * increments for Token Metrics, so no request is counted twice. Tokens a
  * tool spends on its own delegated model are recorded the same way,
- * under that model.
+ * under that model. It also counts how well each request used the prompt
+ * cache (tokenOptimizations' prompt cache watch).
  */
 export function createUsageTracker(runId: string, surface: string, context: UsageContext, sinks: UsageSinks) {
   const byModel = new Map<string, UsageAccumulator>();
+  const promptCache = createPromptCacheWatch();
   const record = (sample: UsageRecordSample) =>
     observe(() => void sinks.recordUsage(sample).catch(ignoreFailure(`recording ${sample.surface} usage`)));
   return {
@@ -82,16 +85,26 @@ export function createUsageTracker(runId: string, surface: string, context: Usag
       const key = `${role}:${model}`;
       let accumulator = byModel.get(key);
       if (!accumulator) byModel.set(key, (accumulator = new UsageAccumulator()));
-      const { delta, total, newRequest } = accumulator.apply(usageRequestKey(snapshot), mapAgentUsage(snapshot));
+      const requestUsage = mapAgentUsage(snapshot);
+      const { delta, total, newRequest } = accumulator.apply(usageRequestKey(snapshot), requestUsage);
+      observe(() => promptCache.usage(envelope.agent_id, usageRequestKey(snapshot), requestUsage));
       observe(() => executionObservability.recordUsage(runId, total, { model, provider: context.provider, role, agentId: envelope.agent_id, delta }));
       sinks.notify(`${runId}:${key}`, total);
       if (hasTokens(delta)) record(usageSample({ ...context, model }, surface, runId, delta, newRequest));
       return total;
     },
+    /** Any agent event: a prefix change marks the agent's next request, and
+     * an agent that finished has finished its last request. */
+    observe: (envelope: AgentEventEnvelope) => {
+      const event = envelope.event as object;
+      if ("PromptPrefixChanged" in event) promptCache.prefixChange(envelope.agent_id);
+      else if ("Completed" in event || "Failed" in event) promptCache.endAgent(envelope.agent_id);
+    },
     /** Tokens a run spends outside its agents' turns (a background context
-     * summary): recorded in Token Metrics under its own surface, like tool
-     * models, and kept out of the run's own total. */
-    background: (model: string, delta: TokenUsage, label: string) => {
+     * summary, as rusty-core's `ModelUsage`): recorded in Token Metrics under
+     * its own surface, like tool models, and kept out of the run's own total. */
+    background: (model: string, usage: unknown, label: string) => {
+      const delta = mapModelUsage(usage);
       if (!hasTokens(delta)) return;
       record(usageSample({ ...context, model }, `${surface}/${label}`, runId, delta));
     },
