@@ -43,6 +43,7 @@ export async function plainSearch(
   search: (pattern: string, isRegex: boolean) => Promise<SearchMatch[]>,
   request: string,
   path: string | undefined,
+  include: string | undefined,
   maxResults: number,
   workspaceRoot: string,
 ): Promise<string | undefined> {
@@ -51,13 +52,23 @@ export async function plainSearch(
   const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const root = `${workspaceRoot.replace(/\/+$/, "")}/`;
   const relative = (file: string) => (file.startsWith(root) ? file.slice(root.length) : file);
-  const matches = (await search(`(${escaped.join("|")})`, true))
-    .filter((match) => match.is_content_match && (!path || relative(match.path).startsWith(path.replace(/^\.\//, ""))));
-  if (matches.length === 0) return `No lines mention ${terms.join(", ")}.`;
-  return matches
-    .slice(0, maxResults)
-    .map((match) => `${relative(match.path)}:${match.line} | ${match.content.trim().slice(0, 200)}`)
-    .join("\n");
+  const normalizedPath = path?.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+  const normalizedInclude = include?.replace(/\\/g, "/");
+  const includeRe = normalizedInclude ? new RegExp(`^${normalizedInclude.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`) : undefined;
+  const matches = (await search(`(${escaped.join("|")})`, true)).filter((match) => {
+    if (!match.is_content_match) return false;
+    const file = relative(match.path).replace(/\\/g, "/");
+    if (normalizedPath && file !== normalizedPath && !file.startsWith(`${normalizedPath}/`)) return false;
+    const target = normalizedInclude && !normalizedInclude.includes("/") ? file.slice(file.lastIndexOf("/") + 1) : file;
+    return !includeRe || includeRe.test(target);
+  });
+  const results = matches.slice(0, maxResults).map((match) => {
+    const file = relative(match.path);
+    const provenance = match.content.toLowerCase().includes(request.toLowerCase()) ? "verbatim query match" : "pattern match; inferred relevance";
+    return `${file}:${match.line} | ${match.content.trim().slice(0, 200)} | provenance: ${provenance}; unranked`;
+  });
+  if (results.length === 0) return `No matches found in the search performed. Try different symbols or behavior words${path || include ? ", or widen the search scope" : ""}.`;
+  return results.join("\n");
 }
 
 function optionalString(value: unknown): string | undefined {
@@ -71,7 +82,23 @@ export function resolveSearchCodebaseTool(config: SearchToolRunConfig | undefine
   const selectorModel = config.selectorModel;
   const selectorProvider = selectorModel?.provider;
   if (!selectorModel || !selectorProvider) {
-    throw new Error("Smart code search is enabled, but no selector model is configured. Choose a provider and model or disable smart code search.");
+    return {
+      spec: RANKED_SEARCH_CODEBASE_TOOL,
+      handler: async (args) => {
+        const parsed = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+        const request = optionalString(parsed.request);
+        if (!request) return { ok: false, error: "search_codebase requires a precise request describing the code to locate." };
+        const parsedMax = parsed.max_results;
+        if (parsedMax !== undefined && (typeof parsedMax !== "number" || !Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > MAX_RESULTS_LIMIT)) {
+          return { ok: false, error: `max_results must be a whole number from 1 through ${MAX_RESULTS_LIMIT}.` };
+        }
+        const search = dependencies.search ?? ((pattern: string, isRegex: boolean) =>
+          searchService.searchProject({ rootDir: dependencies.workspaceRoot, query: pattern, matchCase: false, wholeWord: false, isRegex }));
+        const found = await plainSearch(search, request, optionalString(parsed.path), optionalString(parsed.include), typeof parsedMax === "number" ? parsedMax : DEFAULT_MAX_RESULTS, dependencies.workspaceRoot);
+        if (!found) return { ok: true, output: "No matches found in the search performed. Try different symbols or behavior words, or widen the search scope." };
+        return { ok: true, output: found };
+      },
+    };
   }
   const invoker = dependencies.selectorInvoker ?? new RoutedSelectorModelInvoker();
   const search = dependencies.search ?? ((pattern: string, isRegex: boolean) =>
@@ -88,7 +115,16 @@ export function resolveSearchCodebaseTool(config: SearchToolRunConfig | undefine
         trace.warn("search_codebase rejected: missing request", { args });
         return { ok: false, error: "search_codebase requires a precise request describing the code to locate." };
       }
-      const maxResults = typeof parsed.max_results === "number" && Number.isFinite(parsed.max_results) ? parsed.max_results : undefined;
+      const parsedMax = parsed.max_results;
+      if (parsedMax !== undefined && (typeof parsedMax !== "number" || !Number.isInteger(parsedMax) || parsedMax < 1 || parsedMax > MAX_RESULTS_LIMIT)) {
+        return { ok: false, error: `max_results must be a whole number from 1 through ${MAX_RESULTS_LIMIT}.` };
+      }
+      for (const [name, value] of [["path", parsed.path], ["include", parsed.include]] as const) {
+        if (value !== undefined && (typeof value !== "string" || value.trim().startsWith("/") || value.split(/[\\/]/).includes(".."))) {
+          return { ok: false, error: `Invalid search scope: ${name} must be workspace-relative and cannot contain '..'.` };
+        }
+      }
+      const maxResults = parsedMax as number | undefined;
       observer.executedBy({
         kind: "model",
         purpose: "Smart Search selector",
@@ -116,9 +152,9 @@ export function resolveSearchCodebaseTool(config: SearchToolRunConfig | undefine
         if (signal?.aborted) return { ok: false, error: message };
         // The selector failed (a rate limit, a provider error): a plain text
         // search for the request's words still finds the places.
-        const found = await plainSearch(search, request, optionalString(parsed.path), maxResults ?? DEFAULT_MAX_RESULTS, dependencies.workspaceRoot).catch(() => undefined);
-        if (!found) return { ok: false, error: message };
-        return { ok: true, output: `${found}\n\n[The Smart Search selector is unavailable (${message.slice(0, 120)}), so these are plain text matches, not ranked.]` };
+        const found = await plainSearch(search, request, optionalString(parsed.path), optionalString(parsed.include), maxResults ?? DEFAULT_MAX_RESULTS, dependencies.workspaceRoot).catch(() => undefined);
+        if (!found) return { ok: false, error: `${message}${optionalString(parsed.path) || optionalString(parsed.include) ? " Fallback could not honor the requested scope." : ""}` };
+        return { ok: true, output: `${found}\n\n[The Smart Search selector is unavailable (${message.slice(0, 120)}); these results are unranked.]` };
       }
     },
   };

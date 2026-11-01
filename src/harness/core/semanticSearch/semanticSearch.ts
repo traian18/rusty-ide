@@ -18,6 +18,8 @@ export interface RankedMatch {
   hits: number;
   /** Index of the first (most specific, per the selector's order) pattern that hit it. */
   firstQuery: number;
+  /** Provenance is rendered for each result so observed and inferred evidence stay distinct. */
+  provenance: "verbatim" | "pattern match; inferred relevance";
 }
 
 export interface SemanticSearchOptions {
@@ -136,6 +138,8 @@ export function globToRegExp(glob: string): RegExp {
 
 function scopeFilter(path: string | undefined, include: string | undefined): (relativePath: string) => boolean {
   const scope = path ? normalizeSlashes(path).replace(/^\.\/?/, "").replace(/\/+$/, "") : "";
+  if (scope && (scope.startsWith("/") || scope.split("/").some((part) => part === ".."))) throw new Error("Invalid search scope: path must be workspace-relative and cannot contain '..'.");
+  if (include && (include.startsWith("/") || include.split("/").some((part) => part === ".."))) throw new Error("Invalid search scope: include must be a workspace-relative glob and cannot contain '..'.");
   const includeRe = include ? globToRegExp(normalizeSlashes(include)) : undefined;
   const includeMatchesBasename = Boolean(include && !include.includes("/"));
   return (relativePath) => {
@@ -171,7 +175,8 @@ function formatResults(options: SemanticSearchOptions, ranked: RankedMatch[], ma
   const lines: string[] = [];
   let size = header.join("\n").length;
   for (const match of ranked.slice(0, maxResults)) {
-    const line = `${match.path}:${match.line} | ${match.content.trim().slice(0, MAX_SNIPPET_CHARS)}`;
+    const provenance = match.provenance === "verbatim" ? "verbatim query match" : match.provenance;
+    const line = `${match.path}:${match.line} | ${match.content.trim().slice(0, MAX_SNIPPET_CHARS)} | provenance: ${provenance}`;
     if (size + line.length + 1 > MAX_OUTPUT_CHARS) break;
     lines.push(line);
     size += line.length + 1;
@@ -184,7 +189,18 @@ export async function semanticSearch(options: SemanticSearchOptions): Promise<st
   options.signal.throwIfAborted();
   const observer = options.observer ?? NOOP_TOOL_EXECUTION_OBSERVER;
   const trace = smartSearchTracer(options.workspaceRoot, observer);
-  const maxResults = Math.min(Math.max(1, Math.floor(options.maxResults ?? DEFAULT_MAX_RESULTS)), MAX_RESULTS_LIMIT);
+  if (options.maxResults !== undefined && (!Number.isInteger(options.maxResults) || options.maxResults < 1 || options.maxResults > MAX_RESULTS_LIMIT)) {
+    throw new Error(`max_results must be a whole number from 1 through ${MAX_RESULTS_LIMIT}.`);
+  }
+  if (options.path) {
+    const path = normalizeSlashes(options.path);
+    if (path.startsWith("/") || path.split("/").some((part) => part === "..")) throw new Error("Invalid search scope: path must be workspace-relative and cannot contain '..'.");
+  }
+  if (options.include) {
+    const include = normalizeSlashes(options.include);
+    if (include.startsWith("/") || include.split("/").some((part) => part === "..")) throw new Error("Invalid search scope: include must be a workspace-relative glob and cannot contain '..'.");
+  }
+  const maxResults = options.maxResults ?? DEFAULT_MAX_RESULTS;
   const selector = { providerId: options.selector.providerId, modelId: options.selector.modelId };
 
   const userPrompt = [
@@ -230,7 +246,10 @@ export async function semanticSearch(options: SemanticSearchOptions): Promise<st
       const key = `${path}:${match.line}`;
       const existing = matches.get(key);
       if (existing) existing.hits++;
-      else matches.set(key, { path, line: match.line, content: match.content, hits: 1, firstQuery: queryIndex });
+      else {
+        const verbatim = match.content.toLowerCase().includes(options.request.toLowerCase());
+        matches.set(key, { path, line: match.line, content: match.content, hits: 1, firstQuery: queryIndex, provenance: verbatim ? "verbatim" : "pattern match; inferred relevance" });
+      }
     }
     trace.info("pattern searched", { pattern: query.pattern, regex: query.regex, matches: found.length, inScope: kept });
   }

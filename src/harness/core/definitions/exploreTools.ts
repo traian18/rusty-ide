@@ -34,6 +34,9 @@ import type { RunHost } from "../../contract";
 import type { HostToolHandler } from "../CoreHarness";
 import type { HostToolSpec } from "../SessionRecipe";
 import { describeEdit } from "../tokenOptimizations";
+import { requestTerms } from "../semanticRead/plainExcerpt";
+import { SEARCH_CODEBASE_TOOL } from "./searchCodebaseTool";
+export { searchCodebaseTool, SEARCH_CODEBASE_TOOL } from "./searchCodebaseTool";
 import {
   MAX_DEPTH as MAX_LISTING_DEPTH,
   normalizeBase,
@@ -99,16 +102,6 @@ export const LIST_FILES_TOOL: HostToolSpec = {
   },
 };
 
-export const SEARCH_CODEBASE_TOOL: HostToolSpec = {
-  name: "search_codebase",
-  description:
-    "Find files containing a search term or regex pattern. Returns matching file paths and line snippets (limited to 30 results).",
-  input_schema: {
-    type: "object",
-    properties: { pattern: { type: "string", description: "The search pattern or regex to match" } },
-    required: ["pattern"],
-  },
-};
 
 /** execute_node's own name for the same read behavior as READ_TOOL above --
  * see this file's header comment on why the two names stay distinct. */
@@ -555,22 +548,40 @@ export function listFilesTool(workspaceRoot: string): HostToolHandler {
  * own search panel uses (ripgrep-backed, .gitignore-aware), restricted to
  * content matches and formatted as `path:line | snippet`, matching the
  * sidecar tool's own output shape. */
-export function searchCodebaseTool(workspaceRoot: string): HostToolHandler {
+export function legacySearchCodebaseTool(workspaceRoot: string): HostToolHandler {
   return async (args) => {
     const pattern = String((args as { pattern?: unknown } | undefined)?.pattern ?? "");
+    const request = String((args as { request?: unknown } | undefined)?.request ?? "").trim();
     if (!pattern) return { ok: false, error: "search_codebase requires a 'pattern' argument." };
+    let query = pattern;
     try {
       const matches = await searchService.searchProject({
         rootDir: workspaceRoot,
-        query: pattern,
+        query,
         matchCase: false,
         wholeWord: false,
         isRegex: true,
       });
       const contentMatches = matches.filter((match) => match.is_content_match).slice(0, 30);
-      if (contentMatches.length === 0) return { ok: true, output: "No matches found." };
-      const output = contentMatches.map((match) => `${match.path}:${match.line} | ${match.content.trim().slice(0, 200)}`).join("\n");
-      return { ok: true, output };
+      const lines = contentMatches.map((match) => {
+        const provenance = match.content.toLowerCase().includes(pattern.toLowerCase()) ? "pattern match; verbatim query match" : "pattern match";
+        return `${match.path}:${match.line} | ${match.content.trim().slice(0, 200)} | provenance: ${provenance}`;
+      });
+      if (request) {
+        const terms = requestTerms(request);
+        if (terms.length) {
+          const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&"));
+          query = `(${escaped.join("|")})`;
+          const inferred = await searchService.searchProject({ rootDir: workspaceRoot, query, matchCase: false, wholeWord: false, isRegex: true });
+          const existing = new Set(contentMatches.map((match) => `${match.path}:${match.line}`));
+          lines.push(...inferred.filter((match) => match.is_content_match && !existing.has(`${match.path}:${match.line}`)).slice(0, Math.max(0, 30 - lines.length)).map((match) => {
+            const provenance = match.content.toLowerCase().includes(request.toLowerCase()) ? "verbatim query match" : "pattern match; inferred relevance";
+            return `${match.path}:${match.line} | ${match.content.trim().slice(0, 200)} | provenance: ${provenance}`;
+          }));
+        }
+      }
+      if (lines.length === 0) return { ok: true, output: "No matches found in the search performed. Try another pattern or a more specific pattern." };
+      return { ok: true, output: lines.join("\n") };
     } catch (error: unknown) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
     }

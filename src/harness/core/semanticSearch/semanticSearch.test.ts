@@ -99,6 +99,27 @@ describe("semanticSearch", () => {
     expect(output).not.toContain(ROOT);
   });
 
+  it("labels exact-query and inferred pattern results independently", async () => {
+    const output = await semanticSearch(options({
+      request: "where auth failures become user-facing errors",
+      invoker: selectorReturning([{ pattern: "AuthError" }]),
+      search: async () => [match("src/exact.ts", 1, "where auth failures become user-facing errors"), match("src/related.ts", 2, "throw new AuthError()")],
+    }));
+    expect(output).toContain("provenance: verbatim query match");
+    expect(output).toContain("provenance: pattern match; inferred relevance");
+  });
+
+  it("rejects invalid limits and excludes sibling paths", async () => {
+    const invoker = selectorReturning([{ pattern: "x" }]);
+    await expect(semanticSearch(options({ maxResults: 1.5, invoker, search: async () => [] }))).rejects.toThrow("whole number");
+    const output = await semanticSearch(options({ path: "src", invoker, search: async () => [match("src-old/a.ts", 1), match("src/a.ts", 2)] }));
+    expect(resultLines(output).map((line) => line.split(" | ")[0])).toEqual(["src/a.ts:2"]);
+  });
+
+  it("rejects unsupported path scopes", async () => {
+    await expect(semanticSearch(options({ path: "../outside", invoker: selectorReturning([{ pattern: "x" }]), search: async () => [] }))).rejects.toThrow("Invalid search scope");
+  });
+
   it("caps results per file and by max_results", async () => {
     const many = Array.from({ length: 20 }, (_, i) => match("src/noisy.ts", i + 1));
     const others = Array.from({ length: 10 }, (_, i) => match(`src/f${i}.ts`, 1));

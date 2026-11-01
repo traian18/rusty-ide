@@ -507,14 +507,30 @@ describe("searchCodebaseTool", () => {
       wholeWord: false,
       isRegex: true,
     });
-    expect(outcome).toEqual({ ok: true, output: "src/a.ts:3 | const x = 1;" });
+    expect(outcome).toEqual({ ok: true, output: "src/a.ts:3 | const x = 1; | provenance: pattern match; verbatim query match" });
   });
 
   it("returns 'No matches found.' when nothing matches", async () => {
     searchProjectMock.mockResolvedValue([]);
     const tool = searchCodebaseTool("/workspace");
     const outcome = await tool({ pattern: "nope" }, signal);
-    expect(outcome).toEqual({ ok: true, output: "No matches found." });
+    expect(outcome).toEqual({ ok: true, output: "No matches found in the search performed. Try another pattern or a more specific pattern." });
+  });
+
+  it("appends inferred intent matches after raw pattern matches without replacing them", async () => {
+    searchProjectMock.mockResolvedValueOnce([
+      { path: "src/pattern.ts", name: "pattern.ts", line: 1, content: "EXACT_TOKEN", is_content_match: true },
+    ]).mockResolvedValueOnce([
+      { path: "src/pattern.ts", name: "pattern.ts", line: 1, content: "EXACT_TOKEN", is_content_match: true },
+      { path: "src/intent.ts", name: "intent.ts", line: 2, content: "start_command", is_content_match: true },
+    ]);
+    const outcome = await searchCodebaseTool("/workspace")({ pattern: "EXACT_TOKEN", request: "find how runtime starts" }, signal);
+    expect(searchProjectMock).toHaveBeenCalledTimes(2);
+    expect(outcome).toMatchObject({ ok: true });
+    const lines = String(outcome.ok && outcome.output).split("\n");
+    expect(lines[0]).toContain("src/pattern.ts:1");
+    expect(lines[1]).toContain("src/intent.ts:2");
+    expect(lines[1]).toContain("inferred relevance");
   });
 
   it("rejects a missing pattern without calling the search service", async () => {

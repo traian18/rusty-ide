@@ -25,7 +25,7 @@ export const OVERSIZED: ReadonlyArray<readonly [string, number]> = [
   ["harness/core/CoreHarness.ts", 431],
   ["harness/core/definitions/agent_chat.ts", 751],
   ["harness/core/definitions/decideTool.ts", 465],
-  ["harness/core/definitions/exploreTools.ts", 608],
+  ["harness/core/definitions/exploreTools.ts", 619],
   ["harness/core/definitions/reconciliate_graph.ts", 448],
   ["harness/core/definitions/webSearch.ts", 749],
   ["harness/core/projectInfo.ts", 817],

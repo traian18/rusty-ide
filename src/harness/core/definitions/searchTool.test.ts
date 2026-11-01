@@ -30,8 +30,22 @@ describe("resolveSearchCodebaseTool", () => {
     expect(JSON.stringify(spec)).not.toMatch(/selector|model|session/i);
   });
 
-  it("refuses a ranked config without a selector model", () => {
-    expect(() => resolveSearchCodebaseTool({ mode: "ranked" }, { workspaceRoot: "/ws" })).toThrow("Smart code search is enabled");
+  it("uses request-based local search when a ranked config has no selector model", () => {
+    expect(resolveSearchCodebaseTool({ mode: "ranked" }, { workspaceRoot: "/ws" }).spec).toBe(RANKED_SEARCH_CODEBASE_TOOL);
+  });
+
+  it("provides request-based local evidence when the selector is not configured", async () => {
+    const search = vi.fn(async () => [
+      { path: "/ws/src-old/runtime.ts", name: "runtime.ts", line: 1, content: "start_command", is_content_match: true },
+      { path: "/ws/src/runtime.ts", name: "runtime.ts", line: 2, content: "start_command", is_content_match: true },
+    ]);
+    const tool = resolveSearchCodebaseTool({ mode: "ranked" }, { workspaceRoot: "/ws", search });
+    expect(tool.spec).toBe(RANKED_SEARCH_CODEBASE_TOOL);
+    const outcome = await tool.handler({ request: "find how runtime starts", path: "src" }, new AbortController().signal);
+    expect(outcome.ok).toBe(true);
+    expect(String(outcome.ok && outcome.output)).toContain("src/runtime.ts:2");
+    expect(String(outcome.ok && outcome.output)).not.toContain("src-old");
+    expect(String(outcome.ok && outcome.output)).toContain("unranked");
   });
 
   it("reports the selector model as the call's executor and passes scope through", async () => {
@@ -63,7 +77,23 @@ describe("resolveSearchCodebaseTool", () => {
     expect(search).toHaveBeenCalledWith("(session_runtime|started)", true);
     expect(output).toContain("src/session.rs:7 | fn session_runtime() {");
     expect(output).not.toContain("docs/session.md");
-    expect(output).toContain("plain text matches");
+    expect(output).toContain("unranked");
+  });
+
+  it("keeps include-filtered fallback results in both requested scopes", async () => {
+    const invoker: SelectorModelInvoker = { invoke: vi.fn(async () => { throw new Error("provider down"); }) };
+    const search = vi.fn(async () => [
+      { path: "/ws/src/a.ts", name: "a.ts", line: 1, content: "runtime start", is_content_match: true },
+      { path: "/ws/src/a.rs", name: "a.rs", line: 2, content: "runtime start", is_content_match: true },
+      { path: "/ws/src-old/a.ts", name: "a.ts", line: 3, content: "runtime start", is_content_match: true },
+    ]);
+    const { handler } = resolveSearchCodebaseTool(RANKED, { workspaceRoot: "/ws", selectorInvoker: invoker, search });
+    const outcome = await handler({ request: "runtime starts", path: "src", include: "*.ts" }, new AbortController().signal, recordingObserver());
+    const output = String(outcome.ok && outcome.output);
+    expect(output).toContain("src/a.ts:1");
+    expect(output).not.toContain("src/a.rs");
+    expect(output).not.toContain("src-old");
+    expect(output).toContain("unranked");
   });
 
   it("rejects a missing request before any model runs", async () => {
