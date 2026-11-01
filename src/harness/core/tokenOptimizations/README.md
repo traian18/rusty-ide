@@ -74,7 +74,7 @@ earlier turns:
 
 ```text
 ## Working set from earlier turns
-- rusty-core/crates/harness-context/src/policy.rs: edited; read lines 120-160
+- rusty-core/crates/context/src/policy.rs: edited; read lines 120-160
 - rusty-ide/src/features/agent-chat/runEvents.ts: read for: how observations are routed
 Searches already run: "context pressure" (search_codebase)
 ```
@@ -162,7 +162,7 @@ it). Inside:
 | `workingSet/` | what a chat already explored, for its next turns | `WORKING_SET_LIMITS`; a new tool's arguments in `SEARCH_TOOLS` |
 | `history/` | stepped turn selection | `CUT_STEP_SHARE` |
 | `modelSwitch/` | the warm-cache rule | `judgeModelSwitch` |
-| `safeguards/` | never worse, fail open, the stamp grammar | the stamp grammar is shared with rusty-core's `harness-context`: change both |
+| `safeguards/` | never worse, fail open, the stamp grammar | the stamp grammar is shared with rusty-core's `rusty-context` (`crates/context/src/compaction.rs`): change both |
 | `catalog.ts` | names and descriptions shown in Settings | a new entry and id for a new optimisation |
 
 Limits live in one place each: `commandOutput/generic.ts` (`LIMITS`), `commandOutput/condenser.ts`

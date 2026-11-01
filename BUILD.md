@@ -7,9 +7,9 @@ All platforms need:
 - [Rust](https://www.rust-lang.org/tools/install) (stable toolchain)
 - A sibling checkout of [`rusty-core`](https://github.com/traian18/rusty-core) -- the Rust harness
   engine, a separate repo. `src-tauri/Cargo.toml` pulls it in via plain `path =
-  "../../rusty-core/..."` Cargo dependencies (RUSTY_CORE_INTEGRATION_PLAN.md's own phased plan is
-  still in its first stage: a pinned git/crates.io dependency comes later), so Cargo does **not**
-  fetch it -- it has to already exist on disk, checked out next to this repo:
+  "../../rusty-core/crates/..."` Cargo dependencies (a pinned git or crates.io dependency may come
+  later), so Cargo does **not** fetch it -- it has to already exist on disk, checked out next to
+  this repo:
   ```
   some-parent-dir/
     rusty-ide/     <- this repo

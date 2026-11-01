@@ -10,7 +10,7 @@ There were already 26 modified tracked files in the IDE, an untracked `starter/v
 
 ### 1. Build & verify does not decompose the work
 
-`src/components/tabs/behaviors/starter/workflows/implement.workflow.json`, revision 3, still runs `input → build → verify → gate → output`. One builder receives the entire request and prior context. Its profile has a 60-turn limit; Verify has 30. At the final turn, the runtime removes tools and injects a wrap-up instruction (`rusty-core/crates/harness-core/src/transitions.rs`, `build_request`). This can force a partial handoff regardless of the number of unfinished requirements.
+`src/components/tabs/behaviors/starter/workflows/implement.workflow.json`, revision 3, still runs `input → build → verify → gate → output`. One builder receives the entire request and prior context. Its profile has a 60-turn limit; Verify has 30. At the final turn, the runtime removes tools and injects a wrap-up instruction (`rusty-core/crates/agent-core/src/transitions/turn.rs`, `build_request`). This can force a partial handoff regardless of the number of unfinished requirements.
 
 The in-progress revision 7 of `starter/plan-build-verify.workflow.json` instead mandates exactly two slices. The same pattern appears in analyzed-feature, researched-feature, careful-change and security-remediation. This is a useful improvement over one unbounded job, but arbitrary complexity still has to fit in two builders. Empty second slices still have graph nodes. There is no host-owned list that proves every requested item belongs to a completed slice.
 

@@ -79,8 +79,13 @@ not that its review approved the implementation.
 Workflow budgets, profile turn/tool limits and step timeouts are optional and
 unset in the starter. The editor offers numeric limit fields, context checkboxes
 and a result-source selector. Existing JSON workflows remain supported through
-advanced settings. The basic Plan → Build → Verify workflow and its profiles are
-bundled with Rusty and available in every project without workspace files. The
+advanced settings. Rusty bundles twenty workflows and the profiles they use, available in
+every project without workspace files. Stage workflows do one part of the job (investigate,
+design, diagnose, implement, specify, check changes, security audit, and the spec steps);
+end-to-end ones carry a request through (plan-build-verify, bug-fix, refactor, careful-change,
+researched-feature, documentation, and others). The Agent's Mode picker lists them. Multi-step
+changes (plan-build-verify, researched-feature, careful-change, security-remediation, refactor and
+implement-spec) run the approved plan as a task queue, one task at a time. The
 workflow folder stores user workflows only. Exact old generated starter files are
 removed from that folder; customized copies remain available alongside the built-in.
 New Agent chats start in Single agent mode; choose a workflow in the chat when needed.
@@ -98,11 +103,24 @@ immediately after their calls, missing outcomes are explicitly marked unknown,
 and results whose calls were truncated are retained as text. This also runs after
 context assembly, preventing tool-pairing errors without replaying tools.
 
+## What Rusty keeps in a project
+
+Everything Rusty stores for a project lives in its `.rusty` folder: guidelines, specs, skills,
+saved workflows and profiles (meant to be committed), and chats, run logs, goals, findings and
+metrics (this machine's own, kept out of Git by the folder's `.gitignore`). The folder explains
+itself in its own `.rusty/README.md`, which Rusty writes when it creates the folder.
+
+Runs also leave sessions and, for subagents, git worktrees behind. `harness --cleanup` in
+`rusty-core` reports the old ones and removes them only after you confirm.
+
 ## Development
 
+For how the front end is organised (features, the app shell, shared `lib/`, and the import rules a
+test enforces), read [`src/features/README.md`](src/features/README.md).
+
 See [BUILD.md](BUILD.md) for prerequisites and build instructions across
-macOS, Windows, and Linux, and [THEMING.md](THEMING.md) for the color/theming
-system.
+macOS, Windows, and Linux. Colors come from the tokens in
+[`src/styles/tokens.css`](src/styles/tokens.css).
 
 ```bash
 npm install
