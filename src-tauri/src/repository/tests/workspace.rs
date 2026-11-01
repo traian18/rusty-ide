@@ -2,8 +2,8 @@
 //! repository it is about.
 use std::sync::Arc;
 
-use harness_context::ContextProvider;
-use harness_protocol::{
+use rusty_context::ContextProvider;
+use rusty_protocol::{
     backend::ExecutionRequest,
     ids::{MessageId, RequestId, RunId, Timestamp},
     messages::{AgentMessage, ContentBlock, MessageRole},
@@ -356,7 +356,7 @@ fn request(text: &str) -> ExecutionRequest {
 
 async fn assemble(world: &World, spec: serde_json::Value, system: &str, text: &str) -> String {
     let spec: RepositoryContextSpec = serde_json::from_value(spec).unwrap();
-    let chain = harness_context::ChainedContextProvider::new(providers(
+    let chain = rusty_context::ChainedContextProvider::new(providers(
         Some(system.to_owned()),
         Some(&spec),
         Some(&world.state),
@@ -365,7 +365,7 @@ async fn assemble(world: &World, spec: serde_json::Value, system: &str, text: &s
     chain
         .assemble(
             request(text),
-            &harness_runtime::workspace::FakeWorkspace::new(),
+            &rusty_runtime::workspace::FakeWorkspace::new(),
         )
         .await
         .system_prompt

@@ -12,10 +12,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use harness_engine::{OrchestrationConfig, OrchestrationRequest, SessionBuilder};
-use harness_protocol::commands::PermissionDecision;
-use harness_protocol::ids::SessionId;
-use harness_runtime::orchestration::{OrchestrationHandle, OrchestrationUpdate};
+use rusty_engine::{OrchestrationConfig, OrchestrationRequest, SessionBuilder};
+use rusty_protocol::commands::PermissionDecision;
+use rusty_protocol::ids::SessionId;
+use rusty_workflow_runtime::orchestration::{OrchestrationHandle, OrchestrationUpdate};
 use serde::Deserialize;
 use tokio::sync::{broadcast, mpsc, watch};
 use tokio::task::JoinHandle;
@@ -34,7 +34,7 @@ pub fn configure(
 ) -> Result<(SessionBuilder, (String, u64)), String> {
     // App-owned profiles are available in every project without seeding
     // files; the workspace's own are loaded by the session builder.
-    let profiles = harness_engine::ProfilesConfig::default();
+    let profiles = rusty_engine::ProfilesConfig::default();
     for profile in catalog.profiles_from(Source::Builtin) {
         profiles
             .register_json(profile.clone())
@@ -117,7 +117,7 @@ const TERMINAL_STATE_WAIT: Duration = Duration::from_secs(5);
 
 fn forward_updates(
     mut updates: broadcast::Receiver<OrchestrationUpdate>,
-    state: watch::Receiver<harness_engine::OrchestrationRunState>,
+    state: watch::Receiver<rusty_engine::OrchestrationRunState>,
     outbound: mpsc::UnboundedSender<BridgeEvent>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -129,7 +129,7 @@ fn forward_updates(
 /// Relays one run's updates to the session's outbound channel, ending with
 /// `WorkflowFinished`.
 struct Forwarder {
-    state: watch::Receiver<harness_engine::OrchestrationRunState>,
+    state: watch::Receiver<rusty_engine::OrchestrationRunState>,
     outbound: mpsc::UnboundedSender<BridgeEvent>,
 }
 
@@ -228,7 +228,7 @@ impl HarnessState {
         &self,
         session_id: SessionId,
         input: serde_json::Value,
-        checkpoint: Option<harness_engine::OrchestrationRunState>,
+        checkpoint: Option<rusty_engine::OrchestrationRunState>,
         options: WorkflowStartOptions,
     ) -> Result<String, String> {
         let (handle, workflow, outbound) = self
@@ -281,7 +281,7 @@ impl HarnessState {
         &self,
         session_id: SessionId,
         step_session: SessionId,
-        params: harness_protocol::backend::ExecutionParams,
+        params: rusty_protocol::backend::ExecutionParams,
     ) -> Result<(), String> {
         let handle = self
             .with_session(&session_id, |entry| entry.handle.clone())
@@ -323,10 +323,10 @@ impl HarnessState {
                 decision,
                 text,
             } => {
-                let response = harness_engine::InputResponse {
+                let response = rusty_engine::InputResponse {
                     decision,
                     text,
-                    by: harness_engine::Responder::User,
+                    by: rusty_engine::Responder::User,
                 };
                 handle.resolve_input(request_id, response).await
             }

@@ -2,7 +2,7 @@
 //! The public client ID comes from Rusty's GitHub OAuth app registration.
 use std::{path::PathBuf, time::Duration};
 
-use harness_integration_github_copilot::{
+use rusty_provider_github_copilot::{
     auth::CopilotAuth,
     credentials::{self, TokenGrant},
     InferenceAuth,
@@ -70,7 +70,7 @@ pub fn credential_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 pub fn configured_host() -> Result<String, String> {
     let host = std::env::var("COPILOT_GH_HOST").unwrap_or_else(|_| "github.com".into());
-    harness_integration_github_copilot::api_root(&host)?;
+    rusty_provider_github_copilot::api_root(&host)?;
     Ok(host
         .trim_start_matches("https://")
         .trim_end_matches('/')
@@ -80,7 +80,7 @@ pub fn configured_host() -> Result<String, String> {
 pub fn auth(app: &tauri::AppHandle) -> Result<(CopilotAuth, String), String> {
     let path = credential_path(app)?;
     let (host, _) = signed_in_account(&path)?;
-    let root = harness_integration_github_copilot::api_root(&host)?;
+    let root = rusty_provider_github_copilot::api_root(&host)?;
     Ok((CopilotAuth::new(Some(path), host), root))
 }
 
@@ -235,7 +235,7 @@ pub async fn authorize(
 ) -> Result<String, String> {
     // Validate before constructing URLs or sending credentials.
     let client_id = validate_client_id(&client_id)?;
-    harness_integration_github_copilot::api_root(&host)?;
+    rusty_provider_github_copilot::api_root(&host)?;
     let host = host.trim_start_matches("https://").trim_end_matches('/');
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(15))

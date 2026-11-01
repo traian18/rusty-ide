@@ -3,8 +3,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use harness_code_analysis::metrics::FileMetrics;
-use harness_code_health::trend::TrendSeries;
+use rusty_code_analysis::metrics::FileMetrics;
+use rusty_code_health::trend::TrendSeries;
 
 use super::analyse::Analysis;
 

@@ -6,8 +6,8 @@ mod check;
 
 use std::path::Path;
 
-use harness_code_health::DetectorConfig;
-use harness_guidelines::{ConfigError, Guidelines, GUIDELINES_DIR, RULES_FILE, STYLE_FILE};
+use rusty_code_health::DetectorConfig;
+use rusty_guidelines::{ConfigError, Guidelines, GUIDELINES_DIR, RULES_FILE, STYLE_FILE};
 
 pub(in crate::repository) use changed::changed_lines;
 pub(in crate::repository) use check::{check_paths, CheckOptions, FileReport};

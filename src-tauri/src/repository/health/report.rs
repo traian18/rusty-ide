@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use harness_code_health::{
+use rusty_code_health::{
     registry,
     rollup::{
         folder_rollups, repository_health, self_check, Band, FileHealth, RollupConfig,

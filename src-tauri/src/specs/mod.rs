@@ -1,4 +1,4 @@
-//! Spec-driven development in the host: the Tauri commands over `harness-specs`.
+//! Spec-driven development in the host: the Tauri commands over `rusty-specs`.
 //!
 //! The specs are plain Markdown in the repository (`specs/` by default), so these commands read
 //! and write files directly and never need the repository to be analyzed. The format, the checks

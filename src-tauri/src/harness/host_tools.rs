@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use harness_tools::{
+use rusty_tool_api::{
     CancellationToken, ToolDescriptor, ToolError, ToolExecutor, ToolInput, ToolResult,
 };
 use serde_json::{json, Value};
@@ -111,7 +111,7 @@ mod tests {
 
     fn descriptor(id: &str) -> ToolDescriptor {
         ToolDescriptor {
-            id: harness_tools::ToolId::new(id),
+            id: rusty_tool_api::ToolId::new(id),
             name: id.to_string(),
             description: "a host-implemented tool".to_string(),
             input_schema: json!({}),
@@ -222,7 +222,7 @@ mod tests {
         let bridge = Arc::new(HostBridge::new(tx));
         let executor = HostToolExecutor::new(descriptor("read_file"), bridge.clone());
 
-        let execute_future = harness_tools::with_tool_call_id(
+        let execute_future = rusty_tool_api::with_tool_call_id(
             "model-call-7".to_string(),
             executor.execute(
                 ToolInput {

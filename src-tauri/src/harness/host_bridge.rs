@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
-use harness_protocol::backend::{ExecutionError, ExecutionEvent, ExecutionResult};
+use rusty_protocol::backend::{ExecutionError, ExecutionEvent, ExecutionResult};
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -19,7 +19,7 @@ use super::bridge_event::BridgeEvent;
 
 /// One message the IDE can deliver against a `call_streaming` call: any
 /// number of `Event`s, followed by exactly one terminal `Result`. Mirrors
-/// `ExecutionBackend::execute`'s own shape (`harness-runtime::traits`) --
+/// `ExecutionBackend::execute`'s own shape (`rusty-runtime::traits`) --
 /// this is what lets `HostExecutionBackend::execute` sit on the other end
 /// without any translation beyond routing.
 pub enum StreamMessage {
@@ -76,8 +76,8 @@ impl HostBridge {
             call_id: call_id.clone(),
             tool: tool.to_string(),
             input,
-            tool_call_id: harness_tools::current_tool_call_id(),
-            session_id: harness_tools::current_tool_session_id(),
+            tool_call_id: rusty_tool_api::current_tool_call_id(),
+            session_id: rusty_tool_api::current_tool_session_id(),
         });
         if sent.is_err() {
             self.pending.lock().unwrap().remove(&call_id);

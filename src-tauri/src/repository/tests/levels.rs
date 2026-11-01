@@ -250,7 +250,7 @@ async fn node_and_edge_limits_keep_the_largest_and_say_so() {
 async fn import_kind_filter_removes_other_kinds() {
     let (_dir, entry) = ready().await;
     let mut only_types = request(LevelName::Packages, None);
-    only_types.import_kind = Some(harness_workspace::import_graph::ImportKind::TypeOnly);
+    only_types.import_kind = Some(rusty_repo_model::import_graph::ImportKind::TypeOnly);
     let view = entry.architecture_level(only_types).unwrap();
     assert!(view.edges.is_empty(), "{:?}", view.edges);
 }

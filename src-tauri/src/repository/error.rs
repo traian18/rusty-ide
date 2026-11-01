@@ -1,10 +1,10 @@
 //! Structured errors for repository commands: a stable code plus a message, the same codes the
 //! agent tools use so a failure reads the same wherever it surfaces.
-use harness_findings::{FindingsError, FindingsQueryError};
-use harness_git_analysis::{GitAnalysisError, GitQueryError};
-use harness_workspace::dependency_groups::GroupQueryError;
-use harness_workspace::import_graph::ImportQueryError;
-use harness_workspace::repository_intelligence::DiscoveryError;
+use rusty_findings::{FindingsError, FindingsQueryError};
+use rusty_git_analysis::{GitAnalysisError, GitQueryError};
+use rusty_repo_model::dependency_groups::GroupQueryError;
+use rusty_repo_model::import_graph::ImportQueryError;
+use rusty_repo_model::repository_intelligence::DiscoveryError;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -73,9 +73,9 @@ impl From<GroupQueryError> for RepositoryError {
     }
 }
 
-impl From<harness_workspace::framework_relations::FrameworkQueryError> for RepositoryError {
-    fn from(error: harness_workspace::framework_relations::FrameworkQueryError) -> Self {
-        use harness_workspace::framework_relations::FrameworkQueryError as E;
+impl From<rusty_repo_model::framework_relations::FrameworkQueryError> for RepositoryError {
+    fn from(error: rusty_repo_model::framework_relations::FrameworkQueryError) -> Self {
+        use rusty_repo_model::framework_relations::FrameworkQueryError as E;
         let code = match &error {
             E::NotConfigured => "not_configured",
             E::SnapshotNotFound(_) => "snapshot_not_found",

@@ -4,7 +4,7 @@
 //! picture, and where to start reading.
 use std::collections::HashMap;
 
-use harness_repository_wiki::written::{
+use rusty_repo_wiki::written::{
     ACTIVE_LANDSCAPE, ARCHITECTURE, GETTING_STARTED, GLOSSARY, HOW_IT_WORKS, KEY_CONCEPTS, OVERVIEW,
 };
 use serde_json::{json, Value};
@@ -122,13 +122,13 @@ fn infrastructure(entry: &Entry) -> Value {
     let mut rules: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     let mut security = 0;
     for file in &analysis.files {
-        if harness_infra_analysis::InfraKind::from_name(&file.language).is_none() {
+        if rusty_infra_analysis::InfraKind::from_name(&file.language).is_none() {
             continue;
         }
         *kinds.entry(file.language.as_str()).or_default() += 1;
         for finding in &file.findings {
             *rules.entry(finding.detector.as_str()).or_default() += 1;
-            security += usize::from(finding.category == harness_code_health::Category::Security);
+            security += usize::from(finding.category == rusty_code_health::Category::Security);
         }
     }
     if kinds.is_empty() {

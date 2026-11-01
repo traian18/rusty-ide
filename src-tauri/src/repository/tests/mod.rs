@@ -2,7 +2,7 @@
 use std::path::Path;
 
 use git2::{IndexAddOption, Repository, Signature, Time};
-use harness_workspace::dependency_groups::{GraphDirection, GroupKind, Truncation};
+use rusty_repo_model::dependency_groups::{GraphDirection, GroupKind, Truncation};
 
 mod agent_context;
 mod agent_tools;

@@ -2,11 +2,11 @@
 //! serializable models wherever one exists, so the frontend sees the same data the agent tools do.
 use std::collections::BTreeMap;
 
-use harness_findings::{FindingsCursor, FindingsSummary};
-use harness_git_analysis::{CoChange, ContributorShare, FileChurn};
-use harness_workspace::dependency_groups::{GraphDirection, GroupKind, GroupSummary, Truncation};
-use harness_workspace::import_graph::{ImportCursor, ImportKind};
-use harness_workspace::repository_intelligence::{DiscoveryCapabilities, DiscoveryDiagnostic};
+use rusty_findings::{FindingsCursor, FindingsSummary};
+use rusty_git_analysis::{CoChange, ContributorShare, FileChurn};
+use rusty_repo_model::dependency_groups::{GraphDirection, GroupKind, GroupSummary, Truncation};
+use rusty_repo_model::import_graph::{ImportCursor, ImportKind};
+use rusty_repo_model::repository_intelligence::{DiscoveryCapabilities, DiscoveryDiagnostic};
 use serde::{Deserialize, Serialize};
 
 /// What the frontend needs to know about a built repository snapshot.
@@ -32,7 +32,7 @@ pub struct SnapshotSummary {
 pub struct FrameworksSummary {
     pub configured: bool,
     /// Frameworks found active, by package, with the manifest fact that showed it.
-    pub applications: Vec<harness_workspace::framework_relations::FrameworkApplication>,
+    pub applications: Vec<rusty_repo_model::framework_relations::FrameworkApplication>,
     pub relations: usize,
     pub partial: bool,
     pub diagnostics_total: usize,
@@ -169,9 +169,9 @@ pub struct EdgesRequest {
 pub struct FindingsRequest {
     #[serde(default)]
     pub rules: Vec<String>,
-    pub kind: Option<harness_findings::FindingKind>,
-    pub min_severity: Option<harness_findings::Severity>,
-    pub min_confidence: Option<harness_findings::Confidence>,
+    pub kind: Option<rusty_findings::FindingKind>,
+    pub min_severity: Option<rusty_findings::Severity>,
+    pub min_confidence: Option<rusty_findings::Confidence>,
     pub package: Option<String>,
     pub file: Option<String>,
     #[serde(default)]
@@ -255,7 +255,7 @@ pub struct LevelNode {
     pub label: String,
     pub kind: GroupKind,
     /// Absent for synthetic nodes (`other`, `rest:…`).
-    pub basis: Option<harness_workspace::dependency_groups::GroupBasis>,
+    pub basis: Option<rusty_repo_model::dependency_groups::GroupBasis>,
     pub explanation: String,
     pub file_count: usize,
     /// File counts by language.
@@ -325,10 +325,10 @@ pub struct LevelView {
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct FrameworkRequest {
     pub framework: Option<String>,
-    pub kind: Option<harness_workspace::framework_relations::RelationKind>,
+    pub kind: Option<rusty_repo_model::framework_relations::RelationKind>,
     pub file: Option<String>,
     pub package: Option<String>,
-    pub cursor: Option<harness_workspace::framework_relations::FrameworkCursor>,
+    pub cursor: Option<rusty_repo_model::framework_relations::FrameworkCursor>,
     pub limit: Option<usize>,
 }
 
@@ -336,7 +336,7 @@ pub struct FrameworkRequest {
 pub struct GroupGraphFrameworkEdge {
     pub from: String,
     pub to: String,
-    pub kind: harness_workspace::framework_relations::RelationKind,
+    pub kind: rusty_repo_model::framework_relations::RelationKind,
     pub framework: String,
     pub label: String,
 }

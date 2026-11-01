@@ -1,7 +1,7 @@
 //! `SessionRecipe`: the wire shape `harness_create_session` accepts, and
 //! its conversion into a real rusty-core `SessionBuilder`.
 //!
-//! Snake_case, and deliberately a superset of `harness_protocol::rpc::
+//! Snake_case, and deliberately a superset of `rusty_protocol::rpc::
 //! RpcRequestBody::CreateSession` (same `mcp_servers`/`skills` spec types,
 //! reused directly rather than mirrored a second time) plus the fields an
 //! embedded desktop app needs that a wire RPC client doesn't:
@@ -14,12 +14,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use harness_engine::{
+use rusty_engine::{
     Harness, HarnessError, McpServerConfig, McpTransportConfig, SessionBuilder, SkillsConfig,
 };
-use harness_protocol::mcp::{McpServerSpec, McpTransportSpec};
-use harness_protocol::skills::SkillsSpec;
-use harness_tools::{
+use rusty_protocol::mcp::{McpServerSpec, McpTransportSpec};
+use rusty_protocol::skills::SkillsSpec;
+use rusty_tool_api::{
     CancellationToken, SimpleToolRegistry, ToolDescriptor, ToolError, ToolExecutor, ToolId,
     ToolInput, ToolResult,
 };
@@ -50,20 +50,20 @@ struct AgentSpawnDescriptorOnly {
 
 impl AgentSpawnDescriptorOnly {
     fn new() -> Self {
-        // `agent_spawn_tool_descriptor` takes/returns `harness_protocol`'s
+        // `agent_spawn_tool_descriptor` takes/returns `rusty_protocol`'s
         // own UUID-based `ToolId`/`ToolDescriptor` (a different, unrelated
-        // pair of types from `harness_tools::{ToolId,ToolDescriptor}`,
+        // pair of types from `rusty_tool_api::{ToolId,ToolDescriptor}`,
         // despite the identical names -- confirmed by the compiler, not
         // assumed). The random UUID it wants doesn't matter here (the
         // by-name interception in `agent_runner.rs` keys off `name`, always
         // `AGENT_SPAWN_TOOL_NAME`, never `id`) -- only `name`/`description`/
         // `input_schema` need to survive the conversion into the
-        // `harness_tools` shape `SimpleToolRegistry` actually stores.
-        let protocol_descriptor = harness_runtime::spawn_tool::agent_spawn_tool_descriptor(
-            harness_protocol::ids::ToolId::new(),
+        // `rusty_tool_api` shape `SimpleToolRegistry` actually stores.
+        let protocol_descriptor = rusty_runtime::spawn_tool::agent_spawn_tool_descriptor(
+            rusty_protocol::ids::ToolId::new(),
         );
         let descriptor = ToolDescriptor {
-            id: ToolId::new(harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME),
+            id: ToolId::new(rusty_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME),
             name: protocol_descriptor.name,
             description: protocol_descriptor.description,
             input_schema: protocol_descriptor.input_schema,
@@ -112,7 +112,7 @@ pub enum WorkspaceBinding {
     /// needs real disk (e.g. `test_build`, Milestone C).
     #[default]
     Host,
-    /// `read`/`write` hit real disk directly -- `harness_workspace::
+    /// `read`/`write` hit real disk directly -- `rusty_workspace::
     /// FsWorkspace`.
     Disk,
 }
@@ -149,13 +149,13 @@ fn default_input_schema() -> serde_json::Value {
 #[serde(rename_all = "snake_case")]
 pub struct SessionRecipe {
     #[serde(default)]
-    pub execution_policy: Option<harness_protocol::tools::ExecutionPolicy>,
+    pub execution_policy: Option<rusty_protocol::tools::ExecutionPolicy>,
     pub workspace: WorkspaceRecipe,
     pub integration: String,
     #[serde(default)]
     pub integration_config: serde_json::Value,
     #[serde(default)]
-    pub execution_params: Option<harness_protocol::backend::ExecutionParams>,
+    pub execution_params: Option<rusty_protocol::backend::ExecutionParams>,
     #[serde(default)]
     pub system_prompt: Option<String>,
     #[serde(default)]
@@ -179,7 +179,7 @@ pub struct SessionRecipe {
     /// the workspace default from `.rusty/profiles/config.json`, else the
     /// built-in neutral profile.
     #[serde(default)]
-    pub behavior_profile: Option<harness_engine::ProfileRef>,
+    pub behavior_profile: Option<rusty_engine::ProfileRef>,
     /// A profile document the IDE supplies for this kind of session (the
     /// single agent's completion gate). Used only when `behavior_profile` is
     /// unset and the workspace names no default of its own.
@@ -302,12 +302,12 @@ fn base_builder(
 /// One context provider is used as is; several are chained in order.
 fn with_context_providers(
     builder: SessionBuilder,
-    mut providers: Vec<Arc<dyn harness_context::ContextProvider>>,
+    mut providers: Vec<Arc<dyn rusty_context::ContextProvider>>,
 ) -> SessionBuilder {
     match providers.len() {
         0 => builder,
         1 => builder.context_provider(providers.remove(0)),
-        _ => builder.context_provider(Arc::new(harness_context::ChainedContextProvider::new(
+        _ => builder.context_provider(Arc::new(rusty_context::ChainedContextProvider::new(
             providers,
         ))),
     }
@@ -317,13 +317,13 @@ fn with_context_providers(
 fn session_workspace(
     workspace: &WorkspaceRecipe,
     bridge: &Arc<HostBridge>,
-) -> Arc<dyn harness_workspace::Workspace> {
+) -> Arc<dyn rusty_workspace::Workspace> {
     match workspace.binding {
         WorkspaceBinding::Host => {
             Arc::new(HostWorkspace::new(workspace.root.clone(), bridge.clone()))
         }
         WorkspaceBinding::Disk => {
-            Arc::new(harness_workspace::FsWorkspace::new(workspace.root.clone()))
+            Arc::new(rusty_workspace::FsWorkspace::new(workspace.root.clone()))
         }
     }
 }
@@ -333,7 +333,7 @@ fn session_workspace(
 fn with_profile(
     builder: SessionBuilder,
     root: &std::path::Path,
-    behavior_profile: Option<harness_engine::ProfileRef>,
+    behavior_profile: Option<rusty_engine::ProfileRef>,
     default_profile: Option<serde_json::Value>,
 ) -> SessionBuilder {
     if let Some(profile) = behavior_profile {
@@ -348,7 +348,7 @@ fn with_profile(
 }
 
 fn with_default_profile(builder: SessionBuilder, document: serde_json::Value) -> SessionBuilder {
-    let profiles = harness_engine::ProfilesConfig::default();
+    let profiles = rusty_engine::ProfilesConfig::default();
     match profiles.register_json(document) {
         Ok(reference) => builder.profiles(profiles).profile(reference),
         // A bad built-in document must not stop the chat: run without it.
@@ -413,7 +413,7 @@ fn register_optional_builtin_tools(
     enable_agent_spawn: bool,
 ) {
     if enable_web_fetch {
-        register_tool(registry, Arc::new(harness_tool_web::FetchTool::new()));
+        register_tool(registry, Arc::new(rusty_tool_web::FetchTool::new()));
     }
     if enable_agent_spawn {
         register_tool(registry, Arc::new(AgentSpawnDescriptorOnly::new()));
@@ -514,7 +514,7 @@ mod tests {
             "../../../src/harness/core/definitions/singleAgentProfile.json"
         ))
         .unwrap();
-        let reference = harness_engine::ProfilesConfig::default()
+        let reference = rusty_engine::ProfilesConfig::default()
             .register_json(document.clone())
             .expect("rusty-core accepts the single-agent profile");
         assert_eq!(reference.id.as_str(), "ide.single-agent");
@@ -587,7 +587,7 @@ mod tests {
         });
         let recipe: SessionRecipe = serde_json::from_value(value.clone()).unwrap();
         let policy = recipe.execution_policy.unwrap();
-        assert_eq!(policy.mode, harness_protocol::tools::ExecutionMode::Plan);
+        assert_eq!(policy.mode, rusty_protocol::tools::ExecutionMode::Plan);
         assert_eq!(policy.enabled_tools, vec!["write_file"]);
         assert_eq!(policy.allowed_mcp_servers, vec!["docs"]);
         value["execution_policy"]["enabled_tools"] = serde_json::json!("all");
@@ -606,7 +606,7 @@ mod tests {
         let registry = SimpleToolRegistry::new();
         register_optional_builtin_tools(&registry, true, false);
         assert!(registry.contains("web_fetch"));
-        assert!(!registry.contains(harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME));
+        assert!(!registry.contains(rusty_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME));
     }
 
     #[test]
@@ -617,11 +617,11 @@ mod tests {
         let descriptor = registry
             .descriptors()
             .into_iter()
-            .find(|d| d.id.as_str() == harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME)
+            .find(|d| d.id.as_str() == rusty_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME)
             .expect("agent_spawn should be registered");
         assert_eq!(
             descriptor.name,
-            harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME
+            rusty_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME
         );
         assert!(
             descriptor.input_schema.get("properties").is_some(),
@@ -634,7 +634,7 @@ mod tests {
         let registry = SimpleToolRegistry::new();
         register_optional_builtin_tools(&registry, true, true);
         assert!(registry.contains("web_fetch"));
-        assert!(registry.contains(harness_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME));
+        assert!(registry.contains(rusty_runtime::spawn_tool::AGENT_SPAWN_TOOL_NAME));
     }
 
     #[tokio::test]

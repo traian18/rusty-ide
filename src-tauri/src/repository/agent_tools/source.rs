@@ -1,6 +1,6 @@
 //! Reading code as it is on disk now: lines, the symbols the metrics find in them, one symbol's
 //! body, and a skeleton with the bodies elided. Never from the index, so never stale.
-use harness_code_analysis::metrics::{measure_file, FileMetrics, FunctionKind};
+use rusty_code_analysis::metrics::{measure_file, FileMetrics, FunctionKind};
 use serde_json::{json, Value};
 
 use super::super::{entry::Entry, error::RepositoryError, health::analyse::language_id};

@@ -3,9 +3,9 @@
 //! in it, and a fingerprint of the files so a pass that changed nothing is seen as such.
 use std::sync::Arc;
 
-use harness_code_health::{score_file, Category, Finding};
-use harness_goals::{FileMeasure, FindingSummary, GuidelineSummary, Measurement, Severity};
-use harness_guidelines::{Glob, Severity as RuleSeverity};
+use rusty_code_health::{score_file, Category, Finding};
+use rusty_goals::{FileMeasure, FindingSummary, GuidelineSummary, Measurement, Severity};
+use rusty_guidelines::{Glob, Severity as RuleSeverity};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
@@ -25,10 +25,10 @@ const FINDINGS_PER_FILE: usize = 8;
 
 fn severity(finding: &Finding) -> Severity {
     match finding.severity {
-        harness_code_health::Severity::Low => Severity::Low,
-        harness_code_health::Severity::Medium => Severity::Medium,
-        harness_code_health::Severity::High => Severity::High,
-        harness_code_health::Severity::Critical => Severity::Critical,
+        rusty_code_health::Severity::Low => Severity::Low,
+        rusty_code_health::Severity::Medium => Severity::Medium,
+        rusty_code_health::Severity::High => Severity::High,
+        rusty_code_health::Severity::Critical => Severity::Critical,
     }
 }
 

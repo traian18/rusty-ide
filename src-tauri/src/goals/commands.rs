@@ -2,11 +2,11 @@
 //! clock of its own and tests stay deterministic.
 use std::path::{Path, PathBuf};
 
-use harness_goals::{
+use rusty_goals::{
     decide, pass_prompt, record, status_text, Budget, CheckOutcome, Decision, Goal, GoalStatus,
     Measurement, PassReport, Targets,
 };
-use harness_runtime::workspace_snapshot::{take, undo_to};
+use rusty_workflow_runtime::workspace_snapshot::{take, undo_to};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 

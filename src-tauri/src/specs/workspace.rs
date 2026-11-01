@@ -8,7 +8,7 @@
 //! chats, runs, metrics and traces stay out of it.
 use std::{path::Path, process::Command};
 
-use harness_specs::{layout::CONFIG_PATH, FsStore, SpecStore};
+use rusty_specs::{layout::CONFIG_PATH, FsStore, SpecStore};
 use serde::Serialize;
 
 use super::commands::{blocking, folder, spec_error};
@@ -42,7 +42,7 @@ fn prepare(workspace: &Path) -> Result<String, RepositoryError> {
         store.write(CONFIG_PATH, &config).map_err(spec_error)?;
     }
     rusty_folder::ensure(workspace).map_err(io_error)?;
-    Ok(harness_specs::layout::resolve_root(&store))
+    Ok(rusty_specs::layout::resolve_root(&store))
 }
 
 #[derive(Debug, Serialize)]

@@ -3,7 +3,7 @@
 //! (role, target, state, issues, tasks, constraints, expected output, snapshot footer).
 use std::fmt::Write as _;
 
-use harness_code_health::registry;
+use rusty_code_health::registry;
 
 use super::{
     super::{entry::Entry, error::RepositoryError},

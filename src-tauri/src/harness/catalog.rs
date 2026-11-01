@@ -153,7 +153,7 @@ impl Catalog {
                 .collect(),
             profiles: std::iter::once((
                 Source::Core,
-                harness_engine::validation::templates().builtin_profiles,
+                rusty_engine::validation::templates().builtin_profiles,
             ))
             .chain(std::iter::once((
                 Source::Builtin,
@@ -168,7 +168,7 @@ impl Catalog {
             })
             .collect(),
             failures: Vec::new(),
-            default_workflow: harness_engine::validation::templates().default_workflow,
+            default_workflow: rusty_engine::validation::templates().default_workflow,
         };
         let Some(root) = root else {
             return catalog;

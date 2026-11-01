@@ -1,9 +1,9 @@
 //! Condensing core snapshots into the summaries the UI shows next to the canvas.
 use std::collections::BTreeSet;
 
-use harness_findings::FindingSet;
-use harness_git_analysis::GitSnapshot;
-use harness_workspace::repository_intelligence::RepositorySnapshot;
+use rusty_findings::FindingSet;
+use rusty_git_analysis::GitSnapshot;
+use rusty_repo_model::repository_intelligence::RepositorySnapshot;
 
 use super::dto::{FindingsStatus, FrameworksSummary, GitSummary, SnapshotSummary};
 

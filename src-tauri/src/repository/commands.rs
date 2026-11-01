@@ -1,10 +1,10 @@
 //! Tauri commands for the architecture canvas. Each is a thin wrapper over [`Entry`], which stays
 //! callable (and unit-testable) without a Tauri runtime.
-use harness_findings::{FindingExplanation, FindingsPage};
-use harness_workspace::dependency_groups::{
+use rusty_findings::{FindingExplanation, FindingsPage};
+use rusty_repo_model::dependency_groups::{
     GraphProjection, GroupAssignment, GroupOverview, MemberPage,
 };
-use harness_workspace::import_graph::ImportPage;
+use rusty_repo_model::import_graph::ImportPage;
 use tauri::{AppHandle, Manager, State};
 
 use super::{dto::*, error::RepositoryError, persisted_state, registry::RepositoryState};
@@ -141,7 +141,7 @@ pub async fn repository_wiki_page(
     state: State<'_, RepositoryState>,
     root: String,
     id: String,
-) -> Result<harness_repository_wiki::Page, RepositoryError> {
+) -> Result<rusty_repo_wiki::Page, RepositoryError> {
     let entry = state.entry(&root)?;
     off_ui(move || entry.wiki_page(&id)).await
 }
@@ -151,7 +151,7 @@ pub async fn repository_wiki_children(
     state: State<'_, RepositoryState>,
     root: String,
     id: String,
-) -> Result<Vec<harness_repository_wiki::TreeEntry>, RepositoryError> {
+) -> Result<Vec<rusty_repo_wiki::TreeEntry>, RepositoryError> {
     let entry = state.entry(&root)?;
     off_ui(move || entry.wiki_children(&id)).await
 }
@@ -171,7 +171,7 @@ pub fn repository_framework_relations(
     state: State<'_, RepositoryState>,
     root: String,
     request: FrameworkRequest,
-) -> Result<harness_workspace::framework_relations::FrameworkPage, RepositoryError> {
+) -> Result<rusty_repo_model::framework_relations::FrameworkPage, RepositoryError> {
     state.entry(&root)?.framework_relations(request)
 }
 

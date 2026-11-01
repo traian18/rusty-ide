@@ -2,7 +2,7 @@
 //! IDE, over `HostBridge`'s outbound channel and (from Milestone B2) a
 //! Tauri IPC `Channel`.
 
-use harness_protocol::events::AgentEventEnvelope;
+use rusty_protocol::events::AgentEventEnvelope;
 use serde::Serialize;
 
 /// One message the Rust side of the bridge sends to the frontend for a

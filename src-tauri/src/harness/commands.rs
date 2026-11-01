@@ -1,5 +1,5 @@
 //! Tauri commands mirroring rusty-core's own RPC surface
-//! (`harness-protocol/src/rpc.rs`), registered in `lib.rs`'s
+//! (`rusty-protocol/src/rpc.rs`), registered in `lib.rs`'s
 //! `invoke_handler!` list next to the VFS commands. Every command is a
 //! thin wrapper around `HarnessState`'s own async methods (`session.rs`),
 //! which stay callable -- and unit-testable -- without a Tauri runtime.
@@ -10,7 +10,7 @@ use tauri::State;
 use super::recipe::{mcp_config_from_spec, SessionRecipe};
 use super::session::SessionSnapshotWire;
 use super::{BridgeEvent, HarnessState};
-use harness_tools::ToolExecutor;
+use rusty_tool_api::ToolExecutor;
 
 #[derive(serde::Serialize)]
 pub struct HarnessHello {
@@ -18,7 +18,7 @@ pub struct HarnessHello {
     pub capabilities: Vec<&'static str>,
 }
 
-fn parse_session_id(value: &str) -> Result<harness_protocol::ids::SessionId, String> {
+fn parse_session_id(value: &str) -> Result<rusty_protocol::ids::SessionId, String> {
     value
         .parse()
         .map_err(|_| format!("invalid session id: {value}"))
@@ -27,7 +27,7 @@ fn parse_session_id(value: &str) -> Result<harness_protocol::ids::SessionId, Str
 #[tauri::command]
 pub fn harness_hello() -> HarnessHello {
     HarnessHello {
-        protocol_version: harness_protocol::rpc::PROTOCOL_VERSION,
+        protocol_version: rusty_protocol::rpc::PROTOCOL_VERSION,
         // Policy-bearing requests refuse an older bridge rather than silently
         // dropping permissions when the frontend and native build differ.
         capabilities: vec!["pause_resume", "execution_policy"],
@@ -85,7 +85,7 @@ pub async fn harness_subscribe(
 pub async fn harness_mutate(
     state: State<'_, HarnessState>,
     session_id: String,
-    command: harness_protocol::rpc::MutationCommand,
+    command: rusty_protocol::rpc::MutationCommand,
 ) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
     state.mutate(session_id, command).await
@@ -122,7 +122,7 @@ pub fn harness_host_execute_event(
     state: State<'_, HarnessState>,
     session_id: String,
     call_id: String,
-    event: harness_protocol::backend::ExecutionEvent,
+    event: rusty_protocol::backend::ExecutionEvent,
 ) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
     state.host_execute_event(session_id, &call_id, event)
@@ -138,21 +138,21 @@ pub fn harness_host_execute_result(
     session_id: String,
     call_id: String,
     ok: bool,
-    result: Option<harness_protocol::backend::ExecutionResult>,
-    error: Option<harness_protocol::backend::ExecutionError>,
+    result: Option<rusty_protocol::backend::ExecutionResult>,
+    error: Option<rusty_protocol::backend::ExecutionError>,
 ) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
     let outcome: Result<
-        harness_protocol::backend::ExecutionResult,
-        harness_protocol::backend::ExecutionError,
+        rusty_protocol::backend::ExecutionResult,
+        rusty_protocol::backend::ExecutionError,
     > = if ok {
-        result.ok_or_else(|| harness_protocol::backend::ExecutionError::BackendError {
+        result.ok_or_else(|| rusty_protocol::backend::ExecutionError::BackendError {
             message: "harness_host_execute_result: ok=true but no result given".to_string(),
             code: "HOST_EXECUTE_MISSING_RESULT".to_string(),
         })
     } else {
         Err(
-            error.unwrap_or_else(|| harness_protocol::backend::ExecutionError::BackendError {
+            error.unwrap_or_else(|| rusty_protocol::backend::ExecutionError::BackendError {
                 message: "host execute call failed".to_string(),
                 code: "HOST_EXECUTE_FAILED".to_string(),
             }),
@@ -182,7 +182,7 @@ pub async fn harness_close_session(
 #[tauri::command]
 pub async fn harness_list_providers(
     state: State<'_, HarnessState>,
-) -> Result<Vec<harness_engine::ProviderDescriptor>, String> {
+) -> Result<Vec<rusty_engine::ProviderDescriptor>, String> {
     let harness = state.harness().await;
     super::session::list_providers(&harness)
 }
@@ -192,7 +192,7 @@ pub async fn harness_list_models(
     state: State<'_, HarnessState>,
     provider: String,
     refresh: bool,
-) -> Result<Vec<harness_engine::ModelDescriptor>, String> {
+) -> Result<Vec<rusty_engine::ModelDescriptor>, String> {
     let harness = state.harness().await;
     super::session::list_models(&harness, &provider, refresh).await
 }
@@ -287,7 +287,7 @@ pub struct McpTestResult {
 /// Sidecar-removal Phase 7b: the direct replacement for the sidecar's own
 /// `POST /mcp/test` route (`mcpTestService.ts` -- the ONLY thing that ever
 /// implemented `HarnessControlPlane.testMcp`). Reuses the exact same
-/// `harness_tool_mcp::connect_and_discover` call `recipe.rs`'s own
+/// `rusty_tool_mcp::connect_and_discover` call `recipe.rs`'s own
 /// `register_mcp_servers` (Phase 6) already makes at session-build time --
 /// connect, list the server's tools, report the real result. `server` is
 /// already the SDK's `McpServerSpec` shape (the frontend maps the richer
@@ -298,10 +298,10 @@ pub struct McpTestResult {
 /// reason before this command is ever called).
 #[tauri::command]
 pub async fn mcp_test_connection(
-    server: harness_protocol::mcp::McpServerSpec,
+    server: rusty_protocol::mcp::McpServerSpec,
 ) -> Result<McpTestResult, String> {
     let config = mcp_config_from_spec(server);
-    if let harness_engine::McpTransportConfig::Stdio { command, env, .. } = &config.transport {
+    if let rusty_engine::McpTransportConfig::Stdio { command, env, .. } = &config.transport {
         let path = env
             .get("PATH")
             .cloned()
@@ -314,7 +314,7 @@ pub async fn mcp_test_connection(
             ));
         }
     }
-    let executors = harness_tool_mcp::connect_and_discover(&config)
+    let executors = rusty_tool_mcp::connect_and_discover(&config)
         .await
         .map_err(|error| error.to_string())?;
     let tools: Vec<String> = executors
@@ -339,12 +339,12 @@ pub struct WebFetchContent {
 /// conversion. The page is returned to the IDE only, never to a model.
 #[tauri::command]
 pub async fn harness_web_fetch(url: String) -> Result<WebFetchContent, String> {
-    let result = harness_tool_web::FetchTool::new()
+    let result = rusty_tool_web::FetchTool::new()
         .execute(
-            harness_tools::ToolInput {
+            rusty_tool_api::ToolInput {
                 arguments: serde_json::json!({ "url": url }),
             },
-            harness_tools::CancellationToken::new(),
+            rusty_tool_api::CancellationToken::new(),
         )
         .await
         .map_err(|error| format!("{error:?}"))?;
@@ -384,7 +384,7 @@ mod mcp_test_connection_tests {
 
     #[tokio::test]
     async fn reports_a_clear_error_instead_of_panicking_for_an_unreachable_server() {
-        let spec = harness_protocol::mcp::McpServerSpec {
+        let spec = rusty_protocol::mcp::McpServerSpec {
             name: "broken".to_string(),
             transport: None,
             command: "definitely-not-a-real-command-rusty-test-fixture".to_string(),
@@ -409,16 +409,16 @@ mod mcp_test_connection_tests {
 pub fn behavior_validate_profile(
     document: serde_json::Value,
     library: Vec<serde_json::Value>,
-) -> Vec<harness_engine::validation::Issue> {
-    harness_engine::validation::validate_profile(&document, &library)
+) -> Vec<rusty_engine::validation::Issue> {
+    rusty_engine::validation::validate_profile(&document, &library)
 }
 
 #[tauri::command]
 pub fn behavior_validate_workflow(
     document: serde_json::Value,
     profiles: Vec<serde_json::Value>,
-) -> Vec<harness_engine::validation::Issue> {
-    harness_engine::validation::validate_orchestration(&document, &profiles)
+) -> Vec<rusty_engine::validation::Issue> {
+    rusty_engine::validation::validate_orchestration(&document, &profiles)
 }
 
 #[tauri::command]
@@ -426,7 +426,7 @@ pub async fn harness_start_workflow(
     state: State<'_, HarnessState>,
     session_id: String,
     input: serde_json::Value,
-    checkpoint: Option<harness_engine::OrchestrationRunState>,
+    checkpoint: Option<rusty_engine::OrchestrationRunState>,
     options: Option<super::workflow::WorkflowStartOptions>,
 ) -> Result<String, String> {
     let session_id = parse_session_id(&session_id)?;
@@ -440,7 +440,7 @@ pub async fn harness_configure_step_execution(
     state: State<'_, HarnessState>,
     session_id: String,
     step_session_id: String,
-    params: harness_protocol::backend::ExecutionParams,
+    params: rusty_protocol::backend::ExecutionParams,
 ) -> Result<(), String> {
     let session_id = parse_session_id(&session_id)?;
     let step_session = parse_session_id(&step_session_id)?;

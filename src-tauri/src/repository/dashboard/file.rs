@@ -1,9 +1,9 @@
 //! One file for the shared drawer: its row, neighbours, findings that name it, and its history.
 use std::collections::{BTreeSet, VecDeque};
 
-use harness_findings::FindingKind;
-use harness_repository_wiki::{facts::Facts, PageId};
-use harness_workspace::repository_intelligence::RootRelativePath;
+use rusty_findings::FindingKind;
+use rusty_repo_wiki::{facts::Facts, PageId};
+use rusty_repo_model::repository_intelligence::RootRelativePath;
 
 use super::{
     super::{entry::Entry, error::RepositoryError},
@@ -43,7 +43,7 @@ impl Entry {
             .collect();
         let mut imports: std::collections::BTreeMap<String, usize> = Default::default();
         for edge in facts.imports_of(&path) {
-            if let harness_workspace::import_graph::Resolution::ResolvedInternal {
+            if let rusty_repo_model::import_graph::Resolution::ResolvedInternal {
                 target_file,
                 ..
             } = &edge.resolution

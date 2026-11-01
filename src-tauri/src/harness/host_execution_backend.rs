@@ -20,12 +20,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use harness_protocol::backend::{
+use rusty_protocol::backend::{
     BackendCapabilities, BackendDescriptor, ExecutionError, ExecutionEvent, ExecutionRequest,
     ExecutionResult,
 };
-use harness_protocol::ids::BackendId;
-use harness_runtime::traits::ExecutionBackend;
+use rusty_protocol::ids::BackendId;
+use rusty_runtime::traits::ExecutionBackend;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 
@@ -111,9 +111,9 @@ impl ExecutionBackend for HostExecutionBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harness_protocol::backend::{ExecutionParams, ExecutionResult};
-    use harness_protocol::ids::{RequestId, RunId};
-    use harness_protocol::usage::{Cost, ModelUsage};
+    use rusty_protocol::backend::{ExecutionParams, ExecutionResult};
+    use rusty_protocol::ids::{RequestId, RunId};
+    use rusty_protocol::usage::{Cost, ModelUsage};
     use tokio::sync::mpsc;
 
     use super::super::bridge_event::BridgeEvent;

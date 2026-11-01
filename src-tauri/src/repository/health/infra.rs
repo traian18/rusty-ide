@@ -7,8 +7,8 @@ use std::{
 
 use std::sync::Arc;
 
-use harness_git_analysis::{FileSignals, SignalSummary};
-use harness_infra_analysis::{
+use rusty_git_analysis::{FileSignals, SignalSummary};
+use rusty_infra_analysis::{
     analyse, history_findings, is_candidate, InfraConfig, InfraContext, InfraGraph,
 };
 
@@ -55,7 +55,7 @@ pub fn analyse_infra(
     summary: Option<&SignalSummary>,
 ) -> InfraState {
     let config = InfraConfig::default();
-    let scoring = harness_infra_analysis::scoring_config();
+    let scoring = rusty_infra_analysis::scoring_config();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
         .filter_entry(|e| {
@@ -98,7 +98,7 @@ pub fn analyse_infra(
         .iter()
         .map(|(path, text)| (path.as_str(), text.as_str()))
         .collect();
-    let graph = harness_infra_analysis::InfraGraph::build(&pairs, &all);
+    let graph = rusty_infra_analysis::InfraGraph::build(&pairs, &all);
     let context = InfraContext {
         repo_files: Some(&all),
         graph: Some(&graph),
@@ -111,7 +111,7 @@ pub fn analyse_infra(
         if let (Some(s), Some(summary)) = (signals.get(path), summary) {
             findings.extend(history_findings(path, nloc(text), s, summary));
         }
-        let score = harness_code_health::score_file(&findings, &scoring);
+        let score = rusty_code_health::score_file(&findings, &scoring);
         out.push(FileAnalysis {
             signals: signals.get(path).map(|s| (*s).clone()),
             language: kind.name().to_owned(),

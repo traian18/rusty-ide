@@ -9,7 +9,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use harness_repository_wiki::written::{
+use rusty_repo_wiki::written::{
     Author, BriefBuilder, BriefContext, Diagram, Freshness, Style, WrittenPage,
 };
 use serde::{Deserialize, Serialize};
@@ -317,7 +317,7 @@ pub fn pages_touching(
         .filter(|page| {
             page.inputs.iter().any(|i| wanted.contains(i.file.as_str()))
                 || page.footnotes.iter().any(|f| match &f.reference {
-                    harness_repository_wiki::written::SourceRef::Lines { citation } => {
+                    rusty_repo_wiki::written::SourceRef::Lines { citation } => {
                         wanted.contains(citation.file.as_str())
                     }
                     _ => false,

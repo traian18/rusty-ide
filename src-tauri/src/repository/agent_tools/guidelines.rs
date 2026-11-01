@@ -1,7 +1,7 @@
 //! `code_guidelines`: the project's own style and rules. `rules` says what applies to files before
 //! they are edited (rules, limits, the style guide's sections); `check` reports violations in files
 //! as they are on disk now, optionally only what the uncommitted change introduced.
-use harness_guidelines::{Guidelines, Rule, RuleKind, Severity, Violation};
+use rusty_guidelines::{Guidelines, Rule, RuleKind, Severity, Violation};
 use serde_json::{json, Value};
 
 use super::{

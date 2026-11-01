@@ -11,11 +11,11 @@ use std::{
     sync::Arc,
 };
 
-use harness_git_analysis::{
+use rusty_git_analysis::{
     GitAnalysisError, GitQueryError, GitSnapshot, GitSnapshotId, GitSnapshotRepository,
     InMemoryGitSnapshotRepository,
 };
-use harness_workspace::repository_intelligence::{
+use rusty_repo_model::repository_intelligence::{
     DiscoveryError, InMemoryRepositorySnapshotRepository, RepositorySnapshot,
     RepositorySnapshotRepository, SnapshotId,
 };

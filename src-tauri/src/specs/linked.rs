@@ -1,13 +1,13 @@
 //! Changes linked across the repositories of a workspace: creating one part per repository on a
 //! shared branch, telling a run on one part where it is and what the other parts are, and
 //! switching every part to the change's branch together. The format lives in
-//! `harness_specs::linked`.
+//! `rusty_specs::linked`.
 use std::{
     path::{Path, PathBuf},
     process::Command,
 };
 
-use harness_specs::{
+use rusty_specs::{
     layout::Layout,
     linked::{self, Found},
     parse,
@@ -328,7 +328,7 @@ pub async fn specs_linked_switch(
     Ok(switched)
 }
 
-fn change_front(store: &dyn SpecStore, dir: &str) -> Option<harness_specs::model::ChangeFront> {
+fn change_front(store: &dyn SpecStore, dir: &str) -> Option<rusty_specs::model::ChangeFront> {
     let path = format!("{}/change.md", Layout::of(store).change(dir));
     store.read(&path).map(|text| parse::front::change(&text))
 }

@@ -9,16 +9,16 @@ use std::{
 };
 
 use async_trait::async_trait;
-use harness_context::ContextProvider;
-use harness_context_repository::{
+use rusty_context::ContextProvider;
+use rusty_context_repo::{
     ContextObserver, InjectionReport, RepositoryContextConfig, RepositoryContextProvider,
 };
-use harness_protocol::{
+use rusty_protocol::{
     backend::ExecutionRequest,
     messages::{ContentBlock, MessageRole},
 };
-use harness_repository_wiki::{FocusSet, StaticFocus, TaskKind};
-use harness_runtime::traits::Workspace;
+use rusty_repo_wiki::{FocusSet, StaticFocus, TaskKind};
+use rusty_runtime::traits::Workspace;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -65,10 +65,10 @@ pub fn providers(
     spec: Option<&RepositoryContextSpec>,
     repositories: Option<&RepositoryState>,
     workspace: &str,
-) -> Vec<Arc<dyn harness_context::ContextProvider>> {
-    let mut providers: Vec<Arc<dyn harness_context::ContextProvider>> = Vec::new();
+) -> Vec<Arc<dyn rusty_context::ContextProvider>> {
+    let mut providers: Vec<Arc<dyn rusty_context::ContextProvider>> = Vec::new();
     if let Some(prompt) = system_prompt {
-        providers.push(Arc::new(harness_context::StaticSystemPromptProvider::new(
+        providers.push(Arc::new(rusty_context::StaticSystemPromptProvider::new(
             prompt,
         )));
     }

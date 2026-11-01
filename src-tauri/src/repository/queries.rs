@@ -1,18 +1,14 @@
 //! Read-only queries for the canvas, each a thin composition of repository contracts.
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
-use harness_findings::{FindingExplanation, FindingId, FindingsListQuery, FindingsPage, Severity};
-use harness_git_analysis::{
+use rusty_findings::{FindingExplanation, FindingId, FindingsListQuery, FindingsPage, Severity};
+use rusty_git_analysis::{
     ChurnQuery, ChurnScope, ChurnSort, CoChangeQuery, ContributorQuery, GitQueryError,
 };
-use harness_workspace::{
-    dependency_groups::{
+use rusty_repo_model::{dependency_groups::{
         GraphProjection, GraphQuery, GroupAssignment, GroupId, GroupMembersQuery, GroupOverview,
         MemberPage, OverviewQuery, Truncation,
-    },
-    import_graph::{ImportFilter, ImportPage, ImportQuery},
-    repository_intelligence::{PackageId, RootRelativePath},
-};
+    }, import_graph::{ImportFilter, ImportPage, ImportQuery}, repository_intelligence::{PackageId, RootRelativePath}};
 
 use super::{
     dto::{
@@ -44,8 +40,8 @@ impl Entry {
     pub fn framework_relations(
         &self,
         request: FrameworkRequest,
-    ) -> Result<harness_workspace::framework_relations::FrameworkPage, RepositoryError> {
-        use harness_workspace::framework_relations::{FrameworkFilter, FrameworkQuery};
+    ) -> Result<rusty_repo_model::framework_relations::FrameworkPage, RepositoryError> {
+        use rusty_repo_model::framework_relations::{FrameworkFilter, FrameworkQuery};
         let snapshot = self.snapshot()?;
         Ok(self.graph.framework_relations(&FrameworkQuery {
             snapshot: snapshot.id.clone(),
@@ -93,7 +89,7 @@ impl Entry {
             .groups
             .group(&group_id)
             .cloned()
-            .or_else(|| harness_workspace::folder_tree::derived_group(&snapshot, &group_id.0))
+            .or_else(|| rusty_repo_model::folder_tree::derived_group(&snapshot, &group_id.0))
             .ok_or_else(|| {
                 RepositoryError::new("unknown_group", format!("unknown group: {}", group_id.0))
             })?;
@@ -306,7 +302,7 @@ impl Entry {
                 .into_iter()
                 .filter(|id| {
                     snapshot.groups.group(&GroupId(id.clone())).is_some()
-                        || harness_workspace::folder_tree::derived_group(&snapshot, id).is_some()
+                        || rusty_repo_model::folder_tree::derived_group(&snapshot, id).is_some()
                 })
                 .collect(),
             files: request

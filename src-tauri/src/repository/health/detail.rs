@@ -1,4 +1,4 @@
-use harness_code_health::rollup::TARGET_SCORE;
+use rusty_code_health::rollup::TARGET_SCORE;
 
 use super::{
     super::{entry::Entry, error::RepositoryError},

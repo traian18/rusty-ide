@@ -6,13 +6,10 @@ use std::{
     sync::Mutex,
 };
 
-use harness_findings::{FindingSet, Severity};
-use harness_git_analysis::GitSnapshot;
-use harness_repository_wiki::{facts::Facts, tests_of::is_test_file};
-use harness_workspace::{
-    import_graph::LanguageProfile,
-    repository_intelligence::{RepositoryGraph, RepositorySnapshot},
-};
+use rusty_findings::{FindingSet, Severity};
+use rusty_git_analysis::GitSnapshot;
+use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
+use rusty_repo_model::{import_graph::LanguageProfile, repository_intelligence::{RepositoryGraph, RepositorySnapshot}};
 
 use super::{super::dto::SeverityCounts, model::FileRow};
 
@@ -152,7 +149,7 @@ impl FileIndex {
                 let importers = facts.dependent_files(&file.path).len();
                 let mut imported: BTreeMap<String, ()> = BTreeMap::new();
                 for edge in facts.imports_of(&file.path) {
-                    if let harness_workspace::import_graph::Resolution::ResolvedInternal {
+                    if let rusty_repo_model::import_graph::Resolution::ResolvedInternal {
                         target_file,
                         ..
                     } = &edge.resolution

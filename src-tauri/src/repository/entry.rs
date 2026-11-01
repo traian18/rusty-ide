@@ -5,19 +5,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use harness_findings::{
+use rusty_findings::{
     DefaultFindingsAnalyzer, FindingsAnalysis, FindingsConfig, FindingsService, FsSourceTextReader,
 };
-use harness_git_analysis::{GitAnalysis, GitAnalysisBuilder};
-use harness_repository_frameworks::default_adapters;
-use harness_repository_imports::{
+use rusty_git_analysis::{GitAnalysis, GitAnalysisBuilder};
+use rusty_frameworks::default_adapters;
+use rusty_lang_api::{
     RustImportAdapter, RustImportResolver, TypeScriptImportAdapter, TypeScriptImportResolver,
 };
-use harness_workspace::{
-    dependency_groups::DefaultGroupAnalyzer,
-    import_graph::ImportSupport,
-    repository_intelligence::{RepositoryGraph, RepositoryGraphBuilder, RepositorySnapshot},
-};
+use rusty_repo_model::{dependency_groups::DefaultGroupAnalyzer, import_graph::ImportSupport, repository_intelligence::{RepositoryGraph, RepositoryGraphBuilder, RepositorySnapshot}};
 use tokio_util::sync::CancellationToken;
 
 use super::error::RepositoryError;
@@ -25,42 +21,42 @@ use super::error::RepositoryError;
 /// Manifest readers, source extensions and import support for every language beyond Rust and
 /// TypeScript/JavaScript, which are registered separately. One place to add the next language.
 fn language_support() -> (
-    Vec<Arc<dyn harness_workspace::repository_intelligence::ManifestAdapter>>,
+    Vec<Arc<dyn rusty_repo_model::repository_intelligence::ManifestAdapter>>,
     Vec<String>,
     Vec<ImportSupport>,
 ) {
-    let mut manifests = harness_workspace::repository_intelligence::default_manifest_adapters();
-    manifests.extend(harness_repository_imports_python::manifest_adapters());
-    manifests.extend(harness_repository_imports_go::manifest_adapters());
-    manifests.extend(harness_repository_imports_java::manifest_adapters());
-    manifests.extend(harness_repository_imports_csharp::manifest_adapters());
-    manifests.extend(harness_repository_imports_php::manifest_adapters());
-    manifests.extend(harness_repository_imports_native::manifest_adapters());
+    let mut manifests = rusty_repo_model::repository_intelligence::default_manifest_adapters();
+    manifests.extend(rusty_lang_python::manifest_adapters());
+    manifests.extend(rusty_lang_go::manifest_adapters());
+    manifests.extend(rusty_lang_java::manifest_adapters());
+    manifests.extend(rusty_lang_csharp::manifest_adapters());
+    manifests.extend(rusty_lang_php::manifest_adapters());
+    manifests.extend(rusty_lang_native::manifest_adapters());
     let mut extensions: Vec<String> = ["rs", "ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"]
         .iter()
         .map(|e| (*e).to_owned())
         .collect();
     for group in [
-        harness_repository_imports_python::SOURCE_EXTENSIONS,
-        harness_repository_imports_go::SOURCE_EXTENSIONS,
-        harness_repository_imports_java::SOURCE_EXTENSIONS,
-        harness_repository_imports_csharp::SOURCE_EXTENSIONS,
-        harness_repository_imports_php::SOURCE_EXTENSIONS,
+        rusty_lang_python::SOURCE_EXTENSIONS,
+        rusty_lang_go::SOURCE_EXTENSIONS,
+        rusty_lang_java::SOURCE_EXTENSIONS,
+        rusty_lang_csharp::SOURCE_EXTENSIONS,
+        rusty_lang_php::SOURCE_EXTENSIONS,
     ] {
         extensions.extend(group.iter().map(|e| (*e).to_owned()));
     }
     extensions.extend(
-        harness_repository_imports_native::source_extensions()
+        rusty_lang_native::source_extensions()
             .into_iter()
             .map(str::to_owned),
     );
     let supports = vec![
-        harness_repository_imports_python::import_support(),
-        harness_repository_imports_go::import_support(),
-        harness_repository_imports_java::import_support(),
-        harness_repository_imports_csharp::import_support(),
-        harness_repository_imports_php::import_support(),
-        harness_repository_imports_native::import_support(),
+        rusty_lang_python::import_support(),
+        rusty_lang_go::import_support(),
+        rusty_lang_java::import_support(),
+        rusty_lang_csharp::import_support(),
+        rusty_lang_php::import_support(),
+        rusty_lang_native::import_support(),
     ];
     (manifests, extensions, supports)
 }

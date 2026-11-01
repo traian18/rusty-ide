@@ -56,7 +56,7 @@ fn extras(entry: &Entry, path: &str, wanted: &[String]) -> Map<String, Value> {
             .and_then(|analysis| analyse_live(entry, &analysis, path))
             .map_or(json!("not measured for this language"), |live| {
                 let score = live.score.as_ref().map(|s| round(s.defect.score));
-                json!({"score_now": score, "band": score.map(harness_code_health::Band::of), "findings": findings_of(&live)})
+                json!({"score_now": score, "band": score.map(rusty_code_health::Band::of), "findings": findings_of(&live)})
             });
         out.insert("health".into(), value);
     }

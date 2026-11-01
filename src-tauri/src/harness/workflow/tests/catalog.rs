@@ -22,7 +22,7 @@ fn every_builtin_profile_is_valid_and_registered_natively() {
     let library = starter_library();
     assert_eq!(library.len(), 12);
     for profile in &library {
-        let issues = harness_engine::validation::validate_profile(profile, &library);
+        let issues = rusty_engine::validation::validate_profile(profile, &library);
         assert!(issues.is_empty(), "{}: {issues:?}", profile["id"]);
     }
     let registered = starter_library();
@@ -34,7 +34,7 @@ fn every_builtin_profile_is_valid_and_registered_natively() {
         ids.iter().all(|id| id.starts_with("rusty-ide.builtin.")),
         "{ids:?}"
     );
-    let profiles = harness_engine::ProfilesConfig::default();
+    let profiles = rusty_engine::ProfilesConfig::default();
     for profile in registered {
         profiles
             .register_json(profile)
@@ -52,7 +52,7 @@ fn every_builtin_workflow_compiles_without_issues() {
     let workflows = builtin_workflows();
     assert_eq!(workflows.len(), 20);
     for (name, workflow) in &workflows {
-        let issues = harness_engine::validation::validate_orchestration(workflow, &library);
+        let issues = rusty_engine::validation::validate_orchestration(workflow, &library);
         assert!(issues.is_empty(), "{name}: {issues:?}");
         // Each agent step is a profile-backed step on a profile that ships with the app.
         for node in workflow["nodes"]

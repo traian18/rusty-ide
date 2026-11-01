@@ -1,7 +1,7 @@
 //! `repo_health`: the repository's code health with what to fix first; or, for named files, their
 //! health measured from the disk now next to what the index holds, so an agent sees whether an
 //! edit made a file better or worse; or one finding with the instructions to fix it.
-use harness_code_health::{Category, Finding};
+use rusty_code_health::{Category, Finding};
 use serde_json::{json, Value};
 
 use super::{

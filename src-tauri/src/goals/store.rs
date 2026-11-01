@@ -2,8 +2,8 @@
 //! workspace snapshot the running pass started from. Writes go through a temporary file.
 use std::path::{Path, PathBuf};
 
-use harness_goals::{Goal, GOALS_DIR};
-use harness_runtime::workspace_snapshot::Snapshot;
+use rusty_goals::{Goal, GOALS_DIR};
+use rusty_workflow_runtime::workspace_snapshot::Snapshot;
 use serde::{de::DeserializeOwned, Serialize};
 
 use crate::repository::error::RepositoryError;
@@ -98,7 +98,7 @@ pub(super) fn checkpoint(root: &Path, id: &str) -> Result<Option<Snapshot>, Repo
 
 #[cfg(test)]
 mod tests {
-    use harness_goals::Goal;
+    use rusty_goals::Goal;
 
     use super::{delete, list, load, save};
 

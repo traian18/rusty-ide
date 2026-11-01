@@ -2,7 +2,7 @@
 //! the files table, code health and the agent's symbol tool.
 use std::sync::Arc;
 
-use harness_workspace::import_graph::Resolution;
+use rusty_repo_model::import_graph::Resolution;
 use serde_json::json;
 
 use super::{write, Entry};

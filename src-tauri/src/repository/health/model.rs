@@ -1,12 +1,12 @@
 //! What the Code Health page receives (camelCase on the wire; core types keep their own names).
 use std::collections::BTreeMap;
 
-use harness_code_health::{
+use rusty_code_health::{
     rollup::{FolderHealth, RepositoryHealth, SelfCheck},
     scoring::CategoryDeduction,
     Band, Category, Finding,
 };
-use harness_git_analysis::FileSignals;
+use rusty_git_analysis::FileSignals;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Default, Serialize)]

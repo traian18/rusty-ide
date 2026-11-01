@@ -239,7 +239,7 @@ async fn check_copilot_status(app: &AppHandle) -> LoginState {
 }
 
 fn clear_copilot_auth(app: &AppHandle) -> Result<(), String> {
-    harness_integration_github_copilot::credentials::remove_credential(
+    rusty_provider_github_copilot::credentials::remove_credential(
         &super::copilot_oauth::credential_path(app)?,
     )
 }

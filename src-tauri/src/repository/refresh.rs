@@ -1,6 +1,6 @@
 //! Rebuilding the repository snapshot, then Git history and findings on top of it.
-use harness_findings::AnalyzeRequest;
-use harness_git_analysis::RepositoryCorrelation;
+use rusty_findings::AnalyzeRequest;
+use rusty_git_analysis::RepositoryCorrelation;
 use tokio_util::sync::CancellationToken;
 
 use super::{

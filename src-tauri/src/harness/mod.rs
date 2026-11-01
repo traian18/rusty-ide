@@ -44,16 +44,16 @@ pub use host_workspace::HostWorkspace;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use harness_engine::{Harness, SessionHandle};
-use harness_integration_anthropic::AnthropicFactory;
-use harness_integration_codex::CodexFactory;
-use harness_integration_gemini::GeminiFactory;
-use harness_integration_github_copilot::GitHubCopilotFactory;
-use harness_integration_openai::OpenAiFactory;
-use harness_integration_openai_compatible::OpenAiCompatibleFactory;
-use harness_integration_openai_responses::OpenAiResponsesFactory;
-use harness_protocol::events::AgentEventEnvelope;
-use harness_protocol::ids::SessionId;
+use rusty_engine::{Harness, SessionHandle};
+use rusty_provider_anthropic::AnthropicFactory;
+use rusty_provider_codex::CodexFactory;
+use rusty_provider_gemini::GeminiFactory;
+use rusty_provider_github_copilot::GitHubCopilotFactory;
+use rusty_provider_openai::OpenAiFactory;
+use rusty_provider_openai_compatible::OpenAiCompatibleFactory;
+use rusty_provider_openai_responses::OpenAiResponsesFactory;
+use rusty_protocol::events::AgentEventEnvelope;
+use rusty_protocol::ids::SessionId;
 use tokio::sync::{broadcast, mpsc, OnceCell};
 use tokio::task::JoinHandle;
 
@@ -195,8 +195,8 @@ pub fn spawn_event_pump(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use harness_protocol::events::{AgentEvent, EventVisibility};
-    use harness_protocol::ids::{AgentId, EventId, RunId, Timestamp};
+    use rusty_protocol::events::{AgentEvent, EventVisibility};
+    use rusty_protocol::ids::{AgentId, EventId, RunId, Timestamp};
 
     fn fixture_envelope(session_sequence: u64) -> AgentEventEnvelope {
         AgentEventEnvelope {

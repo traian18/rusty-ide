@@ -58,7 +58,7 @@ async fn a_workflow_may_run_a_built_in_workflow_as_a_subflow() {
 
 #[tokio::test]
 async fn a_workflow_may_run_a_workflow_saved_in_the_workspace() {
-    let mut helper = harness_engine::validation::templates().default_workflow;
+    let mut helper = rusty_engine::validation::templates().default_workflow;
     helper["id"] = json!("ws.helper");
     helper["status"] = json!("draft");
     start_calling(json!({ "type": "flow", "id": "ws.helper" }), vec![helper])

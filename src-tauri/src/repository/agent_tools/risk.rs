@@ -4,11 +4,11 @@
 //! tests to run, and how far the change reaches.
 use std::collections::{BTreeMap, BTreeSet};
 
-use harness_repository_wiki::{
+use rusty_repo_wiki::{
     facts::{path_text, Facts},
     tests_of::is_test_file,
 };
-use harness_workspace::repository_intelligence::{RepositorySnapshot, RootRelativePath};
+use rusty_repo_model::repository_intelligence::{RepositorySnapshot, RootRelativePath};
 use serde_json::{json, Value};
 
 use super::{
@@ -162,7 +162,7 @@ fn file_card(entry: &Entry, graph: &Graph<'_>, analysis: &Analysis, path: &str) 
         "dependents": dependents.len(),
         "reach_two_hops": detail.blast_radius,
         "co_change_partners": partners,
-        "health": score.map(|s| json!({"score": (s.defect.score * 10.0).round() / 10.0, "band": harness_code_health::Band::of(s.defect.score), "top_issue": top_issue})),
+        "health": score.map(|s| json!({"score": (s.defect.score * 10.0).round() / 10.0, "band": rusty_code_health::Band::of(s.defect.score), "top_issue": top_issue})),
         "tests": tests,
         "test_file": detail.row.test,
     })

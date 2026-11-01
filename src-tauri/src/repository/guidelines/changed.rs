@@ -1,7 +1,7 @@
 //! What changed in a file since the last commit, from a diff of its committed and current content.
 use std::path::Path;
 
-use harness_guidelines::ChangedLines;
+use rusty_guidelines::ChangedLines;
 
 fn line_count(bytes: &[u8]) -> u32 {
     if bytes.is_empty() {

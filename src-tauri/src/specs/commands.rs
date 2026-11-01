@@ -1,8 +1,8 @@
 //! Tauri commands for the Specs page. Each resolves the repository folder, then calls into
-//! `harness-specs` on a blocking thread.
+//! `rusty-specs` on a blocking thread.
 use std::path::{Path, PathBuf};
 
-use harness_specs::{
+use rusty_specs::{
     archive, context, export, import,
     layout::Layout,
     overview as scan, parse, plan,
@@ -32,7 +32,7 @@ pub(super) fn folder(root: &str) -> Result<PathBuf, RepositoryError> {
     }
 }
 
-pub(super) fn spec_error(error: harness_specs::SpecError) -> RepositoryError {
+pub(super) fn spec_error(error: rusty_specs::SpecError) -> RepositoryError {
     RepositoryError::new("io_error", error.message)
 }
 
@@ -189,7 +189,7 @@ pub(super) fn plain_date(date: &str) -> bool {
 pub async fn specs_tasks(
     root: String,
     change: String,
-) -> Result<Vec<harness_specs::model::Task>, RepositoryError> {
+) -> Result<Vec<rusty_specs::model::Task>, RepositoryError> {
     blocking(move || {
         let store = FsStore::new(folder(&root)?);
         let path = format!("{}/tasks.md", Layout::of(&store).change(&change));
@@ -232,7 +232,7 @@ pub async fn specs_context(
         if matches!(step, Step::Plan | Step::Implement) {
             let layout = Layout::of(&store);
             let spec = store.read(&format!("{}/spec.md", layout.change(&change)));
-            if spec.as_deref().is_some_and(harness_specs::parse::spec::is_unwritten) {
+            if spec.as_deref().is_some_and(rusty_specs::parse::spec::is_unwritten) {
                 return Err(RepositoryError::invalid(format!(
                     "The spec of {change} in this repository is still the empty template, so there is nothing to plan or build from. Write it first: run Specify on this change."
                 )));
@@ -379,11 +379,11 @@ pub async fn specs_tasks_check(
     root: String,
     change: String,
     tasks: String,
-) -> Result<Vec<harness_specs::Warning>, RepositoryError> {
+) -> Result<Vec<rusty_specs::Warning>, RepositoryError> {
     blocking(move || {
         let store = FsStore::new(folder(&root)?);
         let layout = Layout::of(&store);
-        Ok(harness_specs::validate::check_task_list(
+        Ok(rusty_specs::validate::check_task_list(
             &store, &layout, &change, &tasks,
         ))
     })

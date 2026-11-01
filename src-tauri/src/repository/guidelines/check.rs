@@ -1,10 +1,10 @@
 //! Files on disk through the repository's guidelines: measured live, with their imports from the
 //! index when there is one, and optionally only what the uncommitted change introduced.
-use harness_code_analysis::metrics::{language_of, measure_file};
-use harness_guidelines::{
+use rusty_code_analysis::metrics::{language_of, measure_file};
+use rusty_guidelines::{
     check_file, retain_introduced, FileInput, Guidelines, Import, Kinds, Violation,
 };
-use harness_workspace::{import_graph::Resolution, repository_intelligence::RepositorySnapshot};
+use rusty_repo_model::{import_graph::Resolution, repository_intelligence::RepositorySnapshot};
 
 use super::{super::entry::Entry, changed_lines};
 

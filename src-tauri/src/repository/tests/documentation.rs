@@ -75,7 +75,7 @@ async fn a_page_is_planned_briefed_checked_stored_and_goes_stale() {
         .unwrap();
     assert_ne!(
         after.freshness,
-        harness_repository_wiki::written::Freshness::Fresh
+        rusty_repo_wiki::written::Freshness::Fresh
     );
 }
 

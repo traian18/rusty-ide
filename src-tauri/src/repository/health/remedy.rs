@@ -85,14 +85,14 @@ pub(super) fn how_to_fix(detector: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use harness_code_health::registry;
+    use rusty_code_health::registry;
 
     use super::how_to_fix;
 
     #[test]
     fn every_infrastructure_rule_has_specific_advice() {
         let general = how_to_fix("unknown");
-        for rule in harness_infra_analysis::registry() {
+        for rule in rusty_infra_analysis::registry() {
             assert_ne!(how_to_fix(rule.id()), general, "{}", rule.id());
         }
     }

@@ -4,10 +4,10 @@
 
 use std::time::Duration;
 
-use harness_protocol::backend::{ExecutionError, ExecutionEvent, ExecutionResult};
-use harness_protocol::ids::RequestId;
-use harness_protocol::tools::ToolCall;
-use harness_protocol::usage::{Cost, ModelUsage};
+use rusty_protocol::backend::{ExecutionError, ExecutionEvent, ExecutionResult};
+use rusty_protocol::ids::RequestId;
+use rusty_protocol::tools::ToolCall;
+use rusty_protocol::usage::{Cost, ModelUsage};
 use serde_json::{json, Value};
 
 use super::super::recipe::SessionRecipe;
@@ -43,7 +43,7 @@ fn report() -> Value {
 /// The default workflow, with its agent step accepting JSON text: the
 /// host-routed backend has no native structured output.
 fn workflow_document() -> Value {
-    let mut document = harness_engine::validation::templates().default_workflow;
+    let mut document = rusty_engine::validation::templates().default_workflow;
     document["id"] = json!("ide.flow");
     document["status"] = json!("draft");
     for node in document["nodes"].as_array_mut().unwrap() {
@@ -151,7 +151,7 @@ enum Turn {
 
 fn tool(name: &str, arguments: Value) -> Turn {
     Turn::Tool(ToolCall {
-        id: harness_protocol::ids::ToolCallId::new(),
+        id: rusty_protocol::ids::ToolCallId::new(),
         name: name.into(),
         arguments,
     })

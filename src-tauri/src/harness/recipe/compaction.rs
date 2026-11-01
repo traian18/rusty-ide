@@ -48,19 +48,19 @@ const COMPACTION_FALLBACK_CHARS: usize = 400_000;
 /// What every request goes through before compaction: file reads that a
 /// later read made redundant are replaced, at fixed points of the history so
 /// the provider's prompt cache keeps matching in between.
-fn first_pass() -> Arc<dyn harness_context::ContextProvider> {
-    Arc::new(harness_context::SupersededReadsProvider)
+fn first_pass() -> Arc<dyn rusty_context::ContextProvider> {
+    Arc::new(rusty_context::SupersededReadsProvider)
 }
 
 /// Standard compaction: local tiers only, sized by the model's window.
 fn standard_compaction(
     window: Option<u64>,
-) -> Arc<harness_context::PolicyDrivenCompactionProvider> {
+) -> Arc<rusty_context::PolicyDrivenCompactionProvider> {
     let passthrough = first_pass();
     Arc::new(
-        harness_context::PolicyDrivenCompactionProvider::new(
+        rusty_context::PolicyDrivenCompactionProvider::new(
             passthrough,
-            harness_context::ContextPolicy::default(),
+            rusty_context::ContextPolicy::default(),
             window,
             COMPACTION_KEEP_RECENT,
             COMPACTION_FALLBACK_CHARS,
@@ -76,16 +76,16 @@ fn standard_compaction(
 /// cannot be answered.
 pub(super) fn compaction_provider(
     config: &ContextCompactionRecipe,
-    backend: Arc<dyn harness_runtime::traits::ExecutionBackend>,
+    backend: Arc<dyn rusty_runtime::traits::ExecutionBackend>,
     summary_model: Option<String>,
-) -> Arc<dyn harness_context::ContextProvider> {
+) -> Arc<dyn rusty_context::ContextProvider> {
     let window = config.context_window;
     let standard = standard_compaction(window);
     let (CompactionMode::Smart, Some(jev)) = (config.mode, config.jev.as_ref()) else {
         return standard;
     };
-    let mut judge = harness_context::JevImportanceJudge::new(
-        harness_context::OpenRouterDecisions::new(jev.api_key.clone()),
+    let mut judge = rusty_context::JevImportanceJudge::new(
+        rusty_context::OpenRouterDecisions::new(jev.api_key.clone()),
         jev.model_id.clone(),
     );
     if let Some(confidence) = jev.confidence {
@@ -93,14 +93,14 @@ pub(super) fn compaction_provider(
     }
     let passthrough = first_pass();
     Arc::new(
-        harness_context::SummarizingCompactionProvider::new(
+        rusty_context::SummarizingCompactionProvider::new(
             passthrough,
             standard,
             Arc::new(match summary_model {
-                Some(model) => harness_context::BackendSummarizer::new(backend).with_model(model),
-                None => harness_context::BackendSummarizer::new(backend),
+                Some(model) => rusty_context::BackendSummarizer::new(backend).with_model(model),
+                None => rusty_context::BackendSummarizer::new(backend),
             }),
-            harness_context::ContextPolicy::default(),
+            rusty_context::ContextPolicy::default(),
             window,
             COMPACTION_KEEP_RECENT,
         )

@@ -1,18 +1,16 @@
 //! Every file of the snapshot through metrics, detectors and scoring.
 use std::{collections::HashMap, sync::Arc};
 
-use harness_code_analysis::{
+use rusty_code_analysis::{
     metrics::{measure_file, FileMetrics, METRICS_VERSION},
     LanguageId,
 };
-use harness_code_health::{
+use rusty_code_health::{
     detect_file, score_file, DetectorConfig, FileContext, FileScore, Finding, ScoringConfig,
 };
-use harness_git_analysis::{FileSignals, SignalSummary};
-use harness_repository_wiki::{facts::Facts, tests_of::is_test_file};
-use harness_workspace::{
-    import_graph::LanguageProfile, repository_intelligence::RepositorySnapshot,
-};
+use rusty_git_analysis::{FileSignals, SignalSummary};
+use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
+use rusty_repo_model::{import_graph::LanguageProfile, repository_intelligence::RepositorySnapshot};
 
 use super::{super::entry::Entry, cache::HealthCache};
 
@@ -30,7 +28,7 @@ pub struct FileAnalysis {
     pub test: bool,
     pub importers: u32,
     /// What links the file to tests; `None` for files that are not source code.
-    pub links: Option<harness_code_health::TestLinks>,
+    pub links: Option<rusty_code_health::TestLinks>,
     /// Lines of code: from the metrics, or the non-blank lines of an infrastructure file.
     pub nloc: u32,
 }
@@ -46,7 +44,7 @@ pub struct Analysis {
     /// Infrastructure files' relations, for rules and the repository overview.
     pub infra: super::infra::InfraState,
     /// Near copies of functions across the repository.
-    pub duplicates: harness_code_health::duplication::DuplicateIndex,
+    pub duplicates: rusty_code_health::duplication::DuplicateIndex,
     /// Which tests exist, by what they are named after.
     pub tests: super::tests_link::TestIndex,
 }
@@ -102,11 +100,11 @@ pub fn analyse(entry: &Entry, snapshot: &RepositorySnapshot, cache: &HealthCache
         .collect();
     let repo_p80 = p80(importers.clone());
     let detectors = super::super::guidelines::detectors(&entry.root);
-    let scoring = harness_infra_analysis::scoring_config();
+    let scoring = rusty_infra_analysis::scoring_config();
     let summary = git.as_ref().map(|g| g.index.signal_summary.clone());
     struct Measured {
         path: String,
-        relative: harness_workspace::repository_intelligence::RootRelativePath,
+        relative: rusty_repo_model::repository_intelligence::RootRelativePath,
         name: &'static str,
         key: String,
         metrics: Option<Arc<FileMetrics>>,
@@ -144,7 +142,7 @@ pub fn analyse(entry: &Entry, snapshot: &RepositorySnapshot, cache: &HealthCache
         .collect();
     let tests =
         super::tests_link::TestIndex::build(measured.iter().map(|m| (m.path.as_str(), m.test)));
-    let duplicates = harness_code_health::duplication::DuplicateIndex::build(
+    let duplicates = rusty_code_health::duplication::DuplicateIndex::build(
         measured
             .iter()
             .filter_map(|m| m.metrics.as_deref().map(|x| (m.path.as_str(), x, m.test))),
@@ -309,27 +307,27 @@ fn analyse_infra_live(
     path: &str,
     known: Option<&FileAnalysis>,
 ) -> Option<FileAnalysis> {
-    if !harness_infra_analysis::is_candidate(path) {
+    if !rusty_infra_analysis::is_candidate(path) {
         return None;
     }
     let text = std::fs::read_to_string(entry.root().join(path)).ok()?;
     if text.len() as u64 > MAX_BYTES {
         return None;
     }
-    let context = harness_infra_analysis::InfraContext {
+    let context = rusty_infra_analysis::InfraContext {
         repo_files: Some(&analysis.infra.all_paths),
         graph: Some(&analysis.infra.graph),
     };
-    let (kind, mut findings) = harness_infra_analysis::analyse(
+    let (kind, mut findings) = rusty_infra_analysis::analyse(
         path,
         &text,
         &context,
-        &harness_infra_analysis::InfraConfig::default(),
+        &rusty_infra_analysis::InfraConfig::default(),
     )?;
     let nloc = super::infra::nloc(&text);
     let signals = known.and_then(|f| f.signals.clone());
     if let (Some(s), Some(summary)) = (signals.as_ref(), analysis.summary.as_ref()) {
-        findings.extend(harness_infra_analysis::history_findings(
+        findings.extend(rusty_infra_analysis::history_findings(
             path, nloc, s, summary,
         ));
     }

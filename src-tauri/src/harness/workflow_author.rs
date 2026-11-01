@@ -115,9 +115,9 @@ fn effective_profiles(root: &Path, proposed: &[Value]) -> Result<Vec<Value>, Vec
 
 fn native_issues(document: &Value, profiles: &[Value], profile: bool) -> Vec<AuthoringIssue> {
     let issues = if profile {
-        harness_engine::validation::validate_profile(document, profiles)
+        rusty_engine::validation::validate_profile(document, profiles)
     } else {
-        harness_engine::validation::validate_orchestration(document, profiles)
+        rusty_engine::validation::validate_orchestration(document, profiles)
     };
     issues
         .into_iter()
@@ -490,7 +490,7 @@ mod tests {
         assert_eq!(result.outcome, "unsafe_path");
     }
     fn valid_workflow(id: &str) -> Value {
-        let mut workflow = harness_engine::validation::templates().default_workflow;
+        let mut workflow = rusty_engine::validation::templates().default_workflow;
         workflow["id"] = serde_json::json!(id);
         workflow
     }
@@ -581,7 +581,7 @@ mod tests {
         let mut request = request(d.path(), SaveIntent::Create, "rollback");
         request.workflow = valid_workflow("rollback");
         request.profiles =
-            vec![harness_engine::validation::templates().builtin_profiles[0].clone()];
+            vec![rusty_engine::validation::templates().builtin_profiles[0].clone()];
         request.profiles[0]["id"] = serde_json::json!("new-profile");
         let result = save_workflow(request);
         assert_eq!(result.outcome, "commit_failed");

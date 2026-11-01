@@ -1,4 +1,4 @@
-//! `HostWorkspace`: the `harness_workspace::Workspace` implementation that
+//! `HostWorkspace`: the `rusty_workspace::Workspace` implementation that
 //! routes file reads/writes through the IDE via `HostBridge`, instead of
 //! touching disk directly.
 //!
@@ -16,9 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use harness_workspace::{
-    FileInfo, FsWorkspace, SearchResult, Workspace, WorkspaceError, WorkspaceMode,
-};
+use rusty_workspace::{FileInfo, FsWorkspace, SearchResult, Workspace, WorkspaceError, WorkspaceMode};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
@@ -37,7 +35,7 @@ impl HostWorkspace {
     }
 
     /// rusty-core's `Workspace` trait takes root-relative paths
-    /// (`harness-workspace/src/workspace.rs`'s doc comments); the IDE's
+    /// (`rusty-workspace/src/workspace.rs`'s doc comments); the IDE's
     /// `RunHost` contract (`src/harness/contract/host.ts`) takes absolute
     /// ones. This is the one place that translates between them.
     fn absolute(&self, relative_path: &str) -> PathBuf {

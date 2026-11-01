@@ -5,8 +5,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use harness_protocol::ids::SessionId;
-use harness_protocol::rpc::MutationCommand;
+use rusty_protocol::ids::SessionId;
+use rusty_protocol::rpc::MutationCommand;
 use tokio::sync::mpsc;
 
 use super::recipe::{build_session_builder, SessionRecipe};
@@ -37,7 +37,7 @@ impl HarnessState {
     /// integration).
     pub async fn create_session_on(
         &self,
-        harness: &harness_engine::Harness,
+        harness: &rusty_engine::Harness,
         recipe: SessionRecipe,
     ) -> Result<SessionId, String> {
         let (outbound_tx, outbound_rx) = mpsc::unbounded_channel();
@@ -150,7 +150,7 @@ impl HarnessState {
         &self,
         session_id: SessionId,
         call_id: &str,
-        event: harness_protocol::backend::ExecutionEvent,
+        event: rusty_protocol::backend::ExecutionEvent,
     ) -> Result<(), String> {
         self.with_session(&session_id, |entry| entry.bridge.push_event(call_id, event))
             .ok_or_else(|| "no such session".to_string())
@@ -163,8 +163,8 @@ impl HarnessState {
         session_id: SessionId,
         call_id: &str,
         result: Result<
-            harness_protocol::backend::ExecutionResult,
-            harness_protocol::backend::ExecutionError,
+            rusty_protocol::backend::ExecutionResult,
+            rusty_protocol::backend::ExecutionError,
         >,
     ) -> Result<(), String> {
         self.with_session(&session_id, |entry| {
@@ -209,15 +209,15 @@ impl HarnessState {
 /// Not part of `HarnessState` itself (it needs no session table access) --
 /// `harness_list_providers`/`harness_list_models`'s shared entry point.
 pub async fn list_models(
-    harness: &harness_engine::Harness,
+    harness: &rusty_engine::Harness,
     provider: &str,
     refresh: bool,
-) -> Result<Vec<harness_engine::ModelDescriptor>, String> {
-    let key = harness_engine::ProviderKey(provider.to_string());
+) -> Result<Vec<rusty_engine::ModelDescriptor>, String> {
+    let key = rusty_engine::ProviderKey(provider.to_string());
     // `_credential` is unread by `Harness::list_models` itself (see its own
     // doc comment) -- a single-user embedded app has no profile selection
     // to make here.
-    let credential = harness_engine::CredentialProfileId(String::new());
+    let credential = rusty_engine::CredentialProfileId(String::new());
     harness
         .list_models(&key, &credential, refresh)
         .await
@@ -225,8 +225,8 @@ pub async fn list_models(
 }
 
 pub fn list_providers(
-    harness: &harness_engine::Harness,
-) -> Result<Vec<harness_engine::ProviderDescriptor>, String> {
+    harness: &rusty_engine::Harness,
+) -> Result<Vec<rusty_engine::ProviderDescriptor>, String> {
     harness.list_providers().map_err(|error| error.to_string())
 }
 
@@ -245,19 +245,19 @@ mod integration_tests {
     use std::time::Duration;
 
     use async_trait::async_trait;
-    use harness_engine::Harness;
-    use harness_protocol::backend::{
+    use rusty_engine::Harness;
+    use rusty_protocol::backend::{
         BackendCapabilities, BackendDescriptor, ExecutionEvent, ExecutionResult,
     };
-    use harness_protocol::commands::UserInput;
-    use harness_protocol::events::AgentEvent;
-    use harness_protocol::ids::{BackendId, RequestId, ToolCallId};
-    use harness_protocol::rpc::MutationCommand;
-    use harness_protocol::tools::ToolCall;
-    use harness_protocol::usage::{Cost, ModelUsage};
-    use harness_runtime::testing::FakeBackend;
-    use harness_runtime::traits::ExecutionBackend;
-    use harness_runtime::{IntegrationError, IntegrationFactory};
+    use rusty_protocol::commands::UserInput;
+    use rusty_protocol::events::AgentEvent;
+    use rusty_protocol::ids::{BackendId, RequestId, ToolCallId};
+    use rusty_protocol::rpc::MutationCommand;
+    use rusty_protocol::tools::ToolCall;
+    use rusty_protocol::usage::{Cost, ModelUsage};
+    use rusty_runtime::testing::FakeBackend;
+    use rusty_runtime::traits::ExecutionBackend;
+    use rusty_runtime::{IntegrationError, IntegrationFactory};
 
     use super::super::recipe::build_session_builder;
     use super::*;
@@ -294,7 +294,7 @@ mod integration_tests {
 
     /// A backend that requests `tool_name` once the first time it's asked to
     /// execute, then reports `finish_reason: "tool_use"`. Mirrors
-    /// `harness-engine/tests/real_tools_e2e.rs`'s own `make_tool_call_backend`.
+    /// `rusty-engine/tests/real_tools_e2e.rs`'s own `make_tool_call_backend`.
     fn make_tool_call_backend(tool_name: &str, arguments: serde_json::Value) -> Arc<FakeBackend> {
         let request_id = RequestId::new();
         Arc::new(

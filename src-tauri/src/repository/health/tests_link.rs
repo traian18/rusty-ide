@@ -2,10 +2,10 @@
 //! them (directly or through one other file), a test named after them, tests inside them.
 use std::{collections::HashSet, path::Path};
 
-use harness_code_analysis::metrics::FileMetrics;
-use harness_code_health::TestLinks;
-use harness_repository_wiki::{facts::Facts, tests_of::is_test_file};
-use harness_workspace::repository_intelligence::RootRelativePath;
+use rusty_code_analysis::metrics::FileMetrics;
+use rusty_code_health::TestLinks;
+use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
+use rusty_repo_model::repository_intelligence::RootRelativePath;
 
 /// The name a file is about: lower case, extension and test markers removed
 /// (`FooTest.java`, `foo_test.go`, `foo.spec.ts`, `test_foo.py` all give `foo`).

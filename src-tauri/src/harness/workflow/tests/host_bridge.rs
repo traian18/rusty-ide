@@ -1,6 +1,6 @@
 //! A workflow's steps run through the session's own host bridge.
 
-use harness_protocol::ids::ToolCallId;
+use rusty_protocol::ids::ToolCallId;
 
 use super::*;
 
@@ -54,7 +54,7 @@ async fn step_up(state: &HarnessState, session_id: SessionId, caller: Option<Str
         session_id.to_string(),
         "steps run in their own session"
     );
-    let params = harness_protocol::backend::ExecutionParams {
+    let params = rusty_protocol::backend::ExecutionParams {
         model: Some("stronger-model".into()),
         ..Default::default()
     };

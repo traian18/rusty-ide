@@ -1,5 +1,5 @@
 //! The documentation wiki for the Docs tab: pages and the tree, rendered from the snapshots.
-use harness_repository_wiki::{Page, PageId, PageRenderer, TreeEntry, WikiError};
+use rusty_repo_wiki::{Page, PageId, PageRenderer, TreeEntry, WikiError};
 
 use super::{entry::Entry, error::RepositoryError};
 

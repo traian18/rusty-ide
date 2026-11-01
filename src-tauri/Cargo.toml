@@ -19,46 +19,48 @@ tauri-build = { version = "2", features = [] }
 [features]
 default = ["core-harness"]
 # HARNESS_CONTRACT_PLAN.md Milestone B0: the sign/notarize spike. Linking
-# rusty-core pulls libgit2-sys + libz-sys (via harness-workspace's git2
+# rusty-core pulls libgit2-sys + libz-sys (via rusty-workspace's git2
 # dependency) into a bundle that has had zero native deps until now --
 # gated behind a feature (not just added straight to [dependencies]) so a
 # build can drop back to the pre-B0 dependency graph by turning this off,
 # without a Cargo.toml edit, if the spike turns up a real blocker.
 core-harness = [
-  "dep:harness-engine",
-  "dep:harness-protocol",
-  "dep:harness-context",
-  "dep:harness-tools",
-  "dep:harness-workspace",
-  "dep:harness-git-analysis",
-  "dep:harness-findings",
-  "dep:harness-tool-repository-intelligence",
-  "dep:harness-repository-wiki",
-  "dep:harness-code-analysis",
-  "dep:harness-code-health",
-  "dep:harness-guidelines",
-  "dep:harness-goals",
-  "dep:harness-infra-analysis",
-  "dep:harness-specs",
-  "dep:harness-context-repository",
-  "dep:harness-repository-imports",
-  "dep:harness-repository-frameworks",
-  "dep:harness-repository-imports-python",
-  "dep:harness-repository-imports-go",
-  "dep:harness-repository-imports-java",
-  "dep:harness-repository-imports-csharp",
-  "dep:harness-repository-imports-php",
-  "dep:harness-repository-imports-native",
-  "dep:harness-runtime",
-  "dep:harness-integration-anthropic",
-  "dep:harness-integration-openai",
-  "dep:harness-integration-openai-responses",
-  "dep:harness-integration-openai-compatible",
-  "dep:harness-integration-gemini",
-  "dep:harness-integration-codex",
-  "dep:harness-integration-github-copilot",
-  "dep:harness-tool-mcp",
-  "dep:harness-tool-web",
+  "dep:rusty-engine",
+  "dep:rusty-protocol",
+  "dep:rusty-context",
+  "dep:rusty-tool-api",
+  "dep:rusty-workspace",
+  "dep:rusty-repo-model",
+  "dep:rusty-git-analysis",
+  "dep:rusty-findings",
+  "dep:rusty-tool-repo",
+  "dep:rusty-repo-wiki",
+  "dep:rusty-code-analysis",
+  "dep:rusty-code-health",
+  "dep:rusty-guidelines",
+  "dep:rusty-goals",
+  "dep:rusty-infra-analysis",
+  "dep:rusty-specs",
+  "dep:rusty-context-repo",
+  "dep:rusty-lang-api",
+  "dep:rusty-frameworks",
+  "dep:rusty-lang-python",
+  "dep:rusty-lang-go",
+  "dep:rusty-lang-java",
+  "dep:rusty-lang-csharp",
+  "dep:rusty-lang-php",
+  "dep:rusty-lang-native",
+  "dep:rusty-runtime",
+  "dep:rusty-workflow-runtime",
+  "dep:rusty-provider-anthropic",
+  "dep:rusty-provider-openai",
+  "dep:rusty-provider-openai-responses",
+  "dep:rusty-provider-openai-compatible",
+  "dep:rusty-provider-gemini",
+  "dep:rusty-provider-codex",
+  "dep:rusty-provider-github-copilot",
+  "dep:rusty-tool-mcp",
+  "dep:rusty-tool-web",
   "dep:git2",
   "dep:async-trait",
   "dep:tokio-util",
@@ -95,50 +97,52 @@ tokio = { version = "1", features = ["sync", "rt", "macros", "process", "time", 
 # Path deps into the sibling rusty-core checkout (HARNESS_CONTRACT_PLAN.md
 # §2 "During the transition"). Every one of these is a genuine build-time
 # risk the B0 spike exists to surface, not just the crate the Milestone B
-# bridge will actually call into (harness-engine) -- the seven integration
+# bridge will actually call into (rusty-engine) -- the seven integration
 # crates each bring their own transitive dependencies (HTTP clients, CLI
 # process spawning), and the binary-size delta this spike measures should
 # reflect the real Milestone B dependency graph, not a trimmed subset of it.
-harness-engine = { path = "../../rusty-core/crates/harness-engine", optional = true }
-harness-protocol = { path = "../../rusty-core/crates/harness-protocol", optional = true }
-harness-context = { path = "../../rusty-core/crates/harness-context", optional = true, features = ["jev-http"] }
-harness-tools = { path = "../../rusty-core/crates/harness-tools", optional = true }
-harness-workspace = { path = "../../rusty-core/crates/harness-workspace", optional = true }
-harness-runtime = { path = "../../rusty-core/crates/harness-runtime", optional = true }
+rusty-engine = { path = "../../rusty-core/crates/engine", optional = true }
+rusty-protocol = { path = "../../rusty-core/crates/protocol", optional = true }
+rusty-context = { path = "../../rusty-core/crates/context", optional = true, features = ["jev-http"] }
+rusty-tool-api = { path = "../../rusty-core/crates/tool-api", optional = true }
+rusty-workspace = { path = "../../rusty-core/crates/workspace", optional = true }
+rusty-repo-model = { path = "../../rusty-core/crates/repo-model", optional = true }
+rusty-runtime = { path = "../../rusty-core/crates/runtime", optional = true }
+rusty-workflow-runtime = { path = "../../rusty-core/crates/workflow-runtime", optional = true }
 # Repository intelligence (architecture canvas): import graph, dependency groups, Git history, findings.
-harness-git-analysis = { path = "../../rusty-core/crates/harness-git-analysis", optional = true }
-harness-findings = { path = "../../rusty-core/crates/harness-findings", optional = true }
-harness-context-repository = { path = "../../rusty-core/crates/harness-context-repository", optional = true }
-harness-repository-wiki = { path = "../../rusty-core/crates/harness-repository-wiki", optional = true }
-harness-code-analysis = { path = "../../rusty-core/crates/harness-code-analysis", optional = true }
-harness-code-health = { path = "../../rusty-core/crates/harness-code-health", optional = true }
-harness-guidelines = { path = "../../rusty-core/crates/harness-guidelines", optional = true }
-harness-goals = { path = "../../rusty-core/crates/harness-goals", optional = true }
-harness-infra-analysis = { path = "../../rusty-core/crates/harness-infra-analysis", optional = true }
-harness-specs = { path = "../../rusty-core/crates/harness-specs", optional = true }
-harness-tool-repository-intelligence = { path = "../../rusty-core/crates/tools/repository-intelligence", optional = true }
-harness-repository-imports = { path = "../../rusty-core/crates/harness-repository-imports", optional = true }
-harness-repository-frameworks = { path = "../../rusty-core/crates/harness-repository-frameworks", optional = true }
-harness-repository-imports-python = { path = "../../rusty-core/crates/harness-repository-imports-python", optional = true }
-harness-repository-imports-go = { path = "../../rusty-core/crates/harness-repository-imports-go", optional = true }
-harness-repository-imports-java = { path = "../../rusty-core/crates/harness-repository-imports-java", optional = true }
-harness-repository-imports-csharp = { path = "../../rusty-core/crates/harness-repository-imports-csharp", optional = true }
-harness-repository-imports-php = { path = "../../rusty-core/crates/harness-repository-imports-php", optional = true }
-harness-repository-imports-native = { path = "../../rusty-core/crates/harness-repository-imports-native", optional = true }
-harness-integration-anthropic = { path = "../../rusty-core/crates/integrations/anthropic", optional = true }
-harness-integration-openai = { path = "../../rusty-core/crates/integrations/openai", optional = true }
-harness-integration-openai-responses = { path = "../../rusty-core/crates/integrations/openai-responses", optional = true }
-harness-integration-openai-compatible = { path = "../../rusty-core/crates/integrations/openai-compatible", optional = true }
-harness-integration-gemini = { path = "../../rusty-core/crates/integrations/gemini", optional = true }
-harness-integration-codex = { path = "../../rusty-core/crates/integrations/codex", optional = true }
-harness-integration-github-copilot = { path = "../../rusty-core/crates/integrations/github-copilot", optional = true }
+rusty-git-analysis = { path = "../../rusty-core/crates/git-analysis", optional = true }
+rusty-findings = { path = "../../rusty-core/crates/findings", optional = true }
+rusty-context-repo = { path = "../../rusty-core/crates/context-repo", optional = true }
+rusty-repo-wiki = { path = "../../rusty-core/crates/repo-wiki", optional = true }
+rusty-code-analysis = { path = "../../rusty-core/crates/code-analysis", optional = true }
+rusty-code-health = { path = "../../rusty-core/crates/code-health", optional = true }
+rusty-guidelines = { path = "../../rusty-core/crates/guidelines", optional = true }
+rusty-goals = { path = "../../rusty-core/crates/goals", optional = true }
+rusty-infra-analysis = { path = "../../rusty-core/crates/infra-analysis", optional = true }
+rusty-specs = { path = "../../rusty-core/crates/specs", optional = true }
+rusty-tool-repo = { path = "../../rusty-core/crates/tool-repo", optional = true }
+rusty-lang-api = { path = "../../rusty-core/crates/lang-api", optional = true }
+rusty-frameworks = { path = "../../rusty-core/crates/frameworks", optional = true }
+rusty-lang-python = { path = "../../rusty-core/crates/lang-python", optional = true }
+rusty-lang-go = { path = "../../rusty-core/crates/lang-go", optional = true }
+rusty-lang-java = { path = "../../rusty-core/crates/lang-java", optional = true }
+rusty-lang-csharp = { path = "../../rusty-core/crates/lang-csharp", optional = true }
+rusty-lang-php = { path = "../../rusty-core/crates/lang-php", optional = true }
+rusty-lang-native = { path = "../../rusty-core/crates/lang-native", optional = true }
+rusty-provider-anthropic = { path = "../../rusty-core/crates/provider-anthropic", optional = true }
+rusty-provider-openai = { path = "../../rusty-core/crates/provider-openai", optional = true }
+rusty-provider-openai-responses = { path = "../../rusty-core/crates/provider-openai-responses", optional = true }
+rusty-provider-openai-compatible = { path = "../../rusty-core/crates/provider-openai-compatible", optional = true }
+rusty-provider-gemini = { path = "../../rusty-core/crates/provider-gemini", optional = true }
+rusty-provider-codex = { path = "../../rusty-core/crates/provider-codex", optional = true }
+rusty-provider-github-copilot = { path = "../../rusty-core/crates/provider-github-copilot", optional = true }
 # Phase 6 (HARNESS_CONTRACT_PLAN.md-adjacent, see the plan doc): closes the
 # "no MCP servers"/"no web search" v1 gaps for global_explore/execute_node/
 # agent_chat. Both already have complete, tested implementations upstream --
 # this just makes them reachable from `rusty`'s own `recipe.rs`.
-harness-tool-mcp = { path = "../../rusty-core/crates/tools/mcp", optional = true }
-harness-tool-web = { path = "../../rusty-core/crates/tools/web", optional = true }
-# Same version harness-workspace itself depends on (its workspace root pins
+rusty-tool-mcp = { path = "../../rusty-core/crates/tool-mcp", optional = true }
+rusty-tool-web = { path = "../../rusty-core/crates/tool-web", optional = true }
+# Same version rusty-workspace itself depends on (its workspace root pins
 # "0.21") -- named directly here so src-tauri/src/harness/host_workspace.rs
 # can make a real libgit2 FFI call (B0's own proof of linkage; B1 reuses it
 # for HostWorkspace's constructor path).
@@ -177,10 +181,10 @@ zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"] 
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt"] }
-# Enables harness-runtime's `testing` feature (FakeBackend, used by the
+# Enables rusty-runtime's `testing` feature (FakeBackend, used by the
 # harness module's own integration test) for `cargo test` only -- Cargo
 # unifies features across profiles, so this doesn't reach the release
-# build, mirroring harness-engine's own Cargo.toml pattern for the same
+# build, mirroring rusty-engine's own Cargo.toml pattern for the same
 # crate/feature. Not `optional`: dev-dependencies are already excluded
 # from a non-test build, so there's nothing further to gate.
-harness-runtime = { path = "../../rusty-core/crates/harness-runtime", features = ["testing"] }
+rusty-runtime = { path = "../../rusty-core/crates/runtime", features = ["testing"] }

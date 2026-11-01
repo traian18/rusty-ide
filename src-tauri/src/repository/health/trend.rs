@@ -1,6 +1,6 @@
 //! The score trend: a point recorded after every analysis, and points rebuilt from past commits
 //! on request. Maintainability is the measure that compares across them (see
-//! `harness_code_health::trend`).
+//! `rusty_code_health::trend`).
 use std::{
     collections::HashMap,
     path::Path,
@@ -8,15 +8,15 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use harness_code_analysis::metrics::{measure_file, FileMetrics, METRICS_VERSION};
-use harness_code_health::{
+use rusty_code_analysis::metrics::{measure_file, FileMetrics, METRICS_VERSION};
+use rusty_code_health::{
     detect_file,
     duplication::DuplicateIndex,
     score_file,
     trend::{direction, file_scores, PointMeta, TrendPoint, TrendSeries},
     DetectorConfig, FileContext, Finding,
 };
-use harness_repository_wiki::tests_of::is_test_file;
+use rusty_repo_wiki::tests_of::is_test_file;
 use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
@@ -43,7 +43,7 @@ fn now_ms() -> u64 {
 }
 
 fn digest(detectors: &DetectorConfig) -> String {
-    let scoring = harness_infra_analysis::scoring_config();
+    let scoring = rusty_infra_analysis::scoring_config();
     format!("{}{}", &detectors.digest()[..8], &scoring.digest()[..8])
 }
 
@@ -166,7 +166,7 @@ impl Entry {
             .collect();
         let chosen = sample(&commits, points);
         let detectors = super::super::guidelines::detectors(&self.root);
-        let scoring = harness_infra_analysis::scoring_config();
+        let scoring = rusty_infra_analysis::scoring_config();
         let digest = digest(&detectors);
         let mut cache: HashMap<(git2::Oid, &'static str), Option<Arc<FileMetrics>>> =
             HashMap::new();
@@ -233,7 +233,7 @@ impl Entry {
                     .with_duplicates(duplicates.duplicates_in(path));
                 let found = detect_file(&context, &detectors);
                 let score = score_file(&found, &scoring);
-                health.push(harness_code_health::rollup::FileHealth {
+                health.push(rusty_code_health::rollup::FileHealth {
                     path: path.clone(),
                     nloc: metrics.nloc,
                     test: *test,
