@@ -20,7 +20,7 @@
 // ============================================================
 
 import type { ExecutionPolicy, McpServerSpec, SkillsSpec } from "@rusty/harness-sdk";
-
+import { loadSecretShieldPolicy, normalizeSecretShieldPolicy } from "../../features/settings";
 export type WorkspaceBinding = "host" | "disk";
 
 export interface WorkspaceRecipe {
@@ -65,6 +65,8 @@ export interface ExecutionParams {
 }
 
 export interface SessionRecipe {
+  /** Outbound credential policy. Missing recipes default to mask in Rust. */
+  secret_shield_policy?: "off" | "warn" | "mask" | "block";
   execution_policy?: ExecutionPolicy;
   workspace: WorkspaceRecipe;
   integration: string;
@@ -99,3 +101,14 @@ export interface SessionRecipe {
    * prompt (see src-tauri/src/harness/workflow.rs). */
   workflow?: unknown;
 }
+
+export function withSecretShieldPolicy(recipe: SessionRecipe): SessionRecipe {
+  return {
+    ...recipe,
+    secret_shield_policy: normalizeSecretShieldPolicy(
+      recipe.secret_shield_policy ?? loadSecretShieldPolicy(),
+    ),
+  };
+}
+
+export const toSdkSessionRecipe = withSecretShieldPolicy;

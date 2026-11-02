@@ -439,7 +439,7 @@ describe("Chat component rendering", () => {
       expect(highlights).toHaveLength(terms.length);
       for (const term of terms) expect(highlights.map((highlight) => highlight.textContent?.trim())).toContain(term);
       expect(highlights.filter((highlight) => highlight.dataset.active === "true")).toHaveLength(1);
-      expect(mount.querySelector("[data-testid='chat-search-highlight']")?.dataset.active).toBe("false");
+      expect(mount.querySelector<HTMLElement>("[data-testid='chat-search-highlight']")?.dataset.active).toBe("false");
       expect(mount.querySelector("a")?.textContent).toContain("linked finding");
       expect(mount.querySelector("code")?.textContent).toContain("inline finding");
       expect(mount.textContent).toContain("fenced finding");

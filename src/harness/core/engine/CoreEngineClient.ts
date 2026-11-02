@@ -23,6 +23,7 @@ import type { WorkflowEventEnvelope } from "../workflowRun";
 import type { WorkflowRunOptions } from "../../contract/capabilities";
 
 import type { ExecutionParams, SessionRecipe } from "../SessionRecipe";
+import { toSdkSessionRecipe } from "../SessionRecipe";
 import { logExecutionDiagnostic } from "../executionDiagnostics";
 import type { ExecutionEvent, ExecutionResult, ExecutionError, ExecutionRequest } from "./ExecutionProtocol";
 
@@ -129,7 +130,7 @@ export class CoreEngineClient implements CoreEngine {
     if (recipe.execution_policy && !(await this.hello()).capabilities.includes("execution_policy")) {
       throw new Error("This harness cannot enforce skill permissions. Update the application before running this skill.");
     }
-    const sessionId = await invoke<string>("harness_create_session", { recipe });
+    const sessionId = await invoke<string>("harness_create_session", { recipe: toSdkSessionRecipe(recipe) });
     sessionWorkspaceRoots.set(sessionId, recipe.workspace.root);
     return sessionId;
   }

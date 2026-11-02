@@ -1,3 +1,4 @@
+import type { WorkspaceSliceCreator } from "../../../store/sliceTypes";
 import {
   loadTypographyPreferences,
   saveTypographyPreferences,
@@ -16,7 +17,12 @@ import {
   saveEditorFileSafetyPreferences,
   EDITOR_FILE_SAFETY_DEFAULTS,
 } from "../../editor";
-import type { WorkspaceSliceCreator } from "../../../store/sliceTypes";
+import {
+  SECRET_SHIELD_DEFAULT_POLICY,
+  loadSecretShieldPolicy,
+  saveSecretShieldPolicy,
+  type SecretShieldPolicy,
+} from "../service/secretShield";
 
 /**
  * Both preferences initialize to constants and are hydrated from
@@ -66,4 +72,10 @@ export const createPreferencesSlice: WorkspaceSliceCreator = (set) => ({
     editorFileSafety: saveEditorFileSafetyPreferences({ ...EDITOR_FILE_SAFETY_DEFAULTS }),
   }),
   hydrateEditorFileSafety: () => set({ editorFileSafety: loadEditorFileSafetyPreferences() }),
+
+  secretShieldPolicy: SECRET_SHIELD_DEFAULT_POLICY,
+  setSecretShieldPolicy: (policy: SecretShieldPolicy) => set({
+    secretShieldPolicy: saveSecretShieldPolicy(policy),
+  }),
+  hydrateSecretShieldPolicy: () => set({ secretShieldPolicy: loadSecretShieldPolicy() }),
 });

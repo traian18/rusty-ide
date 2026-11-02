@@ -32,6 +32,8 @@ let root: Root;
 
 const tab = {
   id: "diff",
+  status: "idle" as const,
+  dirty: false,
   type: "git-diff" as const,
   title: "file.ts (Workspace)",
   path: "/workspace/rusty-ide/src/file.ts",

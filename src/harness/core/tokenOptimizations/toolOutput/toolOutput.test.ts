@@ -1,3 +1,4 @@
+import type { ToolHandlerLike } from "../toolOutput/optimizer";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRecallStore, type OptimizationId } from "..";
 import { parseStamps } from "../safeguards/stamps";
@@ -13,7 +14,7 @@ function setup(off: OptimizationId[] = []) {
   return { optimizer, store, onCondensed };
 }
 
-const tool = (output: () => string) => vi.fn(async () => ({ ok: true as const, output: output() }));
+const tool = (output: () => string) => vi.fn(async (..._args: Parameters<ToolHandlerLike>) => ({ ok: true as const, output: output() }));
 
 describe("repeat-results", () => {
   it("points at a file the same session already read, unchanged, and keeps it recallable", async () => {
@@ -60,7 +61,7 @@ describe("repeat-results", () => {
     const short = setup().optimizer.wrap("read_file", tool(() => "tiny"));
     await short({ path: "a" }, signal);
     expect(await short({ path: "a" }, signal)).toEqual({ ok: true, output: "tiny" });
-    const edit = vi.fn(async () => ({ ok: true as const, output: "ok" }));
+    const edit = vi.fn(async (..._args: Parameters<ToolHandlerLike>) => ({ ok: true as const, output: "ok" }));
     expect(setup().optimizer.wrap("edit_file", edit)).toBe(edit);
   });
 });

@@ -719,14 +719,14 @@ describe("CoreHarness-specific behavior", () => {
       for (const hook of [() => Promise.reject(new Error("scan failed")), () => Promise.resolve(undefined)]) {
         const { engine, driver } = startRun(withHook(hook));
         await driver.acceptStart();
-        expect(engine.recipes).toEqual([plain]);
+        expect(engine.recipes).toEqual([{ ...plain, secret_shield_policy: "mask" }]);
       }
     });
 
     it("a definition without the hook behaves as before", async () => {
       const { engine, driver } = startRun();
       await driver.acceptStart();
-      expect(engine.recipes).toEqual([inlineChatDefinition.recipe!({ ...INPUT })]);
+      expect(engine.recipes).toEqual([{ ...inlineChatDefinition.recipe!({ ...INPUT }), secret_shield_policy: "mask" }]);
     });
   });
 
@@ -1222,7 +1222,7 @@ describe("CoreHarness orchestrate() -- multi-session capabilities", () => {
     expect(capturedText).toBe("No conflicts.");
     expect(outcome).toEqual({ status: "completed", result: { response: "No conflicts." } });
     expect(engine.closedSessions).toEqual(["session-1"]);
-    expect(engine.recipes[0]).toEqual({ workspace: { root: "/ws" }, integration: "host" });
+    expect(engine.recipes[0]).toEqual({ workspace: { root: "/ws" }, integration: "host", secret_shield_policy: "mask" });
     expect(engine.mutations).toContainEqual({
       sessionId: "session-1",
       command: { type: "prompt", payload: { text: "reconcile this file", attachments: [] } },

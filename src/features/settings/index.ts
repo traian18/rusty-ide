@@ -5,3 +5,4 @@ export { type SmartReadSettings, type SmartSearchSettings, type SmartToolSetting
 export { snapshotSmartToolSettings } from "./service/smartToolSettingsSnapshot";
 export { THEME_STORAGE_KEY, loadStoredThemeId, saveThemeId } from "./service/theme";
 export { applyTypographyProperties, type TypographyPreferences } from "./service/typography";
+export { loadSecretShieldPolicy, normalizeSecretShieldPolicy, type SecretShieldPolicy, type SecretShieldPreferences } from "./service/secretShield";

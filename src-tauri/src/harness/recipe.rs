@@ -185,6 +185,9 @@ pub struct SessionRecipe {
     /// unset and the workspace names no default of its own.
     #[serde(default)]
     pub default_profile: Option<serde_json::Value>,
+    /// Outbound credential policy; older callers receive the protective default.
+    #[serde(default)]
+    pub secret_shield_policy: rusty_engine::secret_shield::SecretShieldPolicy,
     /// Repository documentation as context: the work in progress, from the IDE. Absent or disabled
     /// means no repository context.
     #[serde(default)]
@@ -229,6 +232,7 @@ pub async fn build_session_builder(
         recipe.integration_config,
         &bridge,
     )?;
+    builder = builder.secret_shield_policy(recipe.secret_shield_policy);
     if let Some(params) = recipe.execution_params {
         builder = builder.execution_params(params);
     }

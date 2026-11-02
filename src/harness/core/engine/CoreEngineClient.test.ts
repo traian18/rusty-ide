@@ -37,13 +37,13 @@ describe("CoreEngineClient", () => {
     expect(result).toEqual({ protocol_version: 2, capabilities: ["pause_resume"] });
   });
 
-  it("createSession() passes the recipe straight through as harness_create_session's payload", async () => {
+  it("createSession() includes the default secret shield policy in the payload", async () => {
     invokeMock.mockResolvedValue("session-1");
     const client = new CoreEngineClient();
 
     const sessionId = await client.createSession(recipe);
 
-    expect(invokeMock).toHaveBeenCalledWith("harness_create_session", { recipe });
+    expect(invokeMock).toHaveBeenCalledWith("harness_create_session", { recipe: { ...recipe, secret_shield_policy: "mask" } });
     expect(sessionId).toBe("session-1");
   });
 
@@ -54,7 +54,7 @@ describe("CoreEngineClient", () => {
     expect(invokeMock).toHaveBeenCalledTimes(1);
     invokeMock.mockResolvedValueOnce({ protocol_version: 2, capabilities: ["execution_policy"] }).mockResolvedValueOnce("session-policy");
     await expect(new CoreEngineClient().createSession(restricted)).resolves.toBe("session-policy");
-    expect(invokeMock).toHaveBeenLastCalledWith("harness_create_session", { recipe: restricted });
+    expect(invokeMock).toHaveBeenLastCalledWith("harness_create_session", { recipe: { ...restricted, secret_shield_policy: "mask" } });
   });
 
   it("subscribe() forwards each delivered BridgeEvent to onEvent, in order", async () => {

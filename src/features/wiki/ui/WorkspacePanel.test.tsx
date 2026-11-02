@@ -41,7 +41,8 @@ describe("WorkspacePanel", () => {
   it("lists each repository with whether it is indexed, and says nothing is indexed just because it exists", async () => {
     await mount([repository("api", { indexed: true, files: 42 }), repository("web")]);
     const rows = [...container.querySelectorAll("li")].map((li) => li.textContent ?? "");
-    expect(rows[0]).toContain("api") && expect(rows[0]).toContain("Indexed · 42 files");
+    expect(rows[0]).toContain("api");
+    expect(rows[0]).toContain("Indexed · 42 files");
     expect(rows[1]).toContain("Not indexed");
     expect(container.textContent).toContain("none is indexed just because it exists");
   });

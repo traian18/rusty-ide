@@ -10,7 +10,7 @@ describe("writePages", () => {
   it("writes leaves first, one brief at a time, and keeps going after a failed page", async () => {
     const client = fakeDocsClient();
     const order: string[] = [];
-    client.documentationBrief = vi.fn(async (_root: string, id: string) => ({ id, title: id, system: "s", prompt: `p:${id}`, inputChars: 1, style: "x" }));
+    client.documentationBrief = vi.fn(async (_root: string, id: string) => ({ id, title: id, system: "s", prompt: `p:${id}`, inputChars: 1, style: "x", prewritten: null }));
     client.documentationSave = vi.fn(async () => ({}) as never);
     const ask = vi.fn(async (brief: { prompt: string }) => {
       order.push(brief.prompt);

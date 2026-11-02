@@ -31,11 +31,11 @@ describe("wikiPageDefinition", () => {
   });
 
   it("returns the page without a surrounding code fence", () => {
-    expect(wikiPageDefinition.toResult(transcriptWith("```markdown\n## A\nText [1].\n```"), input())).toEqual({ markdown: "## A\nText [1]." });
+    expect(wikiPageDefinition.toResult!(transcriptWith("```markdown\n## A\nText [1].\n```"), input(), { scratch: {} })).toEqual({ markdown: "## A\nText [1]." });
     expect(unwrapMarkdown("## A\n```rust\nfn x() {}\n```")).toBe("## A\n```rust\nfn x() {}\n```");
   });
 
   it("refuses an empty answer", () => {
-    expect(() => wikiPageDefinition.toResult(transcriptWith("  "), input())).toThrow(/empty page/);
+    expect(() => wikiPageDefinition.toResult!(transcriptWith("  "), input(), { scratch: {} })).toThrow(/empty page/);
   });
 });

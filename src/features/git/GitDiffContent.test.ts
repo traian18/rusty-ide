@@ -57,7 +57,8 @@ describe("loadGitDiffContent", () => {
     const values = { git_get_index_content: "const value = 1;", read_file_disk: "const value = 2;" };
     const agent = mockedInvoke(values);
     const sidebar = mockedInvoke(values);
-    const content = await loadGitDiffContent(request, createGitClient(agent.bridge));
+    if (request.type !== "git-diff") throw new Error("Expected a diff request");
+    const content = await loadGitDiffContent({ ...request, repoPath: request.repoPath! }, createGitClient(agent.bridge));
     expect(content).toEqual({ original: values.git_get_index_content, modified: values.read_file_disk });
     expect(agent.calls).toEqual([
       ["git_get_index_content", { rootDir: "/workspace/rusty-ide", filePath: "/workspace/rusty-ide/src/file.ts" }],

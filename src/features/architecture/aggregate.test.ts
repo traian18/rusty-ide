@@ -4,11 +4,11 @@ import type { LevelEdge, LevelNode, LevelView } from "./model";
 
 const node = (id: string, files = 3, overrides: Partial<LevelNode> = {}): LevelNode => ({
   id, label: id, kind: "declared_package", basis: "declared", explanation: "", file_count: files, languages: { rust: files },
-  parent: null, in_cycle: false, synthetic: false, ...overrides,
+  parent: null, children: [], more_children: 0, files: [], in_cycle: false, synthetic: false, ...overrides,
 });
 const edge = (from: string, to: string, runtime = 1, type_only = 0, in_cycle = false): LevelEdge => ({ from, to, runtime, type_only, in_cycle });
 const view = (nodes: LevelNode[], edges: LevelEdge[]): LevelView => ({
-  snapshot: "s", level: "packages", focus: null, unit_kind: "declared_package", nodes, edges, framework_edges: [], total_nodes: nodes.length,
+  snapshot: "s", leaf: false, level: "packages", focus: null, unit_kind: "declared_package", nodes, edges, framework_edges: [], total_nodes: nodes.length,
   nodes_truncated: false, edges_truncated: false, cycle_groups: 0,
 });
 const options = { cap: 40, coverage: 100, edgeCap: 100, importKind: "all" as const };

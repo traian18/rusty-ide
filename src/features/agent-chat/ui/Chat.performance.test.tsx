@@ -62,7 +62,6 @@ it("coalesces native scroll events and follows the fallback window", async () =>
 it("uses IntersectionObserver candidates and cleans them up", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const observed: Element[] = [];
-  const entries: Array<{ target: Element; isIntersecting: boolean }> = [];
   let callback: IntersectionObserverCallback | undefined;
   const disconnect = vi.fn();
   vi.stubGlobal("IntersectionObserver", class {

@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildAgentChangedFileRequest,
   openAgentChangedFile,
-  resolveAgentFilePath,
 } from "./AgentTabChangedFile";
 
 describe("AgentTab changed file opener", () => {
@@ -21,7 +20,7 @@ describe("AgentTab changed file opener", () => {
       { worktreePath: "/workspace/rusty-ide", id: "nested" },
     ] as any);
 
-    expect(request?.repoPath).toBe("/workspace/rusty-ide");
+    expect(request?.type === "git-diff" && request.repoPath).toBe("/workspace/rusty-ide");
   });
 
   it("does not open a malformed request without a repository root", () => {

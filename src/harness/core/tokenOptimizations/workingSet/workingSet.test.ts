@@ -1,3 +1,4 @@
+import type { ToolHandlerLike } from "../toolOutput/optimizer";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { forgetWorkingSet, noteToolUse, workingSetFor, WORKING_SET_LIMITS } from ".";
 import { setOptimizationEnabled } from "../switches";
@@ -45,8 +46,8 @@ describe("working set", () => {
   it("is fed by the tool wrap point, for successful calls only", async () => {
     const optimizer = new ToolOutputOptimizer({ store: new MemoryRecallStore(), isEnabled: () => true, onCondensed: vi.fn() });
     const signal = new AbortController().signal;
-    await optimizer.wrap("edit_file", vi.fn(async () => ({ ok: true as const, output: "Edited" })), "chat-1")({ path: "src/c.rs" }, signal);
-    await optimizer.wrap("edit_file", vi.fn(async () => ({ ok: false as const, error: "no" })), "chat-1")({ path: "src/failed.rs" }, signal);
+    await optimizer.wrap("edit_file", vi.fn(async (..._args: Parameters<ToolHandlerLike>) => ({ ok: true as const, output: "Edited" })), "chat-1")({ path: "src/c.rs" }, signal);
+    await optimizer.wrap("edit_file", vi.fn(async (..._args: Parameters<ToolHandlerLike>) => ({ ok: false as const, error: "no" })), "chat-1")({ path: "src/failed.rs" }, signal);
     const section = workingSetFor("chat-1");
     expect(section).toContain("- src/c.rs: edited");
     expect(section).not.toContain("failed.rs");

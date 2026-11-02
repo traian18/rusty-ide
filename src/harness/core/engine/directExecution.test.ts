@@ -287,7 +287,7 @@ describe("Mistral requests", () => {
   it("sends a Mistral chat request with only headers Mistral's CORS rules allow", async () => {
     const call = await capture(mistral, executionRequest({
       params: { model: "mistral/mistral-large-latest", max_tokens: 1000, temperature: 0.2 },
-      tools: [{ name: "read_file", description: "Read a file", input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }],
+      tools: [{ id: "read_file", name: "read_file", description: "Read a file", input_schema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }],
     }));
     expect(call.url).toBe("https://api.mistral.ai/v1/chat/completions");
     const allowed = ["authorization", "content-type", "user-agent", "cache-control", "keep-alive", "x-mistral-user-agent", "accept"];

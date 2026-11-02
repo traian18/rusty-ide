@@ -7,7 +7,7 @@ import type {
 } from "@xyflow/react";
 import type { McpServerConfig } from "../features/mcp";
 import type { TypographyPreferences } from "../features/settings";
-import type { KeyboardShortcutPreferences, ShortcutAction } from "../features/settings";
+import type { KeyboardShortcutPreferences, SecretShieldPreferences, ShortcutAction } from "../features/settings";
 import type { EditorFileSafetyPreferences } from "../features/editor";
 import type { DrawerView } from "../app/shellLayout";
 import type { OpenTabRequest, TabInstance } from "../app/tabs/types";
@@ -384,7 +384,7 @@ export type FileTreeSelectionRequest = {
   requestId: number;
 } | null;
 
-export interface WorkspaceState {
+export interface WorkspaceState extends SecretShieldPreferences {
   /** The startup coordinator's live lifecycle state (REFACTOR_PLAN.md PR
       3a). No consumers yet as of commit 9 -- AppBootstrapBoundary is wired
       to it in a later commit. */
@@ -558,13 +558,13 @@ export interface WorkspaceState {
   setKeyboardShortcuts: (shortcuts: KeyboardShortcutPreferences) => void;
   resetKeyboardShortcuts: () => void;
   hydrateShortcuts: () => void;
-  /** Same hydration contract as hydrateTheme() above (REFACTOR_PLAN.md PR 6). */
+
   editorFileSafety: EditorFileSafetyPreferences;
   setLargeFileThresholdBytes: (bytes: number) => void;
   resetEditorFileSafety: () => void;
   hydrateEditorFileSafety: () => void;
-
   setRootPath: (path: string) => void;
+
   /** Git status + skills + metrics for the current rootPath, settled
       together via Promise.allSettled so one throwing doesn't stop the
       others -- the shared tail setRootPath already ran; the startup

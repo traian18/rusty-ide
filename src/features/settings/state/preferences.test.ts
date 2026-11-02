@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPreferencesTestStore } from "../../../test/preferencesTestStore";
 import { TYPOGRAPHY_DEFAULTS, TYPOGRAPHY_STORAGE_KEY, TYPOGRAPHY_STORAGE_VERSION } from "../service/typography";
 import { SHORTCUT_DEFAULTS, SHORTCUT_STORAGE_KEY } from "../service/shortcuts";
+import { SECRET_SHIELD_DEFAULT_POLICY, loadSecretShieldPolicy, saveSecretShieldPolicy } from "../service/secretShield";
 
 describe("createPreferencesSlice: creation-time purity (REFACTOR_PLAN.md PR 3a)", () => {
   it("composes without throwing even when localStorage.getItem throws", () => {
@@ -91,5 +92,29 @@ describe("createPreferencesSlice: hydrateTypography / hydrateShortcuts", () => {
     const testStore = createPreferencesTestStore();
     testStore.getState().hydrateShortcuts();
     expect(testStore.getState().keyboardShortcuts).toEqual(SHORTCUT_DEFAULTS);
+  });
+
+  it("hydrates and persists the Secret Shield policy, defaulting to mask", () => {
+    const testStore = createPreferencesTestStore();
+    expect(testStore.getState().secretShieldPolicy).toBe(SECRET_SHIELD_DEFAULT_POLICY);
+    testStore.getState().hydrateSecretShieldPolicy();
+    expect(testStore.getState().secretShieldPolicy).toBe("mask");
+
+    testStore.getState().setSecretShieldPolicy("block");
+    expect(loadSecretShieldPolicy()).toBe("block");
+  });
+
+  it("resets the persisted policy when saving fails", () => {
+    vi.stubGlobal("localStorage", { setItem: () => { throw new Error("denied"); } });
+    const policy = saveSecretShieldPolicy("warn");
+    expect(policy).toBe("warn");
+    vi.unstubAllGlobals();
+  });
+
+  it("hydrates the saved Secret Shield policy", () => {
+    store.set("rusty.secretShieldPolicy", "warn");
+    const testStore = createPreferencesTestStore();
+    testStore.getState().hydrateSecretShieldPolicy();
+    expect(testStore.getState().secretShieldPolicy).toBe("warn");
   });
 });

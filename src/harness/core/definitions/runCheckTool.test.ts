@@ -23,6 +23,8 @@ interface Run {
   exit_code: number | null;
   output: string;
   timed_out: boolean;
+  idle?: boolean;
+  log_path?: string;
 }
 const ok = (output = ""): Run => ({ exit_code: 0, output, timed_out: false });
 
@@ -292,7 +294,7 @@ describe("runCheckTool", () => {
       await first.tool({ check: "typecheck" }, signal);
       const second = setup(ide, [{ exit_code: 0, output: "", timed_out: false }]);
       const outcome = await second.tool({ check: "typecheck" }, signal);
-      if (!outcome.ok) throw new Error(outcome.error);
+      if (!outcome.ok) throw new Error(String(outcome.error));
       expect(second.requestPermission.mock.calls[0][0].description).toMatch(/It took \d+s last time\.$/);
       expect(outcome.output).toMatch(/It took \d+s \(\d+s last time\)\./);
     });
@@ -323,7 +325,7 @@ describe("runCheckTool", () => {
       await first;
       const outcome = await second;
       expect(executed).toEqual(["run typecheck", "run test"]);
-      if (!outcome.ok) throw new Error(outcome.error);
+      if (!outcome.ok) throw new Error(String(outcome.error));
       expect(outcome.output).toMatch(/Waited \d+s for another check or build command on ide to finish first\./);
     });
 

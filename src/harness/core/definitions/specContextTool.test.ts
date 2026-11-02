@@ -34,19 +34,19 @@ describe("spec_context", () => {
     ]);
     const tool = specContextTool("/ws", linked, folders);
 
-    const list = (await tool({})) as { output: string };
+    const list = (await tool({}, new AbortController().signal)) as { output: string };
     expect(list.output).toContain("## rusty-core");
     expect(list.output).toContain("## rusty-ide");
     expect(list.output).not.toContain("website");
 
-    const one = (await tool({ change: "rusty-ide/0002" })) as { ok: boolean; output: string };
+    const one = (await tool({ change: "rusty-ide/0002" }, new AbortController().signal)) as { ok: boolean; output: string };
     expect(one.ok).toBe(true);
     expect(one.output).toContain("/ws/rusty-ide:specs/changes/0002-dark-mode/spec.md");
     // A linked change is in both repositories: both parts come back.
-    const both = (await tool({ change: "0001-albums" })) as { output: string };
+    const both = (await tool({ change: "0001-albums" }, new AbortController().signal)) as { output: string };
     expect(both.output).toContain("/ws/rusty-core:specs/changes/0001-albums/spec.md");
     expect(both.output).toContain("/ws/rusty-ide:specs/changes/0001-albums/spec.md");
-    const missing = (await tool({ change: "0009" })) as { ok: boolean; error: string };
+    const missing = (await tool({ change: "0009" }, new AbortController().signal)) as { ok: boolean; error: string };
     expect(missing.error).toContain("rusty-ide/0002-dark-mode");
   });
 
@@ -58,41 +58,41 @@ describe("spec_context", () => {
       tasks: vi.fn(async () => []),
     });
     const tool = specContextTool("/ws", specs, vi.fn(async () => [{ name: "rusty-ide", path: "/ws/rusty-ide" }]));
-    const list = (await tool({})) as { output: string };
+    const list = (await tool({}, new AbortController().signal)) as { output: string };
     expect(list.output).toContain("## workspace");
     expect(list.output).toContain("## rusty-ide");
-    const shared = (await tool({ change: "shared", documents: ["spec"] })) as { output: string };
+    const shared = (await tool({ change: "shared", documents: ["spec"] }, new AbortController().signal)) as { output: string };
     expect(shared.output).toContain("/ws:.rusty/specs/changes/0001-shared/spec.md");
   });
 
   it("lists the specs with no input", async () => {
-    const result = await specContextTool("/repo", client())({});
+    const result = await specContextTool("/repo", client())({}, new AbortController().signal);
     expect(result).toMatchObject({ ok: true });
     expect((result as { output: string }).output).toContain("change 0002-dark-mode");
   });
 
   it("returns one change with its spec and design by default", async () => {
     const docs = client({ "specs/changes/0001-albums/spec.md": "# The spec", "specs/changes/0001-albums/design.md": "# The design" });
-    const result = (await specContextTool("/repo", docs)({ change: "albums" })) as { ok: boolean; output: string };
+    const result = (await specContextTool("/repo", docs)({ change: "albums" }, new AbortController().signal)) as { ok: boolean; output: string };
     expect(result.ok).toBe(true);
     expect(result.output).toContain("# The spec");
     expect(result.output).toContain("# The design");
     expect(result.output).toContain("- T1 Model");
-    const only = (await specContextTool("/repo", docs)({ change: "1", documents: ["design", "bogus"] })) as { output: string };
+    const only = (await specContextTool("/repo", docs)({ change: "1", documents: ["design", "bogus"] }, new AbortController().signal)) as { output: string };
     expect(only.output).toContain("# The design");
     expect(only.output).not.toContain("# The spec");
   });
 
   it("names the changes there are when none matches, and fails without a workspace", async () => {
-    const missing = (await specContextTool("/repo", client())({ change: "zzz" })) as { ok: boolean; error: string };
+    const missing = (await specContextTool("/repo", client())({ change: "zzz" }, new AbortController().signal)) as { ok: boolean; error: string };
     expect(missing.ok).toBe(false);
     expect(missing.error).toContain("0001-albums, 0002-dark-mode");
-    expect(await specContextTool(" ", client())({})).toMatchObject({ ok: false });
+    expect(await specContextTool(" ", client())({}, new AbortController().signal)).toMatchObject({ ok: false });
   });
 
   it("turns a host failure into a tool failure", async () => {
     const broken = fakeSpecsClient({ overview: vi.fn(async () => { throw { code: "io_error", message: "not a folder" }; }) });
-    expect(await specContextTool("/repo", broken)({})).toEqual({ ok: false, error: "not a folder" });
+    expect(await specContextTool("/repo", broken)({}, new AbortController().signal)).toEqual({ ok: false, error: "not a folder" });
   });
 });
 

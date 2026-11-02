@@ -30,10 +30,10 @@ import type {
 import type { HarnessControlPlane } from "../contract/controlPlane";
 import { CoreEngineClient, type CoreEngine, type HostToolOutcome } from "./engine/CoreEngineClient";
 import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "./engine/ExecutionProtocol";
-import type { ExecutionParams, SessionRecipe } from "./SessionRecipe";
+import { withSecretShieldPolicy, type ExecutionParams, type SessionRecipe } from "./SessionRecipe";
 import type { Transcript } from "./transcript";
-import { toolDecisionObserver } from "./toolDecisionObserver";
 import type { FinishedStep } from "./workflowRun";
+import { toolDecisionObserver } from "./toolDecisionObserver";
 import { executionObservability } from "../../features/observability";
 import type { ExecutionOrigin } from "../../features/observability";
 import type { ToolExecutionObserver } from "../contract/observability";
@@ -366,7 +366,7 @@ export class CoreHarness implements AgentHarness {
       onUsage?: (usage: TokenUsage) => void;
     }): Promise<Transcript> =>
       runSingleShotSession(this.engine, this.executionAnswerer, {
-        recipe: session.recipe,
+        recipe: withSecretShieldPolicy(session.recipe),
         promptText: session.promptText,
         hostTools: session.hostTools ?? {},
         host,

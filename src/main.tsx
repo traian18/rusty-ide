@@ -22,6 +22,7 @@ store.hydrateTheme();
 store.hydrateTypography();
 store.hydrateShortcuts();
 store.hydrateEditorFileSafety();
+store.hydrateSecretShieldPolicy();
 store.hydrateTabs();
 installJevShadowGate();
 

@@ -1,3 +1,4 @@
+import type { ToolHandlerLike } from "../toolOutput/optimizer";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryRecallStore } from "..";
 import { ToolOutputOptimizer } from "../toolOutput/optimizer";
@@ -56,7 +57,7 @@ describe("the optimizer with file memory", () => {
     const store = new MemoryRecallStore();
     const optimizer = new ToolOutputOptimizer({ store, isEnabled: () => true, onCondensed: vi.fn() });
     let file = read("policy.rs", lines(300));
-    const readFile = optimizer.wrap("read_file", vi.fn(async () => ({ ok: true as const, output: file })));
+    const readFile = optimizer.wrap("read_file", vi.fn(async (..._args: Parameters<ToolHandlerLike>) => ({ ok: true as const, output: file })));
     const signal = new AbortController().signal;
     await readFile({ path: "policy.rs", request: "the reading function" }, signal, undefined, { sessionId: "s" });
     file = read("policy.rs", lines(300, (i) => (i === 10 ? "fn edited() {}" : undefined)));

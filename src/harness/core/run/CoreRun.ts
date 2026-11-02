@@ -17,6 +17,7 @@ import { changedPathsFromTool } from "../fileChangeTracking";
 import { appliedModel } from "../appliedModels";
 import { CONTINUE_AGENT_PROMPT, IncompleteAgentRun } from "../incompleteAgentRun";
 import type { ExecutionParams, SessionRecipe } from "../SessionRecipe";
+import { withSecretShieldPolicy } from "../SessionRecipe";
 import { toolDecisionObserver } from "../toolDecisionObserver";
 import { createTranscript } from "../transcript";
 import {
@@ -181,9 +182,8 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   /** Creates the session, subscribes to it, then prompts it or starts its workflow. */
   private async open(): Promise<void> {
     try {
-      const recipe = this.withRunSettings(
-        await enrichedRecipe(this.definition, this.definition.recipe!(this.input), this.input, this.host, this.controller.signal),
-      );
+      const enriched = await enrichedRecipe(this.definition, this.definition.recipe!(this.input), this.input, this.host, this.controller.signal);
+      const recipe = this.withRunSettings(withSecretShieldPolicy(enriched));
       const id = await this.engine.createSession(recipe);
       if (this.settled) {
         // cancel() ran while createSession() was still in flight -- this run

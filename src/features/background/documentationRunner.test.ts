@@ -51,7 +51,7 @@ describe("runDocumentationUpdate", () => {
     expect(bg.start).toHaveBeenCalledWith("/r", "Updating documentation of r");
     expect(ask.mock.calls.map((c) => c[0].prompt)).toEqual(["folder:dir:src", "written:overview"]);
     expect(client.documentationSave).toHaveBeenCalledWith("/r", "folder:dir:src", "page folder:dir:src", "doc-model");
-    expect(bg.done.mock.calls.map((c) => c[1])).toEqual(["folder:dir:src", "written:overview"]);
+    expect(vi.mocked(bg.done).mock.calls.map((c) => c[1])).toEqual(["folder:dir:src", "written:overview"]);
     expect(bg.finish).toHaveBeenCalledWith(7, false, null);
   });
 

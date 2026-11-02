@@ -153,7 +153,7 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
       setValue.call(search, "build");
-      search.dispatchEvent(new Event("input", { bubbles: true }));
+      search!.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await flush();
     expect(container.querySelector("#agent-chat-search-status")?.textContent).toContain("2 matches");
@@ -182,7 +182,7 @@ describe("Agent chat: the up arrow offers earlier prompts", () => {
     await act(async () => {
       const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
       setValue.call(search, "missing");
-      search.dispatchEvent(new Event("input", { bubbles: true }));
+      search!.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await flush();
     expect(container.querySelector("#agent-chat-search-status")?.textContent).toContain("0 matches");

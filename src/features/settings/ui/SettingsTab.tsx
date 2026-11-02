@@ -14,6 +14,7 @@ import { KeyboardShortcutsSettings } from "./KeyboardShortcutsSettings";
 import { UpdateSettings } from "../../updates/ui";
 import { StorageSettings } from "./StorageSettings";
 import { TokenOptimizationSettings } from "./TokenOptimizationSettings";
+import { SecretShieldSettings } from "./SecretShieldSettings";
 import styles from "./SettingsTab.module.css";
 
 type SettingsCategoryId = "appearance" | "editor" | "intelligence" | "tokens" | "system";
@@ -44,15 +45,35 @@ const CategorySettings: React.FC<{ categoryId: SettingsCategoryId }> = ({ catego
       </>;
     case "intelligence":
       return <>
-        <div className={styles.panel}><IntelligentModelSelectionSettings /></div>
-        <div className={styles.panel}><JevDecisionToolSettings /></div>
-        <div className={styles.panel}><JevRiskReviewSettings /></div>
-        <div className={styles.panel}><JevContextCompactionSettings /></div>
-        <div className={styles.panel}><JevDecisionShadowSettings /></div>
-        <div className={styles.panel}><WebSearchSettings /></div>
-        <div className={styles.panel}><SmartReadSettings /></div>
-        <div className={styles.panel}><SmartSearchSettings /></div>
-        <div className={styles.panel}><SmartWebExtractSettings /></div>
+        <details className={styles.dropdown}>
+          <summary className={styles.dropdownSummary}>Intelligent Models selection</summary>
+          <div className={styles.dropdownContent}><IntelligentModelSelectionSettings /></div>
+        </details>
+        <details className={styles.dropdown}>
+          <summary className={styles.dropdownSummary}>Secrets Shield</summary>
+          <div className={styles.dropdownContent}><SecretShieldSettings /></div>
+        </details>
+        <details className={styles.dropdown}>
+          <summary className={styles.dropdownSummary}>JEV settings</summary>
+          <div className={styles.dropdownContent}>
+            <div className={styles.nestedPanel}><JevDecisionToolSettings /></div>
+            <div className={styles.nestedPanel}><JevRiskReviewSettings /></div>
+            <div className={styles.nestedPanel}><JevContextCompactionSettings /></div>
+            <div className={styles.nestedPanel}><JevDecisionShadowSettings /></div>
+          </div>
+        </details>
+        <details className={styles.dropdown}>
+          <summary className={styles.dropdownSummary}>Web Search</summary>
+          <div className={styles.dropdownContent}><WebSearchSettings /></div>
+        </details>
+        <details className={styles.dropdown}>
+          <summary className={styles.dropdownSummary}>Smart Tools</summary>
+          <div className={styles.dropdownContent}>
+            <div className={styles.nestedPanel}><SmartReadSettings /></div>
+            <div className={styles.nestedPanel}><SmartSearchSettings /></div>
+            <div className={styles.nestedPanel}><SmartWebExtractSettings /></div>
+          </div>
+        </details>
       </>;
     case "tokens":
       return <div className={styles.panel}><TokenOptimizationSettings /></div>;
