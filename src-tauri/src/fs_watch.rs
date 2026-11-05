@@ -27,6 +27,22 @@ fn path_is_ignored(path: &Path) -> bool {
     })
 }
 
+/// A write to one of these in a `.git` directory is a repository changing
+/// under the app: a branch switch, a commit, a merge starting or finishing,
+/// or files being staged, from a terminal as much as from the app.
+fn path_is_git_state(path: &Path) -> bool {
+    const GIT_STATE_FILES: [&str; 3] = ["HEAD", "MERGE_HEAD", "index"];
+    let in_git_dir = path
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == ".git");
+    in_git_dir
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| GIT_STATE_FILES.contains(&name))
+}
+
 struct WatchedWorkspace {
     // Never read again after being stored -- the watcher must simply
     // outlive this struct (dropping a notify::Watcher stops it), so this
@@ -75,6 +91,9 @@ pub async fn watch_workspace(
 
     let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
         Ok(event) => {
+            if event.paths.iter().any(|path| path_is_git_state(path)) {
+                let _ = app.emit("workspace-git-changed", ());
+            }
             let changed: Vec<PathBuf> = event
                 .paths
                 .iter()
@@ -125,8 +144,20 @@ pub async fn unwatch_workspace(
 
 #[cfg(test)]
 mod tests {
-    use super::path_is_ignored;
+    use super::{path_is_git_state, path_is_ignored};
     use std::path::Path;
+
+    #[test]
+    fn git_state_files_are_noticed_only_in_a_git_directory() {
+        assert!(path_is_git_state(Path::new("/work/app/.git/HEAD")));
+        assert!(path_is_git_state(Path::new("/work/app/.git/index")));
+        assert!(path_is_git_state(Path::new("/work/app/.git/MERGE_HEAD")));
+        assert!(!path_is_git_state(Path::new("/work/app/.git/index.lock")));
+        assert!(!path_is_git_state(Path::new(
+            "/work/app/.git/objects/ab/HEAD"
+        )));
+        assert!(!path_is_git_state(Path::new("/work/app/src/HEAD")));
+    }
 
     #[test]
     fn a_path_under_node_modules_is_ignored() {

@@ -50,7 +50,7 @@ export const FileTree: React.FC<FileTreeProps> = ({ entries }) => {
       onKeyDown={handleTreeKeyDown}
       onDragOver={(event) => event.preventDefault()}
       onDrop={handleDropOnRoot}
-      className="space-y-[1px] select-none font-sans text-xs text-[var(--text-normal)] w-full min-h-[300px] overflow-y-auto focus:outline-none"
+      className="space-y-[1px] select-none font-sans text-xs text-[var(--text-normal)] w-max min-w-full min-h-[300px] focus:outline-none"
     >
       <div className="flex items-center justify-between px-2 py-1.5 border-b border-[var(--border-color)] bg-[var(--bg-sidebar)]/50 sticky top-0 z-10">
         <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wide">Files</span>

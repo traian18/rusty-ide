@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, Folder, FolderOpen, FolderPlus, Plus } from 
 import { explorerClient } from "../client";
 import { useWorkspaceStore } from "../../../store";
 import { selectActiveTabId } from "../../../app/tabSelectors";
-import { fileTabIdentity } from "../../../app/tabs/identity";
+import { duplicateTabId, fileTabIdentity, originalTabId } from "../../../app/tabs/identity";
 import { FileIcon } from "../../editor/ui";
 import { notify } from "../../notifications";
 import { resolveRepositoryForPath } from "../../git";
@@ -56,7 +56,7 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = (props) => {
   const resolvedRepo = resolveRepositoryForPath(node.path, repositories);
   const nodeGitStatus = resolvedRepo && resolvedRepo.kind !== "workspace" ? statusByRepositoryId[resolvedRepo.id] ?? null : gitStatus;
   const gitState = getGitState(node, nodeGitStatus);
-  const isActiveFile = activeTabId === fileTabIdentity(node.path);
+  const isActiveFile = originalTabId(activeTabId ?? "") === fileTabIdentity(node.path);
 
   useEffect(() => {
     if (!isRenaming) return;
@@ -90,6 +90,7 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = (props) => {
       await refreshTree();
       const state = useWorkspaceStore.getState();
       state.closeTab(fileTabIdentity(node.path));
+      state.closeTab(duplicateTabId(fileTabIdentity(node.path)));
       state.setLastRename({ originalPath: node.path, newPath });
       void state.loadGitStatus();
     } catch (err) {
@@ -159,7 +160,7 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = (props) => {
       >
         <div className="flex items-center min-w-0 flex-1 mr-6">
           <FileIcon fileName={node.name} size={13} className="mr-1.5 flex-shrink-0" />
-          {isRenaming ? renameInput : <span className="truncate pr-2">{node.name}</span>}
+          {isRenaming ? renameInput : <span className="whitespace-nowrap pr-2">{node.name}</span>}
         </div>
         <div className="flex items-center space-x-1 mr-1">{gitMarker("text-[10px] font-mono font-bold opacity-90 select-none")}</div>
       </div>
@@ -184,7 +185,7 @@ export const FileTreeNode: React.FC<FileTreeNodeProps> = (props) => {
           <span className={FOLDER_ICON_CLASS} data-folder-icon>
             {isOpen ? <FolderOpen size={13} className={iconClass} /> : <Folder size={13} className={iconClass} />}
           </span>
-          {isRenaming ? renameInput : <span className="truncate pr-2">{node.name}</span>}
+          {isRenaming ? renameInput : <span className="whitespace-nowrap pr-2">{node.name}</span>}
         </div>
 
         <div className="flex items-center space-x-1 mr-1">{gitMarker("text-[12px] font-mono font-bold opacity-85 select-none")}</div>

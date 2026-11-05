@@ -5,6 +5,7 @@ import type {
   OnEdgesChange,
   OnNodesChange,
 } from "@xyflow/react";
+import type { GitStatusResult } from "../features/git";
 import type { McpServerConfig } from "../features/mcp";
 import type { TypographyPreferences } from "../features/settings";
 import type { KeyboardShortcutPreferences, SecretShieldPreferences, ShortcutAction } from "../features/settings";
@@ -165,15 +166,10 @@ export interface DevLog {
 export interface GitFileStatus {
   path: string;
   name: string;
-  status_type: "modified" | "added" | "deleted" | "untracked" | "renamed" | "copied";
+  status_type: "modified" | "added" | "deleted" | "untracked" | "renamed" | "copied" | "conflicted";
 }
 
-export interface GitStatusResult {
-  isRepo: boolean;
-  currentBranch: string;
-  staged: GitFileStatus[];
-  unstaged: GitFileStatus[];
-}
+export type { GitStatusResult };
 
 /**
  * Mirrors git.rs's `GitHeadState` (REFACTOR_PLAN.md PR 5a commit 4), hand-

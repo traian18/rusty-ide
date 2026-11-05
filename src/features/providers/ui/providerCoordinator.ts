@@ -81,12 +81,31 @@ function isSetupTabOpen(): boolean {
   return useWorkspaceStore.getState().tabs.some((tab) => tab.type === "llm-setup");
 }
 
+/**
+ * Takes a signed-out provider's models out of the shared catalogue, and the
+ * default model with them when it was one of those. Clearing
+ * `modelsFetchedAt` too is what makes the next sign-in discover them again.
+ */
+function removeProviderModels(id: ManagedProviderId): void {
+  const { activeModel, customProviders, setActiveModel, updateProviderSettings } = useWorkspaceStore.getState();
+  const provider = customProviders.find((candidate) => candidate.id === id);
+  if (provider && (provider.models.length > 0 || provider.modelsFetchedAt)) {
+    updateProviderSettings(id, { models: [], modelsFetchedAt: undefined });
+  }
+  if (activeModel.startsWith(`${id}/`)) setActiveModel("");
+}
+
 function applySettled(id: ManagedProviderId, status: ManagedStatus, mySeq: number): void {
   if (latestRequestSeq.get(id) !== mySeq) return;
   const mapped = mapManagedStatus(status);
   const previous = useWorkspaceStore.getState().providerStatus[id];
   if (mapped.kind === "ready" && previous?.account !== mapped.account) {
     invalidateManagedCatalog(id);
+  }
+  // A session that ended outside the app: logged out in the CLI, or expired.
+  if (mapped.kind === "unauthenticated" && previous?.kind === "ready") {
+    invalidateManagedCatalog(id);
+    removeProviderModels(id);
   }
   useWorkspaceStore.getState().patchProviderStatus(id, mapped);
 
@@ -237,6 +256,7 @@ export async function logoutManaged(provider: CustomProvider): Promise<void> {
   pendingLoginNotification.delete(id);
   await LOGOUT_LOADERS[id]();
   invalidateManagedCatalog(id);
+  removeProviderModels(id);
   forcePollNow(id);
 }
 

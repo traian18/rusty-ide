@@ -1,5 +1,7 @@
 import { hybridControlPlane as controlPlane } from "../../../harness/HybridControlPlane";
 import { useWorkspaceStore } from "../../../store";
+import { providerStatusOrUnknown } from "../integrations/registryTypes";
+import { isManagedAuthProvider } from "./providerHelpers";
 import type { CustomProvider, ProviderModel } from "../../../store/types";
 
 const updatesInFlight = new Map<string, Promise<ProviderModel[]>>();
@@ -25,8 +27,13 @@ export function updateModelCatalogue(provider: CustomProvider): Promise<Provider
 
   const update: Promise<ProviderModel[]> = controlPlane.discoverModels(provider)
     .then((discoveredModels) => {
-      const currentProvider = useWorkspaceStore.getState().customProviders
-        .find((candidate) => candidate.id === provider.id) || provider;
+      const { customProviders, providerStatus } = useWorkspaceStore.getState();
+      const currentProvider = customProviders.find((candidate) => candidate.id === provider.id) || provider;
+      // The user may have signed out while this request was in flight.
+      if (isManagedAuthProvider(currentProvider)
+        && providerStatusOrUnknown(providerStatus, currentProvider.id).kind !== "ready") {
+        return currentProvider.models;
+      }
       const models = mergeDiscoveredModels(currentProvider, discoveredModels);
       useWorkspaceStore.getState().updateProviderSettings(provider.id, {
         models,

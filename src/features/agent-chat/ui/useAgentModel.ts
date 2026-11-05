@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveSkill, DEFAULT_SKILL_ID } from "../../skills";
 import { useSelectableModels } from "../../providers/ui";
 import { loadAgentModelSelection, saveAgentModelSelection } from "../../providers";
-import { AUTO_MODEL_ID, findOpenRouterJevProvider, resolveLevelCandidates } from "../../providers";
+import { AUTO_MODEL_ID, findOpenRouterJevProvider, isSignedOutProviderModel, resolveLevelCandidates } from "../../providers";
 import { useWorkspaceStore } from "../../../store";
 import { isAutoMode, onAutoMode, setAutoMode } from "../../../harness/autoMode";
 
@@ -27,11 +27,21 @@ export function useAgentModel() {
     return [{ id: AUTO_MODEL_ID, name: "AUTO — Intelligent model selection" }, ...baseModelOptions];
   }, [activeCustomProviderId, baseModelOptions, customProviders, settings, providerStatus]);
 
+  // Signing out takes the provider's models away, the chosen one included, so
+  // this is not the "(unavailable)" case below: the choice starts over.
+  useEffect(() => {
+    if (!selectedModel || !isSignedOutProviderModel(selectedModel, customProviders, providerStatus)) return;
+    savedAgentModelRef.current = undefined;
+    saveAgentModelSelection("");
+    setSelectedModel("");
+  }, [customProviders, providerStatus, selectedModel]);
+
   // Seed Agent mode once from the global default, then retain its own choice.
   // A provider refresh must not silently swap it for the first available model.
   useEffect(() => {
     if (savedAgentModelRef.current) return;
-    const nextModel = activeModel || modelOptions()[0]?.id || "";
+    const usableDefault = isSignedOutProviderModel(activeModel, customProviders, providerStatus) ? "" : activeModel;
+    const nextModel = usableDefault || modelOptions()[0]?.id || "";
     if (!nextModel) return;
     savedAgentModelRef.current = nextModel;
     saveAgentModelSelection(nextModel);

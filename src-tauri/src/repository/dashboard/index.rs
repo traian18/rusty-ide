@@ -8,8 +8,11 @@ use std::{
 
 use rusty_findings::{FindingSet, Severity};
 use rusty_git_analysis::GitSnapshot;
+use rusty_repo_model::{
+    import_graph::LanguageProfile,
+    repository_intelligence::{RepositoryGraph, RepositorySnapshot},
+};
 use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
-use rusty_repo_model::{import_graph::LanguageProfile, repository_intelligence::{RepositoryGraph, RepositorySnapshot}};
 
 use super::{super::dto::SeverityCounts, model::FileRow};
 

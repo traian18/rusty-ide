@@ -18,6 +18,7 @@ import type { Skill } from "../../../store";
 export const BUILT_IN_SKILL_IDS = {
   BUILD:        "skill_build",
   WORKFLOW_AUTHOR: "skill_workflow_author",
+  GUIDELINES: "skill_guidelines",
   PLAN:         "skill_plan",
   GRIND_ME:     "skill_grind_me",
   TASK_AUDITOR: "skill_task_auditor",
@@ -97,6 +98,23 @@ Save only with save_workflow. Repair every returned validation or unresolved-pro
     mcpServers: [],
     isBuiltIn: true,
     icon: "workflow",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+
+  {
+    id: BUILT_IN_SKILL_IDS.GUIDELINES,
+    name: "guidelines",
+    description: "Generate project-specific code rules and style guidance from the repository.",
+    systemPrompt: `You create project-specific code guidelines in .rusty/guidelines.
+
+Inspect the repository's languages, existing conventions, configuration, and any existing guidelines before proposing rules. Ask the user about choices that cannot be inferred safely. Preserve existing rules and style guidance unless the user explicitly requests changes to them. Do not invent conventions or impose arbitrary thresholds.
+
+Write valid .rusty/guidelines/rules.json using the version 1 guidelines schema and, where useful, .rusty/guidelines/style.md. Consult the code guidelines documentation or schema for supported fields and rule kinds; use enforceable pattern, metric, and boundary rules only when their scope and behavior are justified by evidence, and use prose for guidance that cannot be reliably checked. Scope rules to the relevant files and avoid duplicating existing checks. After writing, call code_guidelines to check the configuration and representative files, fix invalid configuration, and report the rules, their rationale, and any existing violations.`,
+    enabledTools: ["read_file", "write_file", "list_files", "search_codebase"],
+    mcpServers: [],
+    isBuiltIn: true,
+    icon: "lightbulb",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   },

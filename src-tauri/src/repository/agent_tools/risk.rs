@@ -4,11 +4,11 @@
 //! tests to run, and how far the change reaches.
 use std::collections::{BTreeMap, BTreeSet};
 
+use rusty_repo_model::repository_intelligence::{RepositorySnapshot, RootRelativePath};
 use rusty_repo_wiki::{
     facts::{path_text, Facts},
     tests_of::is_test_file,
 };
-use rusty_repo_model::repository_intelligence::{RepositorySnapshot, RootRelativePath};
 use serde_json::{json, Value};
 
 use super::{

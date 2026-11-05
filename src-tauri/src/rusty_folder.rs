@@ -93,6 +93,7 @@ pub fn ensure(root: &Path) -> std::io::Result<()> {
     if !folder.is_dir() {
         return Ok(());
     }
+    std::fs::create_dir_all(folder.join("guidelines"))?;
     write_owned(&folder.join(".gitignore"), GITIGNORE_MARK, &gitignore())?;
     write_owned(&folder.join("README.md"), README_MARK, &readme())?;
     Ok(())
@@ -138,6 +139,14 @@ mod tests {
 
         std::fs::create_dir(dir.path().join(FOLDER)).unwrap();
         ensure(dir.path()).unwrap();
+        let guidelines = dir.path().join(".rusty/guidelines");
+        assert!(guidelines.is_dir());
+        std::fs::write(guidelines.join("rules.json"), "my rules").unwrap();
+        ensure(dir.path()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(guidelines.join("rules.json")).unwrap(),
+            "my rules"
+        );
         let ignore = std::fs::read_to_string(dir.path().join(".rusty/.gitignore")).unwrap();
         assert!(ignore.starts_with(GITIGNORE_MARK));
         assert!(ignore.contains("/*\n"));

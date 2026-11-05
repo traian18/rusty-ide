@@ -580,8 +580,7 @@ mod tests {
         fs::create_dir_all(&workflow_path).unwrap();
         let mut request = request(d.path(), SaveIntent::Create, "rollback");
         request.workflow = valid_workflow("rollback");
-        request.profiles =
-            vec![rusty_engine::validation::templates().builtin_profiles[0].clone()];
+        request.profiles = vec![rusty_engine::validation::templates().builtin_profiles[0].clone()];
         request.profiles[0]["id"] = serde_json::json!("new-profile");
         let result = save_workflow(request);
         assert_eq!(result.outcome, "commit_failed");

@@ -1,6 +1,7 @@
 /** Every action a keyboard shortcut can trigger, with what Settings shows for it. */
 export const SHORTCUT_ACTIONS = [
   { action: "closeActiveTab", label: "Close active tab", description: "Closes the selected editor tab.", defaultShortcut: "Mod+W" },
+  { action: "toggleSplit", label: "Open side by side", description: "Opens the active code tab beside a copy of itself, or closes the side-by-side view.", defaultShortcut: "Mod+\\" },
   { action: "openSearch", label: "Open search", description: "Opens the workspace search palette.", defaultShortcut: "Mod+K" },
   { action: "toggleExplorer", label: "Toggle explorer", description: "Shows or collapses the file explorer.", defaultShortcut: "Mod+1" },
   { action: "navigateBack", label: "Navigate back", description: "Goes back to where the cursor was before, also in another file.", defaultShortcut: "Mod+Alt+ArrowLeft" },

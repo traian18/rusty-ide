@@ -261,6 +261,11 @@ export function normalizeStoredModelReference(
  * Gating a regular provider on registry status too would permanently
  * exclude every custom/local provider from every picker; do not "fix" that
  * asymmetry.
+ *
+ * A managed provider that is known to be signed out has no models to offer,
+ * selected or not. Its status settling is what the selected provider's
+ * exception is for: while it is still being checked, or the check failed, the
+ * selection stays usable.
  */
 export function selectableModelProviders(
   providers: CustomProvider[],
@@ -268,12 +273,25 @@ export function selectableModelProviders(
   selectedProviderId: string | null,
 ): CustomProvider[] {
   return providers.filter((provider) => {
+    const managedStatus = isManagedAuthProvider(provider) ? providerStatusOrUnknown(providerStatus, provider.id).kind : null;
+    if (managedStatus === "unauthenticated") return false;
     if (provider.id === selectedProviderId) return true;
-    if (isManagedAuthProvider(provider)) {
-      return providerStatusOrUnknown(providerStatus, provider.id).kind === "ready";
-    }
+    if (managedStatus) return managedStatus === "ready";
     return provider.authType === "none" || Boolean(provider.apiKey?.trim());
   });
+}
+
+/** Whether `modelReference` names a model of a managed provider that is signed out. */
+export function isSignedOutProviderModel(
+  modelReference: string,
+  providers: CustomProvider[],
+  providerStatus: Record<string, ProviderStatus>,
+): boolean {
+  return providers.some((provider) =>
+    isManagedAuthProvider(provider)
+    && modelReference.startsWith(`${provider.id}/`)
+    && providerStatusOrUnknown(providerStatus, provider.id).kind === "unauthenticated",
+  );
 }
 
 export function selectableProviderModels(

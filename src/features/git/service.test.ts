@@ -25,11 +25,20 @@ function app() {
     resetForBranchChange: () => { log.push("resetForBranchChange"); },
     notify: (title, message, variant) => { notifications.push([title, message, variant]); },
     offerDocumentationUpdate: async (rootDir) => { log.push(`offerDocumentationUpdate ${rootDir}`); },
+    openConflicts: (rootDir) => { log.push(`openConflicts ${rootDir}`); },
   };
   return { log, notifications, fake };
 }
 
 const confirmWith = (answer: boolean) => async () => answer;
+
+const noConflicts = { operation: null, local_label: "main", incoming_label: "stashed changes", files: [] };
+const conflictsIn = (operation: string | null, ...names: string[]) => ({
+  operation,
+  local_label: "main",
+  incoming_label: "origin/main",
+  files: names.map((name) => ({ path: `/repo/${name}`, relative_path: name, name, kind: "content" })),
+});
 
 describe("git service: changes", () => {
   it("stages a file and refreshes the status without touching the tree", async () => {
@@ -99,14 +108,116 @@ describe("git service: changes", () => {
 
 describe("git service: refresh", () => {
   it("pulls, then refreshes the status and the tree before reporting success", async () => {
-    const { calls, client } = bridge();
+    const { calls, client } = bridge({ git_conflict_state: noConflicts });
     const { log, notifications, fake } = app();
 
     await createGitService(client, fake).pull("/repo");
 
-    expect(calls).toEqual([["git_pull", { rootDir: "/repo" }]]);
+    expect(calls[0]).toEqual(["git_pull", { rootDir: "/repo" }]);
     expect(log).toEqual(["loadStatus /repo", "reloadTree /repo"]);
     expect(notifications).toEqual([["Pull Complete", "Successfully pulled remote updates.", "success"]]);
+  });
+});
+
+describe("git service: conflicts", () => {
+  it("takes the user to the conflicts when a pull stops on them, without calling it a failure", async () => {
+    const { client } = bridge({ git_pull: new Error("Automatic merge failed"), git_conflict_state: conflictsIn("merge", "a.ts", "b.ts") });
+    const { log, notifications, fake } = app();
+
+    await createGitService(client, fake).pull("/repo");
+
+    expect(log).toEqual(["loadStatus /repo", "reloadTree /repo", "openConflicts /repo"]);
+    expect(notifications).toEqual([["Merge Conflicts", "2 files need your decision before this can finish.", "danger"]]);
+  });
+
+  it("notices conflicts from putting stashed changes back after a pull that succeeded", async () => {
+    const { client } = bridge({ git_conflict_state: conflictsIn(null, "a.ts") });
+    const { log, notifications, fake } = app();
+
+    await createGitService(client, fake).pull("/repo");
+
+    expect(log).toContain("openConflicts /repo");
+    expect(notifications.map(([title]) => title)).toEqual(["Merge Conflicts"]);
+  });
+
+  it("still reports a pull that failed for another reason", async () => {
+    const { client } = bridge({ git_pull: new Error("no remote"), git_conflict_state: noConflicts });
+    const { log, notifications, fake } = app();
+
+    await expect(createGitService(client, fake).pull("/repo")).rejects.toThrow("no remote");
+
+    expect(log).not.toContain("openConflicts /repo");
+    expect(notifications).toEqual([["Pull Failed", "no remote", "error"]]);
+  });
+
+  it("takes the user to the conflicts of a merge or a rebase", async () => {
+    const merge = bridge({ git_merge_branch: new Error("CONFLICT"), git_conflict_state: conflictsIn("merge", "a.ts") });
+    const rebase = bridge({ git_rebase_branch: new Error("could not apply"), git_conflict_state: conflictsIn("rebase", "a.ts") });
+    const { log, notifications, fake } = app();
+
+    await createGitService(merge.client, fake).mergeBranch("/repo", "feature");
+    await createGitService(rebase.client, fake).rebaseBranch("/repo", "main");
+
+    expect(log.filter((entry) => entry === "openConflicts /repo")).toHaveLength(2);
+    expect(notifications.map(([title]) => title)).toEqual(["Merge Conflicts", "Rebase Conflicts"]);
+  });
+
+  it("aborts the operation git says is in progress", async () => {
+    const { calls, client } = bridge({ git_conflict_state: conflictsIn("cherry-pick", "a.ts") });
+    const { notifications, fake } = app();
+
+    await createGitService(client, fake).abortPending("/repo");
+
+    expect(calls).toContainEqual(["git_abort_pending", { rootDir: "/repo", operation: "cherry-pick" }]);
+    expect(notifications[0][0]).toBe("Cherry-pick Aborted");
+  });
+
+  it("has nothing to abort when no operation is in progress", async () => {
+    const { calls, client } = bridge({ git_conflict_state: conflictsIn(null, "a.ts") });
+    const { fake } = app();
+
+    await createGitService(client, fake).abortPending("/repo");
+
+    expect(calls.map(([command]) => command)).not.toContain("git_abort_pending");
+  });
+
+  it("reports a finished merge", async () => {
+    const answers: Record<string, unknown> = { git_conflict_state: conflictsIn("merge") };
+    const { client } = bridge(answers);
+    const { log, notifications, fake } = app();
+
+    await createGitService(client, fake).completePending("/repo");
+
+    expect(log).toEqual(["loadStatus /repo", "reloadTree /repo"]);
+    expect(notifications).toEqual([["Merge Complete", "All conflicts are resolved.", "success"]]);
+  });
+
+  it("stays on the conflicts when continuing a rebase stops at the next commit", async () => {
+    const calls: string[] = [];
+    let continued = false;
+    const client = createGitClient(async (command) => {
+      calls.push(command);
+      if (command === "git_complete_pending") {
+        continued = true;
+        throw new Error("could not apply abc");
+      }
+      return (continued ? conflictsIn("rebase", "next.ts") : conflictsIn("rebase")) as never;
+    });
+    const { log, notifications, fake } = app();
+
+    await createGitService(client, fake).completePending("/repo");
+
+    expect(log).toContain("openConflicts /repo");
+    expect(notifications.map(([title]) => title)).toEqual(["Rebase Conflicts"]);
+  });
+
+  it("reports a hook refusing the merge commit, leaving the merge in progress", async () => {
+    const { client } = bridge({ git_complete_pending: new Error("pre-commit hook failed"), git_conflict_state: conflictsIn("merge") });
+    const { notifications, fake } = app();
+
+    await expect(createGitService(client, fake).completePending("/repo")).rejects.toThrow("pre-commit hook failed");
+
+    expect(notifications).toEqual([["Merge Failed", "pre-commit hook failed", "error"]]);
   });
 });
 

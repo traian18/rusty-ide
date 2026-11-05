@@ -6,11 +6,12 @@ import styles from "./Header.module.css";
 interface HeaderViewProps {
   onSearchOpen: () => void;
   searchShortcut: string;
+  repositoryControl: React.ReactNode;
   toolExecutionControl: React.ReactNode;
   quotaControl: React.ReactNode;
 }
 
-export const HeaderView: React.FC<HeaderViewProps> = ({ onSearchOpen, searchShortcut, toolExecutionControl, quotaControl }) => {
+export const HeaderView: React.FC<HeaderViewProps> = ({ onSearchOpen, searchShortcut, repositoryControl, toolExecutionControl, quotaControl }) => {
   const isMacOS = typeof navigator !== "undefined" && /Mac/.test(navigator.platform || navigator.userAgent);
 
   return (
@@ -18,12 +19,15 @@ export const HeaderView: React.FC<HeaderViewProps> = ({ onSearchOpen, searchShor
       className={`${styles.header} ${isMacOS ? styles.macosHeader : ""}`}
       data-tauri-drag-region
     >
-      {/* Left Area: Logo */}
-      <div className={styles.brand}>
-        <RustyIcon size={20} />
-        <span className={styles.brandName}>
-          Rusty
-        </span>
+      {/* Left Area: Logo, then the project and branch git is acting on */}
+      <div className={styles.brandArea}>
+        <div className={styles.brand}>
+          <RustyIcon size={20} />
+          <span className={styles.brandName}>
+            Rusty
+          </span>
+        </div>
+        {repositoryControl}
       </div>
 
       {/* Middle Area: Interactive Search Bar */}

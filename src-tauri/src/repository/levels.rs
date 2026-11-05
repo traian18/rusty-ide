@@ -8,7 +8,12 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rusty_repo_model::{dependency_groups::{Group, GroupKind}, folder_tree::{self, REST_PREFIX}, import_graph::ImportKind, repository_intelligence::{RepositorySnapshot, RootRelativePath}};
+use rusty_repo_model::{
+    dependency_groups::{Group, GroupKind},
+    folder_tree::{self, REST_PREFIX},
+    import_graph::ImportKind,
+    repository_intelligence::{RepositorySnapshot, RootRelativePath},
+};
 
 use super::{
     dto::{

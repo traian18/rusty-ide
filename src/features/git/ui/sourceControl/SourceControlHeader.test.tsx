@@ -17,7 +17,7 @@ function props(repositories: GitRepository[]): ComponentProps<typeof SourceContr
   return {
     repositories, subprojects: repositories.map((repo) => repo.worktreePath),
     activeRepo: repositories[0].worktreePath, activeRepository: repositories[0], rootPath: "/workspace",
-    gitStatus: { isRepo: true, currentBranch: "main", staged: [], unstaged: [] },
+    gitStatus: { isRepo: true, currentBranch: "main", staged: [], unstaged: [], conflicted: [], pendingOperation: null },
     isLoading: false, headLabel: "main", disableBranchOnlyActions: false, submoduleActionLoading: null,
     localBranches: ["main"], remoteBranches: [], showBranchPopover: false,
     onRepoChange, onInitSubmodule: vi.fn(), onUpdateSubmodule: vi.fn(), onSyncSubmodule: vi.fn(),

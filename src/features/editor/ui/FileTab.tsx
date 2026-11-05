@@ -16,6 +16,7 @@ import type { TabOfType } from "../../../app/tabs/types";
 import { DefinitionMenu } from "./fileTab/DefinitionMenu";
 import { FileTabToolbar } from "./fileTab/FileTabToolbar";
 import { type FileLocation, useFileLocation } from "./fileTab/fileLocation";
+import { isReceivingFileText } from "./fileTab/fileTextChannel";
 import { useAutoSave } from "./fileTab/useAutoSave";
 import { useDefinitionLookup } from "./fileTab/useDefinitionLookup";
 import { type FileContent, useFileContent } from "./fileTab/useFileContent";
@@ -97,7 +98,10 @@ const FileEditor: React.FC<FileEditorProps> = ({ location, language, content, bl
       path={location.monacoModelUri}
       language={language}
       theme="rusty-custom-theme"
-      value={content.fileContent}
+      // The wrapper writes `value` into a read-only editor's model on every change,
+      // which would wipe the undo history of an editable tab sharing that model.
+      defaultValue={content.fileContent}
+      value={content.readOnly ? undefined : content.fileContent}
       onChange={onChange}
       onMount={onMount}
       keepCurrentModel
@@ -129,7 +133,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
   const language = content.shebangLanguage ?? getFileTypeDetails(tab.path).language;
   const handleEditorMount = useFileEditor(editorRef, { tab, isActive, location, language, blame, gutter, definitions, inlineChat, autoSave });
   const handleEditorChange = (value: string | undefined) => {
-    if (value === undefined) return;
+    if (value === undefined || isReceivingFileText()) return;
     content.setFileContent(value);
     autoSave.schedule(value);
   };
@@ -141,7 +145,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
   }
 
   return (
-    <div ref={containerRef} className="w-full h-full relative bg-[var(--bg-app)]">
+    <div ref={containerRef} className="@container w-full h-full relative bg-[var(--bg-app)]">
       <FileTabToolbar
         tab={tab}
         repoPath={location.repoPath}

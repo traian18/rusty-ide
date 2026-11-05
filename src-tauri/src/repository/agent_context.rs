@@ -1,7 +1,7 @@
 //! `repo_context` and `repo_wiki` for the agent tools: the same tools the engine exposes, run against this
 //! workspace's repository services. It reads and indexes only; it never changes a file.
-use rusty_tool_repo::RepositoryIntelligence;
 use rusty_tool_api::{CancellationToken, ToolInput};
+use rusty_tool_repo::RepositoryIntelligence;
 use serde_json::Value;
 
 use super::{entry::Entry, error::RepositoryError};

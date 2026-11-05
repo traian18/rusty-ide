@@ -10,7 +10,7 @@ async function render(plan: Parameters<typeof PlanPanel>[0]["plan"], steps?: Par
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
-  await act(async () => root.render(<PlanPanel plan={plan} steps={steps} />));
+  await act(async () => root.render(<PlanPanel plan={plan} steps={steps} isRunning />));
   return container;
 }
 
@@ -34,6 +34,20 @@ describe("PlanPanel", () => {
 
     await act(async () => bar.click());
     expect(c.textContent).toContain("Write tests");
+  });
+
+  it("stops animating an unfinished task when the session stops and resumes when it runs again", async () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const plan = [{ content: "Write tests", status: "in_progress" as const }];
+    await act(async () => root.render(<PlanPanel plan={plan} isRunning />));
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    await act(async () => root.render(<PlanPanel plan={plan} isRunning={false} />));
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.textContent).toContain("Write tests");
+    await act(async () => root.render(<PlanPanel plan={plan} isRunning />));
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    await act(async () => root.unmount());
   });
 
   it("in a workflow shows the running step's plan, with earlier steps folded above it", async () => {

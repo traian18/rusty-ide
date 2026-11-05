@@ -10,6 +10,7 @@
 export * from "./types";
 export * from "./identity";
 export * from "./policy";
+export * from "./split";
 export * from "./closeGuards";
 export * from "./transitions";
 export * from "./effects";

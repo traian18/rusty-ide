@@ -44,6 +44,7 @@ import type { Transcript } from "../transcript";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_AGENT_GUIDES, REPO_AGENT_TOOLS, repoAgentTool } from "./repoAgentTools";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
+import { RUSTY_DOCS_GUIDE, RUSTY_DOCS_TOOL, rustyDocsTool } from "./rustyDocsTool";
 import { EXPLORE_TOOLS, listFilesTool, openDocumentTool, readTool, searchCodebaseTool } from "./exploreTools";
 import { flattenHistory } from "./promptHistory";
 
@@ -78,6 +79,7 @@ You have access to tools:
 - 'search_codebase': Search for text patterns across the codebase (input: {{"pattern": "search text"}}).
 ${REPO_CONTEXT_GUIDE}
 ${REPO_WIKI_GUIDE}
+${RUSTY_DOCS_GUIDE}
 ${Object.values(REPO_AGENT_GUIDES).join("\n")}
 - 'web_fetch': Fetch the contents of a URL when the user references external documentation or a webpage.
 
@@ -117,7 +119,7 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
       integration_config: mapped.integration_config,
       execution_params: { model: mapped.model ?? input.model, max_tokens: CORE_MAX_TOKENS, reasoning_effort: mapped.reasoningEffort },
       system_prompt: systemPrompt(input.workspaceRoot),
-      host_tools: [...EXPLORE_TOOLS, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL],
+      host_tools: [...EXPLORE_TOOLS, REPO_CONTEXT_TOOL, ...REPO_AGENT_TOOLS, REPO_WIKI_TOOL, RUSTY_DOCS_TOOL],
       mcp_servers: mcpServers,
       enable_web_fetch: true,
     };
@@ -136,6 +138,7 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
     search_codebase: searchCodebaseTool(input.workspaceRoot),
     repo_context: repoContextTool(input.workspaceRoot),
     repo_wiki: repoWikiTool(input.workspaceRoot),
+    rusty_docs: rustyDocsTool(),
     ...Object.fromEntries(REPO_AGENT_TOOLS.map((spec) => [spec.name, repoAgentTool(spec.name, input.workspaceRoot)])),
   }),
 

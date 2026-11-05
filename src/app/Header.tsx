@@ -4,6 +4,7 @@ import { ProviderQuotaControl } from "../features/providers/ui";
 import { useWorkspaceStore } from "../store";
 import { formatShortcut } from "../features/settings";
 import { ToolExecutionButton } from "../features/observability/ui";
+import { RepositoryIndicator } from "../features/git/ui";
 
 interface HeaderProps {
   onSearchOpen: () => void;
@@ -17,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({ onSearchOpen, toolExecutionOpen,
     <HeaderView
       onSearchOpen={onSearchOpen}
       searchShortcut={formatShortcut(openSearchShortcut)}
+      repositoryControl={<RepositoryIndicator />}
       toolExecutionControl={<ToolExecutionButton open={toolExecutionOpen} onToggle={onToolExecutionToggle} />}
       quotaControl={<ProviderQuotaControl />}
     />

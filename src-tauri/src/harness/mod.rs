@@ -45,6 +45,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use rusty_engine::{Harness, SessionHandle};
+use rusty_protocol::events::AgentEventEnvelope;
+use rusty_protocol::ids::SessionId;
 use rusty_provider_anthropic::AnthropicFactory;
 use rusty_provider_codex::CodexFactory;
 use rusty_provider_gemini::GeminiFactory;
@@ -52,8 +54,6 @@ use rusty_provider_github_copilot::GitHubCopilotFactory;
 use rusty_provider_openai::OpenAiFactory;
 use rusty_provider_openai_compatible::OpenAiCompatibleFactory;
 use rusty_provider_openai_responses::OpenAiResponsesFactory;
-use rusty_protocol::events::AgentEventEnvelope;
-use rusty_protocol::ids::SessionId;
 use tokio::sync::{broadcast, mpsc, OnceCell};
 use tokio::task::JoinHandle;
 

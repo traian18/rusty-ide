@@ -2,7 +2,7 @@
 import { useWorkspaceStore } from "../../../store";
 import { notify } from "../../notifications";
 import { revealItemInDir } from "../../../lib/platform/opener";
-import { fileTabIdentity } from "../../../app/tabs/identity";
+import { duplicateTabId, fileTabIdentity } from "../../../app/tabs/identity";
 import { explorerClient } from "../client";
 import { createExplorerService, type ExplorerApp } from "../service";
 
@@ -15,7 +15,12 @@ const workspaceApp: ExplorerApp = {
     useWorkspaceStore
       .getState()
       .tabs.flatMap((tab) => (tab.type === "file" ? [{ id: tab.id, path: tab.path }] : [])),
-  closeTab: (id) => useWorkspaceStore.getState().closeTab(id),
+  // A file's copy goes with it, so it cannot be left showing a path that moved.
+  closeTab: (id) => {
+    const { closeTab } = useWorkspaceStore.getState();
+    closeTab(id);
+    closeTab(duplicateTabId(id));
+  },
   tabIdForPath: fileTabIdentity,
   setLastRename: (rename) => useWorkspaceStore.getState().setLastRename(rename),
   notify,

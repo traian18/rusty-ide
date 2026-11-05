@@ -5,6 +5,7 @@ import { doneCount, type StepPlan } from "../../plan/stepPlans";
 
 interface PlanPanelProps {
   plan: Todo[];
+  isRunning: boolean;
   /** A workflow run's plans, one per step session; when there are some they are shown instead of `plan`. */
   steps?: StepPlan[];
 }
@@ -16,19 +17,22 @@ const STATUS_ICON: Record<TodoStatus, React.ReactNode> = {
   cancelled: <MinusCircle size={12} className="text-[var(--text-muted)]" />,
 };
 
-const TodoItems: React.FC<{ todos: Todo[] }> = ({ todos }) => (
+const TodoItems: React.FC<{ todos: Todo[]; isRunning: boolean }> = ({ todos, isRunning }) => (
   <ol className="py-1 m-0 list-none">
-    {todos.map((todo, index) => (
-      <li
-        key={`${index}:${todo.content}`}
-        className={`flex items-start gap-2 px-3 py-1.5 text-[11px] ${
-          todo.status === "in_progress" ? "bg-[var(--accent-bg)] text-[var(--text-light)]" : "text-[var(--text-muted)]"
-        } ${todo.status === "completed" || todo.status === "cancelled" ? "line-through opacity-70" : ""}`}
-      >
-        <span className="mt-0.5 flex-shrink-0">{STATUS_ICON[todo.status]}</span>
-        <span>{todo.content}</span>
-      </li>
-    ))}
+    {todos.map((todo, index) => {
+      const status = todo.status === "in_progress" && !isRunning ? "pending" : todo.status;
+      return (
+        <li
+          key={`${index}:${todo.content}`}
+          className={`flex items-start gap-2 px-3 py-1.5 text-[11px] ${
+            status === "in_progress" ? "bg-[var(--accent-bg)] text-[var(--text-light)]" : "text-[var(--text-muted)]"
+          } ${status === "completed" || status === "cancelled" ? "line-through opacity-70" : ""}`}
+        >
+          <span className="mt-0.5 flex-shrink-0">{STATUS_ICON[status]}</span>
+          <span>{todo.content}</span>
+        </li>
+      );
+    })}
   </ol>
 );
 
@@ -47,7 +51,7 @@ const EarlierStep: React.FC<{ plan: StepPlan }> = ({ plan }) => {
         <span className="flex-1">{plan.label}</span>
         <span className="text-[10px] font-mono">{doneCount(plan.todos)}/{plan.todos.length}</span>
       </button>
-      {open ? <TodoItems todos={plan.todos} /> : null}
+      {open ? <TodoItems todos={plan.todos} isRunning={false} /> : null}
     </section>
   );
 };
@@ -59,7 +63,7 @@ const EarlierStep: React.FC<{ plan: StepPlan }> = ({ plan }) => {
  * slim bar on the right edge that expands back to the left when clicked.
  * Renders nothing until a plan exists.
  */
-export const PlanPanel: React.FC<PlanPanelProps> = ({ plan, steps = [] }) => {
+export const PlanPanel: React.FC<PlanPanelProps> = ({ plan, steps = [], isRunning }) => {
   const [minimized, setMinimized] = useState(false);
   const current = steps.at(-1);
   const todos = current ? current.todos : plan;
@@ -116,7 +120,7 @@ export const PlanPanel: React.FC<PlanPanelProps> = ({ plan, steps = [] }) => {
         {steps.slice(0, -1).map((earlier) => (
           <EarlierStep key={earlier.key} plan={earlier} />
         ))}
-        <TodoItems todos={todos} />
+        <TodoItems todos={todos} isRunning={isRunning} />
       </div>
     </aside>
   );

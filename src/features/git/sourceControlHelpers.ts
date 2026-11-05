@@ -31,6 +31,11 @@ export function getStatusIndicator(statusType: string): StatusIndicator {
         char: "U",
         colorClass: "text-[var(--color-status-success)] opacity-80",
       };
+    case "conflicted":
+      return {
+        char: "!",
+        colorClass: "text-[var(--color-status-danger)] font-bold",
+      };
     case "renamed":
       return {
         char: "R",

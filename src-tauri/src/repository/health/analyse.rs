@@ -9,8 +9,10 @@ use rusty_code_health::{
     detect_file, score_file, DetectorConfig, FileContext, FileScore, Finding, ScoringConfig,
 };
 use rusty_git_analysis::{FileSignals, SignalSummary};
+use rusty_repo_model::{
+    import_graph::LanguageProfile, repository_intelligence::RepositorySnapshot,
+};
 use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
-use rusty_repo_model::{import_graph::LanguageProfile, repository_intelligence::RepositorySnapshot};
 
 use super::{super::entry::Entry, cache::HealthCache};
 

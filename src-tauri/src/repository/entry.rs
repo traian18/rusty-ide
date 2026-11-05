@@ -8,12 +8,16 @@ use std::{
 use rusty_findings::{
     DefaultFindingsAnalyzer, FindingsAnalysis, FindingsConfig, FindingsService, FsSourceTextReader,
 };
-use rusty_git_analysis::{GitAnalysis, GitAnalysisBuilder};
 use rusty_frameworks::default_adapters;
+use rusty_git_analysis::{GitAnalysis, GitAnalysisBuilder};
 use rusty_lang_api::{
     RustImportAdapter, RustImportResolver, TypeScriptImportAdapter, TypeScriptImportResolver,
 };
-use rusty_repo_model::{dependency_groups::DefaultGroupAnalyzer, import_graph::ImportSupport, repository_intelligence::{RepositoryGraph, RepositoryGraphBuilder, RepositorySnapshot}};
+use rusty_repo_model::{
+    dependency_groups::DefaultGroupAnalyzer,
+    import_graph::ImportSupport,
+    repository_intelligence::{RepositoryGraph, RepositoryGraphBuilder, RepositorySnapshot},
+};
 use tokio_util::sync::CancellationToken;
 
 use super::error::RepositoryError;

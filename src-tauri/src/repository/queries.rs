@@ -5,10 +5,14 @@ use rusty_findings::{FindingExplanation, FindingId, FindingsListQuery, FindingsP
 use rusty_git_analysis::{
     ChurnQuery, ChurnScope, ChurnSort, CoChangeQuery, ContributorQuery, GitQueryError,
 };
-use rusty_repo_model::{dependency_groups::{
+use rusty_repo_model::{
+    dependency_groups::{
         GraphProjection, GraphQuery, GroupAssignment, GroupId, GroupMembersQuery, GroupOverview,
         MemberPage, OverviewQuery, Truncation,
-    }, import_graph::{ImportFilter, ImportPage, ImportQuery}, repository_intelligence::{PackageId, RootRelativePath}};
+    },
+    import_graph::{ImportFilter, ImportPage, ImportQuery},
+    repository_intelligence::{PackageId, RootRelativePath},
+};
 
 use super::{
     dto::{

@@ -146,6 +146,7 @@ describe("agentChatDefinition", () => {
       "report_progress",
       "run_check",
       "run_command",
+      "rusty_docs",
       "search_codebase",
       "spec_context",
       "update_todos",
@@ -206,7 +207,7 @@ describe("agentChatDefinition", () => {
   it("recipe() restricts host_tools to the skill's enabledTools but always keeps report_progress/ask_user_question", () => {
     // project_info only reads manifests, so it rides on the read_file grant.
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "rusty_docs", "spec_context", "update_todos"]);
   });
 
   it("recipe() offers workflow_catalog to Workflow Author only, in plan mode too", () => {
@@ -219,9 +220,19 @@ describe("agentChatDefinition", () => {
     expect(names({})).not.toContain("workflow_catalog");
   });
 
+  it("offers rusty_docs in chats and plan mode, but not to workflow steps", () => {
+    const names = (overrides: Partial<AgentChatInput>) => agentChatDefinition.recipe!(input(overrides)).host_tools?.map((t) => t.name);
+    expect(names({})).toContain("rusty_docs");
+    expect(names({ planOnly: true })).toContain("rusty_docs");
+    expect(names({ skill: { enabledTools: [] } })).toContain("rusty_docs");
+    expect(names({ workflow: { definition: {}, input: {} } })).not.toContain("rusty_docs");
+    expect(agentChatDefinition.recipe!(input()).system_prompt).toContain("'rusty_docs'");
+    expect(agentChatDefinition.hostTools?.(input({ workflow: { definition: {}, input: {} } }), {} as never, { scratch: {} } as never, () => {})).not.toHaveProperty("rusty_docs");
+  });
+
   it("recipe() still offers report_progress/ask_user_question when the skill's enabledTools is explicitly empty", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: [] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "rusty_docs", "spec_context", "update_todos"]);
   });
 
   it("recipe() appends skill guidance to the system prompt", () => {
@@ -268,7 +279,7 @@ describe("agentChatDefinition", () => {
 
   it("recipe() omits run_command when the skill's enabledTools leaves it out", () => {
     const recipe = agentChatDefinition.recipe!(input({ skill: { enabledTools: ["read_file", "web_search"] } }));
-    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "spec_context", "update_todos", "web_search"]);
+    expect(recipe.host_tools?.map((t) => t.name).sort()).toEqual(["ask_user_question", "code_guidelines", "project_info", "read_file", "repo_context", "repo_health", "repo_overview", "repo_risk", "repo_symbol", "repo_wiki", "report_progress", "rusty_docs", "spec_context", "update_todos", "web_search"]);
   });
 
   it("recipe() offers project_info with the read grant and tells the model to use it before building or verifying", () => {
@@ -376,6 +387,7 @@ describe("agentChatDefinition", () => {
       "report_progress",
       "run_check",
       "run_command",
+      "rusty_docs",
       "search_codebase",
       "spec_context",
       "update_todos",

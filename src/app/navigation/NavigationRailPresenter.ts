@@ -50,7 +50,7 @@ export const NAVIGATION_RAIL_ICONS: NavigationRailIconItem[] = [
       // startup, before discoverRepositories/loadGitStatus have both run),
       // so the badge doesn't regress to 0 during that brief window.
       const perRepositoryTotal = Object.values(store.statusByRepositoryId ?? {}).reduce(
-        (sum, status) => sum + status.staged.length + status.unstaged.length,
+        (sum, status) => sum + status.staged.length + status.unstaged.length + status.conflicted.length,
         0,
       );
       if (perRepositoryTotal > 0) return perRepositoryTotal;

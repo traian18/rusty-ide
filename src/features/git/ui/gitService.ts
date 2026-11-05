@@ -16,6 +16,7 @@ const workspaceApp: GitApp = {
   resetForBranchChange: () => useWorkspaceStore.getState().resetForBranchChange(),
   notify,
   offerDocumentationUpdate,
+  openConflicts: (rootDir) => useWorkspaceStore.getState().openTab({ type: "git-merge", repoPath: rootDir }),
 };
 
 export const gitService = createGitService(gitClient, workspaceApp);

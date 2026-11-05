@@ -1,6 +1,7 @@
 /** Git actions for the workspace. Each one runs a git command, then brings the app up to date and tells the user what happened. */
 import type { NotificationVariant } from "../notifications";
 import type { GitClient } from "./client";
+import type { ConflictSide, ConflictState, PendingOperation } from "./model";
 import { gitErrorMessage as errorMessage, isUnmergedBranchError, UnmergedBranchError } from "./gitErrors";
 
 /** What the actions need from the app: the store, the file tree, notifications and the documentation update. */
@@ -12,6 +13,8 @@ export interface GitApp {
   resetForBranchChange(): void;
   notify(title: string, message: string, variant: NotificationVariant): void;
   offerDocumentationUpdate(rootDir: string): Promise<unknown>;
+  /** Opens the merge window on a repository's conflicts. */
+  openConflicts(rootDir: string): void;
 }
 
 export type Confirm = (title: string, message: string) => Promise<boolean>;
@@ -31,10 +34,37 @@ export interface GitService {
   mergeBranch(rootDir: string, branchName: string): Promise<void>;
   rebaseBranch(rootDir: string, branchName: string): Promise<void>;
   abortPending(rootDir: string): Promise<void>;
+  resolveConflict(rootDir: string, filePath: string, content: string): Promise<void>;
+  resolveConflictSide(rootDir: string, filePath: string, side: ConflictSide): Promise<void>;
+  completePending(rootDir: string): Promise<void>;
   undoLastRename(rootDir: string, originalPath: string, newPath: string): Promise<void>;
 }
 
+/** The operation's name in a sentence. */
+function operationLabel(operation: PendingOperation | null): string {
+  if (operation === "rebase") return "Rebase";
+  if (operation === "cherry-pick") return "Cherry-pick";
+  if (operation === "revert") return "Revert";
+  return "Merge";
+}
+
 export function createGitService(git: GitClient, app: GitApp): GitService {
+  /**
+   * After a command stopped or finished, checks git rather than its error text
+   * for conflicts, and takes the user to them. True when there are any.
+   */
+  const openConflictsIfAny = async (rootDir: string, state?: ConflictState): Promise<boolean> => {
+    const conflicts = state ?? await git.conflictState(rootDir).catch(() => null);
+    if (!conflicts || conflicts.files.length === 0) return false;
+    await app.loadStatus(rootDir);
+    await app.reloadTree(rootDir);
+    const count = conflicts.files.length;
+    const files = count === 1 ? "1 file needs" : `${count} files need`;
+    app.notify(`${operationLabel(conflicts.operation)} Conflicts`, `${files} your decision before this can finish.`, "danger");
+    app.openConflicts(rootDir);
+    return true;
+  };
+
   return {
     async commit(rootDir, message) {
       console.log(`GitService: Committing staged changes at ${rootDir} with message: "${message}"`);
@@ -67,10 +97,13 @@ export function createGitService(git: GitClient, app: GitApp): GitService {
       console.log(`GitService: Pulling changes at ${rootDir}`);
       try {
         await git.pull(rootDir);
+        // A pull can succeed and still leave conflicts: putting back stashed changes stops on them.
+        if (await openConflictsIfAny(rootDir)) return;
         await app.loadStatus(rootDir);
         await app.reloadTree(rootDir);
         app.notify("Pull Complete", "Successfully pulled remote updates.", "success");
       } catch (err: any) {
+        if (await openConflictsIfAny(rootDir)) return;
         console.error("Failed to pull changes:", err);
         app.notify("Pull Failed", errorMessage(err), "error");
         throw err;
@@ -223,12 +256,8 @@ export function createGitService(git: GitClient, app: GitApp): GitService {
         await app.reloadTree(rootDir);
         app.notify("Merge Complete", String(result) || `Merged ${branchName} into current.`, "success");
       } catch (err: any) {
-        const errMsg = errorMessage(err);
-        if (errMsg.includes("conflict") || errMsg.includes("CONFLICT")) {
-          app.notify("Merge Conflicts", "Merge conflicts detected. Resolve them and commit, or abort the merge.", "danger");
-        } else {
-          app.notify("Merge Failed", errMsg, "error");
-        }
+        if (await openConflictsIfAny(rootDir)) return;
+        app.notify("Merge Failed", errorMessage(err), "error");
         throw err;
       }
     },
@@ -241,12 +270,8 @@ export function createGitService(git: GitClient, app: GitApp): GitService {
         await app.reloadTree(rootDir);
         app.notify("Rebase Complete", String(result) || `Rebased onto ${branchName}.`, "success");
       } catch (err: any) {
-        const errMsg = errorMessage(err);
-        if (errMsg.includes("conflict") || errMsg.includes("CONFLICT")) {
-          app.notify("Rebase Conflicts", "Conflicts detected. Resolve them and continue, or abort rebase.", "danger");
-        } else {
-          app.notify("Rebase Failed", errMsg, "error");
-        }
+        if (await openConflictsIfAny(rootDir)) return;
+        app.notify("Rebase Failed", errorMessage(err), "error");
         throw err;
       }
     },
@@ -254,16 +279,56 @@ export function createGitService(git: GitClient, app: GitApp): GitService {
     async abortPending(rootDir) {
       console.log(`GitService: Aborting pending merge/rebase`);
       try {
-        try {
-          await git.abortPending(rootDir, "rebase");
-        } catch {
-          await git.abortPending(rootDir, "merge");
+        const { operation } = await git.conflictState(rootDir);
+        if (!operation) {
+          app.notify("Nothing to Abort", "No merge or rebase is in progress.", "info");
+          return;
         }
+        await git.abortPending(rootDir, operation);
         await app.loadStatus(rootDir);
         await app.reloadTree(rootDir);
-        app.notify("Operation Aborted", "Aborted pending conflict operation.", "success");
+        app.notify(`${operationLabel(operation)} Aborted`, "The repository is back to how it was before.", "success");
       } catch (err: any) {
         app.notify("Abort Failed", errorMessage(err), "error");
+        throw err;
+      }
+    },
+
+    async resolveConflict(rootDir, filePath, content) {
+      try {
+        await git.resolveConflict(rootDir, filePath, content);
+        await app.loadStatus(rootDir);
+      } catch (err: any) {
+        app.notify("Resolve Failed", errorMessage(err), "error");
+        throw err;
+      }
+    },
+
+    async resolveConflictSide(rootDir, filePath, side) {
+      try {
+        await git.resolveConflictSide(rootDir, filePath, side);
+        await app.loadStatus(rootDir);
+        await app.reloadTree(rootDir);
+      } catch (err: any) {
+        app.notify("Resolve Failed", errorMessage(err), "error");
+        throw err;
+      }
+    },
+
+    async completePending(rootDir) {
+      const { operation } = await git.conflictState(rootDir);
+      const label = operationLabel(operation);
+      try {
+        await git.completePending(rootDir);
+        // A rebase stops again at the next commit that conflicts.
+        if (await openConflictsIfAny(rootDir)) return;
+        await app.loadStatus(rootDir);
+        await app.reloadTree(rootDir);
+        app.notify(`${label} Complete`, "All conflicts are resolved.", "success");
+      } catch (err: any) {
+        if (await openConflictsIfAny(rootDir)) return;
+        await app.loadStatus(rootDir);
+        app.notify(`${label} Failed`, errorMessage(err), "error");
         throw err;
       }
     },

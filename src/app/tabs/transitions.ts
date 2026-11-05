@@ -34,26 +34,18 @@ export function initialTabs(hasSeenOnboarding = false): { tabs: TabInstance[]; a
   return { tabs: [workspace], activeTabId: workspace.id };
 }
 
-/**
- * Opening a workspace replaces the whole strip with a fresh canvas and an Agent
- * tab, with the Agent active so the app opens ready to chat.
- */
-export function tabsAfterWorkspaceChange(canvasId = "canvas"): {
+/** Opening a workspace starts with an Agent tab ready to chat. */
+export function tabsAfterWorkspaceChange(): {
   tabs: TabInstance[];
   activeTabId: string;
   dropped: TabInstance[];
 } {
-  const canvas = getTabPolicy("canvas").create({ type: "canvas", title: "Rusty" }, canvasId, {
+  const agent = getTabPolicy("agent").create({ type: "agent" }, "agent", {
     rootPath: "",
     existingIds: [],
     existingCanvasIds: [],
   });
-  const agent = getTabPolicy("agent").create({ type: "agent" }, "agent", {
-    rootPath: "",
-    existingIds: [canvas.id],
-    existingCanvasIds: [canvas.id],
-  });
-  return { tabs: [canvas, agent], activeTabId: agent.id, dropped: [] };
+  return { tabs: [agent], activeTabId: agent.id, dropped: [] };
 }
 
 /**

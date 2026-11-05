@@ -21,6 +21,7 @@ vi.mock("../../../store", () => {
   return { useWorkspaceStore };
 });
 vi.mock("@tauri-apps/api/core", () => ({ invoke: mocks.invoke }));
+vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 vi.mock("@monaco-editor/react", () => ({
   default: (props: any) => {
     mocks.editorProps.push(props);
@@ -134,6 +135,8 @@ describe("FileTab", () => {
   });
 
   afterEach(() => {
+    // A file still listed as open would keep its pending save across tests.
+    mocks.state.tabs = [];
     act(() => root.unmount());
     container.remove();
     vi.useRealTimers();
@@ -317,5 +320,134 @@ describe("FileTab", () => {
     act(() => buttonTitled("Open Git History of this File")!.click());
 
     expect(mocks.openTab).toHaveBeenCalledWith({ type: "git-history", path: TS_FILE.path, repoPath: "/workspace" });
+  });
+
+  describe("with two tabs of one file", () => {
+    const COPY: FileTabTab = { ...TS_FILE, id: "copy-1" };
+    const MD_FILE: FileTabTab = { ...TS_FILE, id: "md-1", path: "/workspace/README.md", title: "README.md" };
+    const MD_COPY: FileTabTab = { ...MD_FILE, id: "md-copy" };
+
+    async function renderTabs(...tabs: FileTabTab[]) {
+      mocks.state.tabs = tabs;
+      act(() => root.render(<>{tabs.map((tab) => <FileTab key={tab.id} tab={tab} isActive={true} />)}</>));
+      await flush();
+    }
+
+    /** The latest props of the editor each tab renders, in tab order. */
+    const editors = (count: number) => mocks.editorProps.slice(-count);
+
+    it("shows text typed in one tab in the other, with no editor of its own", async () => {
+      await renderTabs(MD_FILE, MD_COPY);
+      expect(container.querySelectorAll('[data-testid="markdown"]')).toHaveLength(2);
+      const [sourceToggle] = container.querySelectorAll<HTMLButtonElement>('button[title="Edit Markdown source"]');
+      act(() => sourceToggle.click());
+
+      act(() => editorProps().onChange("# Typed in the source"));
+
+      expect(byTestId("markdown")?.textContent).toBe("# Typed in the source");
+    });
+
+    it("writes each edit once, though both editors report it", async () => {
+      await renderTabs(TS_FILE, COPY);
+      vi.useFakeTimers();
+
+      act(() => {
+        for (const props of editors(2)) props.onChange("const a = 2;\n");
+      });
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(mocks.invoke.mock.calls.filter(([command]) => command === "write_file_disk")).toHaveLength(1);
+    });
+
+    it("still saves the edit when the tab it was typed in closes", async () => {
+      await renderTabs(TS_FILE, COPY);
+      vi.useFakeTimers();
+      act(() => editors(2)[0].onChange("const a = 2;\n"));
+
+      mocks.state.tabs = [COPY];
+      act(() => root.render(<FileTab key={COPY.id} tab={COPY} isActive={true} />));
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(mocks.invoke).toHaveBeenCalledWith("write_file_disk", { path: TS_FILE.path, content: "const a = 2;\n" });
+    });
+
+    it("drops the pending save once the last tab of the file closes, as a single tab does", async () => {
+      await renderTabs(TS_FILE);
+      vi.useFakeTimers();
+      act(() => editorProps().onChange("const a = 2;\n"));
+
+      mocks.state.tabs = [];
+      act(() => root.render(<></>));
+      act(() => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(mocks.invoke.mock.calls.filter(([command]) => command === "write_file_disk")).toHaveLength(0);
+    });
+
+    it("opens a second tab on text that has not reached the disk yet", async () => {
+      await renderTabs(TS_FILE);
+      act(() => editorProps().onChange("const typed = true;\n"));
+
+      await renderTabs(TS_FILE, COPY);
+
+      expect(editorProps().value).toBe("const typed = true;\n");
+    });
+
+    it("gives a read-only editor no value to write into the shared model", async () => {
+      commands.check_file_open_safety = { kind: "too_large", size_bytes: 5000 };
+      await renderTab(TS_FILE);
+
+      expect(editorProps().value).toBeUndefined();
+      expect(editorProps().defaultValue).toBe("const a = 1;\n");
+
+      act(() => buttonNamed("Load anyway (editable)")!.click());
+
+      expect(editorProps().value).toBe("const a = 1;\n");
+    });
+
+    it("keeps the shared Monaco model until the last tab of the file closes", async () => {
+      const model = { dispose: vi.fn(), isDisposed: () => false, getEOL: () => "\n", getValue: () => "const a = 1;\n" };
+      vi.stubGlobal("monaco", { editor: { getModel: () => model }, Uri: { parse: (uri: string) => uri } });
+      await renderTabs(TS_FILE, COPY);
+      vi.useFakeTimers();
+
+      mocks.state.tabs = [COPY];
+      act(() => root.render(<FileTab key={COPY.id} tab={COPY} isActive={true} />));
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(model.dispose).not.toHaveBeenCalled();
+
+      mocks.state.tabs = [];
+      act(() => root.render(<></>));
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(model.dispose).toHaveBeenCalledTimes(1);
+    });
+
+    it("moves the keyboard only to the active tab when arriving at a line", async () => {
+      mocks.state.activeTabId = COPY.id;
+      await renderTabs({ ...TS_FILE, line: 4 }, { ...COPY, line: 4 });
+      vi.useFakeTimers();
+      const [original, copy] = [fakeEditor(), fakeEditor()];
+      const [originalProps, copyProps] = editors(2);
+
+      act(() => {
+        originalProps.onMount(original, { KeyMod: { CtrlCmd: 2048 }, KeyCode: { Enter: 3 } });
+        copyProps.onMount(copy, { KeyMod: { CtrlCmd: 2048 }, KeyCode: { Enter: 3 } });
+        vi.advanceTimersByTime(50);
+      });
+
+      expect(original.setPosition).toHaveBeenCalled();
+      expect(original.focus).not.toHaveBeenCalled();
+      expect(copy.focus).toHaveBeenCalled();
+      delete mocks.state.activeTabId;
+    });
   });
 });

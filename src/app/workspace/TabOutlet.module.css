@@ -12,6 +12,47 @@
   overflow: hidden;
 }
 
+.split {
+  display: flex;
+}
+
+/* The left side's flex-basis comes from the divider; the right takes the rest. */
+.pane {
+  position: relative;
+  height: 100%;
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+/* Above the editor's own surfaces, and never in the way of a click. */
+.paneFocused::after {
+  position: absolute;
+  z-index: 30;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: var(--color-primary);
+  content: "";
+  pointer-events: none;
+}
+
+.divider {
+  flex: 0 0 6px;
+  order: 1;
+  border-inline: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sidebar);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.divider:hover,
+.divider:focus-visible {
+  background: var(--color-border-focus);
+  outline: none;
+}
+
 /* Kept-mounted-but-inactive panels are parked off-screen: they keep DOM,
    sockets and editor state alive without being visible. */
 .parked {

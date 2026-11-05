@@ -16,6 +16,7 @@ import {
   canvasTabIdentity,
   fileTabIdentity,
   gitDiffTabIdentity,
+  gitMergeTabIdentity,
   gitHistoryTabIdentity,
   nextCanvasId,
   resolveAgainstRoot,
@@ -137,6 +138,7 @@ const file: TabPolicy<"file"> = {
   },
   keepAlive: "active-only",
   closable: true,
+  duplicable: true,
 };
 
 const canvas: TabPolicy<"canvas"> = {
@@ -265,6 +267,28 @@ const gitDiff: TabPolicy<"git-diff"> = {
   closable: true,
 };
 
+const gitMerge: TabPolicy<"git-merge"> = {
+  type: "git-merge",
+  uniqueness: "resource",
+  getIdentity: (request, ctx) => gitMergeTabIdentity(request.repoPath ?? ctx.rootPath),
+  label: (request) => (request.repoPath ? `Conflicts: ${basename(request.repoPath)}` : "Conflicts"),
+  create: (request, id, ctx) => ({
+    id,
+    type: "git-merge",
+    title: request.title ?? gitMerge.label({ ...request, repoPath: request.repoPath ?? ctx.rootPath }),
+    status: "idle",
+    dirty: false,
+    repoPath: canonicalizeFilePath(request.repoPath ?? ctx.rootPath),
+    path: request.path ? canonicalizeFilePath(request.path) : undefined,
+  }),
+  // Reopening from a conflicted file's row goes to that file.
+  merge: (existing, request) =>
+    request.path ? { ...existing, path: canonicalizeFilePath(request.path) } : existing,
+  // Keeps the merge decisions made so far while the user reads another tab.
+  keepAlive: "always",
+  closable: true,
+};
+
 export const TAB_POLICIES: TabPolicyTable = {
   onboarding: singleton("onboarding", "Welcome to Rusty"),
   workspace: singleton("workspace", "Workspaces"),
@@ -285,6 +309,7 @@ export const TAB_POLICIES: TabPolicyTable = {
   task,
   "git-history": gitHistory,
   "git-diff": gitDiff,
+  "git-merge": gitMerge,
 };
 
 export function getTabPolicy<K extends TabType>(type: K): TabPolicy<K> {

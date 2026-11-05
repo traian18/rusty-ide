@@ -108,8 +108,7 @@
 
 .explorerContent {
   height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: auto;
   padding: var(--space-4);
 }
 

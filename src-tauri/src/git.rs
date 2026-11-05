@@ -9,7 +9,7 @@ pub struct GitFileStatus {
     pub path: String,
     /// The filename (basename).
     pub name: String,
-    /// The modification category: "modified", "added", "deleted", or "untracked".
+    /// The modification category: "modified", "added", "deleted", "untracked" or "conflicted".
     pub status_type: String,
 }
 
@@ -24,6 +24,10 @@ pub struct GitStatusResult {
     pub staged: Vec<GitFileStatus>,
     /// Files that are modified or untracked in the working tree.
     pub unstaged: Vec<GitFileStatus>,
+    /// Files git could not merge; they are in neither list above.
+    pub conflicted: Vec<GitFileStatus>,
+    /// The merge, rebase, cherry-pick or revert in progress, if any.
+    pub pending_operation: Option<String>,
 }
 
 /// Details from a Rusty smart branch switch. `stashed` refers to the branch
@@ -400,6 +404,8 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
             current_branch: "".into(),
             staged: Vec::new(),
             unstaged: Vec::new(),
+            conflicted: Vec::new(),
+            pending_operation: None,
         });
     }
 
@@ -423,13 +429,15 @@ pub async fn git_status(root_dir: String) -> Result<GitStatusResult, GitError> {
         .map_err(|e| GitError::local("git_status", &root_dir, format!("Failed to run git: {e}")))?;
 
     let raw = String::from_utf8_lossy(&status_output.stdout).into_owned();
-    let (staged, unstaged) = parse_status_z(&raw, root_path);
+    let (staged, unstaged, conflicted) = parse_status_z(&raw, root_path);
 
     Ok(GitStatusResult {
         is_repo: true,
         current_branch,
         staged,
         unstaged,
+        conflicted,
+        pending_operation: conflicts::pending_operation(&root_dir).map(str::to_string),
     })
 }
 
@@ -494,16 +502,20 @@ fn file_status(root_path: &Path, path: &str, status_type: &str) -> GitFileStatus
 }
 
 /// Parses `git status --porcelain=v1 -u -z`'s raw NUL-delimited stdout into
-/// (staged, unstaged) file lists. A pure function so the record format
+/// (staged, unstaged, conflicted) file lists. A pure function so the record format
 /// (including the rename/copy extra-field case, which is straightforward
 /// to get wrong and awkward to reliably trigger through git's own
 /// heuristics in a hermetic fixture -- copy detection in particular is
 /// config/heuristic-gated and did not reproduce even with
 /// `status.renames=copies` set, verified directly) is unit-testable
 /// against hand-built byte sequences, not just real git fixtures.
-fn parse_status_z(raw: &str, root_path: &Path) -> (Vec<GitFileStatus>, Vec<GitFileStatus>) {
+fn parse_status_z(
+    raw: &str,
+    root_path: &Path,
+) -> (Vec<GitFileStatus>, Vec<GitFileStatus>, Vec<GitFileStatus>) {
     let mut staged = Vec::new();
     let mut unstaged = Vec::new();
+    let mut conflicted = Vec::new();
 
     let mut fields = raw.split('\0').filter(|f| !f.is_empty());
     while let Some(record) = fields.next() {
@@ -530,6 +542,11 @@ fn parse_status_z(raw: &str, root_path: &Path) -> (Vec<GitFileStatus>, Vec<GitFi
             continue;
         }
 
+        if conflicts::is_unmerged_code(x, y) {
+            conflicted.push(conflicts::conflicted_status(root_path, path));
+            continue;
+        }
+
         // Process staged changes (X represents the index state)
         if x != ' ' {
             staged.push(file_status(root_path, path, index_status_type(x)));
@@ -541,7 +558,7 @@ fn parse_status_z(raw: &str, root_path: &Path) -> (Vec<GitFileStatus>, Vec<GitFi
         }
     }
 
-    (staged, unstaged)
+    (staged, unstaged, conflicted)
 }
 
 /// Initializes a new Git repository in the specified directory path.
@@ -898,6 +915,8 @@ pub async fn git_rebase_branch(root_dir: String, branch_name: String) -> Result<
 pub async fn git_abort_pending(root_dir: String, operation: String) -> Result<(), GitError> {
     let op = match operation.as_str() {
         "rebase" => "rebase",
+        "cherry-pick" => "cherry-pick",
+        "revert" => "revert",
         _ => "merge",
     };
     run_git(&root_dir, "git_abort_pending", &[op, "--abort"])?;
@@ -970,10 +989,27 @@ pub async fn git_get_index_content(
     }
 }
 
+/// Whether the repository says how `git pull` reconciles diverged branches
+/// by rebasing or merging, in which case that choice stands.
+fn pull_strategy_is_configured(root_dir: &str) -> bool {
+    let branch_key = format!("branch.{}.rebase", status_branch_name(root_dir));
+    git_succeeds(root_dir, &["config", "--get", "pull.rebase"])
+        || git_succeeds(root_dir, &["config", "--get", &branch_key])
+}
+
 /// Pulls remote commits from the upstream repository into the active branch.
+/// Plain `git pull` refuses as soon as local and remote commits have diverged
+/// unless a strategy is configured, even when they touch different files, so
+/// it merges by default: a merge rewrites no commits and each conflict comes
+/// up once. Uncommitted changes are stashed around it instead of blocking it.
+/// A failure with conflicts leaves the merge in progress for the merge window.
 #[tauri::command]
 pub async fn git_pull(root_dir: String) -> Result<(), GitError> {
-    run_git(&root_dir, "git_pull", &["pull"])?;
+    let mut args = vec!["pull", "--autostash", "--no-edit"];
+    if !pull_strategy_is_configured(&root_dir) {
+        args.push("--no-rebase");
+    }
+    run_git(&root_dir, "git_pull", &args)?;
     Ok(())
 }
 
@@ -1936,6 +1972,7 @@ pub async fn git_submodule_sync(root_dir: String, submodule_path: String) -> Res
 // already stages a changed gitlink correctly, the same way it stages an
 // ordinary modified file. PR 5b's gitlink-staging UI reuses git_stage_file.
 
+pub mod conflicts;
 #[cfg(test)]
 mod fixtures;
 #[cfg(test)]

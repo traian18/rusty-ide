@@ -1,7 +1,7 @@
 {
   "name": "rusty-ide",
   "private": true,
-  "version": "0.1.66",
+  "version": "0.1.67",
   "type": "module",
   "engines": {
     "node": ">=22.12"
@@ -22,6 +22,7 @@
     "preverify": "npm run build:sdk",
     "verify": "npm run typecheck:test && npm run theme:check && npm run test && npm run build && npm run test:rust",
     "theme:check": "node scripts/check-theme-usage.mjs",
+    "docs:index": "node scripts/generate-docs-index.mjs",
     "icons:generate": "tauri icon public/rusty-dark.png && node scripts/prune-mobile-icons.mjs",
     "build:sdk": "npm --prefix ../rusty-core/sdk/typescript run build",
     "preview": "vite preview",

@@ -18,12 +18,14 @@ export interface GitState {
 const WARNING = "text-[var(--color-status-warning)]";
 const SUCCESS = "text-[var(--color-status-success)]";
 const INFO = "text-[var(--color-status-info)]";
+const DANGER = "text-[var(--color-status-danger)]";
 
 export function getGitState(node: Pick<FileEntry, "path" | "is_dir">, status: GitStatusResult | null | undefined): GitState | null {
   if (!status) return null;
 
   if (node.is_dir) {
     const inside = (file: { path: string }) => file.path.startsWith(`${node.path}/`);
+    if (status.conflicted.some(inside)) return { colorClass: DANGER, char: "•", label: "Merge conflicts inside" };
     const hasUnstaged = status.unstaged.some(inside);
     const hasStaged = status.staged.some(inside);
     if (hasUnstaged && hasStaged) return { colorClass: WARNING, char: "•", label: "Modified & Staged contents" };
@@ -37,6 +39,9 @@ export function getGitState(node: Pick<FileEntry, "path" | "is_dir">, status: Gi
     return null;
   }
 
+  if (status.conflicted.some((file) => file.path === node.path)) {
+    return { colorClass: `${DANGER} font-bold`, char: "!", label: "Merge conflict" };
+  }
   const staged = status.staged.find((file) => file.path === node.path);
   const unstaged = status.unstaged.find((file) => file.path === node.path);
   if (staged && unstaged) return { colorClass: `${WARNING} font-bold`, char: "M", label: "Staged & Modified" };

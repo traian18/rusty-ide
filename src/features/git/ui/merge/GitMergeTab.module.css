@@ -1,0 +1,329 @@
+.tab {
+  display: flex;
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-surface-app);
+  color: var(--color-fg-default);
+  font-size: var(--font-size-ui-xs);
+}
+
+.bar,
+.fileBar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border-subtle);
+  padding: var(--space-1) var(--space-3);
+}
+
+.bar {
+  background: var(--color-surface-header);
+}
+
+.barIcon {
+  flex-shrink: 0;
+  color: var(--color-status-warning);
+}
+
+.barTitle {
+  overflow: hidden;
+  color: var(--color-fg-default);
+  font-size: var(--font-size-ui-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.barTitle strong {
+  color: var(--color-fg-strong);
+  font-weight: 600;
+}
+
+.barSpacer {
+  flex: 1;
+}
+
+.countOpen,
+.countDone {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.countOpen {
+  color: var(--color-status-warning);
+}
+
+.countDone {
+  color: var(--color-status-success);
+}
+
+.body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+.files {
+  display: flex;
+  width: 13rem;
+  flex-shrink: 0;
+  flex-direction: column;
+  gap: 1px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+  padding: var(--space-1);
+}
+
+.file,
+.fileActive {
+  display: flex;
+  min-width: 0;
+  flex-shrink: 0;
+  align-items: center;
+  gap: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-fg-default);
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.file:hover {
+  background: var(--color-surface-header);
+}
+
+.fileActive {
+  background: var(--color-surface-header);
+  color: var(--color-fg-strong);
+  box-shadow: inset 2px 0 0 var(--color-status-warning);
+}
+
+.file:focus-visible,
+.fileActive:focus-visible {
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: -1px;
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--color-status-warning);
+}
+
+.fileName {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileDir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.merge {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.filePath {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-fg-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fileCount {
+  flex-shrink: 0;
+  color: var(--color-fg-muted);
+  white-space: nowrap;
+}
+
+.notice {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-status-info-border);
+  background: var(--color-status-info-bg);
+  padding: var(--space-1) var(--space-3);
+}
+
+.paneHeads,
+.panes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, 1fr);
+}
+
+.paneHeads {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-sunken);
+}
+
+.paneHead {
+  overflow: hidden;
+  color: var(--color-fg-muted);
+  padding: var(--space-1) var(--space-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panes {
+  min-height: 0;
+  flex: 1;
+}
+
+.pane,
+.paneResult {
+  min-width: 0;
+  min-height: 0;
+}
+
+.paneResult {
+  border-right: 1px solid var(--color-border-subtle);
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.lineConflict {
+  background: var(--color-status-danger-bg);
+}
+
+.lineResolved,
+.lineChosen {
+  background: var(--color-status-success-bg);
+}
+
+.lineLocal,
+.lineIncoming {
+  background: var(--color-status-info-bg);
+}
+
+.lineSame {
+  background: var(--color-surface-sunken);
+}
+
+.lineDropped {
+  opacity: 0.45;
+}
+
+/* Monaco's text layer covers its view zones; the conflict buttons live in them. */
+.panes :global(.view-zones) {
+  z-index: 1;
+}
+
+.zonePadding {
+  width: 100%;
+  height: 100%;
+}
+
+.zoneRow,
+.zoneRowDone {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-ui-xs);
+}
+
+.zoneRow {
+  background: var(--color-status-danger-bg);
+}
+
+.zoneRowDone {
+  background: var(--color-surface-sunken);
+}
+
+.zoneLabel {
+  color: var(--color-fg-muted);
+}
+
+.zoneButton {
+  border: 0;
+  background: transparent;
+  color: var(--color-fg-strong);
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.zoneButton:hover {
+  color: var(--color-status-info);
+}
+
+.zoneButton:focus-visible {
+  outline: 1px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  color: var(--color-fg-muted);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.doneIcon {
+  color: var(--color-status-success);
+}
+
+.whole {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  text-align: center;
+}
+
+.wholePath {
+  color: var(--color-fg-strong);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 600;
+}
+
+.wholeText {
+  max-width: 28rem;
+  margin: 0;
+  color: var(--color-fg-muted);
+}
+
+.wholeActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}

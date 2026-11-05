@@ -104,6 +104,7 @@ import { SPEC_TASKS_CHECK_TOOL, specTasksCheckTool } from "./specTasksCheckTool"
 import { activeSpecBrief } from "../../../features/specs";
 import { REPO_CONTEXT_GUIDE, REPO_CONTEXT_TOOL, repoContextTool } from "./repoContextTool";
 import { REPO_WIKI_GUIDE, REPO_WIKI_TOOL, repoWikiTool } from "./repoWikiTool";
+import { RUSTY_DOCS_GUIDE, RUSTY_DOCS_TOOL, rustyDocsTool } from "./rustyDocsTool";
 import { INSTALL_DEPENDENCIES_TOOL, RUN_CHECK_TOOL, installDependenciesTool, runCheckTool } from "./runCheckTool";
 import { EDIT_FILE_TOOL, LIST_FILES_TOOL, OPEN_DOCUMENT_TOOL, READ_FILE_TOOL, SEARCH_CODEBASE_TOOL, WRITE_FILE_TOOL, editTool, grantedToolName, listFilesTool, openDocumentTool, readTool, searchCodebaseTool, writeTool } from "./exploreTools";
 import { flattenHistory, workingSetFor } from "./promptHistory";
@@ -117,9 +118,7 @@ import { UPDATE_TODOS_GUIDE, UPDATE_TODOS_TOOL, chatTodoScope, openTodosReminder
 import { AUTO_DECIDE, isAutoMode } from "../../autoMode";
 
 function asMcpServerConfigs(value: unknown): McpServerConfig[] {
-  return Array.isArray(value)
-    ? value.filter((v): v is McpServerConfig => !!v && typeof v === "object" && typeof (v as McpServerConfig).name === "string")
-    : [];
+  return Array.isArray(value) ? value.filter((v): v is McpServerConfig => !!v && typeof v === "object" && typeof (v as McpServerConfig).name === "string") : [];
 }
 
 interface SkillLike {
@@ -289,6 +288,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   repo_context: REPO_CONTEXT_GUIDE,
   repo_wiki: REPO_WIKI_GUIDE,
   spec_context: SPEC_CONTEXT_GUIDE,
+  rusty_docs: RUSTY_DOCS_GUIDE,
   ...REPO_AGENT_GUIDES,
   report_progress: "- 'report_progress': Publish a brief progress update and the action you take next; then take it.",
   update_todos: UPDATE_TODOS_GUIDE,
@@ -607,7 +607,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
       throw new Error(`CoreHarness: agent_chat cannot run on core -- ${mapped.reason}`);
     }
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly), workflow: Boolean(input.workflow) };
-    const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : []), ...(plansTasks(input) ? [SPEC_TASKS_CHECK_TOOL] : [])];
+    const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : [RUSTY_DOCS_TOOL]), ...(plansTasks(input) ? [SPEC_TASKS_CHECK_TOOL] : [])];
     const mcpConfigs = asMcpServerConfigs(input.mcpServers);
     const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
     for (const { reason } of skipped) console.warn(`[agent_chat] ${reason}`);
@@ -700,7 +700,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     if (input.workflow) {
       const data = input.workflow.input as { conversation?: unknown; context?: unknown };
       handlers.read_workflow_context = workflowContextTool(data.conversation ?? input.chatHistory, data.context, () => ctx.scratch.trimmedHandoffs);
-    }
+    } else handlers.rusty_docs = rustyDocsTool();
     handlers.repo_context = repoContextTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.repo_wiki = repoWikiTool(input.workspaceRoot, input.repositoryContext?.activeRepository);
     handlers.spec_context = specContextTool(input.workspaceRoot);

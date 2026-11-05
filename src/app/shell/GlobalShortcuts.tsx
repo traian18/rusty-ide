@@ -69,7 +69,7 @@ export const GlobalShortcuts: React.FC = () => {
         return;
       }
 
-      const { keyboardShortcuts, activeTabId, setSearchOpen, toggleDrawerView } =
+      const { keyboardShortcuts, activeTabId, setSearchOpen, toggleDrawerView, toggleSplit } =
         useWorkspaceStore.getState();
 
       if (matchesShortcut(e, keyboardShortcuts.closeActiveTab)) {
@@ -82,6 +82,10 @@ export const GlobalShortcuts: React.FC = () => {
           // too. They did not before.
           requestCloseTab(activeTabId);
         }
+      } else if (matchesShortcut(e, keyboardShortcuts.toggleSplit)) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleSplit();
       } else if (matchesShortcut(e, keyboardShortcuts.openSearch)) {
         e.preventDefault();
         e.stopPropagation();

@@ -3,11 +3,18 @@ import type { GitFileStatus, GitStatusResult } from "../../store/types";
 import { getGitState } from "./fileTreeGitState";
 
 const entry = (path: string, status_type: GitFileStatus["status_type"]): GitFileStatus => ({ path, name: path.split("/").pop()!, status_type });
-const status = (staged: GitFileStatus[], unstaged: GitFileStatus[]): GitStatusResult => ({ isRepo: true, currentBranch: "main", staged, unstaged });
+const status = (staged: GitFileStatus[], unstaged: GitFileStatus[], conflicted: GitFileStatus[] = []): GitStatusResult => ({ isRepo: true, currentBranch: "main", staged, unstaged, conflicted, pendingOperation: null });
 const fileNode = (path: string) => ({ path, is_dir: false });
 const dirNode = (path: string) => ({ path, is_dir: true });
 
 describe("getGitState", () => {
+  it("marks a conflicted file and the folders above it", () => {
+    const conflicted = status([], [], [entry("/ws/src/a.ts", "conflicted")]);
+    expect(getGitState(fileNode("/ws/src/a.ts"), conflicted)?.char).toBe("!");
+    expect(getGitState(dirNode("/ws/src"), conflicted)?.label).toBe("Merge conflicts inside");
+    expect(getGitState(dirNode("/ws/lib"), conflicted)).toBeNull();
+  });
+
   it("returns null without a status or when the entry is clean", () => {
     expect(getGitState(fileNode("/ws/a.ts"), null)).toBeNull();
     expect(getGitState(fileNode("/ws/a.ts"), status([], []))).toBeNull();

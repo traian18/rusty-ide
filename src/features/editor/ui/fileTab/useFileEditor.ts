@@ -1,7 +1,8 @@
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { noteCursor, noteMountedEditor, registerEditor, unregisterEditor } from "../../../../app/navigation/navigationHistory";
 import { useWorkspaceStore } from "../../../../store";
-import type { FileLocation, FileTabData } from "./fileLocation";
+import { staysOpen, type FileLocation, type FileTabData } from "./fileLocation";
+import { fileModel } from "./fileTextChannel";
 import type { AutoSave } from "./useAutoSave";
 import type { DefinitionLookup } from "./useDefinitionLookup";
 import type { GitBlame } from "./useGitBlame";
@@ -26,22 +27,21 @@ function locationOf(tab: FileTabData, position: { lineNumber: number; column: nu
   return { path: tab.path, vfsTabId: tab.vfsTabId, line: position.lineNumber, column: position.column };
 }
 
-function scrollToLine(editor: any, lineNum: number): void {
+/** Scrolls to a line. Only the active tab takes the keyboard: the other side of
+ * a split arrives at its line without focus, which would make it the active tab. */
+function scrollToLine(editor: any, lineNum: number, tabId: string): void {
   if (!editor || !lineNum) return;
   editor.revealLineInCenter(lineNum);
   editor.setPosition({ lineNumber: lineNum, column: 1 });
-  editor.focus();
+  if (useWorkspaceStore.getState().activeTabId === tabId) editor.focus();
 }
 
-/** Disposes the file's Monaco model on the next tick, unless the tab is
- * still open (moving a tab between panes keeps its model). */
+/** Disposes the file's Monaco model on the next tick, unless the tab is still
+ * open (a hidden tab keeps its model) or another tab shows the same file. */
 function disposeModelWhenClosed(modelUri: string, tabId: string): void {
   window.setTimeout(() => {
-    const monaco = (window as any).monaco;
-    if (!monaco) return;
-    const model = monaco.editor.getModel(monaco.Uri.parse(modelUri));
-    const stillOpenElsewhere = useWorkspaceStore.getState().tabs.some((t) => t.type === "file" && t.id === tabId);
-    if (model && !model.isDisposed?.() && !stillOpenElsewhere) model.dispose();
+    const model = fileModel(modelUri);
+    if (model && !model.isDisposed?.() && !staysOpen(tabId, modelUri)) model.dispose();
   }, 0);
 }
 
@@ -69,7 +69,7 @@ export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEdito
   useEffect(() => () => unregisterEditor(tab.id, editorRef.current), [tab.id]);
 
   useEffect(() => {
-    if (editorRef.current && tab.line) scrollToLine(editorRef.current, tab.line);
+    if (editorRef.current && tab.line) scrollToLine(editorRef.current, tab.line, tab.id);
   }, [tab.line]);
 
   useEffect(() => {
@@ -104,7 +104,7 @@ export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEdito
 
     setTimeout(() => {
       editor.layout();
-      if (tab.line) scrollToLine(editor, tab.line);
+      if (tab.line) scrollToLine(editor, tab.line, tab.id);
     }, 50);
   };
 }

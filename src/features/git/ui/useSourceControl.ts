@@ -86,7 +86,7 @@ export function useSourceControl() {
     (file) => file.status_type === "untracked",
   );
   const totalChanges =
-    (gitStatus?.staged.length || 0) + unstagedList.length;
+    (gitStatus?.staged.length || 0) + unstagedList.length + (gitStatus?.conflicted.length || 0);
 
   // ── Effects ────────────────────────────────────────────────
 

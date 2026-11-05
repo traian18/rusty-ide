@@ -580,7 +580,7 @@ fn parse_status_z_reads_a_copy_records_new_path_not_its_extra_old_path_field() {
     let root = std::path::Path::new("/repo");
     let raw = "C  new-copy.txt\0source.txt\0";
 
-    let (staged, unstaged) = parse_status_z(raw, root);
+    let (staged, unstaged, _) = parse_status_z(raw, root);
 
     assert_eq!(unstaged.len(), 0);
     assert_eq!(staged.len(), 1);
@@ -594,7 +594,7 @@ fn parse_status_z_does_not_let_a_renames_extra_field_bleed_into_the_next_record(
     let root = std::path::Path::new("/repo");
     let raw = "R  new.txt\0old.txt\0?? untracked.txt\0";
 
-    let (staged, unstaged) = parse_status_z(raw, root);
+    let (staged, unstaged, _) = parse_status_z(raw, root);
 
     assert_eq!(staged.len(), 1);
     assert_eq!(staged[0].name, "new.txt");
@@ -1297,4 +1297,418 @@ async fn git_discard_changes_reverts_tracked_edits_and_deletes_untracked_files()
         .await
         .unwrap_err();
     assert_eq!(error.message, "Failed to discard changes");
+}
+
+/// A local clone and a second one sharing its remote, with `shared.txt`
+/// committed and pushed. Commits from `upstream` reach `local` by pulling.
+fn diverging_clones() -> (GitFixture, GitFixture, GitFixture) {
+    let remote = GitFixture::init_bare();
+    let local = GitFixture::init();
+    local.commit_file("shared.txt", "one\ntwo\nthree\nfour\nfive\n", "initial");
+    local.git_ok(&["branch", "-M", "main"]);
+    local.git_ok(&["remote", "add", "origin", &remote.path_str()]);
+    local.git_ok(&["push", "--set-upstream", "origin", "main"]);
+    let upstream = GitFixture::init();
+    upstream.git_ok(&["remote", "add", "origin", &remote.path_str()]);
+    upstream.git_ok(&["fetch", "origin"]);
+    upstream.git_ok(&["checkout", "-B", "main", "--track", "origin/main"]);
+    (remote, local, upstream)
+}
+
+fn push_upstream_commit(upstream: &GitFixture, rel: &str, contents: &str) {
+    upstream.commit_file(rel, contents, "upstream change");
+    upstream.git_ok(&["push", "origin", "main"]);
+}
+
+#[tokio::test]
+async fn git_pull_merges_diverged_branches_that_touch_different_files() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("local-a.txt", "a\n", "local one");
+    local.commit_file("local-b.txt", "b\n", "local two");
+    push_upstream_commit(&upstream, "upstream.txt", "u\n");
+
+    git_pull(local.path_str()).await.unwrap();
+
+    assert_eq!(
+        local
+            .git_ok(&["rev-list", "--count", "HEAD@{u}..HEAD"])
+            .trim(),
+        "3"
+    );
+    assert!(local.path().join("upstream.txt").exists());
+    assert!(local.path().join("local-b.txt").exists());
+}
+
+#[tokio::test]
+async fn git_pull_keeps_uncommitted_changes_to_a_file_it_updates() {
+    let (_remote, local, upstream) = diverging_clones();
+    push_upstream_commit(&upstream, "shared.txt", "ONE\ntwo\nthree\nfour\nfive\n");
+    local.write("shared.txt", "one\ntwo\nthree\nfour\nFIVE\n");
+
+    git_pull(local.path_str()).await.unwrap();
+
+    let merged = std::fs::read_to_string(local.path().join("shared.txt")).unwrap();
+    assert_eq!(merged, "ONE\ntwo\nthree\nfour\nFIVE\n");
+    assert_eq!(local.git_ok(&["stash", "list"]), "");
+}
+
+#[tokio::test]
+async fn git_pull_follows_a_configured_rebase() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("local.txt", "l\n", "local");
+    push_upstream_commit(&upstream, "upstream.txt", "u\n");
+    local.git_ok(&["config", "pull.rebase", "true"]);
+
+    git_pull(local.path_str()).await.unwrap();
+
+    assert_eq!(
+        local
+            .git_ok(&["rev-list", "--merges", "--count", "HEAD"])
+            .trim(),
+        "0"
+    );
+    assert_eq!(local.git_ok(&["rev-list", "--count", "HEAD"]).trim(), "3");
+}
+
+/// `local` and `upstream` both rewrote the second line of `shared.txt`, and
+/// `local` pulled, so a merge is stopped on it.
+async fn pulled_into_a_conflict() -> (GitFixture, GitFixture, GitFixture) {
+    let (remote, local, upstream) = diverging_clones();
+    local.commit_file("shared.txt", "one\nLOCAL\nthree\nfour\nfive\n", "local");
+    push_upstream_commit(
+        &upstream,
+        "shared.txt",
+        "one\nINCOMING\nthree\nfour\nFIVE\n",
+    );
+    git_pull(local.path_str()).await.unwrap_err();
+    (remote, local, upstream)
+}
+
+#[tokio::test]
+async fn a_conflicted_pull_shows_up_in_status_and_nowhere_else() {
+    let (_remote, local, _upstream) = pulled_into_a_conflict().await;
+
+    let status = git_status(local.path_str()).await.unwrap();
+
+    assert_eq!(status.pending_operation.as_deref(), Some("merge"));
+    assert_eq!(status.conflicted.len(), 1);
+    assert_eq!(status.conflicted[0].name, "shared.txt");
+    assert_eq!(status.conflicted[0].status_type, "conflicted");
+    assert!(status.staged.iter().all(|file| file.name != "shared.txt"));
+    assert!(status.unstaged.iter().all(|file| file.name != "shared.txt"));
+}
+
+#[tokio::test]
+async fn a_conflict_reads_back_with_its_three_versions_and_each_sides_hunks() {
+    let (_remote, local, _upstream) = pulled_into_a_conflict().await;
+    let path = local
+        .path()
+        .join("shared.txt")
+        .to_string_lossy()
+        .into_owned();
+
+    let state = conflicts::git_conflict_state(local.path_str())
+        .await
+        .unwrap();
+    let file = conflicts::git_conflict_file(local.path_str(), path)
+        .await
+        .unwrap();
+
+    assert_eq!(state.operation.as_deref(), Some("merge"));
+    assert_eq!(state.local_label, "main");
+    assert_eq!(state.incoming_label, "origin/main");
+    assert_eq!(state.files[0].relative_path, "shared.txt");
+    assert_eq!(state.files[0].kind, "content");
+    assert_eq!(file.base.as_deref(), Some("one\ntwo\nthree\nfour\nfive\n"));
+    assert_eq!(
+        file.local.as_deref(),
+        Some("one\nLOCAL\nthree\nfour\nfive\n")
+    );
+    assert_eq!(
+        file.incoming.as_deref(),
+        Some("one\nINCOMING\nthree\nfour\nFIVE\n")
+    );
+    assert!(file.working.unwrap().contains("<<<<<<<"));
+    let changed = |hunk: &conflicts::GitLineHunk| (hunk.base_start, hunk.base_end);
+    assert_eq!(
+        file.local_hunks.iter().map(changed).collect::<Vec<_>>(),
+        vec![(1, 2)]
+    );
+    assert_eq!(
+        file.incoming_hunks.iter().map(changed).collect::<Vec<_>>(),
+        vec![(1, 2), (4, 5)]
+    );
+}
+
+#[tokio::test]
+async fn a_resolved_conflict_completes_the_merge_with_gits_own_message() {
+    let (_remote, local, _upstream) = pulled_into_a_conflict().await;
+    let path = local
+        .path()
+        .join("shared.txt")
+        .to_string_lossy()
+        .into_owned();
+
+    conflicts::git_resolve_conflict(
+        local.path_str(),
+        path,
+        "one\nBOTH\nthree\nfour\nFIVE\n".into(),
+    )
+    .await
+    .unwrap();
+    let resolved = git_status(local.path_str()).await.unwrap();
+    assert!(resolved.conflicted.is_empty());
+    assert_eq!(resolved.pending_operation.as_deref(), Some("merge"));
+
+    conflicts::git_complete_pending(local.path_str())
+        .await
+        .unwrap();
+
+    let done = git_status(local.path_str()).await.unwrap();
+    assert_eq!(done.pending_operation, None);
+    assert_eq!(
+        local
+            .git_ok(&["rev-list", "--merges", "--count", "HEAD"])
+            .trim(),
+        "1"
+    );
+    assert!(local
+        .git_ok(&["log", "-1", "--format=%s"])
+        .starts_with("Merge branch"));
+    assert_eq!(
+        std::fs::read_to_string(local.path().join("shared.txt")).unwrap(),
+        "one\nBOTH\nthree\nfour\nFIVE\n"
+    );
+}
+
+#[tokio::test]
+async fn aborting_a_conflicted_pull_restores_the_uncommitted_changes_it_stashed() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("shared.txt", "one\nLOCAL\nthree\nfour\nfive\n", "local");
+    local.commit_file("notes.txt", "wip\n", "notes");
+    local.write("notes.txt", "wip, uncommitted\n");
+    push_upstream_commit(
+        &upstream,
+        "shared.txt",
+        "one\nINCOMING\nthree\nfour\nfive\n",
+    );
+    git_pull(local.path_str()).await.unwrap_err();
+
+    git_abort_pending(local.path_str(), "merge".into())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(local.path().join("notes.txt")).unwrap(),
+        "wip, uncommitted\n"
+    );
+    assert_eq!(
+        git_status(local.path_str())
+            .await
+            .unwrap()
+            .pending_operation,
+        None
+    );
+}
+
+#[tokio::test]
+async fn a_rebase_calls_the_users_commit_local_and_keeps_it_when_chosen() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("shared.txt", "one\nLOCAL\nthree\nfour\nfive\n", "local");
+    push_upstream_commit(
+        &upstream,
+        "shared.txt",
+        "one\nINCOMING\nthree\nfour\nfive\n",
+    );
+    local.git_ok(&["config", "pull.rebase", "true"]);
+    git_pull(local.path_str()).await.unwrap_err();
+    let path = local
+        .path()
+        .join("shared.txt")
+        .to_string_lossy()
+        .into_owned();
+
+    let state = conflicts::git_conflict_state(local.path_str())
+        .await
+        .unwrap();
+    let file = conflicts::git_conflict_file(local.path_str(), path.clone())
+        .await
+        .unwrap();
+    assert_eq!(state.operation.as_deref(), Some("rebase"));
+    assert_eq!(state.local_label, "main");
+    assert_eq!(state.incoming_label, "origin/main");
+    assert_eq!(
+        file.local.as_deref(),
+        Some("one\nLOCAL\nthree\nfour\nfive\n")
+    );
+    assert_eq!(
+        file.incoming.as_deref(),
+        Some("one\nINCOMING\nthree\nfour\nfive\n")
+    );
+
+    conflicts::git_resolve_conflict_side(local.path_str(), path, "local".into())
+        .await
+        .unwrap();
+    conflicts::git_complete_pending(local.path_str())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        git_status(local.path_str())
+            .await
+            .unwrap()
+            .pending_operation,
+        None
+    );
+    assert_eq!(
+        std::fs::read_to_string(local.path().join("shared.txt")).unwrap(),
+        "one\nLOCAL\nthree\nfour\nfive\n"
+    );
+    assert_eq!(
+        local
+            .git_ok(&["rev-list", "--merges", "--count", "HEAD"])
+            .trim(),
+        "0"
+    );
+}
+
+#[tokio::test]
+async fn a_rebase_step_resolved_to_no_change_is_skipped() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("shared.txt", "one\nLOCAL\nthree\nfour\nfive\n", "local");
+    push_upstream_commit(
+        &upstream,
+        "shared.txt",
+        "one\nINCOMING\nthree\nfour\nfive\n",
+    );
+    local.git_ok(&["config", "pull.rebase", "true"]);
+    git_pull(local.path_str()).await.unwrap_err();
+    let path = local
+        .path()
+        .join("shared.txt")
+        .to_string_lossy()
+        .into_owned();
+
+    conflicts::git_resolve_conflict_side(local.path_str(), path, "incoming".into())
+        .await
+        .unwrap();
+    conflicts::git_complete_pending(local.path_str())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        git_status(local.path_str())
+            .await
+            .unwrap()
+            .pending_operation,
+        None
+    );
+    assert_eq!(
+        local.git_ok(&["rev-parse", "HEAD"]),
+        local.git_ok(&["rev-parse", "origin/main"])
+    );
+}
+
+#[tokio::test]
+async fn a_file_deleted_on_one_side_resolves_to_either_outcome() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("shared.txt", "one\nLOCAL\nthree\nfour\nfive\n", "local");
+    upstream.git_ok(&["rm", "shared.txt"]);
+    upstream.git_ok(&["commit", "-m", "remove"]);
+    upstream.git_ok(&["push", "origin", "main"]);
+    git_pull(local.path_str()).await.unwrap_err();
+    let path = local
+        .path()
+        .join("shared.txt")
+        .to_string_lossy()
+        .into_owned();
+
+    let state = conflicts::git_conflict_state(local.path_str())
+        .await
+        .unwrap();
+    assert_eq!(state.files[0].kind, "local-only");
+    let file = conflicts::git_conflict_file(local.path_str(), path.clone())
+        .await
+        .unwrap();
+    assert_eq!(file.incoming, None);
+    assert!(file.local_hunks.is_empty());
+
+    conflicts::git_resolve_conflict_side(local.path_str(), path, "incoming".into())
+        .await
+        .unwrap();
+
+    assert!(!local.path().join("shared.txt").exists());
+    assert!(git_status(local.path_str())
+        .await
+        .unwrap()
+        .conflicted
+        .is_empty());
+}
+
+#[tokio::test]
+async fn a_file_added_on_both_sides_compares_incoming_against_local() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("new.txt", "same\nlocal\n", "local");
+    push_upstream_commit(&upstream, "new.txt", "same\nincoming\n");
+    git_pull(local.path_str()).await.unwrap_err();
+    let path = local.path().join("new.txt").to_string_lossy().into_owned();
+
+    let file = conflicts::git_conflict_file(local.path_str(), path)
+        .await
+        .unwrap();
+
+    assert_eq!(file.base, None);
+    assert!(file.local_hunks.is_empty());
+    assert_eq!(file.incoming_hunks.len(), 1);
+    assert_eq!(
+        (
+            file.incoming_hunks[0].base_start,
+            file.incoming_hunks[0].base_end
+        ),
+        (1, 2)
+    );
+}
+
+#[tokio::test]
+async fn a_binary_conflict_is_only_offered_whole() {
+    let (_remote, local, upstream) = diverging_clones();
+    local.commit_file("logo.bin", "local\0bytes", "local");
+    push_upstream_commit(&upstream, "logo.bin", "incoming\0bytes");
+    git_pull(local.path_str()).await.unwrap_err();
+    let path = local.path().join("logo.bin").to_string_lossy().into_owned();
+
+    let file = conflicts::git_conflict_file(local.path_str(), path.clone())
+        .await
+        .unwrap();
+    assert!(file.binary);
+    assert_eq!(file.local, None);
+
+    conflicts::git_resolve_conflict_side(local.path_str(), path, "incoming".into())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        std::fs::read(local.path().join("logo.bin")).unwrap(),
+        b"incoming\0bytes"
+    );
+    assert!(git_status(local.path_str())
+        .await
+        .unwrap()
+        .conflicted
+        .is_empty());
+}
+
+#[tokio::test]
+async fn resolving_refuses_a_path_outside_the_repository() {
+    let (_remote, local, _upstream) = pulled_into_a_conflict().await;
+    let outside = local
+        .path()
+        .join("../escaped.txt")
+        .to_string_lossy()
+        .into_owned();
+
+    let result = conflicts::git_resolve_conflict(local.path_str(), outside, "x".into()).await;
+
+    assert!(result.is_err());
+    assert!(!local.path().join("../escaped.txt").exists());
 }

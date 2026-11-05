@@ -19,6 +19,12 @@ function mapGitStatusResult(result: any): GitStatusResult {
       name: file.name,
       status_type: file.status_type,
     })),
+    conflicted: (result.conflicted || []).map((file: any) => ({
+      path: file.path,
+      name: file.name,
+      status_type: file.status_type,
+    })),
+    pendingOperation: result.pending_operation ?? null,
   };
 }
 

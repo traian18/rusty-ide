@@ -2,8 +2,8 @@
 use std::collections::{BTreeSet, VecDeque};
 
 use rusty_findings::FindingKind;
-use rusty_repo_wiki::{facts::Facts, PageId};
 use rusty_repo_model::repository_intelligence::RootRelativePath;
+use rusty_repo_wiki::{facts::Facts, PageId};
 
 use super::{
     super::{entry::Entry, error::RepositoryError},

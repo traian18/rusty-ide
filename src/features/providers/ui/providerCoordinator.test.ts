@@ -637,6 +637,122 @@ describe("providerCoordinator", () => {
       expect(useWorkspaceStore.getState().providerStatus["github-copilot"]?.kind).toBe("unauthenticated");
     });
 
+    describe("the signed-out provider's models", () => {
+      const COPILOT_MODEL = { id: "github-copilot/gpt-5", remoteId: "gpt-5", name: "GPT-5" };
+      const CODEX_MODEL = { id: "openai-codex/gpt-6", remoteId: "gpt-6", name: "GPT-6" };
+      const provider = (id: string) => useWorkspaceStore.getState().customProviders.find((candidate) => candidate.id === id)!;
+
+      beforeEach(() => {
+        useWorkspaceStore.setState({
+          activeModel: COPILOT_MODEL.id,
+          customProviders: [
+            { ...MANAGED_PROVIDER_FIXTURE, models: [COPILOT_MODEL], modelsFetchedAt: "2026-11-01T00:00:00.000Z" },
+            { ...MANAGED_PROVIDER_FIXTURE_2, models: [CODEX_MODEL], modelsFetchedAt: "2026-11-01T00:00:00.000Z" },
+          ],
+        } as any);
+        vi.mocked(hybridControlPlane.logoutCopilot).mockResolvedValue(connectionStatus() as any);
+      });
+
+      it("leave the catalogue on sign-out, without waiting for the status check", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockReturnValue(new Promise(() => {}));
+
+        await logoutManaged(MANAGED_PROVIDER_FIXTURE as any);
+
+        expect(provider("github-copilot").models).toEqual([]);
+        expect(provider("github-copilot").modelsFetchedAt).toBeUndefined();
+      });
+
+      it("leave only that provider's models", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
+
+        await logoutManaged(MANAGED_PROVIDER_FIXTURE as any);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(provider("openai-codex").models).toEqual([CODEX_MODEL]);
+        expect(provider("openai-codex").modelsFetchedAt).toBeDefined();
+      });
+
+      it("take the default model with them when it was one of theirs", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
+
+        await logoutManaged(MANAGED_PROVIDER_FIXTURE as any);
+
+        expect(useWorkspaceStore.getState().activeModel).toBe("");
+      });
+
+      it("leave another provider's default model selected", async () => {
+        useWorkspaceStore.setState({ activeModel: CODEX_MODEL.id });
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
+
+        await logoutManaged(MANAGED_PROVIDER_FIXTURE as any);
+
+        expect(useWorkspaceStore.getState().activeModel).toBe(CODEX_MODEL.id);
+      });
+
+      it("stay when signing out fails", async () => {
+        vi.mocked(hybridControlPlane.logoutCopilot).mockRejectedValue(new Error("keychain locked"));
+
+        await expect(logoutManaged(MANAGED_PROVIDER_FIXTURE as any)).rejects.toThrow("keychain locked");
+
+        expect(provider("github-copilot").models).toEqual([COPILOT_MODEL]);
+      });
+
+      it("leave when the session ends outside the app", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
+        vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
+        vi.mocked(hybridControlPlane.discoverModels).mockResolvedValue([COPILOT_MODEL] as any);
+        startProviderCoordinator();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(provider("github-copilot").models).toHaveLength(1);
+
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
+        await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS);
+
+        expect(provider("github-copilot").models).toEqual([]);
+      });
+
+      it("stay through a failed status check, which is not a sign-out", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
+        vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus() as any);
+        vi.mocked(hybridControlPlane.discoverModels).mockResolvedValue([COPILOT_MODEL] as any);
+        startProviderCoordinator();
+        await vi.advanceTimersByTimeAsync(0);
+
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockRejectedValue(new Error("offline"));
+        await vi.advanceTimersByTimeAsync(BACKGROUND_POLL_INTERVAL_MS);
+
+        expect(provider("github-copilot").models).toHaveLength(1);
+      });
+
+      it("stay untouched by the first status check of a provider never seen signed in", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
+        vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus() as any);
+
+        startProviderCoordinator();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(provider("openai-codex").models).toEqual([CODEX_MODEL]);
+      });
+
+      it("are discovered again on the next sign-in", async () => {
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
+        vi.mocked(hybridControlPlane.getCodexStatus).mockResolvedValue(connectionStatus() as any);
+        startProviderCoordinator();
+        await vi.advanceTimersByTimeAsync(0);
+        await logoutManaged(MANAGED_PROVIDER_FIXTURE as any);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(provider("github-copilot").models).toEqual([]);
+
+        vi.mocked(hybridControlPlane.discoverModels).mockResolvedValue([COPILOT_MODEL] as any);
+        vi.mocked(hybridControlPlane.startCopilotLogin).mockResolvedValue(connectionStatus({ state: "connecting" }) as any);
+        vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus({ state: "connected", authenticated: true }) as any);
+        await startManagedLogin(MANAGED_PROVIDER_FIXTURE as any);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(provider("github-copilot").models).toEqual([COPILOT_MODEL]);
+      });
+    });
+
     it("a login supersedes whatever poll timer was already scheduled -- it doesn't wait for it", async () => {
       vi.mocked(hybridControlPlane.getCopilotStatus).mockResolvedValue(connectionStatus() as any);
       startProviderCoordinator();

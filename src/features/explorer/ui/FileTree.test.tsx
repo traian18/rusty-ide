@@ -73,6 +73,29 @@ const press = (key: string) => act(() => void tree().dispatchEvent(new KeyboardE
 const selectedPath = () => container.querySelector('[aria-selected="true"]')?.getAttribute("data-file-path");
 
 describe("FileTree", () => {
+  it("keeps long nested names untruncated in a content-sized tree", () => {
+    const folderName = "a-very-long-folder-name-that-exceeds-the-sidebar-width";
+    const fileName = "a-very-long-file-name-that-exceeds-the-sidebar-width.ts";
+    act(() => {
+      store.current.setState({ expandedPaths: { "/ws/long": true } });
+      root.render(<FileTree entries={[{
+        name: folderName,
+        path: "/ws/long",
+        is_dir: true,
+        children: [{ name: fileName, path: "/ws/long/file.ts", is_dir: false }],
+      }]} />);
+    });
+
+    expect(tree().classList.contains("w-max")).toBe(true);
+    expect(tree().classList.contains("min-w-full")).toBe(true);
+    expect(tree().classList.contains("overflow-y-auto")).toBe(false);
+    for (const name of [folderName, fileName]) {
+      const label = Array.from(container.querySelectorAll("span")).find((span) => span.textContent === name)!;
+      expect(label.classList.contains("truncate")).toBe(false);
+      expect(label.classList.contains("whitespace-nowrap")).toBe(true);
+    }
+  });
+
   it("is keyboard-focusable", () => {
     expect(tree().tabIndex).toBe(0);
   });

@@ -1,5 +1,6 @@
 import React, { RefObject } from "react";
-import { X, ChevronDown } from "lucide-react";
+import { X, ChevronDown, Columns2 } from "lucide-react";
+import { tabLabel } from "../tabs/split";
 import { TabIcon, getTabView } from "../tabs/views";
 import type { TabInstance } from "../tabs/types";
 import styles from "./TabStrip.module.css";
@@ -7,6 +8,10 @@ import styles from "./TabStrip.module.css";
 interface TabStripViewProps {
   openTabs: TabInstance[];
   activeTabId: string | null;
+  visibleTabIds: string[];
+  splitShown: boolean;
+  canSplit: boolean;
+  toggleSplit: () => void;
   dropdownOpen: boolean;
   setDropdownOpen: (open: boolean) => void;
   activateTab: (tabId: string) => void;
@@ -17,6 +22,10 @@ interface TabStripViewProps {
 export const TabStripView: React.FC<TabStripViewProps> = ({
   openTabs,
   activeTabId,
+  visibleTabIds,
+  splitShown,
+  canSplit,
+  toggleSplit,
   dropdownOpen,
   setDropdownOpen,
   activateTab,
@@ -38,6 +47,7 @@ export const TabStripView: React.FC<TabStripViewProps> = ({
         {openTabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const surface = getTabView(tab.type).surface;
+          const isSplitPartner = !isActive && visibleTabIds.includes(tab.id);
 
           return (
             <div
@@ -49,7 +59,7 @@ export const TabStripView: React.FC<TabStripViewProps> = ({
               }}
               className={`${styles.tab} ${
                 isActive ? (surface === "canvas" ? styles.activeCanvas : styles.activeEditor) : ""
-              }`}
+              } ${isSplitPartner ? styles.splitPartner : ""}`}
             >
               {isActive && <div className={styles.accent} />}
 
@@ -61,7 +71,7 @@ export const TabStripView: React.FC<TabStripViewProps> = ({
                 className={isActive ? styles.iconActive : styles.icon}
               />
 
-              <span className={styles.title}>{tab.title}</span>
+              <span className={styles.title}>{tabLabel(tab)}</span>
 
               <div className={styles.tabActions}>
                 <button
@@ -82,6 +92,19 @@ export const TabStripView: React.FC<TabStripViewProps> = ({
 
       {/* Tab Switcher Dropdown */}
       <div className={styles.switcher}>
+        {(canSplit || splitShown) && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleSplit();
+            }}
+            className={`${styles.iconButton} ${splitShown ? styles.iconButtonOn : ""}`}
+            title={splitShown ? "Close side-by-side view" : "Open side by side"}
+            aria-pressed={splitShown}
+          >
+            <Columns2 size={14} />
+          </button>
+        )}
         <button
           onClick={(e) => {
             e.stopPropagation();
@@ -112,7 +135,7 @@ export const TabStripView: React.FC<TabStripViewProps> = ({
                   >
                     <div className={styles.menuIdentity}>
                       <TabIcon tab={tab} size={11} />
-                      <span className={styles.title}>{tab.title}</span>
+                      <span className={styles.title}>{tabLabel(tab)}</span>
                     </div>
 
                     <button

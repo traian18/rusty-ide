@@ -88,6 +88,25 @@ export function fileTabIdentity(
   return vfsTabId ? `${base}:vfs:${vfsTabId}` : base;
 }
 
+const DUPLICATE_PREFIX = "duplicate:";
+
+/**
+ * The tab id of a tab's copy. A prefix, not a suffix: no identity starts with
+ * it, whereas anything appended could also be the end of a real file name.
+ */
+export function duplicateTabId(tabId: string): string {
+  return `${DUPLICATE_PREFIX}${tabId}`;
+}
+
+export function isDuplicateTab(tabId: string): boolean {
+  return tabId.startsWith(DUPLICATE_PREFIX);
+}
+
+/** The id of the tab that `tabId` is a copy of; any other id is returned as it is. */
+export function originalTabId(tabId: string): string {
+  return isDuplicateTab(tabId) ? tabId.slice(DUPLICATE_PREFIX.length) : tabId;
+}
+
 export function gitHistoryTabIdentity(
   repoPath: string,
   path?: string,
@@ -105,6 +124,10 @@ export function gitDiffTabIdentity(
   const repo = foldCase(canonicalizeFilePath(args.repoPath), caseInsensitive);
   const path = foldCase(canonicalizeFilePath(args.path), caseInsensitive);
   return `git-diff:${repo}:${path}:${args.diffType}:${args.commitHash ?? ""}`;
+}
+
+export function gitMergeTabIdentity(repoPath: string, caseInsensitive = isCaseInsensitiveFs()): string {
+  return `git-merge:${foldCase(canonicalizeFilePath(repoPath), caseInsensitive)}`;
 }
 
 export function taskTabIdentity(canvasId: string, taskNodeId: string): string {

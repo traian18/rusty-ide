@@ -53,9 +53,7 @@ fn first_pass() -> Arc<dyn rusty_context::ContextProvider> {
 }
 
 /// Standard compaction: local tiers only, sized by the model's window.
-fn standard_compaction(
-    window: Option<u64>,
-) -> Arc<rusty_context::PolicyDrivenCompactionProvider> {
+fn standard_compaction(window: Option<u64>) -> Arc<rusty_context::PolicyDrivenCompactionProvider> {
     let passthrough = first_pass();
     Arc::new(
         rusty_context::PolicyDrivenCompactionProvider::new(

@@ -4,8 +4,8 @@ use std::{collections::HashSet, path::Path};
 
 use rusty_code_analysis::metrics::FileMetrics;
 use rusty_code_health::TestLinks;
-use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
 use rusty_repo_model::repository_intelligence::RootRelativePath;
+use rusty_repo_wiki::{facts::Facts, tests_of::is_test_file};
 
 /// The name a file is about: lower case, extension and test markers removed
 /// (`FooTest.java`, `foo_test.go`, `foo.spec.ts`, `test_foo.py` all give `foo`).

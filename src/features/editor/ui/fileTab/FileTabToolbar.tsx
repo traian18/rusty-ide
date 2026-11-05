@@ -7,6 +7,8 @@ import type { FileTabData } from "./fileLocation";
 const QUIET_BUTTON = "bg-[var(--bg-sidebar)] border border-[var(--border-color)] text-[var(--text-muted)] hover:text-[var(--text-light)] hover:border-[var(--border-active)]";
 const PILL = "flex items-center space-x-1 px-2.5 py-1 rounded-md text-[10px] font-mono font-bold border transition-all shadow-md cursor-pointer";
 const ICON_BUTTON = `${QUIET_BUTTON} p-1.5 rounded-md text-[10px] font-mono font-bold transition-all shadow-md cursor-pointer flex items-center space-x-1`;
+/** In a narrow side-by-side pane the buttons shrink to their icons, off the code. */
+const TOOLBAR_LABEL = "@max-xl:hidden";
 
 interface FileTabToolbarProps {
   tab: FileTabData;
@@ -34,7 +36,7 @@ const MarkdownToggle: React.FC<{ preview: boolean; onToggle: () => void }> = ({ 
     title={preview ? "Edit Markdown source" : "Preview Markdown"}
   >
     {preview ? <FileCode2 size={10} /> : <Eye size={10} />}
-    <span>{preview ? "Edit" : "Preview"}</span>
+    <span className={TOOLBAR_LABEL}>{preview ? "Edit" : "Preview"}</span>
   </button>
 );
 
@@ -56,7 +58,7 @@ const DiskFileActions: React.FC<Pick<FileTabToolbarProps, "tab" | "repoPath" | "
     <>
       <button onClick={openHistory} className={ICON_BUTTON} title="Open Git History of this File">
         <History size={10} />
-        <span>History</span>
+        <span className={TOOLBAR_LABEL}>History</span>
       </button>
 
       {/* Compare with another branch/revision */}
@@ -72,12 +74,12 @@ const DiskFileActions: React.FC<Pick<FileTabToolbarProps, "tab" | "repoPath" | "
         title="Toggle Git Blame (or click line numbers)"
       >
         <GitBranch size={10} />
-        <span>{showBlame ? "Blame: On" : "Blame"}</span>
+        <span className={TOOLBAR_LABEL}>{showBlame ? "Blame: On" : "Blame"}</span>
       </button>
 
       <button onClick={() => revealFileInTree(tab.path)} className={ICON_BUTTON} title="Reveal in File Tree">
         <TreePine size={10} />
-        <span>Reveal</span>
+        <span className={TOOLBAR_LABEL}>Reveal</span>
       </button>
     </>
   );

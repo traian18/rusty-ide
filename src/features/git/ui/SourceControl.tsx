@@ -3,6 +3,7 @@ import { Loader2 } from "lucide-react";
 import { gitService } from "./gitService";
 import SourceControlHeader from "./sourceControl/SourceControlHeader";
 import SourceControlCommitBox from "./sourceControl/SourceControlCommitBox";
+import { SourceControlConflictBanner } from "./sourceControl/SourceControlConflictBanner";
 import SourceControlChangeList from "./sourceControl/SourceControlChangeList";
 import SourceControlHistory from "./sourceControl/SourceControlHistory";
 import { GitFileContextMenu } from "./sourceControl/SourceControlContextMenu";
@@ -69,6 +70,8 @@ const SourceControl: React.FC = () => {
     handleDiscardChanges,
     handleDiscardAllChanges,
     handleOpenFileDiff,
+    handleOpenConflicts,
+    handleCompletePending,
     handleRepoChange,
     handleSubmoduleAction,
   } = handlers;
@@ -144,6 +147,15 @@ const SourceControl: React.FC = () => {
       />
 
       {gitStatus && (
+        <SourceControlConflictBanner
+          gitStatus={gitStatus}
+          onOpenConflicts={handleOpenConflicts}
+          onComplete={handleCompletePending}
+          onAbort={handleAbortPending}
+        />
+      )}
+
+      {gitStatus && (
         <SourceControlCommitBox
           commitMsg={commitMsg}
           isCommitting={isCommitting}
@@ -173,6 +185,7 @@ const SourceControl: React.FC = () => {
           onAddToGitignore={handleAddToGitignore}
           onUndoRename={handleUndoRename}
           onOpenFileDiff={handleOpenFileDiff}
+          onOpenConflicts={handleOpenConflicts}
           onFileContextMenu={handleFileContextMenu}
         />
       )}

@@ -31,8 +31,22 @@ function canvasTabFor(path: string, vfsTabId: string | undefined): string | unde
   return undefined;
 }
 
-function modelUriFor(path: string, vfsTabId: string | undefined): string {
+export function modelUriFor(path: string, vfsTabId: string | undefined): string {
   return vfsTabId ? `vfs://${vfsTabId}/${path.replace(/^\//, "")}` : `file://${path}`;
+}
+
+/** Whether a tab other than `tabId` has the file at `modelUri` open: two tabs
+ * of one file share its Monaco model and its pending save. */
+export function isOpenInAnotherTab(tabId: string, modelUri: string): boolean {
+  return useWorkspaceStore.getState().tabs.some((tab) =>
+    tab.type === "file" && tab.id !== tabId && modelUriFor(tab.path, tab.vfsTabId) === modelUri,
+  );
+}
+
+/** Whether the file at `modelUri` is still open once `tabId` leaves the screen:
+ * the tab is only hidden, or another tab has the file. */
+export function staysOpen(tabId: string, modelUri: string): boolean {
+  return useWorkspaceStore.getState().tabs.some((tab) => tab.id === tabId) || isOpenInAnotherTab(tabId, modelUri);
 }
 
 function tracksGit(tab: FileTabData, repoPath: string, isImage: boolean): boolean {

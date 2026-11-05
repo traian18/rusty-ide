@@ -91,7 +91,7 @@ export const CompareRevisionPicker: React.FC<CompareRevisionPickerProps> = ({ re
         title="Compare this file with a branch or revision"
       >
         <GitCompare size={10} />
-        <span>Compare</span>
+        <span className="@max-xl:hidden">Compare</span>
       </button>
       {open && (
         <div className="absolute right-0 top-full mt-1 z-[9998] w-80 rounded-lg border border-[var(--border-color)] bg-[var(--bg-sidebar)] shadow-2xl overflow-hidden font-mono">

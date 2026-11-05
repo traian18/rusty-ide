@@ -19,8 +19,7 @@ use std::path::Path;
 use serde::Serialize;
 use serde_json::Value;
 
-const BUILTIN_CATALOG: &str =
-    include_str!("../../../src/features/workflows/starter/catalog.json");
+const BUILTIN_CATALOG: &str = include_str!("../../../src/features/workflows/starter/catalog.json");
 
 /// Where a built-in workflow is listed: `builtin:<id without namespace>`.
 pub const BUILTIN_PATH_PREFIX: &str = "builtin:";

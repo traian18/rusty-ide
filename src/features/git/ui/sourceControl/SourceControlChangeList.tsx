@@ -23,6 +23,7 @@ interface SourceControlChangeListProps {
   onAddToGitignore: (filePath: string) => Promise<void>;
   onUndoRename: () => Promise<void>;
   onOpenFileDiff: (filePath: string, fileName: string, diffType: "staged" | "unstaged") => void;
+  onOpenConflicts: (filePath?: string) => void;
   onFileContextMenu: (e: React.MouseEvent, file: GitFileStatus) => void;
 }
 
@@ -49,10 +50,30 @@ const SourceControlChangeList: React.FC<SourceControlChangeListProps> = ({
   onAddToGitignore,
   onUndoRename,
   onOpenFileDiff,
+  onOpenConflicts,
   onFileContextMenu,
 }) => {
   return (
     <div className="flex-1 overflow-y-auto p-2 space-y-4">
+      {/* 0. Merge Conflicts */}
+      {gitStatus.conflicted.length > 0 && (
+        <div className="space-y-1">
+          <SectionHeader label="Merge Conflicts" count={gitStatus.conflicted.length} />
+          <div className="space-y-0.5">
+            {gitStatus.conflicted.map((file) => (
+              <FileRow
+                key={`conflicted-${file.path}`}
+                file={file}
+                repoPath={activeRepo}
+                diffType="unstaged"
+                isClickable
+                onOpenDiff={onOpenConflicts}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 1. Staged Changes */}
       {gitStatus.staged.length > 0 && (
         <div className="space-y-1">

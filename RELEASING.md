@@ -5,9 +5,11 @@ codesign, notarization, GitHub release, Homebrew tap update — happens in CI.
 
 ## Steps
 
-1. Bump `"version"` in `src-tauri/tauri.conf.json`.
-2. Commit it to `main`.
-3. Tag and push:
+1. Run `npm run docs:index` with the `rusty-website` checkout beside this repo, so the
+   `rusty_docs` tool ships this release's documentation.
+2. Bump `"version"` in `src-tauri/tauri.conf.json`.
+3. Commit both to `main`.
+4. Tag and push:
 
    ```bash
    git tag vX.Y.Z

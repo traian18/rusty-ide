@@ -73,10 +73,7 @@ async fn a_page_is_planned_briefed_checked_stored_and_goes_stale() {
         .documentation_page(&store, "written:overview")
         .unwrap()
         .unwrap();
-    assert_ne!(
-        after.freshness,
-        rusty_repo_wiki::written::Freshness::Fresh
-    );
+    assert_ne!(after.freshness, rusty_repo_wiki::written::Freshness::Fresh);
 }
 
 #[tokio::test]

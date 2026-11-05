@@ -16,7 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use rusty_workspace::{FileInfo, FsWorkspace, SearchResult, Workspace, WorkspaceError, WorkspaceMode};
+use rusty_workspace::{
+    FileInfo, FsWorkspace, SearchResult, Workspace, WorkspaceError, WorkspaceMode,
+};
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 

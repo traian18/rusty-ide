@@ -41,6 +41,7 @@ export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
       gitStatus: null,
       tabs: opened.tabs,
       activeTabId: opened.activeTabId,
+      tabSplit: null,
       canvasContexts: { canvas: createEmptyCanvasContext() },
       canvasHistories: { canvas: { past: [], future: [] } },
       expandedPaths: {},
@@ -94,6 +95,7 @@ export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
         selectedNodeId: null,
         tabs,
         activeTabId,
+        tabSplit: null,
         ...pruned,
       };
     });

@@ -13,7 +13,7 @@
  */
 
 import React from "react";
-import { Bot, BookOpen, BookText, Cpu, FolderOpen, Gauge, GitCommit, Network, Plug, Settings, Wand2, Workflow } from "lucide-react";
+import { Bot, BookOpen, BookText, Cpu, FolderOpen, Gauge, GitCommit, GitMerge, Network, Plug, Settings, Wand2, Workflow } from "lucide-react";
 import { ArchitectureTab } from "../../features/architecture/ui";
 import { DocumentationTab } from "../../features/dashboard/ui";
 import { FileIcon } from "../../features/editor/ui";
@@ -23,6 +23,7 @@ import { FileTab } from "../../features/editor/ui";
 import { TaskTab } from "../../features/workflows/ui";
 import { GitDiffTab } from "../../features/git/ui";
 import { GitHistoryTab } from "../../features/git/ui";
+import { GitMergeTab } from "../../features/git/ui";
 import { LlmSetupTab } from "../../features/providers/ui";
 import { SettingsTab } from "../../features/settings/ui";
 import { SkillsTab } from "../../features/skills/ui";
@@ -116,6 +117,11 @@ export const TAB_VIEWS: TabViewTable = {
   "git-history": {
     Component: ({ tab }) => <GitHistoryTab tab={tab} />,
     Icon: GitCommit,
+    surface: "editor",
+  },
+  "git-merge": {
+    Component: ({ tab }) => <GitMergeTab tab={tab} />,
+    Icon: GitMerge,
     surface: "editor",
   },
   agent: {

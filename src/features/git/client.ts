@@ -1,6 +1,6 @@
 /** Every git command the IDE calls, one method per Tauri command. Nothing else in the feature calls git directly. */
 import { invoke } from "@tauri-apps/api/core";
-import type { BlameLine, Branches, CheckoutOutcome, CommitFile, CommitInfo, PendingOperation } from "./model";
+import type { BlameLine, Branches, CheckoutOutcome, CommitFile, CommitInfo, ConflictFile, ConflictSide, ConflictState, LineHunk, PendingOperation } from "./model";
 
 /** Calls a Tauri command by name. The app passes the real bridge; tests pass a fake one. */
 export type Invoke = <T>(command: string, args: Record<string, unknown>) => Promise<T>;
@@ -39,6 +39,14 @@ export interface GitClient {
   /** The command's message, shown to the user after a rebase completes. */
   rebaseBranch(rootDir: string, branchName: string): Promise<string>;
   abortPending(rootDir: string, operation: PendingOperation): Promise<void>;
+  conflictState(rootDir: string): Promise<ConflictState>;
+  conflictFile(rootDir: string, filePath: string): Promise<ConflictFile>;
+  /** Saves the merged text as the file and marks it resolved. */
+  resolveConflict(rootDir: string, filePath: string, content: string): Promise<void>;
+  /** Marks a file resolved by keeping one side whole, or its deletion. */
+  resolveConflictSide(rootDir: string, filePath: string, side: ConflictSide): Promise<void>;
+  /** Finishes the merge, rebase, cherry-pick or revert once nothing conflicts. */
+  completePending(rootDir: string): Promise<void>;
 
   commitHistory(rootDir: string): Promise<CommitInfo[]>;
   fileCommitHistory(rootDir: string, filePath: string): Promise<CommitInfo[]>;
@@ -52,6 +60,39 @@ export interface GitClient {
   fileContentAtRevision(rootDir: string, filePath: string, revision: string): Promise<string>;
   /** The working-tree side of a diff. It is not a git command, but diff loading reads it alongside git content. */
   readWorkingFile(path: string): Promise<string>;
+}
+
+function mapConflictState(raw: any): ConflictState {
+  return {
+    operation: raw.operation ?? null,
+    localLabel: raw.local_label,
+    incomingLabel: raw.incoming_label,
+    files: raw.files.map((file: any) => ({
+      path: file.path,
+      relativePath: file.relative_path,
+      name: file.name,
+      kind: file.kind,
+    })),
+  };
+}
+
+function mapLineHunk(hunk: any): LineHunk {
+  return { baseStart: hunk.base_start, baseEnd: hunk.base_end, sideStart: hunk.side_start, sideEnd: hunk.side_end };
+}
+
+function mapConflictFile(raw: any): ConflictFile {
+  return {
+    path: raw.path,
+    relativePath: raw.relative_path,
+    kind: raw.kind,
+    binary: raw.binary,
+    base: raw.base ?? null,
+    local: raw.local ?? null,
+    incoming: raw.incoming ?? null,
+    working: raw.working ?? null,
+    localHunks: raw.local_hunks.map(mapLineHunk),
+    incomingHunks: raw.incoming_hunks.map(mapLineHunk),
+  };
 }
 
 /** Builds the git client on a command bridge. Each method names exactly one Tauri command and its arguments. */
@@ -85,6 +126,11 @@ export function createGitClient(call: Invoke): GitClient {
     mergeBranch: (rootDir, branchName) => call("git_merge_branch", { rootDir, branchName }),
     rebaseBranch: (rootDir, branchName) => call("git_rebase_branch", { rootDir, branchName }),
     abortPending: (rootDir, operation) => call("git_abort_pending", { rootDir, operation }),
+    conflictState: async (rootDir) => mapConflictState(await call("git_conflict_state", { rootDir })),
+    conflictFile: async (rootDir, filePath) => mapConflictFile(await call("git_conflict_file", { rootDir, filePath })),
+    resolveConflict: (rootDir, filePath, content) => call("git_resolve_conflict", { rootDir, filePath, content }),
+    resolveConflictSide: (rootDir, filePath, side) => call("git_resolve_conflict_side", { rootDir, filePath, side }),
+    completePending: (rootDir) => call("git_complete_pending", { rootDir }),
 
     commitHistory: (rootDir) => call("git_get_commit_history", { rootDir }),
     fileCommitHistory: (rootDir, filePath) => call("git_get_file_commit_history", { rootDir, filePath }),

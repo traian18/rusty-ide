@@ -9,6 +9,7 @@ import {
   parseModelReference,
   resolveProviderModel,
   selectableModelProviders,
+  isSignedOutProviderModel,
 } from "./providerHelpers";
 import type { CustomProvider, ProviderStatus } from "../../../store/types";
 import type { ProviderStatusKind } from "../integrations/registryTypes";
@@ -164,6 +165,25 @@ describe("normalizeStoredProvider", () => {
   });
 });
 
+describe("isSignedOutProviderModel", () => {
+  const copilot = provider({ id: "github-copilot", authType: "environment" });
+  const regular = provider({ id: "openai", authType: "bearer", apiKey: "sk-test" });
+  const signedOut: Record<string, ProviderStatus> = { "github-copilot": { kind: "unauthenticated" } };
+
+  it("is true for a model of a signed-out managed provider", () => {
+    expect(isSignedOutProviderModel("github-copilot/gpt-5", [copilot, regular], signedOut)).toBe(true);
+  });
+
+  it.each(["ready", "unknown", "loading", "error"] as const)("is false while the provider is '%s'", (kind) => {
+    expect(isSignedOutProviderModel("github-copilot/gpt-5", [copilot], { "github-copilot": { kind } })).toBe(false);
+  });
+
+  it("is false for another provider's model, or a bare model id", () => {
+    expect(isSignedOutProviderModel("openai/gpt-5", [copilot, regular], signedOut)).toBe(false);
+    expect(isSignedOutProviderModel("gpt-5", [copilot, regular], signedOut)).toBe(false);
+  });
+});
+
 describe("selectableModelProviders: registry-aware gating (REFACTOR_PLAN.md PR 3c)", () => {
   function statusOf(kind: ProviderStatusKind): Record<string, ProviderStatus> {
     return { "github-copilot": { kind } };
@@ -187,6 +207,14 @@ describe("selectableModelProviders: registry-aware gating (REFACTOR_PLAN.md PR 3
 
   it("includes a managed provider excluded by status if it is the currently-selected provider (escape hatch)", () => {
     expect(selectableModelProviders([managed], statusOf("error"), "github-copilot")).toEqual([managed]);
+  });
+
+  it.each(["unknown", "loading"] as const)("keeps the selected managed provider usable while its status is '%s'", (kind) => {
+    expect(selectableModelProviders([managed], statusOf(kind), "github-copilot")).toEqual([managed]);
+  });
+
+  it("offers nothing from a signed-out managed provider, even the selected one", () => {
+    expect(selectableModelProviders([managed], statusOf("unauthenticated"), "github-copilot")).toEqual([]);
   });
 
   it("includes a regular provider with authType 'none' even with no providerStatus entry at all", () => {

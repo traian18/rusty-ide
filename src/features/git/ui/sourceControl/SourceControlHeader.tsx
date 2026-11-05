@@ -137,14 +137,16 @@ const SourceControlHeader: React.FC<SourceControlHeaderProps> = ({
 
         {gitStatus && (
           <div className="flex items-center space-x-1.5 relative">
-            <button
-              type="button"
-              onClick={onAbortPending}
-              className="p-1 rounded hover:bg-[var(--color-status-danger-bg)] text-[var(--text-muted)] hover:text-[var(--color-status-danger)] transition-colors cursor-pointer"
-              title="Abort Merge/Rebase"
-            >
-              <RotateCcw size={12} />
-            </button>
+            {gitStatus.pendingOperation && (
+              <button
+                type="button"
+                onClick={onAbortPending}
+                className="p-1 rounded hover:bg-[var(--color-status-danger-bg)] text-[var(--text-muted)] hover:text-[var(--color-status-danger)] transition-colors cursor-pointer"
+                title="Abort Merge/Rebase"
+              >
+                <RotateCcw size={12} />
+              </button>
+            )}
 
             <BranchWidget
               gitStatus={gitStatus}

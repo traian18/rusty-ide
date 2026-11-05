@@ -233,6 +233,24 @@ export function useSourceControlHandlers(model: SourceControlModel) {
     [openTab, activeRepo],
   );
 
+  /** Open the merge window, on one file when a row was clicked. */
+  const handleOpenConflicts = useCallback(
+    (filePath?: string): void => {
+      openTab({ type: "git-merge", repoPath: activeRepo, path: filePath });
+    },
+    [openTab, activeRepo],
+  );
+
+  /** Finish the merge or rebase once nothing conflicts. */
+  const handleCompletePending = useCallback(async (): Promise<void> => {
+    try {
+      await gitService.completePending(activeRepo);
+      await loadRepoData();
+    } catch (err) {
+      console.error(err);
+    }
+  }, [activeRepo, loadRepoData]);
+
   /** Switch the active repository. */
   const handleRepoChange = useCallback(
     (repo: string): void => {
@@ -285,6 +303,8 @@ export function useSourceControlHandlers(model: SourceControlModel) {
     handleDiscardChanges,
     handleDiscardAllChanges,
     handleOpenFileDiff,
+    handleOpenConflicts,
+    handleCompletePending,
     handleRepoChange,
     handleSubmoduleAction,
   };

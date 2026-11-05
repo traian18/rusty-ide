@@ -35,7 +35,8 @@ export type TabType =
   | "canvas"
   | "task"
   | "git-history"
-  | "git-diff";
+  | "git-diff"
+  | "git-merge";
 
 /** Tab types that may only ever have one instance, identified by the type name itself. */
 export type SingletonTabType =
@@ -65,7 +66,8 @@ interface TabBase {
    * field: nothing persists tabs, and no tab type uses `multiple` uniqueness
    * today, so `id === identity` for every live tab. Splitting them would mean
    * keeping two values in sync at every call site for no present benefit;
-   * adding `identity` later is a purely additive change.
+   * adding `identity` later is a purely additive change. The one exception is
+   * a code tab's copy, whose id derives from its identity: see `originalTabId`.
    */
   id: string;
   title: string;
@@ -100,7 +102,8 @@ export type TabInstance =
       path: string;
       diffType: DiffKind;
       commitHash?: string;
-    });
+    })
+  | (TabBase & { type: "git-merge"; repoPath: string; path?: string });
 
 export type TabOfType<K extends TabType> = Extract<TabInstance, { type: K }>;
 
@@ -127,7 +130,8 @@ export type OpenTabRequest =
       diffType: DiffKind;
       commitHash?: string;
       title?: string;
-    };
+    }
+  | { type: "git-merge"; repoPath?: string; path?: string; title?: string };
 
 export type RequestOfType<K extends TabType> = Extract<OpenTabRequest, { type: K }>;
 
@@ -161,6 +165,13 @@ export interface TabDomainState {
 }
 
 export type Uniqueness = "global" | "resource" | "multiple";
+
+/** Two tabs shown side by side. `focused` is the side a newly opened code tab takes. */
+export interface TabSplit {
+  left: string;
+  right: string;
+  focused: "left" | "right";
+}
 
 /**
  * - `active-only`: unmount as soon as the tab is not active.
@@ -199,6 +210,8 @@ export interface TabPolicy<K extends TabType = TabType> {
   seedOnCreate?: (tab: TabOfType<K>, state: TabDomainState) => Partial<TabDomainState>;
   keepAlive: KeepAlive;
   closable: boolean;
+  /** May have a second tab on the same resource, shown side by side with the first. */
+  duplicable?: boolean;
   /** Only consulted when `keepAlive === "while-busy"`. */
   isBusy?: (tab: TabOfType<K>, state: TabDomainState) => boolean;
   beforeClose?: (tab: TabOfType<K>, state: TabDomainState) => CloseGuard;
