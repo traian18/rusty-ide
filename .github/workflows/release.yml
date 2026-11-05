@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build-sign-notarize:
-    runs-on: macos-14 # Apple Silicon (aarch64) runner
+    runs-on: macos-15 # Apple Silicon (aarch64) runner
     # A release normally takes 15-20 minutes (RELEASING.md); the headroom is
     # for Apple's notarization queue, which is sometimes slow.
     timeout-minutes: 45
