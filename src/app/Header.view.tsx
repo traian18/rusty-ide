@@ -17,7 +17,9 @@ export const HeaderView: React.FC<HeaderViewProps> = ({ onSearchOpen, searchShor
   return (
     <header
       className={`${styles.header} ${isMacOS ? styles.macosHeader : ""}`}
-      data-tauri-drag-region
+      // The areas below fill the bar, so a bare region would never be hit
+      // directly. "deep" drags from anywhere except buttons and inputs.
+      data-tauri-drag-region="deep"
     >
       {/* Left Area: Logo, then the project and branch git is acting on */}
       <div className={styles.brandArea}>

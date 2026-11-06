@@ -30,6 +30,8 @@ export function DropdownPanel({
     <div
       role="dialog"
       aria-label="Provider subscription quota"
+      // Rendered inside the header, whose drag region would claim its clicks.
+      data-tauri-drag-region="false"
       className="absolute right-0 top-[calc(100%+6px)] z-50 w-[360px] overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--bg-sidebar)] shadow-2xl"
     >
       <DropdownHeader
