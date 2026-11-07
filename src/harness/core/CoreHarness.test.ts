@@ -1549,19 +1549,19 @@ describe("Agent progress logs", () => {
     ]);
   });
 
-  it("names a tool call's command or path, and a failed call's output", async () => {
+  it("logs useful tool arguments and concise completion statuses", async () => {
     const { emit, logs } = await setup();
-    emit({ ToolCallRequested: { call: { id: "a", name: "shell", arguments: { command: `  ${"x".repeat(70)} `, path: "ignored" } } } });
+    emit({ ToolCallRequested: { call: { id: "a", name: "search_codebase", arguments: { request: "find the event handler", path: "src/", content: "private content" } } } });
     emit({ ToolCallRequested: { call: { id: "b", name: "read", arguments: { cmd: " ", file_path: " src/a.ts " } } } });
     emit({ ToolCallRequested: { call: { id: "c", name: "list", arguments: null } } });
-    emit({ ToolCallCompleted: { call_id: "a", result: { has_error: true, output_preview: ` ${"e".repeat(90)}` } } });
+    emit({ ToolCallCompleted: { call_id: "a", result: { has_error: true, output_preview: "not found" } } });
     emit({ ToolCallCompleted: { call_id: "b", result: { has_error: true, output_preview: "" } } });
-    emit({ ToolCallCompleted: { call_id: "c", result: { has_error: false, output_preview: "listing" } } });
+    emit({ ToolCallCompleted: { call_id: "c", result: { has_error: false, output_preview: `listing\n${"x".repeat(1500)}` } } });
     expect(logs()).toEqual([
-      `Calling shell: ${"x".repeat(60)}...`,
-      "Calling read: src/a.ts...",
+      "Calling search_codebase: request: find the event handler; path: src/...",
+      "Calling read: file_path: src/a.ts...",
       "Calling list...",
-      `Tool call failed: ${"e".repeat(80)}`,
+      "Tool call failed.",
       "Tool call failed.",
       "Tool call completed.",
     ]);
