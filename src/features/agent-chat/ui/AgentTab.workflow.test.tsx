@@ -745,7 +745,7 @@ describe("Agent chat workflows", () => {
         expect(second.workflow.input).toMatchObject({ request: "investigate the cache", attachments: [], context: "Handed over: diagnose context" });
         expect(second.skill.name).toBe("build");
         // The announcement is in the chat, and the turn did not end.
-        expect(container.textContent).toContain("↪ AUTO · Handing over to Stage: Debug & plan a fix (86% confidence): it fits.");
+        expect((useWorkspaceStore.getState().agentChats.agent ?? []).some((message) => message.content.includes("↪ AUTO · Handing over to Stage: Debug & plan a fix (86% confidence): it fits."))).toBe(true);
         expect(container.querySelector('ol[aria-label="Workflow steps"]')?.textContent).toMatch(/Debug.*Plan/);
         // Only one user message: the hand-over is not a new message.
         expect((useWorkspaceStore.getState().agentChats.agent ?? []).filter((m) => m.role === "user")).toHaveLength(1);

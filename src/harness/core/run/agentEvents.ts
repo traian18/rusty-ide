@@ -40,21 +40,26 @@ export function isChildOwnedEvent(envelope: AgentEventEnvelope): boolean {
   return CHILD_OWNED.some((kind) => kind in (envelope.event as object));
 }
 
-/** `: <command or path>` for a tool call's log line, or "" when it names neither. */
+const TOOL_DETAIL_FIELDS = ["request", "query", "question", "target", "command", "cmd", "program", "path", "filename", "file_path", "url", "mode"];
+
+function boundedText(value: string, limit: number): string {
+  const text = value.trim();
+  return text.length > limit ? `${text.slice(0, limit)}…` : text;
+}
+
+/** Selected descriptive arguments, excluding potentially large file contents. */
 export function toolCallDetail(args: unknown): string {
   if (!args || typeof args !== "object") return "";
   const record = args as Record<string, unknown>;
-  const cmd = record.command ?? record.cmd ?? record.program;
-  if (typeof cmd === "string" && cmd.trim()) return `: ${cmd.trim().slice(0, 60)}`;
-  const path = record.path ?? record.filename ?? record.file_path;
-  if (typeof path === "string" && path.trim()) return `: ${path.trim().slice(0, 60)}`;
-  return "";
+  const details = TOOL_DETAIL_FIELDS.flatMap((key) => {
+    const value = record[key];
+    return typeof value === "string" && value.trim() ? [`${key}: ${boundedText(value, 400)}`] : [];
+  });
+  return details.length ? `: ${details.join("; ")}` : "";
 }
 
 export function toolCompletedMessage(result: ToolResultSummary): string {
-  if (!result.has_error) return "Tool call completed.";
-  const preview = result.output_preview ? result.output_preview.trim().slice(0, 80) : "";
-  return `Tool call failed${preview ? `: ${preview}` : "."}`;
+  return result.has_error ? "Tool call failed." : "Tool call completed.";
 }
 
 export function completionGateMessage(gate: PayloadOf<"CompletionGateEvaluated">): string {

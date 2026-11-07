@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef } from "react";
+import { memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { MarkdownRenderer } from "../../../lib/ui/MarkdownRenderer";
 import type { ChatSearchMatch } from "../../../lib/ui/chatSearch";
 import { MAX_STAGGER_MS, type FadeWordsOptions } from "../../../lib/ui/fadeWords";
@@ -91,8 +91,35 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({ content, onLi
 }) {
   const arrivals = useFadeArrivals(content);
   const blocks = useMemo(() => splitMarkdownBlocks(content), [content]);
+  const streamRef = useRef<HTMLDivElement>(null);
+  const [cursor, setCursor] = useState<{ left: number; top: number; height: number }>();
+  useLayoutEffect(() => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const update = () => {
+      const walker = document.createTreeWalker(stream, NodeFilter.SHOW_TEXT);
+      let last: Text | undefined;
+      while (walker.nextNode()) {
+        const node = walker.currentNode as Text;
+        if (node.data.trim()) last = node;
+      }
+      if (!last) { setCursor(undefined); return; }
+      const range = document.createRange();
+      range.setStart(last, last.length);
+      range.collapse(true);
+      if (typeof range.getBoundingClientRect !== "function") return;
+      const rect = range.getBoundingClientRect();
+      const bounds = stream.getBoundingClientRect();
+      setCursor({ left: rect.left - bounds.left, top: rect.top - bounds.top, height: rect.height });
+    };
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(update);
+    observer?.observe(stream);
+    stream.addEventListener("scroll", update, true);
+    return () => { observer?.disconnect(); stream.removeEventListener("scroll", update, true); };
+  }, [content]);
   return (
-    <div className={styles.stream}>
+    <div ref={streamRef} className={styles.stream} data-streaming-cursor="true">
       {blocks.map((block, index) => {
         const end = block.start + block.text.length;
         const local: number[] = [];
@@ -116,6 +143,7 @@ export const StreamingMarkdown = memo(function StreamingMarkdown({ content, onLi
           />
         );
       })}
+      <span aria-hidden="true" className={styles.marker} style={cursor ? { left: cursor.left, top: cursor.top, height: cursor.height || undefined } : undefined} />
     </div>
   );
 });

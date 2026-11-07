@@ -4,6 +4,7 @@ import type { ChatSearchMatch } from "../../../lib/ui/chatSearch";
 import styles from "./Chat.module.css";
 import { CHAT_RENDER_CHARS } from "../model/chatLimits";
 import { StreamingMarkdown } from "./StreamingMarkdown";
+import streamStyles from "./StreamingMarkdown.module.css";
 
 // Large or incomplete Markdown (especially tables) is expensive to parse on
 // each streamed update. Keep the full saved response, but bound normal rendering.
@@ -59,7 +60,7 @@ export const ChatMessageContent = memo(function ChatMessageContent({ content, st
       {large && <p className={styles.responseNote}>
         Long response: {content.length.toLocaleString()} characters so far. Showing the latest part; the full response is kept.
       </p>}
-      <pre className={styles.responseText}>{renderText(visible.text, visible.offset)}</pre>
+      <pre className={`${styles.responseText} ${streamStyles.cursor}`} data-streaming-cursor="true">{renderText(visible.text, visible.offset)}</pre>
     </div>;
   }
   const preview = expanded ? { text: content, offset: 0 } : { text: content.slice(0, CHAT_PREVIEW_CHARS), offset: 0 };

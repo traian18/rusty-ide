@@ -26,7 +26,7 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
             <button
               key={item.path}
               onClick={() => insertSuggestion(item)}
-              className={`w-full text-left px-3 py-1.5 flex items-center justify-between text-[length:var(--font-size-chat-md)] transition-colors cursor-pointer ${
+              className={`w-full text-left px-3 py-1.5 flex flex-col items-start text-[length:var(--font-size-chat-md)] transition-colors cursor-pointer ${
                 idx === selectedIndex
                   ? "bg-[var(--accent-bg)] text-[var(--text-light)]"
                   : "text-[var(--text-normal)] hover:bg-[var(--accent-bg)]/40"
@@ -40,8 +40,8 @@ export const ChatInput: React.FC<ChatInputProps> = (props) => {
                 )}
                 <span className="truncate">{item.name}</span>
               </span>
-              <span className="text-[length:var(--font-size-chat-xs)] font-mono text-[var(--text-muted)] ml-2 truncate max-w-[120px]">
-                {rootPath ? item.path.replace(`${rootPath}/`, "") : ""}
+              <span className="w-full pl-5 text-[length:var(--font-size-chat-xs)] font-mono text-[var(--text-muted)] break-all whitespace-normal">
+                {rootPath ? item.path.replace(`${rootPath}/`, "") : item.path}
               </span>
             </button>
           ))}

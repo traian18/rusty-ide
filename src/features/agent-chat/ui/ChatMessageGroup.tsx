@@ -23,6 +23,7 @@ export interface MessageRenderContext {
   /** The last message, while the model is still writing it. */
   streamingAnswerId?: string;
   liveMarkdown: boolean;
+  reveal?: { displayed: (message: Message) => string; revealing: (message: Message) => boolean };
   /** Present only while there are search matches to highlight. */
   search?: { matchesByMessage: Map<string, ChatSearchMatch[]>; active?: ChatSearchMatch };
 }
@@ -119,9 +120,9 @@ export function MessageBody({ message, context }: { message: Message; context: M
     >
       {(copyable || pinnable) && <MessageActions message={message} copyable={copyable} onTogglePin={pinnable ? onTogglePin : undefined} />}
       <ChatMessageContent
-        content={message.content}
+        content={context.reveal?.displayed(message) ?? message.content}
         onLinkClick={context.onLinkClick}
-        streaming={streaming}
+        streaming={streaming || Boolean(context.reveal?.revealing(message))}
         liveMarkdown={context.liveMarkdown}
         {...searchProps(message.id, context.search)}
       />

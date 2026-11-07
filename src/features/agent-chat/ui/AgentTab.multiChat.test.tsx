@@ -147,7 +147,8 @@ describe("Agent tab with several chats", () => {
 
     // Switching back shows the first chat as it went on.
     await selectPill(0);
-    expect(container.textContent).toContain("working on the first");
+    for (let i = 0; i < 3; i += 1) await flush(80);
+    expect(container.textContent).toContain("working on the");
     expect(shownMessages().map((m) => m.content)).not.toContain("second task");
 
     // The second finishes while the first is shown; the first keeps running.

@@ -62,10 +62,13 @@ describe("agent turns", () => {
     expect(container.querySelector('[data-testid="agent-turn-answer"]')).toBeNull();
     const process = container.querySelector('[data-testid="agent-turn-process"]')!;
     expect(process.textContent).toContain("Generating response…");
-    expect(process.textContent).toContain("Fixed: the parser now handles empty input.");
+    expect(process.textContent).not.toContain("Fixed: the parser now handles empty input.");
+    for (let i = 0; i < 7; i += 1) await act(async () => { vi.advanceTimersByTime(65); });
+    expect(process.textContent).toContain("Fixed: the parser now handles empty");
     expect(container.querySelector('[data-testid="agent-turn-toggle"]')?.getAttribute("aria-expanded")).toBe("true");
 
     await act(async () => root.render(<Chat messages={turn} turnLayout />));
+    await act(async () => { vi.advanceTimersByTime(65); });
     await act(async () => { vi.advanceTimersByTime(400); });
 
     const answer = container.querySelector('[data-testid="agent-turn-answer"]')!;
@@ -117,20 +120,28 @@ describe("streaming Markdown", () => {
     expect(container.querySelector("strong")?.textContent).toBe("there");
     expect(container.querySelectorAll("li")).toHaveLength(2);
     expect(container.textContent).not.toContain("**");
-    const words = [...container.querySelectorAll<HTMLSpanElement>("span")].map((span) => span.textContent);
+    const words = [...container.querySelectorAll<HTMLSpanElement>("span:not([aria-hidden])")].map((span) => span.textContent);
     expect(words).toEqual(["Hello", "there", "world", "one", "two"]);
     // Each batch staggers its words within a block: "Hello" came first, the rest in the second update.
-    const delays = [...container.querySelectorAll<HTMLSpanElement>("span")].map((span) => span.style.animationDelay);
+    const delays = [...container.querySelectorAll<HTMLSpanElement>("span:not([aria-hidden])")].map((span) => span.style.animationDelay);
     expect(delays).toEqual(["0ms", "0ms", "24ms", "0ms", "24ms"]);
     await act(async () => root.unmount());
   });
 
   it("streams an agent answer as Markdown, not raw text", async () => {
+    vi.useFakeTimers();
     const { container, root } = await mount((root) => root.render(<Chat turnLayout isStreaming streamingMessageId="c" messages={[
       { id: "u", role: "user", content: "go", timestamp: "" },
       { id: "c", role: "console", content: "", timestamp: "" },
       { id: "a", role: "assistant", content: "Done with `cargo test`", timestamp: "" },
     ]} />));
+    for (let i = 0; i < 4; i += 1) await act(async () => { vi.advanceTimersByTime(65); });
+    await act(async () => root.render(<Chat turnLayout messages={[
+      { id: "u", role: "user", content: "go", timestamp: "" },
+      { id: "c", role: "console", content: "", timestamp: "" },
+      { id: "a", role: "assistant", content: "Done with `cargo test`", timestamp: "" },
+    ]} />));
+    await act(async () => { vi.advanceTimersByTime(65); });
     expect(container.querySelector("[data-message-id='a'] code")?.textContent).toBe("cargo test");
     expect(container.querySelector("[data-message-id='a'] pre")).toBeNull();
     await act(async () => root.unmount());

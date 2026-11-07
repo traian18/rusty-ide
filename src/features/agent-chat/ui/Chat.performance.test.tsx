@@ -272,10 +272,15 @@ it("live Markdown parses only the block still being written", async () => {
     { id: "q", role: "user", content: "explain", timestamp: "" },
     { id: "live", role: "assistant", content, timestamp: "" },
   ]} />);
+  vi.useFakeTimers();
   try {
-    await act(async () => render("First paragraph.\n\nSecond"));
-    for (let i = 0; i < 10; i++) await act(async () => render(`First paragraph.\n\nSecond${" more".repeat(i + 1)}`));
+    await act(async () => render("First paragraph.\n\nSecond "));
+    for (let i = 0; i < 3; i++) await act(async () => { vi.advanceTimersByTime(65); });
+    for (let i = 0; i < 10; i++) {
+      await act(async () => render(`First paragraph.\n\nSecond${" more".repeat(i + 1)} `));
+      await act(async () => { vi.advanceTimersByTime(65); });
+    }
     expect(markdownRender.mock.calls.filter(([content]) => content === "First paragraph.")).toHaveLength(1);
     expect(markdownRender).toHaveBeenLastCalledWith(`Second${" more".repeat(10)}`);
-  } finally { await act(async () => root.unmount()); vi.unstubAllGlobals(); }
+  } finally { await act(async () => root.unmount()); vi.useRealTimers(); vi.unstubAllGlobals(); }
 });

@@ -9,6 +9,7 @@ import { useWorkspaceLinkClick } from "./chatLinks";
 import type { ChatPerformanceMetrics, Message, SubagentActivity } from "../chatTypes";
 import { useChatScroll, useChatViewport, useFollowLatest } from "./chatViewport";
 import { useMessageVisibility } from "./chatVisibility";
+import { useWordReveal } from "./useWordReveal";
 import { EMPTY_SUBAGENTS, renderChatGroup, renderTurnItems, type LiveActivity, type MessageRenderContext } from "./ChatMessageGroup";
 
 // The chat's message model and grouping live in their own modules; they are
@@ -58,6 +59,7 @@ interface ChatProps {
 
 export const Chat = memo(function Chat({ messages, isStreaming = false, streamingMessageId = null, streamingLabel = "Model is thinking…", compact = false, scrollKey, subagents = EMPTY_SUBAGENTS, followLatest = false, explicitScrollTarget, onScrollTargetHandled, onVisibleMessageChange, onPerformanceMetrics, activeMessageId, searchMatches = [], activeSearchMatch, onTogglePin, turnLayout = false }: ChatProps) {
   const viewport = useChatViewport();
+  const reveal = useWordReveal(messages, isStreaming, turnLayout, scrollKey);
   const handleLinkClick = useWorkspaceLinkClick();
   const messageIds = useMemo(() => messages.map((message) => message.id), [messages]);
   const { registerMessage, scheduleVisibilityUpdate } = useMessageVisibility(viewport, messages, messageIds, onVisibleMessageChange, onPerformanceMetrics);
@@ -81,6 +83,7 @@ export const Chat = memo(function Chat({ messages, isStreaming = false, streamin
     onLinkClick: handleLinkClick,
     streamingAnswerId: isStreaming ? messages[messages.length - 1]?.id : undefined,
     liveMarkdown: turnLayout,
+    reveal: turnLayout ? reveal : undefined,
     search: searchMatches.length > 0 ? { matchesByMessage: searchMatchesByMessage, active: activeSearchMatch } : undefined,
   };
   const live: LiveActivity = { isStreaming, streamingMessageId, subagents };

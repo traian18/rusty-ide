@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatInput } from "./ChatInput";
+import { searchService } from "../../explorer/service/searchService";
 
 vi.mock("../../../store", () => ({
   useWorkspaceStore: (selector: (state: { fileTree: unknown[]; rootPath: string }) => unknown) => selector({ fileTree: [], rootPath: "/ws" }),
@@ -64,6 +65,29 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.useRealTimers();
+});
+
+describe("ChatInput file suggestions", () => {
+  it("shows complete, wrapping paths for files with the same name and inserts the selected path", async () => {
+    vi.mocked(searchService.searchProject).mockResolvedValueOnce([
+      { name: "index.ts", path: "/ws/packages/first/src/index.ts", is_content_match: false },
+      { name: "index.ts", path: "/ws/packages/second/src/index.ts", is_content_match: false },
+    ] as Awaited<ReturnType<typeof searchService.searchProject>>);
+    mount();
+    type("@index");
+    await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+
+    const paths = ["packages/first/src/index.ts", "packages/second/src/index.ts"];
+    for (const path of paths) {
+      const element = [...container.querySelectorAll("span")].find((span) => span.textContent === path);
+      expect(element).toBeDefined();
+      expect(element?.className).toContain("break-all");
+      expect(element?.className).not.toContain("truncate");
+    }
+    const second = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes(paths[1]));
+    act(() => second?.click());
+    expect(box().value).toBe("@packages/second/src/index.ts ");
+  });
 });
 
 describe("ChatInput: the up arrow shows recent prompts", () => {
