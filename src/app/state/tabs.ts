@@ -1,8 +1,10 @@
 import { withActiveCanvas } from "../../features/canvas";
 import { disposeTab } from "../tabs/effects";
 import { getTabPolicy, pruneForClosedTab, seedForNewTab } from "../tabs/policy";
-import { isDuplicateTab, nextInstanceId, originalTabId } from "../tabs/identity";
-import { canDuplicateTab, findOpenTab, splitAfterActivating, splitPartner, splitWithCopy, visibleTabIds } from "../tabs/split";
+import { nextInstanceId } from "../tabs/identity";
+import { canDuplicateTab, findOpenTab, splitWithCopy } from "../tabs/split";
+import { activateInRail, closeInRail, mergeRails, moveInRail } from "../tabs/rails";
+import type { TabGroupSide } from "../tabs/groups";
 import { fallbackTab, initialTabs } from "../tabs/transitions";
 import { loadHasSeenOnboarding, saveHasSeenOnboarding } from "../../features/onboarding";
 import type { OpenTabRequest, TabInstance, TabResolveContext, TabSplit } from "../tabs/types";
@@ -11,20 +13,15 @@ import type { WorkspaceState } from "../../store/types";
 
 declare module "../../store/types" {
   interface WorkspaceState {
-    /** The two code tabs shown side by side, if any (`src/app/tabs/split.ts`). */
+    /** Visible tab IDs, focus, and ordered membership of the two rails. */
     tabSplit: TabSplit | null;
-    /** Splits the active code tab beside a copy of itself, or closes the split on screen. */
+    moveTabToRail: (id: string, side: TabGroupSide, index?: number) => void;
+    /** Merge the rails, or split by copying a file / moving a non-file tab. */
     toggleSplit: () => void;
   }
 }
 
-/**
- * The single open-tab collection. Replaces the previous `editorGroups` /
- * `activeGroupId` / `groupSizes` split-editor model: one tab strip, one outlet,
- * and every behavioral decision delegated to `src/tabs/policy.ts` rather than
- * re-derived at each call site. Showing two code tabs side by side is a view
- * over that one collection (`tabSplit`, see `src/tabs/split.ts`).
- */
+/** The registry is shared; split membership and selection belong to each rail. */
 
 function resolveContext(state: WorkspaceState): TabResolveContext {
   return {
@@ -90,7 +87,7 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
         return withActiveCanvas(state, {
           tabs,
           activeTabId: existing.id,
-          tabSplit: splitAfterActivating(state.tabSplit, merged),
+          tabSplit: state.tabSplit ? activateInRail(state.tabSplit, state.tabs, merged.id) : null,
         });
       }
 
@@ -102,7 +99,7 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
       return withActiveCanvas(state, {
         tabs: [...state.tabs, created],
         activeTabId: identity,
-        tabSplit: splitAfterActivating(state.tabSplit, created),
+        tabSplit: state.tabSplit ? activateInRail(state.tabSplit, state.tabs, created.id) : null,
         ...seeded,
       });
     });
@@ -114,7 +111,7 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
     set((state) => {
       const tab = state.tabs.find((candidate) => candidate.id === id);
       if (!tab) return {};
-      return withActiveCanvas(state, { activeTabId: id, tabSplit: splitAfterActivating(state.tabSplit, tab) });
+      return withActiveCanvas(state, { activeTabId: id, tabSplit: state.tabSplit ? activateInRail(state.tabSplit, state.tabs, tab.id) : null });
     }),
 
   closeTab: (id: string) => {
@@ -132,13 +129,8 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
       const pruned = pruneForClosedTab(tab, state);
 
       let activeTabId = state.activeTabId;
-      const partner = splitPartner(state.tabSplit, id);
       if (activeTabId === id) {
-        // The other side of a split stays on screen, so focus goes there.
-        // Otherwise the neighbour to the right, then to the left. The previous
-        // behavior jumped to the last tab in the strip, which threw focus
-        // across the window when closing anything but the rightmost tab.
-        activeTabId = partner ?? (tabs[index] ?? tabs[index - 1])?.id ?? null;
+        activeTabId = (tabs[index] ?? tabs[index - 1])?.id ?? null;
       }
 
       if (tabs.length === 0) {
@@ -147,29 +139,36 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
         activeTabId = fallback.id;
       }
 
-      const tabSplit = partner
-        ? null
-        : splitAfterActivating(state.tabSplit, tabs.find((candidate) => candidate.id === activeTabId));
-      return withActiveCanvas(state, { tabs, activeTabId, tabSplit, ...pruned });
+      const selection = state.tabSplit ? closeInRail(state.tabSplit, state.tabs, id) : { tabSplit: null, activeTabId };
+      if (state.tabSplit && !selection.tabSplit) tabs = mergeRails(tabs, selection.activeTabId);
+      return withActiveCanvas(state, { tabs, ...selection, ...pruned });
     });
 
     // Non-store cleanup runs after the state write, never inside the updater.
     disposeTab(tab);
   },
 
+  moveTabToRail: (id, side, index = Number.MAX_SAFE_INTEGER) => set((state) => {
+    if (!state.tabSplit) return {};
+    const moved = moveInRail(state.tabSplit, state.tabs, id, side, index);
+    if (!moved) return {};
+    if (!moved.tabSplit) moved.tabs = mergeRails(moved.tabs, moved.activeTabId);
+    return withActiveCanvas(state, moved);
+  }),
+
   toggleSplit: () => {
     const { tabs, activeTabId, tabSplit } = get();
     if (!tabSplit) {
       const active = tabs.find((tab) => tab.id === activeTabId);
-      if (active && canDuplicateTab(active)) set((state) => withActiveCanvas(state, splitWithCopy(state.tabs, active)));
+      if (active && canDuplicateTab(active)) {
+        set((state) => withActiveCanvas(state, splitWithCopy(state.tabs, active)));
+      } else if (active && tabs.length > 1) {
+        const left = tabs.filter((tab) => tab.id !== active.id).map((tab) => tab.id);
+        set({ tabSplit: { left: left[left.length - 1], right: active.id, focused: "right", rails: { left, right: [active.id] } } });
+      }
       return;
     }
-    // Behind a full-width tab there is no split on screen to close.
-    if (visibleTabIds(activeTabId, tabSplit).length < 2) return;
-    // A copy is only there to sit beside its original, so it closes with the split.
-    const { left, right } = tabSplit;
-    if (originalTabId(left) === originalTabId(right)) get().closeTab(isDuplicateTab(left) ? left : right);
-    else set({ tabSplit: null });
+    set({ tabSplit: null, tabs: mergeRails(tabs, activeTabId) });
   },
 
   updateTab: (id: string, updates: Partial<Omit<TabInstance, "id" | "type">>) =>

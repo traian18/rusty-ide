@@ -10,6 +10,7 @@ import type { TabViewContext } from "../tabs/views";
 const mounts = vi.hoisted(() => [] as string[]);
 
 vi.mock("../tabs/views", () => ({
+  TabIcon: () => null,
   getTabView: () => ({ surface: "editor" }),
   TabPanel: ({ tab, isActive }: { tab: TabInstance; isActive: boolean }) => {
     useEffect(() => {
@@ -40,6 +41,7 @@ describe("TabOutlet", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    Element.prototype.scrollIntoView = vi.fn();
     mounts.length = 0;
     useWorkspaceStore.setState({ tabs: [file(A), file(COPY), settings], activeTabId: A, tabSplit: null });
     host = document.createElement("div");
@@ -93,11 +95,32 @@ describe("TabOutlet", () => {
     expect(useWorkspaceStore.getState().tabSplit?.focused).toBe("left");
   });
 
-  it("gives a non-code tab the full width", () => {
-    show({ activeTabId: "settings", tabSplit: { left: A, right: COPY, focused: "right" } });
+  it("moves settings with the accessible rail action without remounting the visible editor", () => {
+    show({ activeTabId: COPY, tabSplit: { left: A, right: COPY, focused: "right", rails: { left: [A, "settings"], right: [COPY] } } });
+    const action = host.querySelector<HTMLButtonElement>('[id="move-tab-left-settings"]')!;
+    act(() => action.click());
+    expect(useWorkspaceStore.getState().tabSplit?.rails?.right).toEqual([COPY, "settings"]);
     expect(panel("settings")).not.toBeNull();
-    expect(panel(A)).toBeNull();
+    expect(mounts.filter((id) => id === A)).toHaveLength(1);
+  });
+
+  it("moves a dragged tab to the destination rail", () => {
+    show({ activeTabId: COPY, tabSplit: { left: A, right: COPY, focused: "right", rails: { left: [A, "settings"], right: [COPY] } } });
+    const target = host.querySelector('[data-tab-rail="right"]')!;
+    const drop = new Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(drop, "dataTransfer", { value: { getData: () => "settings" } });
+    act(() => target.dispatchEvent(drop));
+    expect(useWorkspaceStore.getState().tabSplit?.rails?.right).toEqual([COPY, "settings"]);
+    expect(useWorkspaceStore.getState().tabs.filter((tab) => tab.type === "settings")).toHaveLength(1);
+  });
+
+  it("renders two independent rails with settings beside a file", () => {
+    show({ activeTabId: "settings", tabSplit: { left: A, right: "settings", focused: "right", rails: { left: [A, COPY], right: ["settings"] } } });
+    expect(panel("settings")).not.toBeNull();
+    expect(panel(A)).not.toBeNull();
     expect(panel(COPY)).toBeNull();
-    expect(divider()).toBeNull();
+    expect(divider()).not.toBeNull();
+    expect(host.querySelector('[data-tab-rail="left"] [data-tab-id="settings"]')).toBeNull();
+    expect(host.querySelector('[data-tab-rail="right"] [data-tab-id="settings"]')).not.toBeNull();
   });
 });

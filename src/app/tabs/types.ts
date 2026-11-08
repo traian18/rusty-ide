@@ -171,6 +171,8 @@ export interface TabSplit {
   left: string;
   right: string;
   focused: "left" | "right";
+  /** Ordered membership of each independent rail. */
+  rails?: { left: string[]; right: string[] };
 }
 
 /**

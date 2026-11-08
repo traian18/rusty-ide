@@ -523,7 +523,7 @@ describe("side-by-side code tabs", () => {
     const store = splitOnA();
     expect(ids(store)).toEqual(["onboarding", "workspace", A, COPY]);
     expect(store.getState().activeTabId).toBe(COPY);
-    expect(store.getState().tabSplit).toEqual({ left: A, right: COPY, focused: "right" });
+    expect(store.getState().tabSplit).toMatchObject({ left: A, right: COPY, focused: "right" });
   });
 
   it.each(["agent", "settings", "workspace"] as const)("does not duplicate a %s tab", (type) => {
@@ -532,14 +532,15 @@ describe("side-by-side code tabs", () => {
     const before = ids(store);
     store.getState().toggleSplit();
     expect(ids(store)).toEqual(before);
-    expect(store.getState().tabSplit).toBeNull();
+    expect(store.getState().tabSplit?.right).toBe(type);
   });
 
   it("does not duplicate a canvas tab", () => {
     const store = createTabTestStore();
-    store.getState().openTab({ type: "canvas" });
+    const id = store.getState().openTab({ type: "canvas" });
     store.getState().toggleSplit();
-    expect(store.getState().tabSplit).toBeNull();
+    expect(store.getState().tabSplit?.right).toBe(id);
+    expect(store.getState().tabs.filter((tab) => tab.type === "canvas")).toHaveLength(1);
   });
 
   it("never makes a third tab of a file", () => {
@@ -547,6 +548,28 @@ describe("side-by-side code tabs", () => {
     store.getState().toggleSplit();
     store.getState().toggleSplit();
     expect(ids(store).filter((id) => originalTabId(id) === A)).toHaveLength(2);
+  });
+
+  it.each(["left", "right"] as const)("deduplicates file moves into the %s rail", (side) => {
+    const store = splitOnA();
+    const moved = side === "left" ? COPY : A;
+    const retained = side === "left" ? A : COPY;
+    store.getState().moveTabToRail(moved, side);
+    expect(ids(store)).not.toContain(moved);
+    expect(ids(store)).toContain(retained);
+    expect(store.getState().activeTabId).toBe(retained);
+    if (side === "left") expect(store.getState().tabSplit).toBeNull();
+  });
+
+  it("moves singleton tabs without duplication and keeps reopening in their owning rail", () => {
+    const store = splitOnA();
+    store.getState().openTab({ type: "settings" });
+    store.getState().moveTabToRail("settings", "left", 0);
+    expect(store.getState().tabSplit?.rails?.left[0]).toBe("settings");
+    store.getState().activateTab(COPY);
+    store.getState().openTab({ type: "settings" });
+    expect(store.getState().tabSplit?.focused).toBe("left");
+    expect(ids(store).filter((id) => id === "settings")).toHaveLength(1);
   });
 
   it("keeps opening a file in the copy that is in use", () => {
@@ -563,28 +586,30 @@ describe("side-by-side code tabs", () => {
   it("opens another file on the focused side", () => {
     const store = splitOnA();
     const b = store.getState().openTab({ type: "file", path: "/b.ts" });
-    expect(store.getState().tabSplit).toEqual({ left: A, right: b, focused: "right" });
+    expect(store.getState().tabSplit).toMatchObject({ left: A, right: b, focused: "right" });
     store.getState().activateTab(A);
     const c = store.getState().openTab({ type: "file", path: "/c.ts" });
-    expect(store.getState().tabSplit).toEqual({ left: c, right: b, focused: "left" });
+    expect(store.getState().tabSplit).toMatchObject({ left: c, right: b, focused: "left" });
   });
 
-  it("gives a non-code tab the full width and brings the split back after it", () => {
+  it("shows settings beside a file and retains independent selections", () => {
     const store = splitOnA();
     store.getState().openTab({ type: "settings" });
-    expect(store.getState().tabSplit).toEqual({ left: A, right: COPY, focused: "right" });
-    expect(visibleTabIds(store.getState().activeTabId, store.getState().tabSplit)).toEqual(["settings"]);
-
+    expect(store.getState().tabSplit).toMatchObject({ left: A, right: "settings", focused: "right" });
+    expect(visibleTabIds(store.getState().activeTabId, store.getState().tabSplit)).toEqual([A, "settings"]);
     store.getState().activateTab(A);
-    expect(visibleTabIds(store.getState().activeTabId, store.getState().tabSplit)).toEqual([A, COPY]);
+    expect(visibleTabIds(store.getState().activeTabId, store.getState().tabSplit)).toEqual([A, "settings"]);
+    store.getState().activateTab(COPY);
+    expect(store.getState().tabSplit?.right).toBe(COPY);
   });
 
-  it("does not close a split it cannot show", () => {
+  it("merges rails when closing split with settings selected", () => {
     const store = splitOnA();
     store.getState().openTab({ type: "settings" });
     store.getState().toggleSplit();
-    expect(store.getState().tabSplit).not.toBeNull();
-    expect(ids(store)).toContain(COPY);
+    expect(store.getState().tabSplit).toBeNull();
+    expect(store.getState().activeTabId).toBe("settings");
+    expect(ids(store).filter((id) => originalTabId(id) === A)).toHaveLength(1);
   });
 
   it("ends the split when a side closes, moving focus to the other side", () => {
@@ -595,7 +620,8 @@ describe("side-by-side code tabs", () => {
 
     const other = splitOnA();
     other.getState().closeTab(A);
-    expect(other.getState().tabSplit).toBeNull();
+    expect(other.getState().tabSplit).not.toBeNull();
+    expect(other.getState().tabSplit?.rails?.left).toEqual(["onboarding", "workspace"]);
     expect(other.getState().activeTabId).toBe(COPY);
   });
 
@@ -605,12 +631,12 @@ describe("side-by-side code tabs", () => {
     expect(store.getState().activeTabId).toBe(COPY);
   });
 
-  it("closes a copy along with the split, keeping the original", () => {
+  it("merges duplicate files when the split closes, preserving the selected instance", () => {
     const store = splitOnA();
     store.getState().toggleSplit();
     expect(store.getState().tabSplit).toBeNull();
-    expect(ids(store)).toEqual(["onboarding", "workspace", A]);
-    expect(store.getState().activeTabId).toBe(A);
+    expect(ids(store)).toEqual(["onboarding", "workspace", COPY]);
+    expect(store.getState().activeTabId).toBe(COPY);
   });
 
   it("keeps both tabs when the split held two different files", () => {
@@ -630,7 +656,7 @@ describe("side-by-side code tabs", () => {
     const b = store.getState().openTab({ type: "file", path: "/b.ts" });
     store.getState().toggleSplit();
     expect(store.getState().tabSplit).toBeNull();
-    expect(ids(store)).toEqual(expect.arrayContaining([A, COPY, b]));
+    expect(ids(store)).toEqual(expect.arrayContaining([A, b]));
     expect(store.getState().activeTabId).toBe(b);
   });
 

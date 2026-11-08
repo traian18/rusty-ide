@@ -1,12 +1,6 @@
 /**
- * The side-by-side view: at most two code tabs in the workspace at once, with
- * the tab strip staying the single list of open tabs. A code tab may also have
- * one copy, so the same file can be open on both sides.
- *
- * Every other tab shows at full width and leaves the split waiting behind it;
- * going back to either of the split's tabs brings both back.
- *
- * Pure, like the rest of this directory: no React, no store.
+ * Pure helpers for the visible pair and file-instance identity. Independent
+ * rail membership lives on TabSplit; rail transitions are in rails.ts.
  */
 
 import { duplicateTabId, isDuplicateTab, originalTabId } from "./identity";
@@ -55,7 +49,9 @@ export function findOpenTab(
   identity: string,
 ): TabInstance | undefined {
   const matches = state.tabs.filter((tab) => originalTabId(tab.id) === identity);
-  return matches.find((tab) => tab.id === state.activeTabId)
+  const focusedIds = state.tabSplit?.rails?.[state.tabSplit.focused] ?? [];
+  return matches.find((tab) => focusedIds.includes(tab.id))
+    ?? matches.find((tab) => tab.id === state.activeTabId)
     ?? matches.find((tab) => splitPartner(state.tabSplit, tab.id) !== undefined)
     ?? matches[0];
 }
@@ -70,5 +66,8 @@ export function splitWithCopy(tabs: TabInstance[], source: TabInstance): {
   const withCopy = tabs.some((tab) => tab.id === copyId)
     ? tabs
     : tabs.flatMap((tab) => (tab.id === source.id ? [tab, { ...source, id: copyId }] : [tab]));
-  return { tabs: withCopy, activeTabId: copyId, tabSplit: { left: source.id, right: copyId, focused: "right" } };
+  return { tabs: withCopy, activeTabId: copyId, tabSplit: {
+    left: source.id, right: copyId, focused: "right",
+    rails: { left: withCopy.filter((tab) => tab.id !== copyId).map((tab) => tab.id), right: [copyId] },
+  } };
 }

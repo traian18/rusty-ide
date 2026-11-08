@@ -1,6 +1,5 @@
 import React from "react";
 import type { TabViewContext } from "./tabs/views";
-import { TabStrip } from "./workspace/TabStrip";
 import { TabOutlet } from "./workspace/TabOutlet";
 import { NotificationInteractionPresenter } from "../features/notifications/ui";
 import { CommandPermissionPresenter } from "../features/permissions/ui";
@@ -33,7 +32,6 @@ export const Workspace: React.FC = () => {
       <CommandPermissionPresenter />
       <TabCloseInterceptPresenter />
       <div className="flex flex-col h-full w-full min-w-0 overflow-hidden">
-        <TabStrip />
         <TabOutlet context={tabViewContext} />
       </div>
     </div>

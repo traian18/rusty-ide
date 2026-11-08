@@ -1,3 +1,16 @@
+.workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.rails { display: flex; min-width: 0; }
+.rails > div { min-width: 0; }
+.rightRail { flex: 1; }
+.railDivider { flex: 0 0 6px; background: var(--color-border-subtle); }
+
 .outlet {
   position: relative;
   flex: 1;

@@ -7,6 +7,7 @@ import { TabPanel, getTabView, type TabViewContext } from "../tabs/views";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { TabCrashFallback } from "./TabCrashFallback";
 import { useSplitWidth } from "./useSplitWidth";
+import { TabStrip } from "./TabStrip";
 import styles from "./TabOutlet.module.css";
 
 interface TabOutletProps {
@@ -55,6 +56,13 @@ export const TabOutlet: React.FC<TabOutletProps> = ({ context }) => {
   };
 
   return (
+    <div className={styles.workspace}>
+      <div className={styles.rails}>
+        <div style={split ? { width: `calc((100% - 6px) * ${leftPercent / 100})` } : { width: "100%" }}>
+          <TabStrip side="left" />
+        </div>
+        {split && <><div className={styles.railDivider} /><div className={styles.rightRail}><TabStrip side="right" /></div></>}
+      </div>
     <div ref={outletRef} className={split ? `${styles.outlet} ${styles.split}` : styles.outlet}>
       {tabs.map((tab) => {
         const isVisible = visibleIds.includes(tab.id);
@@ -81,6 +89,7 @@ export const TabOutlet: React.FC<TabOutletProps> = ({ context }) => {
         );
       })}
       {split && handle}
+    </div>
     </div>
   );
 };

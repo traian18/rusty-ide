@@ -2,15 +2,21 @@ import React, { useState, useEffect, useRef } from "react";
 import { useWorkspaceStore } from "../../store";
 import { TabStripView } from "./TabStrip.view";
 import { requestCloseTab } from "../tabs/closeRequests";
-import { canDuplicateTab, visibleTabIds } from "../tabs/split";
+import { visibleTabIds } from "../tabs/split";
+import { railIds } from "../tabs/rails";
+import type { TabGroupSide } from "../tabs/groups";
 
-export const TabStrip: React.FC = () => {
+export const TabStrip: React.FC<{ side?: TabGroupSide }> = ({ side = "left" }) => {
   const openTabs = useWorkspaceStore((state) => state.tabs);
-  const activeTabId = useWorkspaceStore((state) => state.activeTabId);
+  const globalActiveId = useWorkspaceStore((state) => state.activeTabId);
   const activateTab = useWorkspaceStore((state) => state.activateTab);
   const tabSplit = useWorkspaceStore((state) => state.tabSplit);
   const toggleSplit = useWorkspaceStore((state) => state.toggleSplit);
 
+  const moveTab = useWorkspaceStore((state) => state.moveTabToRail);
+  const activeTabId = tabSplit ? tabSplit[side] : globalActiveId;
+  const ids = tabSplit ? railIds(tabSplit, openTabs, side) : openTabs.map((tab) => tab.id);
+  const railTabs = ids.flatMap((id) => openTabs.filter((tab) => tab.id === id));
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const tabsContainerRef = useRef<HTMLDivElement>(null);
 
@@ -33,11 +39,15 @@ export const TabStrip: React.FC = () => {
   const visibleIds = visibleTabIds(activeTabId, tabSplit);
   const activeTab = openTabs.find((tab) => tab.id === activeTabId);
   const splitShown = visibleIds.length === 2;
-  const canSplit = !tabSplit && activeTab !== undefined && canDuplicateTab(activeTab);
+  const hasSplitPartner = activeTab?.type === "file" || openTabs.length > 1;
+  const canSplit = !tabSplit && activeTab !== undefined && hasSplitPartner;
 
   return (
     <TabStripView
-      openTabs={openTabs}
+      openTabs={railTabs}
+      railId={side}
+      moveTab={tabSplit ? (id, index) => moveTab(id, side, index) : undefined}
+      moveToOtherRail={tabSplit ? (id) => moveTab(id, side === "left" ? "right" : "left") : undefined}
       activeTabId={activeTabId}
       visibleTabIds={visibleIds}
       splitShown={splitShown}

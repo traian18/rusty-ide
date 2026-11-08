@@ -125,7 +125,7 @@ describe("splitWithCopy", () => {
     expect(tabs.map((tab) => tab.id)).toEqual([original.id, copyId, "agent"]);
     expect(tabs[1]).toMatchObject({ type: "file", path: "/a.ts" });
     expect(activeTabId).toBe(copyId);
-    expect(tabSplit).toEqual({ left: original.id, right: copyId, focused: "right" });
+    expect(tabSplit).toMatchObject({ left: original.id, right: copyId, focused: "right" });
   });
 
   it("reuses an open copy rather than making a third tab of the file", () => {
@@ -137,6 +137,6 @@ describe("splitWithCopy", () => {
     const copy = fileTab("/a.ts", copyId);
     const { tabs, tabSplit } = splitWithCopy([copy], copy);
     expect(tabs.map((tab) => tab.id)).toEqual([copyId, original.id]);
-    expect(tabSplit).toEqual({ left: copyId, right: original.id, focused: "right" });
+    expect(tabSplit).toMatchObject({ left: copyId, right: original.id, focused: "right" });
   });
 });
