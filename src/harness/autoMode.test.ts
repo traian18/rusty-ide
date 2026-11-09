@@ -4,7 +4,7 @@ vi.mock("../features/permissions/service/commandPermissionService", () => ({
   commandPermissionService: { request: vi.fn(() => new Promise(() => undefined)) },
 }));
 
-import { AUTO_DECIDE, autoQuestionAnswer, autoWorkflowAnswer, isAutoMode, setAutoMode, unlessAuto } from "./autoMode";
+import { AUTO_DECIDE, AUTO_KEEPS_LIMITS, autoQuestionAnswer, autoQuestionReply, autoWorkflowAnswer, isAutoMode, setAutoMode, unlessAuto } from "./autoMode";
 import { createRunHost } from "./hostDefaults";
 import { commandPermissionService } from "../features/permissions";
 import type { CommandPermissionRequest } from "../../shared/agent-protocol";
@@ -42,6 +42,14 @@ describe("auto mode", () => {
   it("takes a question's first suggestion, or leaves the decision to the agent", () => {
     expect(autoQuestionAnswer({ requestId: "q", question: "Allow?", options: [{ label: "Allow" }, { label: "Block" }] })).toBe("Allow");
     expect(autoQuestionAnswer({ requestId: "q", question: "Which?", options: [] })).toBe(AUTO_DECIDE);
+  });
+
+  it("never lets a taken suggestion lift the limits the agent was given", () => {
+    const reply = autoQuestionReply("Expand scope");
+    expect(reply).toContain("The first suggestion was taken: Expand scope.");
+    expect(reply).toContain(AUTO_KEEPS_LIMITS);
+    expect(autoQuestionReply(AUTO_DECIDE)).not.toContain("first suggestion was taken");
+    expect(autoQuestionReply(AUTO_DECIDE)).toContain(AUTO_KEEPS_LIMITS);
   });
 
   it("asks while it is off, and answers what is waiting as soon as it is turned on", async () => {

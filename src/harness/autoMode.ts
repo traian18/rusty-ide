@@ -61,6 +61,17 @@ export function autoQuestionAnswer(question: AgentQuestion): string {
   return question.options[0]?.label ?? AUTO_DECIDE;
 }
 
+/** Added to every auto-mode answer: the agent writes the suggestions, so taking its first one must not
+ * become a way to lift the limits it was given (a workflow step's file list, its task, its instructions). */
+export const AUTO_KEEPS_LIMITS =
+  "An answer taken in auto mode never widens what you were given: it does not lift any limit of your task (the files it names, its scope, its instructions). If the answer would go beyond them, do not follow it: stay within your task, or, when the task cannot be done within them, stop and report exactly what blocks you and what change of scope it needs.";
+
+/** What the agent is told when auto mode answered its question with `answer`. */
+export function autoQuestionReply(answer: string): string {
+  const taken = answer === AUTO_DECIDE ? "" : ` The first suggestion was taken: ${answer}.`;
+  return `Auto mode is on: the user does not answer questions and will not see this one.${taken} ${AUTO_KEEPS_LIMITS} Decide anything else yourself, say in your final answer what you chose and why, and carry on without asking again.`;
+}
+
 /** Failed tasks auto mode has already tried once more, by the request id without its question number. */
 const retried = new Set<string>();
 
