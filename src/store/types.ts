@@ -248,6 +248,8 @@ export interface AgentMessage {
   attachmentContext?: string;
   /** Kept word for word when a long chat is trimmed for the model. */
   pinned?: boolean;
+  /** Shown while the chat is open but never saved (compaction activity). */
+  transient?: boolean;
 }
 
 export interface AgentToolCall {

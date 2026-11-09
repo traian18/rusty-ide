@@ -246,6 +246,9 @@ pub async fn build_session_builder(
         ),
     );
     let compaction = recipe.context_compaction.unwrap_or_default();
+    if let Some((model, window)) = compaction.trusted_model_window() {
+        builder = builder.trusted_model_window(model, window);
+    }
     builder = builder.context_provider_with_backend(move |backend| {
         compaction_provider(&compaction, backend, summary_model)
     });
@@ -581,6 +584,31 @@ mod tests {
         assert_eq!(config.mode, CompactionMode::Smart);
         assert_eq!(config.context_window, Some(200_000));
         assert_eq!(config.jev.unwrap().model_id, "jev-1");
+    }
+
+    #[test]
+    fn an_estimate_needs_both_the_effective_model_and_a_usable_window() {
+        let config = |value: serde_json::Value| -> ContextCompactionRecipe {
+            serde_json::from_value(value).unwrap()
+        };
+        assert_eq!(
+            config(serde_json::json!({ "context_window": 200000, "model": "gpt-5" }))
+                .trusted_model_window(),
+            Some(("gpt-5".to_string(), 200_000))
+        );
+        assert_eq!(
+            config(serde_json::json!({ "context_window": 200000 })).trusted_model_window(),
+            None
+        );
+        assert_eq!(
+            config(serde_json::json!({ "model": "gpt-5" })).trusted_model_window(),
+            None
+        );
+        assert_eq!(
+            config(serde_json::json!({ "context_window": 0, "model": "gpt-5" }))
+                .trusted_model_window(),
+            None
+        );
     }
 
     #[test]

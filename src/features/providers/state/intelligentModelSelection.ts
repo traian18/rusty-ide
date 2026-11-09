@@ -15,6 +15,7 @@ export const defaultIntelligentModelSelectionSettings: IntelligentModelSelection
   decisionToolEnabled: false,
   decisionConfidenceThreshold: DEFAULT_DECISION_CONFIDENCE,
   riskReviewEnabled: false,
+  contextSummariesEnabled: true,
   smartContextCompactionEnabled: false,
 };
 
@@ -39,6 +40,7 @@ function loadStoredSettings(): IntelligentModelSelectionSettings {
         ? parsed!.decisionConfidenceThreshold!
         : DEFAULT_DECISION_CONFIDENCE,
       riskReviewEnabled: Boolean(parsed?.riskReviewEnabled),
+      contextSummariesEnabled: parsed?.contextSummariesEnabled !== false,
       smartContextCompactionEnabled: Boolean(parsed?.smartContextCompactionEnabled),
     };
   } catch {

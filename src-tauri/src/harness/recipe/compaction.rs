@@ -14,8 +14,9 @@ pub enum CompactionMode {
     /// Local only: trim old tool output, then drop the oldest turns.
     #[default]
     Standard,
-    /// Standard, plus a background model summary guided by JEV importance
-    /// ratings. Needs `jev`; without it the session falls back to standard.
+    /// Standard, plus a background summary of aged-out history written by the
+    /// session's own model. With `jev`, JEV first rates which old messages
+    /// matter: essential ones stay word for word, disposable ones are dropped.
     Smart,
 }
 
@@ -36,8 +37,25 @@ pub struct ContextCompactionRecipe {
     /// character cap, and smart mode cannot schedule summaries without one.
     #[serde(default)]
     pub context_window: Option<u64>,
+    /// The effective model id `context_window` belongs to, as sent in `execution_params.model`.
+    /// Estimates are reported only for requests on this model.
+    #[serde(default)]
+    pub model: Option<String>,
     #[serde(default)]
     pub jev: Option<JevCompactionRecipe>,
+}
+
+impl ContextCompactionRecipe {
+    /// The model and window an estimate may be reported against: both must be known, and the
+    /// window usable.
+    pub fn trusted_model_window(&self) -> Option<(String, u64)> {
+        match (&self.model, self.context_window) {
+            (Some(model), Some(window)) if !model.is_empty() && window > 0 => {
+                Some((model.clone(), window))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// Recent messages never summarized or dropped.
@@ -79,9 +97,34 @@ pub(super) fn compaction_provider(
 ) -> Arc<dyn rusty_context::ContextProvider> {
     let window = config.context_window;
     let standard = standard_compaction(window);
-    let (CompactionMode::Smart, Some(jev)) = (config.mode, config.jev.as_ref()) else {
+    if config.mode != CompactionMode::Smart {
         return standard;
-    };
+    }
+    let passthrough = first_pass();
+    let summarizing = rusty_context::SummarizingCompactionProvider::new(
+        passthrough,
+        standard,
+        Arc::new(match summary_model {
+            Some(model) => rusty_context::BackendSummarizer::new(backend).with_model(model),
+            None => rusty_context::BackendSummarizer::new(backend),
+        }),
+        rusty_context::ContextPolicy::default(),
+        window,
+        COMPACTION_KEEP_RECENT,
+    )
+    .with_anchor_first_user_message(true);
+    Arc::new(match importance_judge(config.jev.as_ref()) {
+        Some(judge) => summarizing.with_importance_judge(judge),
+        None => summarizing,
+    })
+}
+
+/// JEV's ratings of old messages, when it is connected. Without them every
+/// aged-out message is summarized.
+fn importance_judge(
+    jev: Option<&JevCompactionRecipe>,
+) -> Option<Arc<dyn rusty_context::ImportanceJudge>> {
+    let jev = jev?;
     let mut judge = rusty_context::JevImportanceJudge::new(
         rusty_context::OpenRouterDecisions::new(jev.api_key.clone()),
         jev.model_id.clone(),
@@ -89,20 +132,5 @@ pub(super) fn compaction_provider(
     if let Some(confidence) = jev.confidence {
         judge = judge.with_confidence_threshold(confidence);
     }
-    let passthrough = first_pass();
-    Arc::new(
-        rusty_context::SummarizingCompactionProvider::new(
-            passthrough,
-            standard,
-            Arc::new(match summary_model {
-                Some(model) => rusty_context::BackendSummarizer::new(backend).with_model(model),
-                None => rusty_context::BackendSummarizer::new(backend),
-            }),
-            rusty_context::ContextPolicy::default(),
-            window,
-            COMPACTION_KEEP_RECENT,
-        )
-        .with_importance_judge(Arc::new(judge))
-        .with_anchor_first_user_message(true),
-    )
+    Some(Arc::new(judge))
 }

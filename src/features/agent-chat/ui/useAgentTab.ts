@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { recentPrompts, userPrompts } from "../service/promptHistory";
 import { useWorkspaceStore, type AgentMessage } from "../../../store";
 import type { TabOfType } from "../../../app/tabs/types";
@@ -16,6 +16,7 @@ import { chatSessionView, type ChatSession } from "../chats/chatSession";
 import { useChatStore } from "./chats/chatStore";
 import { chatSessionFor, chatTurn, type ChatTabContext } from "../chats/chatTurn";
 import { chatUi, turnUiView } from "./chats/chatUi";
+import { invalidateEstimate } from "../contextVisibility";
 
 const NO_MESSAGES: AgentMessage[] = [];
 
@@ -54,6 +55,7 @@ export function useAgentTab(tab: TabOfType<"agent">, chatId: string) {
     get workflowOptions() { return workflows.options; },
     onSaved: savedChats.loadChatHistory,
   });
+  useEstimatesFollowModel(tab.id, model.selectedModel);
   const run = turnUiView(view, chatUi(chatId, runtime));
   const session = chatSessionView(view, chatSessionFor(context(), chatId));
   const workflows = useWorkflows(rootPath, chatId, session);
@@ -78,3 +80,18 @@ export function useAgentTab(tab: TabOfType<"agent">, chatId: string) {
 }
 
 export type AgentTabModel = ReturnType<typeof useAgentTab>;
+
+/** A model change makes every estimate of the tab's chats stale: they stay hidden until a request
+ * started on the new model reports one. */
+function useEstimatesFollowModel(tabId: string, selectedModel: string) {
+  const previous = useRef(selectedModel);
+  useEffect(() => {
+    if (previous.current === selectedModel) return;
+    previous.current = selectedModel;
+    for (const chatId of useChatStore.getState().tabs[tabId]?.order ?? []) {
+      const runtime = chatRuntime(chatId);
+      invalidateEstimate(runtime.state.visibility);
+      chatUi(chatId, runtime).setContextEstimate(null);
+    }
+  }, [tabId, selectedModel]);
+}

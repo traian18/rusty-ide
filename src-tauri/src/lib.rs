@@ -1589,6 +1589,8 @@ pub fn run() {
             #[cfg(feature = "core-harness")]
             harness::commands::harness_close_session,
             #[cfg(feature = "core-harness")]
+            harness::commands::harness_recover_lifecycle,
+            #[cfg(feature = "core-harness")]
             harness::commands::harness_list_providers,
             #[cfg(feature = "core-harness")]
             harness::commands::harness_web_fetch,
@@ -1610,6 +1612,8 @@ pub fn run() {
             harness::commands::managed_auth_quota,
             #[cfg(feature = "core-harness")]
             harness::commands::managed_auth_models,
+            #[cfg(feature = "core-harness")]
+            harness::commands::model_limits,
             #[cfg(feature = "core-harness")]
             harness::commands::mcp_test_connection
         ]);

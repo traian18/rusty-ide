@@ -3,6 +3,7 @@ import { hybridControlPlane as controlPlane } from "../../../harness/HybridContr
 import { createSemaphore } from "../integrations/concurrency";
 import { DISCOVERY_CONCURRENCY, isCatalogStale, isEligibleForDiscovery } from "../integrations/discoveryPolicy";
 import { providerStatusOrUnknown } from "../integrations/registryTypes";
+import { refreshModelLimits } from "../modelLimits";
 import { MANAGED_PROVIDER_IDS, isManagedProviderId } from "./managedStatus";
 import type { CustomProvider } from "../../../store/types";
 
@@ -119,6 +120,8 @@ export function scheduleDiscoverySweep(): void {
 }
 
 export async function runDiscoverySweep(): Promise<void> {
+  // The backend checks LiteLLM at most once a day; until then this reads its copy.
+  void refreshModelLimits();
   const now = Date.now();
   const due = useWorkspaceStore.getState().customProviders.filter((provider) => isDueForDiscovery(provider, now));
   await Promise.all(due.map((provider) => discoverModelsForProvider(provider)));

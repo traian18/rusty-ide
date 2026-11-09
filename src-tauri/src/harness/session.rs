@@ -62,11 +62,23 @@ impl HarnessState {
         let handle = builder.start().await.map_err(|error| error.to_string())?;
         let session_id = handle.session_id();
 
-        let pump = super::spawn_event_pump(handle.subscribe(), outbound_tx.clone());
+        let handle = Arc::new(handle);
+        let recover: super::LifecycleRecover = {
+            let handle = Arc::downgrade(&handle);
+            Arc::new(move |cursor| match handle.upgrade() {
+                Some(handle) => handle.recover_lifecycle(cursor),
+                None => rusty_runtime::session_runtime::LifecycleRecovery::Unavailable,
+            })
+        };
+        let pump = super::spawn_recovering_event_pump(
+            handle.subscribe(),
+            outbound_tx.clone(),
+            Some(recover),
+        );
         self.insert_session(
             session_id,
             SessionEntry {
-                handle: Arc::new(handle),
+                handle,
                 bridge,
                 inbox: Mutex::new(Some(outbound_rx)),
                 pump,
@@ -171,6 +183,18 @@ impl HarnessState {
             entry.bridge.finish_stream(call_id, result)
         })
         .ok_or_else(|| "no such session".to_string())
+    }
+
+    /// The compaction lifecycle events the open session retained after `cursor`; unavailable
+    /// when the session is closed or unknown.
+    pub fn recover_lifecycle(
+        &self,
+        session_id: SessionId,
+        cursor: u64,
+    ) -> super::LifecycleRecoveryWire {
+        self.with_session(&session_id, |entry| entry.handle.recover_lifecycle(cursor))
+            .unwrap_or(rusty_runtime::session_runtime::LifecycleRecovery::Unavailable)
+            .into()
     }
 
     pub fn session_snapshot(&self, session_id: SessionId) -> Result<SessionSnapshotWire, String> {

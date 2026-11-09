@@ -5,6 +5,8 @@ import { CustomSelect } from "../../../lib/ui/CustomSelect";
 import { TokenBadge, type TokenUsageLike } from "../../../lib/ui/TokenBadge/TokenBadge";
 import type { useAgentModel, useSkillChoice } from "./useAgentModel";
 import type { ChatSearch } from "./useChatSearch";
+import type { ContextEstimate } from "../../../harness/contract";
+import { ContextMeter } from "./ContextMeter";
 
 interface AgentTabHeaderProps {
   historyHidden: boolean;
@@ -16,6 +18,8 @@ interface AgentTabHeaderProps {
   modifiedFileCount: number;
   search: ChatSearch;
   runUsage: TokenUsageLike | null;
+  /** The chat's current estimate of its latest request's remaining input budget. */
+  contextEstimate: ContextEstimate | null;
   isStreaming: boolean;
   isAgentBusy: boolean;
   hasActiveSubagents: boolean;
@@ -90,6 +94,7 @@ function ChatSearchControls({ search }: { search: ChatSearch }) {
   );
 }
 
+/** Beside the token counter: the estimate in words, so it reads without color or a hover. */
 function runStatus({ isStreaming, hasActiveSubagents }: Pick<AgentTabHeaderProps, "isStreaming" | "hasActiveSubagents">): string {
   if (isStreaming) return "Thinking";
   return hasActiveSubagents ? "Subagents working" : "Ready";
@@ -117,6 +122,7 @@ export const AgentTabHeader: React.FC<AgentTabHeaderProps> = (props) => {
       <div className="flex items-center space-x-2 text-[var(--text-muted)] font-mono text-[10px]">
         <ChatSearchControls search={search} />
         {runUsage && <TokenBadge usage={runUsage} live={isStreaming} />}
+        <ContextMeter estimate={props.contextEstimate} />
         {isAgentBusy && <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-color)] animate-ping" />}
         <span>{runStatus(props)}</span>
       </div>

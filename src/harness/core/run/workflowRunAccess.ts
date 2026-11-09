@@ -28,7 +28,7 @@ export interface WorkflowRunAccess<K extends CapabilityName> {
   isLive(): boolean;
   settle(outcome: RunOutcome<K>): void;
   log(message: string): void;
-  onAgentEvent(envelope: AgentEventEnvelope): void;
+  onAgentEvent(envelope: AgentEventEnvelope, step?: boolean): void;
   /** `resolve` sends the decision somewhere other than the session itself. */
   requestPermission(request: ToolPermissionRequest, resolve?: (decision: PermissionDecision) => Promise<void> | undefined): void;
 }

@@ -10,7 +10,7 @@ import type { QueuedSpecRun } from "../../specs";
 import type { SpecRun } from "../../specs";
 import type { FollowedSpec } from "../service/agentChatPersistence";
 import type { HistorySummary } from "../service/historySummary";
-import type { AgentMessage, CustomProvider, useWorkspaceStore } from "../../../store";
+import type { AgentActivityEntry, AgentMessage, CustomProvider, useWorkspaceStore } from "../../../store";
 import type { TabOfType } from "../../../app/tabs/types";
 import type { StepPlan } from "../plan/stepPlans";
 import type { SubagentActivity } from "./Chat";
@@ -19,6 +19,8 @@ import type { TokenUsageLike } from "../../../lib/ui/TokenBadge/TokenBadge";
 import type { WorkflowChoice } from "../../workflows/ui";
 import type { ActivityLog } from "../activityLog";
 import type { GoalPass } from "../goalTurn";
+import { emptyVisibility, type ContextVisibility } from "../contextVisibility";
+import type { ContextEstimate } from "../../../harness/contract";
 
 export { DEFAULT_STREAMING_LABEL } from "./chats/chatStore";
 import { DEFAULT_STREAMING_LABEL } from "./chats/chatStore";
@@ -69,6 +71,11 @@ export interface TurnState {
   goal: GoalPass | undefined;
   /** The scheduled "continue" after a usage limit resets (see usageLimit.ts). */
   continueTimer: ReturnType<typeof setTimeout> | null;
+  /** What the chat shows of its requests' context (see contextVisibility.ts); never saved. */
+  visibility: ContextVisibility;
+  /** Settled runs that still hold their session for a pending context summary: closing the
+   * chat releases them. */
+  heldRuns: Set<RunHandle<"agent_chat">>;
 }
 
 export function createTurnState(): TurnState {
@@ -100,6 +107,8 @@ export function createTurnState(): TurnState {
     specQueue: [],
     goal: undefined,
     continueTimer: null,
+    visibility: emptyVisibility(),
+    heldRuns: new Set(),
   };
 }
 
@@ -117,6 +126,7 @@ export interface TurnUi {
   setStepPlans: Dispatch<SetStateAction<StepPlan[]>>;
   setMessage: (message: string) => void;
   setContinueAt: (at: string | undefined) => void;
+  setContextEstimate: (estimate: ContextEstimate | null) => void;
 }
 
 /** The chat-level operations a run calls. */
@@ -147,7 +157,7 @@ export interface AgentTurn {
   ui: TurnUi;
   chat: TurnChat;
   addMessage(message: AgentMessage): void;
-  updateMessage(id: string, content: string): void;
+  updateMessage(id: string, content: string, entries?: AgentActivityEntry[]): void;
 }
 
 /** A response stream whose progress lines go to the activity log through `progress`. */

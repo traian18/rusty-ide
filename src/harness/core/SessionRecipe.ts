@@ -88,6 +88,8 @@ export interface SessionRecipe {
     mode: "standard" | "smart";
     /** The model's context window in tokens, when the catalog knows it. */
     context_window?: number;
+    /** The effective model id (`execution_params.model`) the window belongs to. */
+    model?: string;
     jev?: { api_key: string; model_id: string; confidence?: number };
   };
   /** Behavior profile for the root agent (`.rusty/profiles/`); absent → workspace default. */

@@ -29,7 +29,7 @@ export const OVERSIZED: ReadonlyArray<readonly [string, number]> = [
   ["harness/core/definitions/reconciliate_graph.ts", 448],
   ["harness/core/definitions/webSearch.ts", 749],
   ["harness/core/projectInfo.ts", 817],
-  ["harness/core/run/CoreRun.ts", 474],
+  ["harness/core/run/CoreRun.ts", 463],
   ["harness/core/workflowRun.ts", 436],
   ["store/types.ts", 737],
   ["theme.ts", 575],

@@ -9,10 +9,9 @@ import type { ExecutionOrigin } from "../../../features/observability";
 import { executionObservability } from "../../../features/observability";
 import { trajectories } from "../../../features/observability";
 import type { CoreCapabilityDefinition, ExecutionAnswerer, HostToolHandler, RunContext } from "../CoreHarness";
-import { compactionRecipe, isContextSummaryRequest } from "../contextCompaction";
+import { compactionRecipe } from "../contextCompaction";
 import type { ContextCompactionRunConfig } from "../decideToolConfig";
 import type { BridgeEvent, CoreEngine } from "../engine/CoreEngineClient";
-import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "../engine/ExecutionProtocol";
 import { changedPathsFromTool } from "../fileChangeTracking";
 import { appliedModel } from "../appliedModels";
 import { CONTINUE_AGENT_PROMPT, IncompleteAgentRun } from "../incompleteAgentRun";
@@ -30,9 +29,10 @@ import {
   type AgentEventHandlers,
   type BridgeEventHandlers,
 } from "./agentEvents";
-import { errorMessage, ignoreFailure, observe, reportIgnored } from "./failures";
+import { answerModelTurn } from "./modelTurns";
+import { RunContextVisibility } from "./runContextVisibility";
+import { errorMessage, ignoreFailure, observe } from "./failures";
 import {
-  answerExecuteCall,
   answerWorkspaceTool,
   deliverToolOutcome,
   failUnhandledTool,
@@ -97,6 +97,15 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   // cached for the rest of the run -- see hostTools's own doc comment on why
   // this must not be rebuilt per call.
   private toolHandlers: Record<string, HostToolHandler> | undefined;
+  /** Request estimates and compaction activity, and the session's life after settling. */
+  private readonly visibility = new RunContextVisibility({
+    engine: () => this.engine,
+    sessionId: () => this.currentSession,
+    isSettled: () => this.settled,
+    show: (observation) => this.onEvent({ kind: "context_observation", observation } as CapabilityEvent<K>),
+    answerSummaryTurn: (call) => this.answerModelTurn(call),
+    closeSession: (id) => this.closeSession(id),
+  });
 
   constructor(options: CoreRunOptions<K>) {
     this.capability = options.capability;
@@ -154,7 +163,8 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
     observe(() => executionObservability.finishRun(this.runId, outcome));
     observe(() => toolDecisionObserver()?.endRun(this.runId));
     this.resolveDone(outcome);
-    if (this.currentSession) this.closeSession(this.currentSession);
+    // A summary still being written may finish after the run: its finish belongs in the chat.
+    this.visibility.settled(outcome.status === "cancelled");
   }
 
   private fail(code: string, message: string): void {
@@ -166,7 +176,8 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   }
 
   private cancel(): void {
-    if (this.settled) return;
+    // After settling, cancelling releases what the run still holds for pending summaries.
+    if (this.settled) return this.visibility.release();
     this.controller.abort();
     if (this.currentSession) void this.stopSession(this.currentSession).catch(ignoreFailure("cancelling the session"));
     this.settle({ status: "cancelled" });
@@ -212,6 +223,7 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
       (this.input as { contextCompaction?: ContextCompactionRunConfig }).contextCompaction,
       this.input.customProvider,
       (this.input as { model?: unknown }).model,
+      base.execution_params?.model,
     );
     const recipe: SessionRecipe = compaction ? { ...withWorkflow, context_compaction: compaction } : withWorkflow;
     observe(() => trajectories.append(this.runId, "Session context", {
@@ -245,6 +257,7 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   private readonly bridgeHandlers: BridgeEventHandlers = {
     event: (envelope) => this.onAgentEvent(envelope),
     gap: (gap) => this.log(`Dropped ${gap.dropped} event(s) after a slow consumer.`),
+    lifecycle_recovery: (recovery) => this.visibility.recovered(recovery),
     host_tool_call: (call) => this.answerHostTool(call),
     host_execute_call: (call) => this.answerModelTurn(call),
     closed: (closed) => this.fail("CORE_SESSION_CLOSED", closed.reason),
@@ -254,7 +267,7 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   };
 
   private onBridgeEvent(event: BridgeEvent): void {
-    if (this.settled) return;
+    if (this.settled) return this.visibility.lateBridgeEvent(event);
     dispatchBridgeEvent(this.bridgeHandlers, event);
   }
 
@@ -279,10 +292,12 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
     CompletionGateEvaluated: (gate) => this.log(BEHAVIOR_LOGS.CompletionGateEvaluated(gate)),
   };
 
-  onAgentEvent(envelope: AgentEventEnvelope): void {
+  /** `step`: from a workflow step's session, whose requests are never the chat's own. */
+  onAgentEvent(envelope: AgentEventEnvelope, step = false): void {
     observe(() => executionObservability.ingest(this.runId, envelope));
     observe(() => this.usage.observe(envelope));
     observe(() => toolDecisionObserver()?.observe(this.runId, envelope));
+    if (this.visibility.observe(envelope, step)) return;
     if (this.settled || isChildOwnedEvent(envelope)) return;
     if (!envelope.parent_agent_id) this.incompleteAgentRun?.observe(envelope.event as AgentEvent);
     dispatchAgentEvent(this.agentHandlers, envelope);
@@ -437,38 +452,10 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   }
 
   private answerModelTurn(data: HostExecuteCallData): void {
-    const sid = this.currentSession;
-    if (!sid) return;
-    // rusty-core's background context summary: answered on the run's
-    // provider like any turn, but never treated as a step's first turn, and
-    // its tokens are accounted as their own surface.
-    const contextSummary = isContextSummaryRequest(data.input);
-    const recordSummaryUsage = (result: ExecutionResult) =>
-      this.usage.background(data.input.params?.model ?? this.definition.usageContext(this.input).model, result.usage, "context_summary");
-    answerExecuteCall(this.engine, sid, data.call_id, (onEvent) => this.runModelTurn(data.input, contextSummary, onEvent), contextSummary ? recordSummaryUsage : undefined);
-  }
-
-  /** The capability may adjust the request first (a per-step model), and the
-   * turn waits for it; a failure there never costs the model turn. Without
-   * that hook the answerer starts synchronously, as it always has. */
-  private runModelTurn(request: ExecutionRequest, contextSummary: boolean, onEvent: (event: ExecutionEvent) => void): Promise<ExecutionResult> {
-    const execute = (prepared: ExecutionRequest) => this.execute(prepared, contextSummary, onEvent);
-    if (!this.definition.prepareExecution || contextSummary) return execute(request);
-    return Promise.resolve()
-      .then(() => this.definition.prepareExecution!(request, this.input, this.context, this.onEvent, this.controller.signal))
-      .catch((error: unknown) => {
-        reportIgnored("preparing the model request", error);
-        return request;
-      })
-      .then(execute);
-  }
-
-  private execute(request: ExecutionRequest, contextSummary: boolean, onEvent: (event: ExecutionEvent) => void): Promise<ExecutionResult> {
-    observe(() => trajectories.append(this.runId, contextSummary ? "Context summary request" : "Model request", request));
-    try {
-      return this.executionAnswerer.execute(request, this.input.customProvider, onEvent, this.controller.signal);
-    } catch (error: unknown) {
-      return Promise.reject(error);
-    }
+    if (!this.currentSession) return;
+    answerModelTurn({
+      runId: this.runId, engine: this.engine, definition: this.definition, input: this.input, context: this.context, onEvent: this.onEvent,
+      usage: this.usage, executionAnswerer: this.executionAnswerer, signal: this.controller.signal, summarySignal: this.visibility.summarySignal,
+    }, this.currentSession, data);
   }
 }

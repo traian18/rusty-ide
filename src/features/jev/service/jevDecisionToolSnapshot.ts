@@ -32,17 +32,18 @@ export function snapshotJevRiskReview(state: WorkspaceState): JevRiskReviewRunCo
   return { apiKey, jevModelId: openRouterModelId(model), proceedConfidence: settings.decisionConfidenceThreshold };
 }
 
-/** Captures how a run compacts long conversations. Always present: the
- * default is local compaction. `smart` is used only when its setting is on and
- * OpenRouter/JEV is available, the same check as the other JEV features, and
- * otherwise falls back to the default. */
+/** Captures how a run compacts long conversations. Always present. Summaries
+ * (`smart`) are on unless their setting is off, leaving local trimming alone;
+ * JEV rates old messages first only when its setting is on and OpenRouter/JEV
+ * is available, the same check as the other JEV features. */
 export function snapshotContextCompaction(state: WorkspaceState): ContextCompactionRunConfig {
   const settings = state.intelligentModelSelectionSettings;
-  if (!settings.smartContextCompactionEnabled) return { mode: "standard" };
+  if (!settings.contextSummariesEnabled) return { mode: "standard" };
+  if (!settings.smartContextCompactionEnabled) return { mode: "smart" };
   const provider = findOpenRouterJevProvider(state.customProviders, settings.jevModelId);
   const model = resolveOpenRouterJevModel(provider, settings.jevModelId);
   const apiKey = provider?.apiKey?.trim();
-  if (!model || !apiKey) return { mode: "standard" };
+  if (!model || !apiKey) return { mode: "smart" };
   return { mode: "smart", jev: { apiKey, jevModelId: openRouterModelId(model), confidence: settings.decisionConfidenceThreshold } };
 }
 

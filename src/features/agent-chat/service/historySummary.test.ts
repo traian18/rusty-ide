@@ -93,6 +93,15 @@ describe("refreshHistorySummary", () => {
     expect(invoker.invoke).toHaveBeenCalledTimes(1);
   });
 
+  it("summarizes every older turn without JEV, and never asks it", async () => {
+    const invoker = { invoke: vi.fn(async () => "- summary") };
+    const post = vi.fn();
+    const { jev: _jev, ...withoutJev } = base;
+    const next = await refreshHistorySummary({ ...withoutJev, turns: longChat(), previous: undefined, invoker, post: post as never });
+    expect(post).not.toHaveBeenCalled();
+    expect(next).toMatchObject({ text: "- summary", essentialIds: [], droppedIds: [], summarizedIds: ["t1", "t2", "t4", "t5", "t6", "t7"] });
+  });
+
   it("folds new turns into the previous summary", async () => {
     const invoker = { invoke: vi.fn(async (_request: { userPrompt: string }) => "- merged") };
     const previous: HistorySummary = { text: "- old", summarizedIds: ["t1", "t2"], droppedIds: [], essentialIds: [], updatedAt: "" };

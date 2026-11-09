@@ -4,7 +4,9 @@
 //! execution, so account policy and rollout state are reflected without a
 //! hard-coded list:
 //! - GitHub Copilot: direct `/models` with the same OAuth credential as inference.
-//! - Codex: `model/list` over `codex app-server`.
+//! - Codex: `model/list` over `codex app-server`. That list carries no context
+//!   windows; the same Codex keeps them in its model cache
+//!   (`$CODEX_HOME/models_cache.json`), which fills them in where it has them.
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -175,11 +177,52 @@ async fn codex_models(app: &AppHandle) -> Result<Vec<ManagedModel>, String> {
         .await?;
         rpc.notify("initialized", json!({})).await?;
         let payload = rpc.request("model/list", json!({ "limit": 100, "includeHidden": false })).await?;
-        parse_codex_models(&payload)
+        let mut models = parse_codex_models(&payload)?;
+        if let Some(cache) = read_codex_models_cache() {
+            add_codex_windows(&mut models, &cache);
+        }
+        Ok(models)
     }
     .await;
     rpc.shutdown().await;
     result
+}
+
+/// Codex's own model cache, refreshed by the app-server from the account's model catalog.
+fn read_codex_models_cache() -> Option<Value> {
+    let home = std::env::var_os("CODEX_HOME")
+        .map(std::path::PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| std::path::Path::new(&home).join(".codex"))
+        })?;
+    let text = std::fs::read_to_string(home.join("models_cache.json")).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+/// Fills in each model's context window from the cache entry with the same slug. A window the
+/// list already gave, or a cache without the model, leaves the model as it is.
+///
+/// The cache lists two windows: `context_window`, the working window Codex itself defaults to
+/// (and compacts at), and `max_context_window`, the most the account accepts, which Codex lets
+/// a user raise its window to. Rusty compacts by its own policy, so it takes the maximum, and
+/// the default only for an entry that lists no maximum.
+fn add_codex_windows(models: &mut [ManagedModel], cache: &Value) {
+    let Some(entries) = cache.get("models").and_then(Value::as_array) else {
+        return;
+    };
+    for model in models
+        .iter_mut()
+        .filter(|model| model.context_window.is_none())
+    {
+        model.context_window = entries
+            .iter()
+            .find(|entry| entry.get("slug").and_then(Value::as_str) == Some(model.id.as_str()))
+            .and_then(|entry| {
+                let window =
+                    |field: &str| entry.get(field).and_then(Value::as_u64).filter(|n| *n > 0);
+                window("max_context_window").or_else(|| window("context_window"))
+            });
+    }
 }
 
 pub async fn fetch_models(app: &AppHandle, provider: &str) -> Result<Vec<ManagedModel>, String> {
@@ -205,6 +248,27 @@ mod tests {
         assert_eq!(models[0].id, "gpt-5.6-sol");
         assert_eq!(models[0].supported_reasoning_efforts, ["low", "high"]);
         assert!(models[0].is_default);
+    }
+
+    #[test]
+    fn codex_windows_come_from_its_model_cache() {
+        let mut models = parse_codex_models(&json!({ "data": [
+            { "model": "gpt-6.1-terra" }, { "model": "gpt-6-luna" }, { "model": "unknown" }
+        ] }))
+        .unwrap();
+        add_codex_windows(
+            &mut models,
+            &json!({ "models": [
+            { "slug": "gpt-6.1-terra", "context_window": 500000, "max_context_window": 872000 },
+            { "slug": "gpt-6-luna", "context_window": 272000 }
+        ] }),
+        );
+        let windows: Vec<_> = models.iter().map(|model| model.context_window).collect();
+        // The account's maximum wins over Codex's own default; the default only without one.
+        assert_eq!(windows, [Some(872_000), Some(272_000), None]);
+        // Without a cache in the expected shape nothing changes.
+        add_codex_windows(&mut models, &json!({ "fetched_at": "x" }));
+        assert_eq!(models[2].context_window, None);
     }
 
     #[test]

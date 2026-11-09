@@ -170,6 +170,18 @@ pub fn harness_snapshot(
     state.session_snapshot(session_id)
 }
 
+/// The compaction lifecycle events the open session retained after `cursor` (`0`: all of
+/// them), for a chat that holds a finish whose start it never received.
+#[tauri::command]
+pub fn harness_recover_lifecycle(
+    state: State<'_, HarnessState>,
+    session_id: String,
+    cursor: u64,
+) -> Result<super::LifecycleRecoveryWire, String> {
+    let session_id = parse_session_id(&session_id)?;
+    Ok(state.recover_lifecycle(session_id, cursor))
+}
+
 #[tauri::command]
 pub async fn harness_close_session(
     state: State<'_, HarnessState>,
@@ -275,6 +287,13 @@ pub async fn managed_auth_models(
     provider: String,
 ) -> Result<Vec<super::managed_models::ManagedModel>, String> {
     super::managed_models::fetch_models(&app, &provider).await
+}
+
+/// Context limits for models whose provider reports none, checked against LiteLLM at most once
+/// a day; `None` when there is no copy yet and none could be fetched.
+#[tauri::command]
+pub async fn model_limits(app: tauri::AppHandle) -> Option<super::model_limits::ModelLimits> {
+    super::model_limits::model_limits(&app).await
 }
 
 #[derive(serde::Serialize)]

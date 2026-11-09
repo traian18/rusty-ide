@@ -3,7 +3,40 @@
 //! Tauri IPC `Channel`.
 
 use rusty_protocol::events::AgentEventEnvelope;
+use rusty_runtime::session_runtime::LifecycleRecovery;
 use serde::Serialize;
+
+/// The result of recovering an open session's retained compaction lifecycle events.
+#[derive(Debug, Clone, Serialize)]
+pub struct LifecycleRecoveryWire {
+    /// `complete`: `envelopes` holds every retained lifecycle event after the cursor.
+    /// `unavailable`: the session closed and nothing can be recovered.
+    pub status: &'static str,
+    pub envelopes: Vec<AgentEventEnvelope>,
+    /// The cursor to recover from next time (absent when unavailable).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub high_water: Option<u64>,
+}
+
+impl From<LifecycleRecovery> for LifecycleRecoveryWire {
+    fn from(recovery: LifecycleRecovery) -> Self {
+        match recovery {
+            LifecycleRecovery::Recovered {
+                envelopes,
+                high_water,
+            } => Self {
+                status: "complete",
+                envelopes,
+                high_water: Some(high_water),
+            },
+            LifecycleRecovery::Unavailable => Self {
+                status: "unavailable",
+                envelopes: Vec::new(),
+                high_water: None,
+            },
+        }
+    }
+}
 
 /// One message the Rust side of the bridge sends to the frontend for a
 /// given session.
@@ -26,6 +59,9 @@ pub enum BridgeEvent {
         last_delivered_sequence: Option<u64>,
         dropped: u64,
     },
+    /// Compaction lifecycle events the session retained, recovered after a `Gap` so the chat can
+    /// show the ones the lag dropped (it skips those it already has, by event id).
+    LifecycleRecovery(LifecycleRecoveryWire),
     /// The session's tool code is asking the host (the IDE) to perform
     /// `tool` with `input`, and will await the matching
     /// `HostBridge::complete(call_id, ...)`.

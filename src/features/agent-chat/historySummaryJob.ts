@@ -25,7 +25,7 @@ interface SummaryChat {
  * delays a run; a failed pass keeps the previous summary. */
 export function refreshSummaryInBackground(chat: SummaryChat, provider: CustomProvider, model: string, compaction: ContextCompactionRunConfig) {
   const { state } = chat;
-  if (compaction.mode !== "smart" || !compaction.jev) return;
+  if (compaction.mode !== "smart") return;
   const budgetChars = historyBudgetChars(provider, model);
   if (!budgetChars || state.historySummaryJob) return;
   const conversation = state.chatSaveQueue;
@@ -37,7 +37,7 @@ export function refreshSummaryInBackground(chat: SummaryChat, provider: CustomPr
     budgetChars,
     provider,
     model,
-    jev: compaction.jev,
+    ...(compaction.jev ? { jev: compaction.jev } : {}),
     workspaceRoot: chat.rootPath,
     tabId: chat.chatId,
     signal: controller.signal,

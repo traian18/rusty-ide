@@ -5,6 +5,7 @@ import { scheduleTreeRefresh } from "../explorer/ui";
 import { useWorkflowRunStore } from "../workflows";
 import { mergeSubagent, readIncomingSubagent } from "./subagents";
 import { scheduleResponseFlush, type AgentTurn } from "./ui/turn";
+import { applyRequestObservation, lifecycleLine } from "./contextVisibility";
 
 /** What the tab tracks of one run while it goes. */
 export interface RunProgress {
@@ -92,7 +93,34 @@ function onSubagent(turn: AgentTurn, _run: RunProgress, event: EventOf<"subagent
   turn.ui.setSubagents((prev) => mergeSubagent(prev, incoming));
 }
 
+/** A request start or estimate updates the chat's indicator; a compaction start or finish is a
+ * line in a transient console message of its run, never saved with the chat. */
+function onContextObservation(turn: AgentTurn, _run: RunProgress, { observation }: EventOf<"context_observation">) {
+  const visibility = turn.state.visibility;
+  if (observation.type !== "compaction") {
+    if (applyRequestObservation(visibility, observation)) turn.ui.setContextEstimate(visibility.estimate);
+    return;
+  }
+  const line = lifecycleLine(visibility, observation);
+  if (!line) return;
+  const key = observation.identity.runId ?? observation.identity.sessionId;
+  const card = visibility.cards.get(key);
+  const at = Date.now();
+  if (!card) {
+    const messageId = `context_${crypto.randomUUID()}`;
+    visibility.cards.set(key, { messageId, lines: [line] });
+    turn.addMessage({
+      id: messageId, role: "console", content: `${line}\n`, timestamp: new Date(at).toISOString(), phase: "activity", transient: true,
+      activityEntries: [{ content: line, kind: "update", at }],
+    });
+    return;
+  }
+  card.lines.push(line);
+  turn.updateMessage(card.messageId, `${card.lines.join("\n")}\n`, card.lines.map((content) => ({ content, kind: "update" as const, at })));
+}
+
 const handlers: Handlers = {
+  context_observation: onContextObservation,
   command_output: (turn, _run, event) => {
     turn.activity.append(event.content, "tool");
     turn.activity.scheduleFlush();

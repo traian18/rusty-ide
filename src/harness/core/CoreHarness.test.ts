@@ -6,7 +6,8 @@ import type { HarnessControlPlane, UsageRecordSample } from "../contract/control
 import type { ToolExecutionObserver } from "../contract/observability";
 import { createRecordingHost } from "../testing/recordingHost";
 import { describeAgentHarnessContract, type ContractRun } from "../testing/contractTests";
-import type { BridgeEvent, CoreEngine, HostExecuteOutcome, HostToolOutcome } from "./engine/CoreEngineClient";
+import type { BridgeEvent, CoreEngine, HostExecuteOutcome, HostToolOutcome, LifecycleRecovery } from "./engine/CoreEngineClient";
+import { compactionRecipe } from "./contextCompaction";
 import { recordAppliedModel } from "./appliedModels";
 import { CoreHarness, enrichedRecipe, type CoreCapabilityDefinition, type ExecutionAnswerer, type HostToolCall, type HostToolHandler } from "./CoreHarness";
 import type { ExecutionEvent, ExecutionRequest, ExecutionResult } from "./engine/ExecutionProtocol";
@@ -65,6 +66,14 @@ class FakeCoreEngine implements CoreEngine {
   closeSession(sessionId: string): Promise<void> {
     this.closedSessions.push(sessionId);
     return Promise.resolve();
+  }
+
+  /** What `recoverLifecycle` answers; each call's cursor is recorded. */
+  recovery: LifecycleRecovery = { status: "unavailable", envelopes: [] };
+  recoveries: number[] = [];
+  recoverLifecycle(_sessionId: string, cursor: number): Promise<LifecycleRecovery> {
+    this.recoveries.push(cursor);
+    return Promise.resolve(this.recovery);
   }
 
   // --- test-only driver surface -------------------------------------------
@@ -1565,5 +1574,78 @@ describe("Agent progress logs", () => {
       "Tool call failed.",
       "Tool call completed.",
     ]);
+  });
+});
+
+describe("Context visibility", () => {
+  const request = { request_id: "q1", request_start_order: 0 };
+  const lifecycle = (phase: "start" | "finish", operation: string, type: "standard" | "background_summary") =>
+    phase === "start"
+      ? envelope({ CompactionStarted: { ...request, operation_id: operation, compaction_type: type, compaction_started: true, compaction_ended: false } })
+      : envelope({ CompactionFinished: { ...request, operation_id: operation, compaction_type: type, outcome: "success", compaction_started: false, compaction_ended: true } });
+  const observations = (events: ContractRun["events"]) =>
+    events.flatMap((event) => (event as { kind: string }).kind === "context_observation" ? [(event as unknown as { observation: Record<string, unknown> }).observation] : []);
+
+  it("pairs the catalogue window with the model the requests are sent with", () => {
+    const provider = { id: "p", models: [{ id: "big", remoteId: "big", contextWindow: 200_000 }] };
+    expect(compactionRecipe({ mode: "standard" }, provider, "p/big", "big")).toMatchObject({ context_window: 200_000, model: "big" });
+    // Without a known window there is nothing to pair, and no estimate.
+    expect(compactionRecipe({ mode: "standard" }, { id: "p", models: [] }, "p/big", "big")).not.toHaveProperty("model");
+  });
+
+  it("maps the main agent's requests as qualifying and a subagent's as not", async () => {
+    const run = startRun();
+    await run.driver.acceptStart();
+    const sid = run.engine.lastSessionId();
+    run.engine.emit(sid, { kind: "event", data: envelope({ ContextRequestStarted: { ...request, model: "m" } }) });
+    run.engine.emit(sid, { kind: "event", data: { ...envelope({ ContextRequestStarted: { ...request, model: "m" } }), parent_agent_id: "root" } });
+    expect(observations(run.events).map((o) => o.qualifying)).toEqual([true, false]);
+  });
+
+  it("recovers the start of a finish that came first, and shows both in order", async () => {
+    const run = startRun();
+    await run.driver.acceptStart();
+    const sid = run.engine.lastSessionId();
+    const start = lifecycle("start", "op1", "standard");
+    run.engine.recovery = { status: "complete", envelopes: [start], high_water: 1 };
+    run.engine.emit(sid, { kind: "event", data: lifecycle("finish", "op1", "standard") });
+    await flush();
+    expect(run.engine.recoveries).toEqual([0]);
+    expect(observations(run.events).map((o) => o.phase)).toEqual(["started", "finished"]);
+  });
+
+  it("keeps the session for a pending summary after the run settles, then closes it", async () => {
+    const run = startRun();
+    await run.driver.acceptStart();
+    const sid = run.engine.lastSessionId();
+    run.engine.emit(sid, { kind: "event", data: lifecycle("start", "sum1", "background_summary") });
+    run.driver.finishWithResult("done");
+    const outcome = await run.handle.done;
+    expect(outcome.status).toBe("completed");
+    expect(run.engine.closedSessions).toEqual([]);
+    // The summary's own model call is still answered; any other is refused.
+    run.engine.emit(sid, { kind: "host_execute_call", data: { call_id: "late", tool: "execute", input: { request_id: "x", run_id: "r", system_prompt: "", messages: [], tools: [], extended_thinking: false, params: { provider_options: { rusty: { purpose: "context_summary" } } } } as never } });
+    run.engine.emit(sid, { kind: "host_execute_call", data: { call_id: "other", tool: "execute", input: { request_id: "y", run_id: "r", system_prompt: "", messages: [], tools: [], extended_thinking: false, params: {} } as never } });
+    await flush();
+    expect(run.executionAnswerer.calls).toHaveLength(1);
+    expect(run.engine.hostExecuteResults.find((r) => r.callId === "other")?.outcome.ok).toBe(false);
+    // Ordinary events after settling go nowhere; the summary's finish reaches the chat.
+    run.engine.emit(sid, { kind: "event", data: envelope({ ContextRequestStarted: { ...request, model: "m" } }) });
+    run.engine.emit(sid, { kind: "event", data: lifecycle("finish", "sum1", "background_summary") });
+    expect(observations(run.events).map((o) => o.type === "compaction" ? o.phase : o.type)).toEqual(["started", "finished"]);
+    expect(run.engine.closedSessions).toEqual([sid]);
+  });
+
+  it("closes a session still held for a summary when the chat cancels the settled run", async () => {
+    const run = startRun();
+    await run.driver.acceptStart();
+    const sid = run.engine.lastSessionId();
+    run.engine.emit(sid, { kind: "event", data: lifecycle("start", "sum1", "background_summary") });
+    run.driver.finishWithResult("done");
+    await run.handle.done;
+    run.handle.cancel();
+    expect(run.engine.closedSessions).toEqual([sid]);
+    run.engine.emit(sid, { kind: "event", data: lifecycle("finish", "sum1", "background_summary") });
+    expect(observations(run.events)).toHaveLength(1);
   });
 });

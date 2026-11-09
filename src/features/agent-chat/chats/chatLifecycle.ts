@@ -51,6 +51,9 @@ function releaseChat(chatId: string) {
   state.continueTimer = null;
   state.agentRun?.cancel();
   state.agentRun = null;
+  // Settled runs still writing a context summary release their sessions now.
+  for (const held of state.heldRuns) held.cancel();
+  state.heldRuns.clear();
   if (state.activeWorkflowId) useWorkflowRunStore.getState().finish(state.activeWorkflowId, "cancelled", undefined, chatId);
   state.activeWorkflowId = null;
   state.isStreaming = false;

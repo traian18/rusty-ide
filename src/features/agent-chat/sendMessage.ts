@@ -191,6 +191,20 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
   // A closed chat's run was cancelled with it; what it left goes nowhere.
   void run.done.then((outcome) => turn.state.disposed ? undefined : handleRunOutcome(launched, outcome));
   turn.state.agentRun = run;
+  holdRun(turn, run);
+}
+
+/** Runs the chat releases when it closes: a settled run may still hold its session while a context
+ * summary it started is written. Only the latest few can: older ones' summaries are long done. */
+const HELD_RUNS = 8;
+
+function holdRun(turn: AgentTurn, run: NonNullable<AgentTurn["state"]["agentRun"]>) {
+  const held = turn.state.heldRuns;
+  held.add(run);
+  for (const old of held) {
+    if (held.size <= HELD_RUNS) break;
+    held.delete(old);
+  }
 }
 
 /** Sends the chat box's message: in the chat's workflow, the one Auto

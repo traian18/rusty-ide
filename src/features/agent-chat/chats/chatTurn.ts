@@ -52,8 +52,8 @@ export function chatTurn(context: ChatTabContext, chatId: string): AgentTurn {
     addMessage: (message) => {
       if (isCurrentRuntime(chatId, runtime)) useWorkspaceStore.getState().addAgentMessage(chatId, message);
     },
-    updateMessage: (id, content) => {
-      if (isCurrentRuntime(chatId, runtime)) useWorkspaceStore.getState().updateAgentMessage(chatId, id, content);
+    updateMessage: (id, content, entries) => {
+      if (isCurrentRuntime(chatId, runtime)) useWorkspaceStore.getState().updateAgentMessage(chatId, id, content, entries);
     },
   };
 }

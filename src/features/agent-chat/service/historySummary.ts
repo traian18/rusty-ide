@@ -4,9 +4,10 @@
 // rusty-core receives a chat's earlier turns folded into one prompt (see
 // promptHistory.ts), so its own compaction cannot see them as messages. In
 // smart mode the IDE keeps a running summary instead: after a run, once the
-// history passes SOFT_LIMIT of its budget, JEV rates the older turns that are
-// not yet accounted for, essential ones stay word for word, disposable ones
-// are dropped, and the chat's own model folds the rest into the summary. The
+// history passes SOFT_LIMIT of its budget, the chat's own model folds the
+// older turns not yet accounted for into the summary. With JEV connected it
+// rates those turns first: essential ones stay word for word, disposable ones
+// are dropped. The
 // next run's prompt then carries the summary in their place. It never blocks
 // a run: a failed or missing summary only means plain trimming.
 // ============================================================
@@ -163,7 +164,8 @@ export interface RefreshHistorySummaryDeps {
   provider: CustomProvider;
   /** The chat's model reference, as a run is started with it. */
   model: string;
-  jev: JevConnection;
+  /** Rates the turns first; without it every turn is summarized. */
+  jev?: JevConnection;
   workspaceRoot: string;
   tabId: string;
   signal: AbortSignal;
@@ -179,7 +181,9 @@ export async function refreshHistorySummary(deps: RefreshHistorySummaryDeps): Pr
   if (!candidates) return undefined;
 
   // A JEV failure only means every turn is treated as useful.
-  const verdicts = await judgeTurns(deps.jev, taskOf(deps.turns), candidates, deps.signal, deps.post).catch(() => new Map<string, Importance>());
+  const verdicts = deps.jev
+    ? await judgeTurns(deps.jev, taskOf(deps.turns), candidates, deps.signal, deps.post).catch(() => new Map<string, Importance>())
+    : new Map<string, Importance>();
   const essential = candidates.filter((turn) => verdicts.get(turn.id) === "essential");
   const disposable = candidates.filter((turn) => verdicts.get(turn.id) === "disposable");
   const useful = candidates.filter((turn) => !essential.includes(turn) && !disposable.includes(turn));

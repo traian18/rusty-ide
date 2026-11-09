@@ -59,6 +59,12 @@ jobs:
           npm ci
           npm ci --prefix ../rusty-core/sdk/typescript
 
+      - name: Refresh model context limits
+        # The bundled fallback for models whose provider lists no window. A
+        # failed fetch keeps the committed snapshot instead of failing the build.
+        continue-on-error: true
+        run: npm run model-limits:update
+
       # Only deb is built. This predates sidecar removal -- the ~850MB bundled
       # sidecar payload (codex musl binaries, large node_modules) made the rpm
       # bundler's xz pass take 30min+ and tripped the AppImage bundler ("failed

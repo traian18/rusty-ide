@@ -34,6 +34,12 @@ export function readFlowSwitching(value: unknown): boolean {
   return value === true;
 }
 
+/** What a chat saves of its messages: everything but what was only shown while it was open
+ * (compaction activity), so a reopened chat never shows it. */
+export function savedMessages(messages: AgentMessage[]): AgentMessage[] {
+  return messages.some((message) => message.transient) ? messages.filter((message) => !message.transient) : messages;
+}
+
 /** Each conversation owns its save queue. Capture JSON before an async
  * write so closing a tab or switching chats cannot change what is saved. */
 export class AgentChatSaveQueue {
@@ -51,7 +57,7 @@ export class AgentChatSaveQueue {
   save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean, historySummary?: unknown, followedSpec?: FollowedSpec): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
-      tabId, messages, modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
+      tabId, messages: savedMessages(messages), modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
       ...(workflow ? { workflow } : {}),
       ...(workflowCheckpoint ? { workflowCheckpoint } : {}),
       ...(flowSwitching ? { flowSwitching: true } : {}),

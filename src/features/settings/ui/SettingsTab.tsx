@@ -58,9 +58,12 @@ const CategorySettings: React.FC<{ categoryId: SettingsCategoryId }> = ({ catego
           <div className={styles.dropdownContent}>
             <div className={styles.nestedPanel}><JevDecisionToolSettings /></div>
             <div className={styles.nestedPanel}><JevRiskReviewSettings /></div>
-            <div className={styles.nestedPanel}><JevContextCompactionSettings /></div>
             <div className={styles.nestedPanel}><JevDecisionShadowSettings /></div>
           </div>
+        </details>
+        <details className={styles.dropdown}>
+          <summary className={styles.dropdownSummary}>Context compaction</summary>
+          <div className={styles.dropdownContent}><JevContextCompactionSettings /></div>
         </details>
         <details className={styles.dropdown}>
           <summary className={styles.dropdownSummary}>Web Search</summary>

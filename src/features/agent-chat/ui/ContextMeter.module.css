@@ -1,0 +1,147 @@
+.wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.meter {
+  --meter-color: var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: var(--radius-md);
+  padding: 2px var(--space-1);
+  cursor: default;
+  outline: none;
+}
+
+.meter[data-level="warn"] { --meter-color: var(--color-status-warning); }
+.meter[data-level="full"] { --meter-color: var(--color-status-danger); }
+
+.meter:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+}
+
+.track,
+.bubbleTrack {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-fg-muted) 22%, transparent);
+}
+
+.track {
+  width: 56px;
+  height: 4px;
+}
+
+.fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--meter-color);
+  transition: width var(--motion-normal) ease-out, background-color var(--motion-normal);
+}
+
+.percent {
+  min-width: 3ch;
+  color: var(--color-fg-default);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.bubble {
+  /* Inherits the meter's colour for its own bar. */
+  --meter-color: var(--color-primary);
+  position: absolute;
+  top: calc(100% + var(--space-3));
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 15rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-elevated);
+  color: var(--color-fg-default);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-elevated);
+  font-family: inherit;
+  font-size: var(--font-size-ui-xs);
+  line-height: var(--line-height-ui);
+  white-space: normal;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--motion-fast), transform var(--motion-fast);
+}
+
+/* The small arrow pointing at the meter. */
+.bubble::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  right: var(--space-5);
+  width: 8px;
+  height: 8px;
+  border-top: 1px solid var(--color-border-subtle);
+  border-left: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-elevated);
+  transform: rotate(45deg);
+}
+
+.wrapper:has(.meter[data-level="warn"]) .bubble { --meter-color: var(--color-status-warning); }
+.wrapper:has(.meter[data-level="full"]) .bubble { --meter-color: var(--color-status-danger); }
+
+.wrapper:hover .bubble,
+.wrapper:has(.meter:focus-visible) .bubble {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: var(--motion-tooltip-delay);
+}
+
+.heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--color-fg-strong);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 600;
+}
+
+.headingValue {
+  color: var(--meter-color);
+  font-variant-numeric: tabular-nums;
+}
+
+.bubbleTrack {
+  height: 6px;
+}
+
+.rows {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  row-gap: var(--space-1);
+  column-gap: var(--space-4);
+}
+
+.label {
+  color: var(--color-fg-muted);
+}
+
+.value {
+  color: var(--color-fg-strong);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.note {
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-3);
+  color: var(--color-fg-default);
+}
+
+.footer {
+  color: var(--color-fg-muted);
+  overflow-wrap: anywhere;
+}

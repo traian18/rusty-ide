@@ -18,8 +18,57 @@ export interface TokenUsage {
   reasoning?: number;
 }
 
+/** Who an observation of a request's context belongs to, from its core envelope. */
+export interface ContextObservationIdentity {
+  /** The observation, not one delivery of it: a replay or recovery repeats it. */
+  eventId: string;
+  sessionId: string;
+  agentId: string;
+  /** The run whose request it observes, even when it arrives after that run settled. */
+  runId: string | null;
+  requestId: string;
+  /** Dispatch order of the request within its agent. */
+  requestStartOrder: number;
+  /** Order of the observation among its agent's events. */
+  agentSequence: number;
+}
+
+/** An available estimate of the remaining input budget of a request as it went to the model. */
+export interface ContextEstimate {
+  model: string | null;
+  estimatedInputTokens: number;
+  inputBudget: number;
+  modelWindow: number;
+  remainingInputTokens: number;
+  usagePercent: number;
+}
+
+export type CompactionKind = "standard" | "background_summary";
+export type CompactionResult = "success" | "failure" | "cancelled";
+
+/** What core reported about a request's context. `qualifying`: the chat's own main-agent request
+ * (not a subagent's, a workflow step's or a context summary's), the only kind whose estimate the
+ * chat shows. */
+export type ContextObservation =
+  | { type: "request_started"; identity: ContextObservationIdentity; qualifying: boolean }
+  /** `estimate` is null when no trustworthy budget is known for the request. */
+  | { type: "estimate"; identity: ContextObservationIdentity; qualifying: boolean; estimate: ContextEstimate | null }
+  | {
+      type: "compaction";
+      identity: ContextObservationIdentity;
+      operationId: string;
+      compactionType: CompactionKind;
+      phase: "started" | "finished";
+      outcome?: CompactionResult;
+      /** A finish whose start was never received and could not be recovered. */
+      startMissing?: boolean;
+    };
+
 export type CommonEvent =
   | { kind: "workflow_checkpoint"; state: unknown }
+  /** Core's estimate of a request's input budget, or a compaction operation's start or finish.
+   * Transient: never saved with the chat. */
+  | { kind: "context_observation"; observation: ContextObservation }
   | { kind: "log"; message: string }
   | { kind: "token"; content: string; messageId?: string }
   | { kind: "progress"; content: string }

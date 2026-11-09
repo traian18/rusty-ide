@@ -28,6 +28,7 @@ mod managed_binaries;
 mod managed_models;
 mod managed_quota;
 mod managed_rpc;
+mod model_limits;
 mod recipe;
 pub mod repository_context;
 mod session;
@@ -35,7 +36,7 @@ pub(crate) mod user_path;
 mod workflow;
 pub mod workflow_author;
 
-pub use bridge_event::BridgeEvent;
+pub use bridge_event::{BridgeEvent, LifecycleRecoveryWire};
 pub use host_bridge::HostBridge;
 pub use host_execution_backend::HostExecutionBackend;
 pub use host_tools::HostToolExecutor;
@@ -54,6 +55,7 @@ use rusty_provider_github_copilot::GitHubCopilotFactory;
 use rusty_provider_openai::OpenAiFactory;
 use rusty_provider_openai_compatible::OpenAiCompatibleFactory;
 use rusty_provider_openai_responses::OpenAiResponsesFactory;
+use rusty_runtime::session_runtime::LifecycleRecovery;
 use tokio::sync::{broadcast, mpsc, OnceCell};
 use tokio::task::JoinHandle;
 
@@ -159,11 +161,26 @@ impl HarnessState {
 /// 256-capacity broadcast channel (`SessionHandle::subscribe`) wraps
 /// around.
 pub fn spawn_event_pump(
+    events: broadcast::Receiver<AgentEventEnvelope>,
+    outbound: mpsc::UnboundedSender<BridgeEvent>,
+) -> JoinHandle<()> {
+    spawn_recovering_event_pump(events, outbound, None)
+}
+
+/// How a pump asks its session for the lifecycle events it retained after a cursor.
+pub type LifecycleRecover = Arc<dyn Fn(u64) -> LifecycleRecovery + Send + Sync>;
+
+/// `spawn_event_pump`, which also recovers the compaction lifecycle events a lag dropped: after
+/// the `Gap`, it sends the session's retained lifecycle events since the last recovery as one
+/// `LifecycleRecovery` (the IDE skips events it already has, by event id).
+pub fn spawn_recovering_event_pump(
     mut events: broadcast::Receiver<AgentEventEnvelope>,
     outbound: mpsc::UnboundedSender<BridgeEvent>,
+    recover: Option<LifecycleRecover>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut last_delivered_sequence = None;
+        let mut lifecycle_cursor = 0;
         loop {
             match events.recv().await {
                 Ok(envelope) => {
@@ -180,6 +197,11 @@ pub fn spawn_event_pump(
                         last_delivered_sequence,
                         dropped,
                     });
+                    if let Some(recover) = &recover {
+                        let recovery = LifecycleRecoveryWire::from(recover(lifecycle_cursor));
+                        lifecycle_cursor = recovery.high_water.unwrap_or(lifecycle_cursor);
+                        let _ = outbound.send(BridgeEvent::LifecycleRecovery(recovery));
+                    }
                 }
                 Err(broadcast::error::RecvError::Closed) => {
                     let _ = outbound.send(BridgeEvent::Closed {
@@ -315,5 +337,35 @@ mod tests {
         let first = state.harness().await;
         let second = state.harness().await;
         assert!(Arc::ptr_eq(&first, &second));
+    }
+
+    #[tokio::test]
+    async fn a_lag_is_followed_by_the_recovered_lifecycle_events() {
+        let (tx, rx) = broadcast::channel(1);
+        let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel();
+        let cursors = Arc::new(Mutex::new(Vec::new()));
+        let recover: LifecycleRecover = {
+            let cursors = cursors.clone();
+            Arc::new(move |cursor| {
+                cursors.lock().unwrap().push(cursor);
+                LifecycleRecovery::Recovered {
+                    envelopes: vec![fixture_envelope(7)],
+                    high_water: cursor + 1,
+                }
+            })
+        };
+        // Two events into a one-slot channel before the pump reads: it lags.
+        tx.send(fixture_envelope(1)).unwrap();
+        tx.send(fixture_envelope(2)).unwrap();
+        let _pump = spawn_recovering_event_pump(rx, outbound_tx, Some(recover));
+        let gap = outbound_rx.recv().await.unwrap();
+        assert!(matches!(gap, BridgeEvent::Gap { .. }));
+        let BridgeEvent::LifecycleRecovery(recovered) = outbound_rx.recv().await.unwrap() else {
+            panic!("expected the recovery after the gap");
+        };
+        assert_eq!(recovered.status, "complete");
+        assert_eq!(recovered.envelopes.len(), 1);
+        assert_eq!(recovered.high_water, Some(1));
+        assert_eq!(*cursors.lock().unwrap(), vec![0]);
     }
 }

@@ -92,7 +92,9 @@ export interface JevRiskReviewRunConfig {
  * a model after JEV rates which messages matter, so it carries the JEV
  * connection. The model's context window is added when the recipe is built. */
 export interface ContextCompactionRunConfig {
+  /** `standard` trims locally; `smart` also summarizes aged-out history with the chat's model. */
   mode: "standard" | "smart";
+  /** With `smart`: JEV rates old messages before they are summarized. */
   jev?: {
     apiKey: string;
     jevModelId: string;

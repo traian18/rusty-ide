@@ -52,6 +52,12 @@ jobs:
           npm ci
           npm ci --prefix ../rusty-core/sdk/typescript
 
+      - name: Refresh model context limits
+        # The bundled fallback for models whose provider lists no window. A
+        # failed fetch keeps the committed snapshot instead of failing the build.
+        continue-on-error: true
+        run: npm run model-limits:update
+
       # Produces both installers. No code signing — the .exe/.msi are unsigned,
       # so users get a SmartScreen "unknown publisher" prompt on first launch.
       - name: Build (NSIS + MSI)

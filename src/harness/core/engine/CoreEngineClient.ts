@@ -45,6 +45,8 @@ export interface CoreEngine {
   hostExecuteEvent(sessionId: string, callId: string, event: ExecutionEvent): Promise<void>;
   hostExecuteResult(sessionId: string, callId: string, outcome: HostExecuteOutcome): Promise<void>;
   closeSession(sessionId: string): Promise<void>;
+  /** The compaction lifecycle events the open session retained after `cursor` (0: all). */
+  recoverLifecycle?(sessionId: string, cursor: number): Promise<LifecycleRecovery>;
   /** Starts the workflow the session's recipe carries; resolves to the run id. */
   startWorkflow?(sessionId: string, input: unknown, checkpoint?: unknown, options?: WorkflowRunOptions): Promise<string>;
   workflowControl?(sessionId: string, control: WorkflowControl): Promise<void>;
@@ -72,6 +74,8 @@ export type WorkflowControl =
 export type BridgeEvent =
   | { kind: "event"; data: AgentEventEnvelope }
   | { kind: "gap"; data: { last_delivered_sequence: number | null; dropped: number } }
+  /** Lifecycle events the session retained, recovered after a gap (some may be known already). */
+  | { kind: "lifecycle_recovery"; data: LifecycleRecovery }
   | {
       kind: "host_tool_call";
       /** `session_id`: the session whose agent asked -- this one, or a
@@ -97,6 +101,14 @@ export interface HarnessHello {
 export interface SessionSnapshot {
   session_id: string;
   status: string;
+}
+
+/** Mirrors `LifecycleRecoveryWire` in src-tauri/src/harness/bridge_event.rs. */
+export interface LifecycleRecovery {
+  /** `unavailable`: the session closed, nothing can be recovered. */
+  status: "complete" | "unavailable";
+  envelopes: AgentEventEnvelope[];
+  high_water?: number;
 }
 
 export type HostToolOutcome = { ok: true; output: unknown } | { ok: false; error: unknown };
@@ -211,6 +223,10 @@ export class CoreEngineClient implements CoreEngine {
   closeSession(sessionId: string): Promise<void> {
     sessionWorkspaceRoots.delete(sessionId);
     return invoke("harness_close_session", { sessionId });
+  }
+
+  recoverLifecycle(sessionId: string, cursor: number): Promise<LifecycleRecovery> {
+    return invoke("harness_recover_lifecycle", { sessionId, cursor });
   }
 
   /**

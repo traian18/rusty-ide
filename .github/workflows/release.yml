@@ -59,6 +59,12 @@ jobs:
           npm ci
           npm ci --prefix ../rusty-core/sdk/typescript
 
+      - name: Refresh model context limits
+        # The bundled fallback for models whose provider lists no window. A
+        # failed fetch keeps the committed snapshot instead of failing the build.
+        continue-on-error: true
+        run: npm run model-limits:update
+
       - name: Import Developer ID certificate
         env:
           APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}

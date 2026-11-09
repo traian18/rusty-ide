@@ -1,0 +1,19 @@
+{
+  "url": "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json",
+  "modes": ["chat", "responses"],
+  "providers": {
+    "openai": ["openai"],
+    "anthropic": ["anthropic"],
+    "openrouter": ["openrouter"],
+    "mistral": ["mistral"],
+    "github-copilot": ["github_copilot"],
+    "openai-codex": ["chatgpt"],
+    "gemini": ["gemini"],
+    "google": ["gemini"],
+    "groq": ["groq"],
+    "xai": ["xai"],
+    "deepseek": ["deepseek"]
+  },
+  "vendors": ["openai", "anthropic", "gemini", "mistral", "xai", "deepseek"],
+  "local": ["ollama", "vllm", "lmstudio"]
+}

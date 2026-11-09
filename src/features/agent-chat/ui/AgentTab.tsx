@@ -170,6 +170,7 @@ function AgentChatView({ tab, chatId }: AgentTabProps & { chatId: string }) {
           modifiedFileCount={session.modifiedFiles.length}
           search={agent.search}
           runUsage={run.runUsage}
+          contextEstimate={run.contextEstimate}
           isStreaming={run.isStreaming}
           isAgentBusy={run.isAgentBusy}
           hasActiveSubagents={run.hasActiveSubagents}

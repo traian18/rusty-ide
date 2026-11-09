@@ -17,6 +17,8 @@ import { answerWorkflowQuestion, closeChat, loadChat, newChat, stopTurn } from "
 import { disposeChat, openChat } from "./chatLifecycle";
 import { chatRuntime } from "./chatRuntime";
 import { tabChatIds, useChatStore } from "../ui/chats/chatStore";
+import { savedMessages } from "../service/agentChatPersistence";
+import type { ContextObservation } from "../../../harness/contract";
 
 const progress = () => ({ stepTypes: {}, changed: new Set<string>() });
 
@@ -217,5 +219,59 @@ describe("concurrent chats", () => {
     expect(useWorkspaceStore.getState().agentChats.t).toEqual([]);
     expect(useChatStore.getState().chats.t.runUsage).toBeNull();
     expect(useChatStore.getState().chats.t.plan).toEqual([]);
+  });
+});
+
+describe("context visibility per chat", () => {
+  let next = 1;
+  const identity = (session: string, order: number) => ({ eventId: `ev${next}`, sessionId: session, agentId: "a", runId: `run-${session}`, requestId: `q${order}`, requestStartOrder: order, agentSequence: next++ });
+  const started = (session: string): ContextObservation => ({ type: "request_started", identity: identity(session, 0), qualifying: true });
+  const estimated = (session: string, remaining: number): ContextObservation => ({
+    type: "estimate", identity: identity(session, 0), qualifying: true,
+    estimate: { model: "m", estimatedInputTokens: 1, inputBudget: remaining + 1, modelWindow: 10_000, remainingInputTokens: remaining, usagePercent: 1 },
+  });
+  const compaction = (session: string, phase: "started" | "finished"): ContextObservation => ({
+    type: "compaction", identity: identity(session, 0), operationId: `op-${session}`, compactionType: "standard", phase, outcome: phase === "finished" ? "success" : undefined,
+  });
+  let tab = fakeChatTab("t");
+  const send = (chatId: string, observation: ContextObservation) =>
+    runEventHandler(tab.chats.turnFor(chatId), progress())({ kind: "context_observation", observation });
+
+  it("keeps each chat's estimate and compaction activity in that chat, whichever is shown", () => {
+    tab = fakeChatTab("t");
+    const background = openChat("t");
+    useChatStore.getState().select("t", "t");
+    send("t", started("s-front"));
+    send("t", estimated("s-front", 500));
+    send(background, started("s-back"));
+    send(background, estimated("s-back", 900));
+    send(background, compaction("s-back", "started"));
+    send(background, compaction("s-back", "finished"));
+    const chats = useChatStore.getState().chats;
+    expect(chats.t.contextEstimate?.remainingInputTokens).toBe(500);
+    expect(chats[background].contextEstimate?.remainingInputTokens).toBe(900);
+    // Switching shows the other chat's own value at once, from its own view.
+    useChatStore.getState().select("t", background);
+    expect(useChatStore.getState().chats[useChatStore.getState().tabs.t.activeChatId].contextEstimate?.remainingInputTokens).toBe(900);
+    const lines = (chatId: string) => (useWorkspaceStore.getState().agentChats[chatId] ?? []).filter((m) => m.transient).map((m) => m.content);
+    expect(lines(background)).toEqual(["Standard compaction started.\nStandard compaction completed.\n"]);
+    expect(lines("t")).toEqual([]);
+  });
+
+  it("never saves compaction activity, and a closed chat takes no more updates", () => {
+    tab = fakeChatTab("t");
+    const chat = openChat("t");
+    useWorkspaceStore.getState().addAgentMessage(chat, { id: "u", role: "user", content: "hi", timestamp: "t" });
+    send(chat, compaction("s1", "started"));
+    send(chat, estimated("s1", 400));
+    const messages = useWorkspaceStore.getState().agentChats[chat];
+    expect(messages.some((m) => m.transient)).toBe(true);
+    expect(savedMessages(messages).map((m) => m.id)).toEqual(["u"]);
+    const turn = tab.chats.turnFor(chat);
+    disposeChat(chat);
+    runEventHandler(turn, progress())({ kind: "context_observation", observation: estimated("s1", 1) });
+    expect(useChatStore.getState().chats[chat]).toBeUndefined();
+    // Reopened (a new runtime for the same id), the chat starts with nothing shown.
+    expect(chatRuntime(chat).state.visibility.estimate).toBeNull();
   });
 });

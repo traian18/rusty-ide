@@ -119,7 +119,7 @@ export class WorkflowDriver<K extends CapabilityName> {
       });
       return;
     }
-    this.run.onAgentEvent(envelope);
+    this.run.onAgentEvent(envelope, true);
   }
 
   onFinished(state: unknown): void {

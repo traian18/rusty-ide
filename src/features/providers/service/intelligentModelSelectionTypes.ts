@@ -25,9 +25,11 @@ export interface IntelligentModelSelectionSettings {
   /** Experimental, enforced: JEV reviews risky actions (destructive writes and
    * commands) before they run, and can block them or ask the user. */
   riskReviewEnabled: boolean;
-  /** Experimental: long chats are compacted with a JEV-assisted summary (JEV
-   * rates which old messages matter, a model summarizes the rest) instead of
-   * the default compaction, which trims old tool output and drops the oldest
-   * turns without a model call. */
+  /** Long chats are summarized by the chat's own model once they near the
+   * model's window, instead of only trimming old tool output and dropping the
+   * oldest turns. On by default. */
+  contextSummariesEnabled: boolean;
+  /** Experimental, needs JEV: before a summary, JEV rates which old messages
+   * matter; essential ones stay word for word, disposable ones are dropped. */
   smartContextCompactionEnabled: boolean;
 }

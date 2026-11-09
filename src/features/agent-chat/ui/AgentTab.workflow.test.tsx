@@ -841,7 +841,7 @@ describe("Agent chat workflows", () => {
           enabled: true, jevModelId: null,
           levelModels: { light: level("light"), standard: level("standard"), heavy: level("heavy") },
           decisionShadowEnabled: false, decisionToolEnabled: false, decisionConfidenceThreshold: 0.6, riskReviewEnabled: false,
-          smartContextCompactionEnabled: false,
+          contextSummariesEnabled: true, smartContextCompactionEnabled: false,
         },
       });
       saveAgentModelSelection(AUTO_MODEL_ID);

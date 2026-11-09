@@ -14,6 +14,7 @@ import type { StepPlan } from "../../plan/stepPlans";
 import type { SubagentActivity } from "../Chat";
 import type { AgentQuestion } from "../ChatInput";
 import type { TokenUsageLike } from "../../../../lib/ui/TokenBadge/TokenBadge";
+import type { ContextEstimate } from "../../../../harness/contract";
 import { isActiveSubagent } from "../../subagents";
 
 export const DEFAULT_STREAMING_LABEL = "Model is thinking…";
@@ -45,6 +46,8 @@ export interface ChatView {
   workflowCheckpoint: FailedWorkflowCheckpoint | undefined;
   /** The usage-limit reset this chat continues after by itself (ISO), once asked to. */
   continueAt: string | undefined;
+  /** The estimate for this chat's latest main-agent request, while current; never saved. */
+  contextEstimate: ContextEstimate | null;
 }
 
 interface TabChats {
@@ -70,7 +73,7 @@ export function emptyChatView(tabId: string, chatId: string, plan: Todo[] = []):
     chatId, tabId, message: "", isStreaming: false, subagents: [], runUsage: null, streamingLabel: DEFAULT_STREAMING_LABEL,
     agentQuestions: [], workflowQuestions: [], workflowRunning: false, plan, stepPlans: [],
     activeChatPath: null, modifiedFiles: [], chatWorkflow: undefined, autoWorkflow: undefined, flowSwitching: false, workflowCheckpoint: undefined,
-    continueAt: undefined,
+    continueAt: undefined, contextEstimate: null,
   };
 }
 
