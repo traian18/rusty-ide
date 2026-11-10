@@ -88,6 +88,20 @@ describe("rusty_docs against the shipped documentation", () => {
     expect(result.ok && result.output).toContain("- goals: Goals");
   });
 
+  it("finds the Workflow Author skill first, however it is asked about", () => {
+    const search = buildDocsSearch(docsIndex as DocPage[]);
+    for (const question of [
+      "what is the workflow author skill",
+      "how do I use workflow-author",
+      "can an agent create a workflow for me from a description",
+      "workflow author save failed with issues",
+    ]) {
+      const [top] = search(question, 3);
+      expect(top?.page.id, question).toBe("skills");
+      expect(top?.section.anchor, question).toMatch(/^workflow-author-skill-/);
+    }
+  });
+
   it("gives every section a page the tool can link to", () => {
     expect(docsIndex.length).toBeGreaterThan(0);
     for (const page of docsIndex) {
