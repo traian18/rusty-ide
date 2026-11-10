@@ -1,7 +1,5 @@
-// One capability run on its own rusty-core session: creates the session,
-// routes its events, answers its calls into the IDE, and settles the run
-// once. Every core run creates its own session and closes it once the run
-// settles.
+// One capability run on a rusty-core session: opens it (a chat continues its kept one, see
+// conversation.ts), routes its events, answers its calls into the IDE, and settles the run once.
 
 import type { AgentEvent, AgentEventEnvelope, PermissionDecision, ToolCall, ToolResultSummary } from "@rusty/harness-sdk";
 import type { CapabilityEvent, CapabilityInput, CapabilityName, RunHandle, RunHost, RunOutcome } from "../../contract";
@@ -31,6 +29,7 @@ import {
 } from "./agentEvents";
 import { answerModelTurn } from "./modelTurns";
 import { RunContextVisibility } from "./runContextVisibility";
+import { continuationPrompt, conversationFor, openSession, recipeKey, type Conversation, type HistoryEntry } from "./conversation";
 import { errorMessage, ignoreFailure, observe } from "./failures";
 import {
   answerWorkspaceTool,
@@ -90,6 +89,8 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   private resolveDone!: (outcome: RunOutcome<K>) => void;
   private settled = false;
   private currentSession: string | undefined;
+  /** The chat's kept session, when this run may continue or keep one (see conversation.ts). */
+  private conversation: Conversation | undefined;
   // Only advanced by definition.onCompleted's own retry decision -- 1 for
   // every capability that doesn't define onCompleted at all.
   private attempt = 1;
@@ -165,6 +166,8 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
     this.resolveDone(outcome);
     // A summary still being written may finish after the run: its finish belongs in the chat.
     this.visibility.settled(outcome.status === "cancelled");
+    const history = (this.input as { chatHistory?: HistoryEntry[] }).chatHistory ?? [];
+    if (this.currentSession) this.conversation?.ended(this.currentSession, outcome.status === "completed", history);
   }
 
   private fail(code: string, message: string): void {
@@ -172,6 +175,7 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   }
 
   private closeSession(id: string): void {
+    if (this.conversation?.owns(id)) return; // kept for the chat's next message
     void this.engine.closeSession(id).catch(ignoreFailure(`closing session ${id}`));
   }
 
@@ -193,22 +197,20 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
   /** Creates the session, subscribes to it, then prompts it or starts its workflow. */
   private async open(): Promise<void> {
     try {
-      const enriched = await enrichedRecipe(this.definition, this.definition.recipe!(this.input), this.input, this.host, this.controller.signal);
-      const recipe = this.withRunSettings(withSecretShieldPolicy(enriched));
-      const id = await this.engine.createSession(recipe);
-      if (this.settled) {
-        // cancel() ran while createSession() was still in flight -- this run
-        // never got far enough for settle()'s own cleanup (sessionId was
-        // still unset) to close it.
-        this.closeSession(id);
-        return;
-      }
-      this.bindSession(id);
-      await this.engine.subscribe(id, (event) => this.onBridgeEvent(event));
+      const base = this.definition.recipe!(this.input);
+      const recipe = this.withRunSettings(withSecretShieldPolicy(await enrichedRecipe(this.definition, base, this.input, this.host, this.controller.signal)));
+      this.conversation = conversationFor(this.capability, this.input);
+      // Keyed without the per-run brief (project, active spec), which may differ between messages.
+      const opened = await openSession({
+        engine: this.engine, recipe, key: recipeKey({ ...recipe, system_prompt: base.system_prompt }), conversation: this.conversation,
+        history: (this.input as { chatHistory?: HistoryEntry[] }).chatHistory ?? [], onEvent: (event) => this.onBridgeEvent(event),
+        bind: (id) => this.bindSession(id), settled: () => this.settled, // cancel() during createSession: closed there
+      });
+      if (!opened) return;
       this.resolveStarted();
       const spec = this.workflow.spec;
-      if (spec) return await this.workflow.start(id, spec);
-      await this.prompt(id, this.definition.promptText!(this.input));
+      if (spec) return await this.workflow.start(opened.id, spec);
+      await this.prompt(opened.id, opened.continued ? continuationPrompt(this.capability, this.input) : this.definition.promptText!(this.input));
     } catch (error: unknown) {
       const message = errorMessage(error);
       this.rejectStarted(new Error(message));

@@ -83,6 +83,9 @@ export class LifecycleTracker {
   private readonly finished = new Set<string>();
   private readonly held = new Map<string, Compaction>();
   private readonly summaries = new Set<string>();
+  /** Core runs whose events reached this tracker live. A chat's kept session also retains the
+   * events of its earlier messages, which a recovery must not show again. */
+  private readonly runs = new Set<string>();
 
   /** What to show for `observation` now, and whether a held finish needs a recovery.
    * `recoverable`: its session's retained events can be asked for. */
@@ -90,6 +93,7 @@ export class LifecycleTracker {
     if (observation.type !== "compaction") return { show: [observation], recover: false };
     if (this.seen.has(observation.identity.eventId)) return { show: [], recover: false };
     this.seen.add(observation.identity.eventId);
+    if (recoverable) this.runs.add(observation.identity.runId ?? "");
     const id = observation.operationId;
     if (observation.phase === "started") {
       if (this.started.has(id)) return { show: [], recover: false };
@@ -110,7 +114,9 @@ export class LifecycleTracker {
   /** A recovery ended: recovered starts come out before their held finishes; a finish whose start
    * was not among them (or nothing could be recovered) is shown once, marked as such. */
   recovered(observations: ContextObservation[]): ContextObservation[] {
-    const show = observations.flatMap((observation) => this.accept(observation, false).show);
+    const ours = (observation: ContextObservation) =>
+      observation.type === "compaction" && (this.held.has(observation.operationId) || this.runs.has(observation.identity.runId ?? ""));
+    const show = observations.filter(ours).flatMap((observation) => this.accept(observation, false).show);
     for (const finish of [...this.held.values()]) show.push(this.finish(finish, true));
     this.held.clear();
     return show;

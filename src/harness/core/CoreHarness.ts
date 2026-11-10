@@ -10,9 +10,9 @@
 // singleShotSession for an orchestrating definition's sessions).
 //
 // Every core run creates its own rusty-core session and closes it once the
-// run settles -- there is no cross-turn session reuse yet, so
-// `releaseSession` is a no-op, matching contract/harness.ts's own "one run
-// per session key, cleaned up on completion" allowance.
+// run settles, except a chat's single-agent run: the chat keeps that session
+// for its next message (run/conversation.ts), and `releaseSession` with the
+// chat's id closes it.
 // ============================================================
 
 import type {
@@ -41,6 +41,7 @@ import { CoreRun } from "./run/CoreRun";
 import { errorMessage, observe } from "./run/failures";
 import { runSingleShotSession } from "./run/singleShotSession";
 import { createUsageTracker, type UsageContext } from "./run/usageTracker";
+import { releaseConversation } from "./run/conversation";
 
 /**
  * Answers one `HostExecuteCall` -- a single model turn -- on behalf of
@@ -423,9 +424,8 @@ export class CoreHarness implements AgentHarness {
     return () => this.usageListeners.delete(listener);
   }
 
-  async releaseSession(_sessionKey: string): Promise<void> {
-    // Every core run creates and closes its own session (see the
-    // class-level doc comment) -- nothing keyed by a UI session id to
-    // release yet.
+  async releaseSession(sessionKey: string): Promise<void> {
+    // The chat closed, was cleared or replaced: its kept session goes too (class doc comment).
+    releaseConversation(sessionKey);
   }
 }
