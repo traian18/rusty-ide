@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createTabTestStore } from "../../test/tabTestStore";
 import { duplicateTabId, fileTabIdentity, originalTabId } from "../tabs/identity";
 import { visibleTabIds } from "../tabs/split";
@@ -25,12 +25,12 @@ function canvasContext(overrides: Record<string, unknown> = {}) {
 }
 
 describe("initial state", () => {
-  it("opens onboarding and workspace, with onboarding active", () => {
+  it("opens the workspace picker alone", () => {
     const store = createTabTestStore();
     const state = store.getState();
 
-    expect(state.tabs.map((tab) => tab.type)).toEqual(["onboarding", "workspace"]);
-    expect(state.activeTabId).toBe("onboarding");
+    expect(state.tabs.map((tab) => tab.type)).toEqual(["workspace"]);
+    expect(state.activeTabId).toBe("workspace");
   });
 
   it("identifies singleton tabs by their type", () => {
@@ -45,7 +45,6 @@ describe("openTab: global singletons", () => {
   // before, because the singleton list was a hard-coded array that omitted
   // metrics entirely and agent creation bypassed openTab altogether.
   it.each([
-    "onboarding",
     "workspace",
     "settings",
     "llm-setup",
@@ -241,7 +240,7 @@ describe("activateTab", () => {
     // Previously accepted any string, leaving activeTabId dangling.
     const store = createTabTestStore();
     store.getState().activateTab("no_such_tab");
-    expect(store.getState().activeTabId).toBe("onboarding");
+    expect(store.getState().activeTabId).toBe("workspace");
   });
 });
 
@@ -293,58 +292,22 @@ describe("closeTab", () => {
 
   it("closing the first tab selects its right neighbour", () => {
     const store = createTabTestStore();
-    store.getState().activateTab("onboarding");
-    store.getState().closeTab("onboarding");
-
-    expect(store.getState().activeTabId).toBe("workspace");
-  });
-
-  it("replaces the only tab with a fresh onboarding tab when onboarding has not been seen", () => {
-    // Generalizes the old special case that made `workspace_select`
-    // unclosable: the guarantee is "never leave the user with nothing", which
-    // now holds for whichever tab happens to be last.
-    const store = createTabTestStore();
-    store.getState().closeTab("onboarding");
+    store.getState().openTab({ type: "settings" });
+    store.getState().activateTab("workspace");
     store.getState().closeTab("workspace");
 
-    const state = store.getState();
-    expect(state.tabs).toHaveLength(1);
-    expect(state.tabs[0]).toMatchObject({ id: "onboarding", type: "onboarding" });
-    expect(state.activeTabId).toBe("onboarding");
+    expect(store.getState().activeTabId).toBe("settings");
   });
 
-  it("replaces the only tab with a workspace tab when onboarding has been seen", () => {
-    const memory = new Map<string, string>([["rusty_has_seen_onboarding", "true"]]);
-    vi.stubGlobal("localStorage", {
-      getItem: (k: string) => memory.get(k) ?? null,
-      setItem: (k: string, v: string) => memory.set(k, v),
-    });
-
+  it("replaces the only tab with a fresh workspace tab", () => {
+    // The guarantee is "never leave the user with nothing", for whichever tab is last.
     const store = createTabTestStore();
-    store.getState().closeTab("onboarding");
     store.getState().closeTab("workspace");
 
     const state = store.getState();
     expect(state.tabs).toHaveLength(1);
     expect(state.tabs[0]).toMatchObject({ id: "workspace", type: "workspace" });
     expect(state.activeTabId).toBe("workspace");
-
-    vi.unstubAllGlobals();
-  });
-
-  it("closing an onboarding tab marks onboarding as seen", () => {
-    const memory = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (k: string) => memory.get(k) ?? null,
-      setItem: (k: string, v: string) => memory.set(k, v),
-    });
-
-    const store = createTabTestStore();
-    store.getState().closeTab("onboarding");
-
-    expect(memory.get("rusty_has_seen_onboarding")).toBe("true");
-
-    vi.unstubAllGlobals();
   });
 
   it("ignores an unknown tab id", () => {
@@ -418,8 +381,8 @@ describe("updateTab", () => {
     const id = store.getState().openTab({ type: "canvas", title: "Draft" });
     store.getState().updateTab(id, { title: "Renamed" });
 
-    expect(store.getState().tabs.find((tab) => tab.type === "onboarding")?.title).toBe(
-      "Welcome to Rusty",
+    expect(store.getState().tabs.find((tab) => tab.type === "workspace")?.title).toBe(
+      "Workspaces",
     );
   });
 
@@ -454,59 +417,6 @@ describe("canvas alias syncing", () => {
   });
 });
 
-describe("hydrateTabs", () => {
-  it("leaves onboarding and workspace tabs on first run and marks onboarding as seen", () => {
-    const memory = new Map<string, string>();
-    vi.stubGlobal("localStorage", {
-      getItem: (k: string) => memory.get(k) ?? null,
-      setItem: (k: string, v: string) => memory.set(k, v),
-    });
-
-    const store = createTabTestStore();
-    store.getState().hydrateTabs();
-
-    const state = store.getState();
-    expect(state.tabs.map((tab) => tab.type)).toEqual(["onboarding", "workspace"]);
-    expect(state.activeTabId).toBe("onboarding");
-    expect(memory.get("rusty_has_seen_onboarding")).toBe("true");
-
-    vi.unstubAllGlobals();
-  });
-
-  it("switches to workspace tab as default when onboarding has already been seen", () => {
-    const memory = new Map<string, string>([["rusty_has_seen_onboarding", "true"]]);
-    vi.stubGlobal("localStorage", {
-      getItem: (k: string) => memory.get(k) ?? null,
-      setItem: (k: string, v: string) => memory.set(k, v),
-    });
-
-    const store = createTabTestStore();
-    store.getState().hydrateTabs();
-
-    const state = store.getState();
-    expect(state.tabs.map((tab) => tab.type)).toEqual(["workspace"]);
-    expect(state.activeTabId).toBe("workspace");
-
-    vi.unstubAllGlobals();
-  });
-
-  it("does not override tabs if user has already opened other tabs before hydrate", () => {
-    const memory = new Map<string, string>([["rusty_has_seen_onboarding", "true"]]);
-    vi.stubGlobal("localStorage", {
-      getItem: (k: string) => memory.get(k) ?? null,
-      setItem: (k: string, v: string) => memory.set(k, v),
-    });
-
-    const store = createTabTestStore();
-    store.getState().openTab({ type: "settings" });
-    store.getState().hydrateTabs();
-
-    expect(store.getState().tabs.some((t) => t.type === "settings")).toBe(true);
-
-    vi.unstubAllGlobals();
-  });
-});
-
 describe("side-by-side code tabs", () => {
   const A = fileTabIdentity("/a.ts");
   const COPY = duplicateTabId(A);
@@ -521,13 +431,15 @@ describe("side-by-side code tabs", () => {
 
   it("opens the active code tab beside a copy of itself", () => {
     const store = splitOnA();
-    expect(ids(store)).toEqual(["onboarding", "workspace", A, COPY]);
+    expect(ids(store)).toEqual(["workspace", A, COPY]);
     expect(store.getState().activeTabId).toBe(COPY);
     expect(store.getState().tabSplit).toMatchObject({ left: A, right: COPY, focused: "right" });
   });
 
   it.each(["agent", "settings", "workspace"] as const)("does not duplicate a %s tab", (type) => {
     const store = createTabTestStore();
+    // A split needs a tab to stay on the left.
+    store.getState().openTab({ type: "metrics" });
     store.getState().openTab({ type });
     const before = ids(store);
     store.getState().toggleSplit();
@@ -621,7 +533,7 @@ describe("side-by-side code tabs", () => {
     const other = splitOnA();
     other.getState().closeTab(A);
     expect(other.getState().tabSplit).not.toBeNull();
-    expect(other.getState().tabSplit?.rails?.left).toEqual(["onboarding", "workspace"]);
+    expect(other.getState().tabSplit?.rails?.left).toEqual(["workspace"]);
     expect(other.getState().activeTabId).toBe(COPY);
   });
 
@@ -635,7 +547,7 @@ describe("side-by-side code tabs", () => {
     const store = splitOnA();
     store.getState().toggleSplit();
     expect(store.getState().tabSplit).toBeNull();
-    expect(ids(store)).toEqual(["onboarding", "workspace", COPY]);
+    expect(ids(store)).toEqual(["workspace", COPY]);
     expect(store.getState().activeTabId).toBe(COPY);
   });
 

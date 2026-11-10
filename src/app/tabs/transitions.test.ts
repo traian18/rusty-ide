@@ -16,31 +16,17 @@ function fileTab(path: string): TabInstance {
 }
 
 describe("initialTabs", () => {
-  it("opens onboarding and workspace, with onboarding active when hasSeenOnboarding is false", () => {
-    const { tabs, activeTabId } = initialTabs(false);
-    expect(tabs.map((t) => t.type)).toEqual(["onboarding", "workspace"]);
-    expect(activeTabId).toBe("onboarding");
-  });
-
-  it("opens only workspace, with workspace active when hasSeenOnboarding is true", () => {
-    const { tabs, activeTabId } = initialTabs(true);
+  it("starts on the workspace picker alone", () => {
+    const { tabs, activeTabId } = initialTabs();
     expect(tabs.map((t) => t.type)).toEqual(["workspace"]);
     expect(activeTabId).toBe("workspace");
-  });
-
-  it("gives every tab an id matching its identity", () => {
-    for (const tab of initialTabs(false).tabs) expect(tab.id).toBe(tab.type);
-    for (const tab of initialTabs(true).tabs) expect(tab.id).toBe(tab.type);
+    for (const tab of tabs) expect(tab.id).toBe(tab.type);
   });
 });
 
 describe("fallbackTab", () => {
-  it("is the onboarding tab when hasSeenOnboarding is false", () => {
-    expect(fallbackTab(false)).toMatchObject({ id: "onboarding", type: "onboarding" });
-  });
-
-  it("is the workspace tab when hasSeenOnboarding is true", () => {
-    expect(fallbackTab(true)).toMatchObject({ id: "workspace", type: "workspace" });
+  it("is the workspace tab", () => {
+    expect(fallbackTab()).toMatchObject({ id: "workspace", type: "workspace" });
   });
 });
 

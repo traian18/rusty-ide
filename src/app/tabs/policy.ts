@@ -290,7 +290,6 @@ const gitMerge: TabPolicy<"git-merge"> = {
 };
 
 export const TAB_POLICIES: TabPolicyTable = {
-  onboarding: singleton("onboarding", "Welcome to Rusty"),
   workspace: singleton("workspace", "Workspaces"),
   settings: singleton("settings", "Settings"),
   "llm-setup": singleton("llm-setup", "LLM Integrations"),

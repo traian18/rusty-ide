@@ -21,7 +21,6 @@ function preloadHandlersFor(id: string) {
 
 interface NavigationRailViewProps {
   topIcons: NavigationRailIconItem[];
-  helpIcon?: NavigationRailIconItem;
   settingsIcon?: NavigationRailIconItem;
   store: NavigationRailStoreState;
   isItemActive: (id: string) => boolean;
@@ -29,7 +28,6 @@ interface NavigationRailViewProps {
 
 export const NavigationRailView: React.FC<NavigationRailViewProps> = ({
   topIcons,
-  helpIcon,
   settingsIcon,
   store,
   isItemActive,
@@ -78,7 +76,7 @@ export const NavigationRailView: React.FC<NavigationRailViewProps> = ({
       {/* Bottom General Settings Icon */}
       <div className={`${styles.railGroup} ${styles.railBottom}`}>
         <BackgroundIndicator />
-        {[helpIcon, settingsIcon].filter((item): item is NavigationRailIconItem => !!item).map((item) => {
+        {[settingsIcon].filter((item): item is NavigationRailIconItem => !!item).map((item) => {
           const Icon = item.icon;
           const active = isItemActive(item.id);
           return (

@@ -6,7 +6,6 @@ import { canDuplicateTab, findOpenTab, splitWithCopy } from "../tabs/split";
 import { activateInRail, closeInRail, mergeRails, moveInRail } from "../tabs/rails";
 import type { TabGroupSide } from "../tabs/groups";
 import { fallbackTab, initialTabs } from "../tabs/transitions";
-import { loadHasSeenOnboarding, saveHasSeenOnboarding } from "../../features/onboarding";
 import type { OpenTabRequest, TabInstance, TabResolveContext, TabSplit } from "../tabs/types";
 import type { WorkspaceSliceCreator } from "../../store/sliceTypes";
 import type { WorkspaceState } from "../../store/types";
@@ -32,28 +31,8 @@ function resolveContext(state: WorkspaceState): TabResolveContext {
 }
 
 export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
-  ...initialTabs(false),
+  ...initialTabs(),
   tabSplit: null,
-
-  hydrateTabs: () => {
-    const seen = loadHasSeenOnboarding();
-    if (seen) {
-      set((state) => {
-        const isInitialDefault =
-          state.tabs.length === 2 &&
-          state.tabs.some((t) => t.type === "onboarding") &&
-          state.tabs.some((t) => t.type === "workspace") &&
-          state.activeTabId === "onboarding";
-
-        if (isInitialDefault) {
-          return withActiveCanvas(state, initialTabs(true));
-        }
-        return {};
-      });
-    } else {
-      saveHasSeenOnboarding(true);
-    }
-  },
 
   openTab: (request: OpenTabRequest) => {
     // Assigned inside the updater below. Zustand's `set` runs the updater
@@ -119,10 +98,6 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
     if (!tab) return;
     if (!getTabPolicy(tab.type).closable) return;
 
-    if (tab.type === "onboarding") {
-      saveHasSeenOnboarding(true);
-    }
-
     set((state) => {
       const index = state.tabs.findIndex((candidate) => candidate.id === id);
       let tabs = state.tabs.filter((candidate) => candidate.id !== id);
@@ -134,7 +109,7 @@ export const createTabsSlice: WorkspaceSliceCreator = (set, get) => ({
       }
 
       if (tabs.length === 0) {
-        const fallback = fallbackTab(loadHasSeenOnboarding());
+        const fallback = fallbackTab();
         tabs = [fallback];
         activeTabId = fallback.id;
       }

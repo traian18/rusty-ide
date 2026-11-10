@@ -20,7 +20,6 @@ import type {
 } from "../../store/types";
 
 export type TabType =
-  | "onboarding"
   | "workspace"
   | "settings"
   | "llm-setup"
@@ -40,7 +39,6 @@ export type TabType =
 
 /** Tab types that may only ever have one instance, identified by the type name itself. */
 export type SingletonTabType =
-  | "onboarding"
   | "workspace"
   | "settings"
   | "llm-setup"

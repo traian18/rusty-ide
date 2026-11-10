@@ -9,9 +9,7 @@
 import { getTabPolicy } from "./policy";
 import type { TabInstance } from "./types";
 
-function makeSingletonTab(
-  type: "onboarding" | "workspace",
-): TabInstance {
+function makeSingletonTab(type: "workspace"): TabInstance {
   const policy = getTabPolicy(type);
   return policy.create({ type } as never, type, {
     rootPath: "",
@@ -21,16 +19,13 @@ function makeSingletonTab(
 }
 
 /** The tab shown when the strip would otherwise be empty. */
-export function fallbackTab(hasSeenOnboarding = false): TabInstance {
-  return makeSingletonTab(hasSeenOnboarding ? "workspace" : "onboarding");
+export function fallbackTab(): TabInstance {
+  return makeSingletonTab("workspace");
 }
 
-export function initialTabs(hasSeenOnboarding = false): { tabs: TabInstance[]; activeTabId: string } {
+/** The app starts on the workspace picker. */
+export function initialTabs(): { tabs: TabInstance[]; activeTabId: string } {
   const workspace = makeSingletonTab("workspace");
-  if (!hasSeenOnboarding) {
-    const onboarding = makeSingletonTab("onboarding");
-    return { tabs: [onboarding, workspace], activeTabId: onboarding.id };
-  }
   return { tabs: [workspace], activeTabId: workspace.id };
 }
 

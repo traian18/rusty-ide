@@ -13,7 +13,8 @@
  */
 
 import React from "react";
-import { Bot, BookOpen, BookText, Cpu, FolderOpen, Gauge, GitCommit, GitMerge, Network, Plug, Settings, Wand2, Workflow } from "lucide-react";
+import { Bot, BookText, Cpu, FolderOpen, Gauge, GitCommit, GitMerge, Plug, Settings, Wand2 } from "lucide-react";
+import { ArchitectureIcon, WorkflowsIcon } from "../navigation/featureIcons";
 import { ArchitectureTab } from "../../features/architecture/ui";
 import { DocumentationTab } from "../../features/dashboard/ui";
 import { FileIcon } from "../../features/editor/ui";
@@ -30,7 +31,6 @@ import { SkillsTab } from "../../features/skills/ui";
 import { BehaviorsTab } from "../../features/workflows/ui";
 import { WorkspaceTab } from "../../features/canvas/ui";
 import { AgentTab } from "../../features/agent-chat/ui";
-import { OnboardingTab } from "../../features/onboarding/ui";
 import { MetricsTab } from "../../features/observability/ui";
 import { McpIntegrationTab } from "../../features/mcp/ui";
 import type { TabInstance, TabOfType, TabType } from "./types";
@@ -133,17 +133,16 @@ export const TAB_VIEWS: TabViewTable = {
   skills: plain(SkillsTab, Wand2),
   behaviors: {
     Component: ({ isActive }) => <BehaviorsTab isActive={isActive} />,
-    Icon: Workflow,
+    Icon: WorkflowsIcon,
     surface: "canvas",
   },
   "mcp-integration": plain(McpIntegrationTab, Plug),
   settings: plain(SettingsTab, Settings),
   workspace: plain(WorkspaceTab, FolderOpen),
-  onboarding: plain(OnboardingTab, BookOpen),
   metrics: plain(MetricsTab, Gauge),
   architecture: {
     Component: () => <ArchitectureTab />,
-    Icon: Network,
+    Icon: ArchitectureIcon,
     surface: "canvas",
   },
   docs: {

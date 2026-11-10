@@ -23,7 +23,6 @@ store.hydrateTypography();
 store.hydrateShortcuts();
 store.hydrateEditorFileSafety();
 store.hydrateSecretShieldPolicy();
-store.hydrateTabs();
 installJevShadowGate();
 
 const hydratedState = useWorkspaceStore.getState();

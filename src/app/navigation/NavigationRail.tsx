@@ -5,7 +5,7 @@ import { useShallow } from "zustand/react/shallow";
 import { NAVIGATION_RAIL_ICONS, type NavigationRailIconItem } from "./NavigationRailPresenter";
 
 export const getVisibleTopIcons = (items: NavigationRailIconItem[]) =>
-  items.filter((item) => item.id !== "settings" && item.id !== "onboarding" && item.id !== "rusty");
+  items.filter((item) => item.id !== "settings" && item.id !== "rusty");
 import { NavigationRailView } from "./NavigationRail.view";
 import { formatShortcut } from "../../features/settings";
 
@@ -48,8 +48,6 @@ export const NavigationRail: React.FC = () => {
         return activeTabId === "mcp-integration";
       case "settings":
         return activeTabId === "settings";
-      case "onboarding":
-        return activeTab?.type === "onboarding";
       case "metrics":
         return activeTab?.type === "metrics";
       default:
@@ -68,13 +66,11 @@ export const NavigationRail: React.FC = () => {
     .map((item) => item.id === "explorer"
       ? { ...item, label: `Files (${formatShortcut(toggleExplorerShortcut)})` }
       : item);
-  const helpIcon = NAVIGATION_RAIL_ICONS.find((item) => item.id === "onboarding");
   const settingsIcon = NAVIGATION_RAIL_ICONS.find((item) => item.id === "settings");
 
   return (
     <NavigationRailView
       topIcons={topIcons}
-      helpIcon={helpIcon}
       settingsIcon={settingsIcon}
       store={store}
       isItemActive={isItemActive}

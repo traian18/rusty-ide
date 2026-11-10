@@ -647,9 +647,6 @@ export interface WorkspaceState extends SecretShieldPreferences {
 
   tabs: TabInstance[];
   activeTabId: string | null;
-  /** Hydrates tab collection from persistent state (onboarding seen status).
-   * Called synchronously from main.tsx before createRoot -- never at slice-creation time. */
-  hydrateTabs: () => void;
   /** Opens or focuses the tab for this request; returns its id. */
   openTab: (request: OpenTabRequest) => string;
   activateTab: (id: string) => void;
