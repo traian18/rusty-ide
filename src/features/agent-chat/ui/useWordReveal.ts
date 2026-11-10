@@ -6,6 +6,18 @@ interface Reveal {
   end: number;
 }
 
+/** One tick of the reveal: about 50 words a second at one word per tick. */
+export const WORD_REVEAL_TICK_MS = 20;
+/** Each tick reveals at least this share (1/n) of the words waiting, so a large backlog drains
+ * in under a second instead of trailing the text that arrived. */
+const CATCH_UP_SHARE = 12;
+
+/** How many words to reveal this tick: one while streaming keeps pace, more while a backlog waits. */
+function wordsThisTick(remaining: string): number {
+  const backlog = remaining.match(/\S+/g)?.length ?? 0;
+  return Math.max(1, Math.ceil(backlog / CATCH_UP_SHARE));
+}
+
 function sameReveals(a: Record<string, Reveal>, b: Record<string, Reveal>): boolean {
   const keys = Object.keys(a);
   return keys.length === Object.keys(b).length && keys.every((id) => a[id].source === b[id]?.source && a[id].end === b[id]?.end);
@@ -46,21 +58,22 @@ export function useWordReveal(messages: Message[], isStreaming: boolean, enabled
       setReveals((previous) => {
         const next = { ...previous };
         for (const [id, reveal] of Object.entries(previous)) {
-          const remaining = reveal.source.slice(reveal.end);
-          const word = /^\s*\S+/.exec(remaining);
-          if (!word) {
-            if (id !== current?.id) delete next[id];
-            continue;
+          const live = id === current?.id;
+          let end = reveal.end;
+          for (let count = wordsThisTick(reveal.source.slice(end)); count > 0; count -= 1) {
+            const word = /^\s*\S+/.exec(reveal.source.slice(end));
+            if (!word) break;
+            // Wait for a word boundary while the model may still extend this word.
+            if (live && end + word[0].length === reveal.source.length) break;
+            end += word[0].length;
           }
-          const end = reveal.end + word[0].length;
-          // Wait for a word boundary while the model may still extend this word.
-          if (end === reveal.source.length && id === current?.id) continue;
-          if (end === reveal.source.length && id !== current?.id) delete next[id];
-          else next[id] = { ...reveal, end };
+          const done = !/\S/.test(reveal.source.slice(end));
+          if (done && !live) delete next[id];
+          else if (end !== reveal.end) next[id] = { ...reveal, end };
         }
         return next;
       });
-    }, 65);
+    }, WORD_REVEAL_TICK_MS);
     return () => clearInterval(timer);
   }, [hasPending, current?.id]);
 
