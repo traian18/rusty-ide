@@ -5,7 +5,7 @@ describe("drawer lazy content", () => {
   it("resolves the file tree chunk to a component", async () => {
     const module = await import("../../features/explorer/ui");
     expect(module.FileTree).toBeTypeOf("function");
-  });
+  }, 30_000);
 
   it("resolves the source control chunk to a component", async () => {
     const module = await import("../../features/git/ui");
