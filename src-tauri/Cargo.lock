@@ -4135,7 +4135,7 @@ dependencies = [
 
 [[package]]
 name = "rusty-ide"
-version = "0.1.70"
+version = "0.1.71"
 dependencies = [
  "apple-native-keyring-store",
  "async-trait",
