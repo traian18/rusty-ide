@@ -592,20 +592,64 @@ describe("Chat message groups", () => {
 
   it("restores and saves the scroll position under its key", async () => {
     vi.useFakeTimers();
+    // A position saved by an earlier build: the offset alone.
     localStorage.setItem("chat_scroll_saved", "120");
     const messages: Message[] = [{ id: "a", role: "assistant", content: "reply", timestamp: "" }];
     const { container, unmount } = await mountChat(<Chat messages={messages} scrollKey="saved" />);
     const scroller = container.querySelector<HTMLElement>(".overflow-y-auto")!;
     expect(scroller.scrollTop).toBe(120);
 
-    Object.defineProperty(scroller, "scrollTop", { configurable: true, writable: true, value: 300 });
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, value: 1_000 },
+      scrollTop: { configurable: true, writable: true, value: 300 },
+    });
     scroller.dispatchEvent(new Event("scroll"));
     scroller.dispatchEvent(new Event("scroll"));
     expect(localStorage.getItem("chat_scroll_saved")).toBe("120");
     await act(async () => vi.advanceTimersByTime(100));
-    expect(localStorage.getItem("chat_scroll_saved")).toBe("300");
+    expect(JSON.parse(localStorage.getItem("chat_scroll_saved")!)).toEqual({ top: 300, pinned: false });
     await unmount();
     vi.useRealTimers();
     localStorage.removeItem("chat_scroll_saved");
+  });
+
+  it("brings each chat back where it was left when chats switch in the same scroller", async () => {
+    vi.useFakeTimers();
+    const chatA: Message[] = [{ id: "a", role: "assistant", content: "chat a", timestamp: "" }];
+    const chatB: Message[] = [{ id: "b", role: "assistant", content: "chat b", timestamp: "" }];
+    const { container, root, unmount } = await mountChat(<Chat messages={chatA} scrollKey="switch-a" />);
+    const scroller = container.querySelector<HTMLElement>(".overflow-y-auto")!;
+    let height = 1_000;
+    Object.defineProperties(scroller, {
+      clientHeight: { configurable: true, value: 100 },
+      scrollHeight: { configurable: true, get: () => height },
+      scrollTop: { configurable: true, writable: true, value: 0 },
+    });
+    // The reader scrolls chat A up to the middle.
+    scroller.scrollTop = 400;
+    scroller.dispatchEvent(new Event("scroll"));
+
+    // Chat B, never shown before, opens at its bottom (pinned) before its save timer fires.
+    await act(async () => root.render(<Chat messages={chatB} scrollKey="switch-b" />));
+    expect(scroller.scrollTop).toBe(1_000);
+    await act(async () => vi.advanceTimersByTime(100));
+    // A's position was filed under A, not overwritten by B's offset.
+    expect(JSON.parse(localStorage.getItem("chat_scroll_switch-a")!)).toEqual({ top: 400, pinned: false });
+    expect(JSON.parse(localStorage.getItem("chat_scroll_switch-b")!)).toEqual({ top: 1_000, pinned: true });
+
+    // Back to A: its offset, not B's bottom.
+    await act(async () => root.render(<Chat messages={chatA} scrollKey="switch-a" />));
+    expect(scroller.scrollTop).toBe(400);
+
+    // B grew while hidden; it was pinned, so it comes back at its new bottom.
+    height = 2_500;
+    await act(async () => root.render(<Chat messages={chatB} scrollKey="switch-b" />));
+    expect(scroller.scrollTop).toBe(2_500);
+
+    await unmount();
+    vi.useRealTimers();
+    localStorage.removeItem("chat_scroll_switch-a");
+    localStorage.removeItem("chat_scroll_switch-b");
   });
 });

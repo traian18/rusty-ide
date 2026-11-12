@@ -20,6 +20,7 @@ import { resolveRunModel } from "./runModel";
 import { handleRunOutcome, implementTicks, trackWorkflowRun, type LaunchedRun } from "./runOutcome";
 import { agentChatInput, flowCandidateName, workflowStepTypesOf, type LaunchPlan, type TurnMessage } from "./runRequest";
 import { continueGoal, handleGoalCommand, pauseGoal, type GoalPass } from "./goalTurn";
+import { goalReviewer } from "./goalReview";
 import { isGoalCommand } from "../goals";
 import { abandonTurn, DEFAULT_STREAMING_LABEL, nextMessageId, startResponseStream, type AgentTurn } from "./ui/turn";
 import { cancelContinue } from "./usageLimit";
@@ -185,7 +186,11 @@ async function launch(turn: AgentTurn, message: TurnMessage, plan: LaunchPlan): 
     relaunch: (next) => launch(turn, message, next),
     next: () => continueSpecQueue(turn),
     goalPassEnded: (pass, result) => result
-      ? continueGoal(turn, pass, result, (prompt, nextPass) => sendMessage(turn, prompt, [], true, { goal: nextPass }))
+      ? continueGoal(
+        turn, pass, result,
+        (prompt, nextPass) => sendMessage(turn, prompt, [], true, { goal: nextPass }),
+        goalReviewer({ provider: resolution.provider, model: model.modelId, workspaceRoot, tabId: turn.tab.id }),
+      )
       : pauseGoal(turn, pass, "the pass did not finish."),
   };
   // A closed chat's run was cancelled with it; what it left goes nowhere.

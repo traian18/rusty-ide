@@ -1451,6 +1451,7 @@ pub fn run() {
             goals::commands::goal_create,
             #[cfg(feature = "core-harness")]
             goals::commands::goal_after_pass,
+            goals::commands::goal_pass_diff,
             #[cfg(feature = "core-harness")]
             goals::commands::goal_control,
             #[cfg(feature = "core-harness")]

@@ -4,6 +4,7 @@
 
 import { createRef, useCallback, useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 import { ChatScrollFollow } from "../chatScrollFollow";
+import { persistScroll, recallScroll, rememberScroll } from "./chatScrollMemory";
 import type { ChatPerformanceMetrics, Message, SubagentActivity } from "../chatTypes";
 
 /** Kept across renders and shared by the chat's scrolling hooks. */
@@ -47,20 +48,29 @@ export function cancelFrame(id: number | null): void {
   clearTimeout(id);
 }
 
-/** The scroll handler: tracks whether the reader is at the bottom and saves the position under `scrollKey`. */
+/** The scroll handler: tracks whether the reader is at the bottom and remembers the position under
+ * `scrollKey` (see chatScrollMemory.ts). When the key changes (another chat is shown in the same
+ * scroller) the new key's position is restored before paint: a chat left at the bottom comes back
+ * pinned there, another at its offset, and one never scrolled at its bottom. */
 export function useChatScroll(viewport: ChatViewport, scrollKey: string | undefined, onScrolled: () => void, onPerformanceMetrics: PerformanceListener) {
-  const persistenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The key whose position waits to be written to storage, and its timer.
+  const pending = useRef<{ key: string; timer: ReturnType<typeof setTimeout> } | null>(null);
 
-  useEffect(() => () => {
-    if (persistenceTimer.current) clearTimeout(persistenceTimer.current);
-  }, []);
+  const flushPersist = () => {
+    const waiting = pending.current;
+    if (!waiting) return;
+    clearTimeout(waiting.timer);
+    pending.current = null;
+    persistScroll(waiting.key);
+  };
 
-  const savePosition = (container: HTMLDivElement, key: string) => {
-    if (persistenceTimer.current) clearTimeout(persistenceTimer.current);
-    persistenceTimer.current = setTimeout(() => {
-      localStorage.setItem(`chat_scroll_${key}`, String(container.scrollTop));
-      persistenceTimer.current = null;
-    }, 100);
+  useEffect(() => flushPersist, []);
+
+  const schedulePersist = (key: string) => {
+    // Another key waiting is written now, so switching chats never loses or misfiles its position.
+    if (pending.current && pending.current.key !== key) flushPersist();
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = { key, timer: setTimeout(flushPersist, 100) };
   };
 
   const handleScroll = () => {
@@ -71,15 +81,21 @@ export function useChatScroll(viewport: ChatViewport, scrollKey: string | undefi
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
     viewport.follow.update(distanceFromBottom);
     if (distanceFromBottom <= 24) viewport.explicitNavigation = false;
-    if (scrollKey) savePosition(container, scrollKey);
+    if (scrollKey) {
+      // Recorded at once, with the offset read now: a later chat in the same scroller never
+      // writes its offset under this key.
+      rememberScroll(scrollKey, { top: container.scrollTop, pinned: viewport.follow.isAtBottom() });
+      schedulePersist(scrollKey);
+    }
     onScrolled();
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = viewport.containerRef.current;
     if (!scrollKey || !container) return;
-    const savedScroll = localStorage.getItem(`chat_scroll_${scrollKey}`);
-    container.scrollTop = savedScroll ? parseInt(savedScroll, 10) : container.scrollHeight;
+    const saved = recallScroll(scrollKey);
+    viewport.explicitNavigation = false;
+    container.scrollTop = !saved || saved.pinned ? container.scrollHeight : saved.top;
     handleScroll();
   }, [scrollKey]);
 

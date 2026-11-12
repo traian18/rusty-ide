@@ -53,6 +53,21 @@ const EDITING = `Changing code:
 - Keep changes reversible and contained. Do not delete files, rewrite history, or overwrite work you did not make without being asked.
 - Never put secrets, tokens or personal data in code, logs or tests.`;
 
+/** Models stopped before the hard part: a fix that needed several files to change together was
+ * "not safe to patch in isolation", a partial security fix "worse than none", and easier work
+ * nearby was done instead (the 2026-11-12 exxora traces). After opencode's autonomy section. */
+function seeingItThrough(tools: string[], mode: WorkingMethodMode): string {
+  const ask = has(tools, "ask_user_question") && !mode.workflow
+    ? "ask it with 'ask_user_question' and go on with the parts that do not depend on the answer"
+    : "say exactly what is missing and go on with the parts that do not depend on it";
+  return `Seeing the work through:
+- Carry the request through to the result that was asked for. Do not settle for a partial or "helpful enough" result to save effort, and do not swap the asked-for work for easier work nearby.
+- When a fix needs several parts to change together (a data model and its callers, a store and the code that rotates it), make the coordinated change across every file it needs. That is the work, not a reason to stop, to skip it or to cancel it.
+- Large or sensitive work (security, concurrency, data, money) is built in steps like any other. An unfinished state on the way is normal while your plan says what is left; not starting because the full guarantee needs several steps leaves the problem as it was.
+- Do not add warnings, disclaimers, approval steps or safety checklists for risks that are only hypothetical.
+- Stop only for what you cannot find out or do yourself: a decision, a credential or a value that is in neither the code nor its history. Then ${ask}.`;
+}
+
 const VERIFYING = `Checking your work:
 - A change is not done until you have checked it. Run the project's checks that apply (tests, type check, lint, build) after your last change, and read the results.
 - Report results as they are. If a check fails, say so and fix it; never describe a failing or unrun check as passing. If you could not run something, say what you could not run and why, and give the command.
@@ -123,7 +138,7 @@ export function workingMethod(tools: string[], mode: WorkingMethodMode = {}): st
   else if (!mode.workflow) sections.push(has(tools, "update_todos") ? `${PLANNING}\n${TODO_LIST}` : PLANNING);
   else sections.push(has(tools, "update_todos") ? `${WORKFLOW_STEP}\n\n${STEP_PLAN}` : WORKFLOW_STEP);
   sections.push(toolsSection(tools));
-  if (canEdit) sections.push(EDITING);
+  if (canEdit) sections.push(EDITING, seeingItThrough(tools, mode));
   if (canCheck) sections.push(VERIFYING);
   const practice = rustyPractice(tools, mode);
   if (practice) sections.push(practice);

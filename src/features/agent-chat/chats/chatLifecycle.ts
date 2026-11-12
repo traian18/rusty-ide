@@ -6,6 +6,7 @@ import { useWorkflowRunStore } from "../../workflows";
 import { cancelResponseFlush, releasePendingQuestions } from "../ui/turn";
 import { chatRuntime, disposeChatRuntime } from "./chatRuntime";
 import { tabChatIds, useChatStore } from "../ui/chats/chatStore";
+import { agentChatScrollKey, forgetScroll } from "../ui/chatScrollMemory";
 
 /** Opens a new chat in the tab and shows it, after the others or at strip position `at`. The
  * tab's first chat takes the tab's id, so a tab with one chat keys its messages, todos and grants
@@ -70,6 +71,7 @@ export function disposeChat(chatId: string) {
   useWorkflowRunStore.getState().forgetChat(chatId);
   useChatStore.getState().remove(chatId);
   useWorkspaceStore.getState().removeAgentChat(chatId);
+  forgetScroll(agentChatScrollKey(chatId));
 }
 
 /** Closes every chat of the tab (the tab closed, or another workspace was opened). */

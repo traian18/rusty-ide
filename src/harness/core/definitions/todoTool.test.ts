@@ -46,6 +46,44 @@ describe("update_todos", () => {
     expect(await tool(undefined, signal)).toMatchObject({ ok: true });
   });
 
+  it("as the completion check, fails while the run cancelled more items than it completed", async () => {
+    // The 2026-11-12 traces: a plan of eight items, all cancelled as "too large to patch safely", and the gate passed.
+    const tool = updateTodosTool(chatTodoScope("chat-1"), () => {});
+    await tool({ todos: [
+      { content: "Session revocation", status: "in_progress" },
+      { content: "CSRF protection", status: "pending" },
+      { content: "Remove debug logging", status: "pending" },
+    ] }, signal);
+    const saved = await tool({ todos: [
+      { content: "Session revocation", status: "cancelled" },
+      { content: "CSRF protection", status: "cancelled" },
+      { content: "Remove debug logging", status: "completed" },
+    ] }, signal);
+    expect(saved).toEqual({ ok: true, output: "Task list saved: none open; 1 completed, 2 cancelled." });
+    const dropped = await tool({}, signal);
+    expect(dropped).toMatchObject({ ok: false, error: expect.stringContaining("You cancelled 2 task list items without doing them:\n- Session revocation\n- CSRF protection") });
+    expect(dropped).not.toMatchObject({ error: expect.stringContaining("Remove debug logging") });
+
+    // One unnecessary item among finished ones is fine.
+    await tool({ todos: [
+      { content: "Session revocation", status: "completed" },
+      { content: "CSRF protection", status: "cancelled" },
+      { content: "Remove debug logging", status: "completed" },
+    ] }, signal);
+    expect(await tool({}, signal)).toMatchObject({ ok: true });
+  });
+
+  it("does not hold items cancelled before this run against it, and refuses a whole list cancelled", async () => {
+    await updateTodosTool(chatTodoScope("chat-1"), () => {})({ todos: [
+      { content: "Old A", status: "cancelled" },
+      { content: "Old B", status: "cancelled" },
+    ] }, signal);
+    const next = updateTodosTool(chatTodoScope("chat-1"), () => {});
+    expect(await next({}, signal)).toMatchObject({ ok: true });
+    await next({ todos: [{ content: "Old A", status: "cancelled" }, { content: "Old B", status: "cancelled" }, { content: "New", status: "cancelled" }] }, signal);
+    expect(await next({}, signal)).toMatchObject({ ok: false, error: expect.stringContaining("You cancelled 1 task list item without doing it:\n- New") });
+  });
+
   it("carries open items into the next message's prompt", async () => {
     expect(openTodosReminder("chat-1")).toBe("");
     await updateTodosTool(chatTodoScope("chat-1"), () => {})({ todos: [{ content: "Write tests", status: "pending" }] }, signal);

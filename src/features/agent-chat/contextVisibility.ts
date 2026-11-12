@@ -2,12 +2,14 @@
 // latest main-agent request, and the start and finish of each compaction operation. All of it is
 // transient: it is never saved with the chat, and a reopened chat starts without it.
 //
-// Freshness: a request's start clears the previous estimate; an update counts only for the latest
-// request (by its dispatch order) and only when it is newer than the update already shown (by its
-// agent sequence). So a replayed or delayed update never replaces or hides a newer one, and a
-// request that fails or is cancelled before its estimate leaves the indicator hidden. A session
-// that was replaced, or whose estimates a model change invalidated, is retired: nothing it reports
-// afterwards is shown.
+// Freshness: the last estimate shown stays until a newer one replaces it, so the indicator updates
+// in place instead of vanishing at every request start (it used to clear there, and the bar blinked
+// out and back on each request). An update counts only for the latest request (by its dispatch
+// order) and only when it is newer than the update already shown (by its agent sequence), so a
+// replayed or delayed update never replaces a newer one; an update saying the estimate is
+// unavailable keeps the last one. A session that was replaced is retired: nothing it reports
+// afterwards is shown, and its last estimate stays until the new session reports one. Only a model
+// change hides the estimate, since its numbers no longer apply.
 
 import type { CompactionKind, CompactionResult, ContextEstimate, ContextObservation } from "../../harness/contract";
 
@@ -44,28 +46,26 @@ export function applyRequestObservation(state: ContextVisibility, observation: C
   if (state.retired.has(sessionId)) return false;
   const before = state.estimate;
   if (sessionId !== state.sessionId) {
-    // Another session replaces this one: what the old one showed no longer holds.
+    // Another session replaces this one: nothing the old one reports counts any more, but its last
+    // estimate stays shown until the new one reports.
     if (state.sessionId) state.retired.add(state.sessionId);
     state.sessionId = sessionId;
     state.latest = null;
-    state.estimate = null;
   }
   const latest = state.latest;
   const newer = !latest || latest.agentId !== agentId || order > latest.order;
   if (observation.type === "request_started") {
-    if (newer) {
-      state.latest = { agentId, order, requestId, sequence: null };
-      state.estimate = null;
-    }
-    return before !== state.estimate;
+    // The previous estimate stays shown until this request reports its own.
+    if (newer) state.latest = { agentId, order, requestId, sequence: null };
+    return false;
   }
   if (newer) {
     // An update for a request whose start was not seen: it is still the latest.
     state.latest = { agentId, order, requestId, sequence: agentSequence };
-    state.estimate = observation.estimate;
+    state.estimate = observation.estimate ?? state.estimate;
   } else if (order === latest.order && (latest.sequence === null || agentSequence > latest.sequence)) {
     latest.sequence = agentSequence;
-    state.estimate = observation.estimate;
+    state.estimate = observation.estimate ?? state.estimate;
   }
   return before !== state.estimate;
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const client = vi.hoisted(() => ({ create: vi.fn(), afterPass: vi.fn(), control: vi.fn(), list: vi.fn() }));
+const client = vi.hoisted(() => ({ create: vi.fn(), afterPass: vi.fn(), control: vi.fn(), list: vi.fn(), passDiff: vi.fn() }));
 vi.mock("../goals/client", () => ({ goalClient: client }));
 vi.mock("../notifications/service/notificationStore", () => ({ notify: vi.fn() }));
 vi.mock("./service/repositoryContextInput", () => ({ repositoryContextInput: () => ({ enabled: true }) }));
@@ -56,18 +56,18 @@ describe("goal passes", () => {
     client.create.mockResolvedValue(step("running", 0, "pass 1 prompt"));
     await handleGoalCommand(chat, "/goal checks=test tidy", ["/ws/src/a.ts"], send);
     expect(client.create).toHaveBeenCalledWith("/ws", undefined, expect.objectContaining({ instruction: "tidy", scope: ["src/a.ts"] }), "chat-1");
-    expect(send).toHaveBeenCalledWith("pass 1 prompt", { id: "g-1", pass: 1, checks: ["test"] });
-    expect(chat.state.goal).toEqual({ id: "g-1", pass: 1, checks: ["test"] });
+    expect(send).toHaveBeenCalledWith("pass 1 prompt", { id: "g-1", pass: 1, checks: ["test"], instruction: "tidy" });
+    expect(chat.state.goal).toEqual({ id: "g-1", pass: 1, checks: ["test"], instruction: "tidy" });
 
     client.afterPass.mockResolvedValue(step("running", 1, "pass 2 prompt", "continue"));
     await continueGoal(chat, chat.state.goal!, { response: "Status: done", modifiedFiles: ["/ws/src/a.ts"], checks: [] }, send);
-    expect(client.afterPass).toHaveBeenCalledWith("/ws", undefined, "g-1", { agent_status: "done" }, [{ name: "test", passed: false, ran: false, summary: "not run" }], ["src/a.ts"]);
-    expect(send).toHaveBeenLastCalledWith("pass 2 prompt", { id: "g-1", pass: 2, checks: ["test"] });
+    expect(client.afterPass).toHaveBeenCalledWith("/ws", undefined, "g-1", { agent_status: "done", edited: 1 }, [{ name: "test", passed: false, ran: false, summary: "not run" }], ["src/a.ts"]);
+    expect(send).toHaveBeenLastCalledWith("pass 2 prompt", { id: "g-1", pass: 2, checks: ["test"], instruction: "tidy" });
 
     // The pass's to-do list goes with its report: a task goal keeps it as its plan.
     client.afterPass.mockResolvedValue(step("done", 2, null, "done"));
     await continueGoal(chat, chat.state.goal!, { response: "", modifiedFiles: [], plan: [{ content: "Split run.ts", status: "completed" }] }, send);
-    expect(client.afterPass).toHaveBeenLastCalledWith("/ws", undefined, "g-1", { plan: [{ content: "Split run.ts", status: "completed" }] }, expect.anything(), []);
+    expect(client.afterPass).toHaveBeenLastCalledWith("/ws", undefined, "g-1", { plan: [{ content: "Split run.ts", status: "completed" }], edited: 0 }, expect.anything(), []);
     expect(send).toHaveBeenCalledTimes(2);
     expect(chat.state.goal).toBeUndefined();
     expect(chat.messages.at(-1)?.content).toContain("Goal pass 2: goal reached");
@@ -85,8 +85,33 @@ describe("goal passes", () => {
     const chat = turn();
     const send = vi.fn();
     client.afterPass.mockResolvedValue(step("running", 1, "next", "continue"));
-    await continueGoal(chat, { id: "g-1", pass: 1, checks: [] }, { response: "", modifiedFiles: [] }, send);
+    await continueGoal(chat, { id: "g-1", pass: 1, checks: [], instruction: "tidy" }, { response: "", modifiedFiles: [] }, send);
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("has the reviewer judge the pass from its diff, and sends its verdict with the report", async () => {
+    const chat = turn();
+    const send = vi.fn().mockResolvedValue(undefined);
+    chat.state.goal = { id: "g-1", pass: 1, checks: [], instruction: "Finish the security work" };
+    client.passDiff.mockResolvedValue("+ rotate()");
+    client.afterPass.mockResolvedValue(step("running", 1, "pass 2 prompt", "continue"));
+    const review = vi.fn().mockResolvedValue({ verdict: "continue", reason: "rotation is two calls", next_step: "make it one script" });
+    const plan = [{ content: "Rotation", status: "cancelled" as const }];
+    await continueGoal(chat, chat.state.goal, { response: "Status: blocked — too risky", modifiedFiles: ["/ws/src/a.ts"], plan }, send, review);
+    expect(client.passDiff).toHaveBeenCalledWith("/ws", "g-1", expect.any(Number));
+    expect(review).toHaveBeenCalledWith({ instruction: "Finish the security work", plan, checks: [], modifiedFiles: ["src/a.ts"], diff: "+ rotate()", response: "Status: blocked — too risky" });
+    expect(client.afterPass).toHaveBeenCalledWith("/ws", undefined, "g-1", {
+      agent_status: "blocked — too risky",
+      plan: [{ content: "Rotation", status: "cancelled" }],
+      review: { verdict: "continue", reason: "rotation is two calls", next_step: "make it one script" },
+      edited: 1,
+    }, [], ["src/a.ts"]);
+
+    // A reviewer that fails leaves the report to the pass's own lines.
+    chat.state.goal = { id: "g-1", pass: 2, checks: [], instruction: "Finish the security work" };
+    client.passDiff.mockRejectedValue(new Error("no checkpoint"));
+    await continueGoal(chat, chat.state.goal, { response: "Status: done", modifiedFiles: [] }, send, vi.fn().mockRejectedValue(new Error("offline")));
+    expect(client.afterPass).toHaveBeenLastCalledWith("/ws", undefined, "g-1", { agent_status: "done", edited: 0 }, [], []);
   });
 
   it("controls the chat's goal and says when there is none", async () => {
@@ -99,7 +124,7 @@ describe("goal passes", () => {
     const send = vi.fn();
     await handleGoalCommand(chat, "/goal resume", [], send);
     expect(client.control).toHaveBeenCalledWith("/ws", undefined, "g-1", "resume");
-    expect(send).toHaveBeenCalledWith("resumed prompt", { id: "g-1", pass: 1, checks: ["test"] });
+    expect(send).toHaveBeenCalledWith("resumed prompt", { id: "g-1", pass: 1, checks: ["test"], instruction: "tidy" });
     await handleGoalCommand(chat, "/goal health=99 x", [], send);
     expect(chat.messages.at(-1)?.content).toContain("not started");
   });

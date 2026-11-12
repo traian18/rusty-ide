@@ -16,26 +16,28 @@ const update = (order: number, sequence: number, value: ContextEstimate | null, 
   ({ type: "estimate", identity: identity(order, sequence, session), qualifying, estimate: value });
 
 describe("context estimate freshness", () => {
-  it("is hidden until an estimate arrives, and hidden again when it is unavailable", () => {
+  it("is hidden until an estimate arrives, and keeps the last one when an update says it is unavailable", () => {
     const state = emptyVisibility();
     expect(state.estimate).toBeNull();
     applyRequestObservation(state, start(0));
     expect(applyRequestObservation(state, update(0, 10, estimate(500)))).toBe(true);
     expect(state.estimate?.remainingInputTokens).toBe(500);
-    expect(applyRequestObservation(state, update(0, 11, null))).toBe(true);
-    expect(state.estimate).toBeNull();
+    expect(applyRequestObservation(state, update(0, 11, null))).toBe(false);
+    expect(state.estimate?.remainingInputTokens).toBe(500);
   });
 
-  it("hides the previous estimate as soon as a new request starts, and keeps it hidden if that request fails", () => {
+  it("keeps the previous estimate shown while a new request starts, until that request reports its own", () => {
     const state = emptyVisibility();
     applyRequestObservation(state, start(0));
     applyRequestObservation(state, update(0, 10, estimate(500)));
-    applyRequestObservation(state, start(1));
-    expect(state.estimate).toBeNull();
-    // The new request failed or was cancelled before its estimate: nothing comes, nothing shows,
-    // and the older request's estimate, replayed, does not come back.
-    applyRequestObservation(state, update(0, 10, estimate(500)));
-    expect(state.estimate).toBeNull();
+    // The start changes nothing on screen: the bar stays and updates in place.
+    expect(applyRequestObservation(state, start(1))).toBe(false);
+    expect(state.estimate?.remainingInputTokens).toBe(500);
+    // The older request's update, replayed late, does not replace what the new one will report.
+    applyRequestObservation(state, update(0, 9, estimate(900)));
+    expect(state.estimate?.remainingInputTokens).toBe(500);
+    expect(applyRequestObservation(state, update(1, 12, estimate(400)))).toBe(true);
+    expect(state.estimate?.remainingInputTokens).toBe(400);
   });
 
   it("never lets an older start or update replace a newer one", () => {
@@ -60,14 +62,14 @@ describe("context estimate freshness", () => {
     expect(state.estimate?.remainingInputTokens).toBe(500);
   });
 
-  it("drops a replaced session's estimate and anything it sends later", () => {
+  it("keeps a replaced session's last estimate until the new one reports, and ignores what the old one sends later", () => {
     const state = emptyVisibility();
     applyRequestObservation(state, start(0, "old"));
     applyRequestObservation(state, update(0, 10, estimate(500), "old"));
     applyRequestObservation(state, start(0, "new"));
-    expect(state.estimate).toBeNull();
+    expect(state.estimate?.remainingInputTokens).toBe(500);
     applyRequestObservation(state, update(0, 11, estimate(700), "old"));
-    expect(state.estimate).toBeNull();
+    expect(state.estimate?.remainingInputTokens).toBe(500);
     applyRequestObservation(state, update(0, 12, estimate(800), "new"));
     expect(state.estimate?.remainingInputTokens).toBe(800);
   });

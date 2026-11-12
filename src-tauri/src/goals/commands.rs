@@ -6,7 +6,7 @@ use rusty_goals::{
     decide, pass_prompt, record, status_text, Budget, CheckOutcome, Decision, Goal, GoalStatus,
     Measurement, PassReport, Targets,
 };
-use rusty_workflow_runtime::workspace_snapshot::{take, undo_to};
+use rusty_workflow_runtime::workspace_snapshot::{patch, take, undo_to};
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -242,6 +242,23 @@ pub async fn goal_after_pass(
     }
     store::save(&path, &goal)?;
     Ok(step(goal, Some(decision), undone))
+}
+
+/// What the running pass changed: the diff from the workspace the pass started from (its
+/// checkpoint) to now, cut to about `max_chars`. Empty when the goal has no checkpoint. The
+/// reviewer reads it as the evidence of the pass.
+#[tauri::command]
+pub async fn goal_pass_diff(
+    root: String,
+    id: String,
+    max_chars: usize,
+) -> Result<String, RepositoryError> {
+    let path = folder(&root)?;
+    let Some(base) = store::checkpoint(&path, &id)? else {
+        return Ok(String::new());
+    };
+    let label = format!("goal/{id}/review");
+    blocking(move || Ok(patch(&path, &base, &take(&path, &label), max_chars))).await
 }
 
 /// `pause` (with the reason to show, by default that the user paused it), `resume` (a fresh pass

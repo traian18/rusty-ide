@@ -1,7 +1,8 @@
 // ============================================================
 // agentTab/goalTurn.ts -- goal loops in a chat: the /goal command, and after each pass (one
-// single-agent run) the host's measurement and decision, then the next pass or the end. The
-// model never ends a goal by saying it is done; the measurement does (see harness-goals).
+// single-agent run) a reviewer's verdict on it (goalReview.ts), the host's measurement and
+// decision, then the next pass or the end. The model never ends a goal by saying it is done or
+// blocked; the measurement and the reviewer do (see rusty-goals).
 // ============================================================
 
 import { goalClient, type GoalStep, type PassCheckOutcome, type PassReport } from "../goals";
@@ -12,6 +13,7 @@ import { notify } from "../notifications";
 import { repositoryContextInput } from "./service/repositoryContextInput";
 import { useWorkspaceStore } from "../../store";
 import { addAssistantMessage, DEFAULT_STREAMING_LABEL, nextMessageId, type AgentTurn } from "./ui/turn";
+import { REVIEW_DIFF_CHARS, type ReviewPass } from "./goalReview";
 
 /** The pass of a goal a run is. */
 export interface GoalPass {
@@ -19,6 +21,8 @@ export interface GoalPass {
   pass: number;
   /** The checks the goal requires. */
   checks: string[];
+  /** The goal in the user's words, which the reviewer judges the pass against. */
+  instruction: string;
 }
 
 /** Starts a run for a pass: the chat's send path with the pass attached. */
@@ -74,7 +78,7 @@ export function passChecks(required: string[], ran: PassCheckOutcome[] = []): Pa
 }
 
 function passOf(step: GoalStep): GoalPass {
-  return { id: step.goal.id, pass: step.goal.passes + 1, checks: step.goal.targets.checks };
+  return { id: step.goal.id, pass: step.goal.passes + 1, checks: step.goal.targets.checks, instruction: step.goal.instruction };
 }
 
 const VERDICTS: Record<string, string> = {
@@ -162,16 +166,38 @@ export async function handleGoalCommand(turn: AgentTurn, draft: string, attached
   }
 }
 
+/** The reviewer's verdict on the pass, read from its diff; `undefined` when it gave none. */
+async function reviewOf(turn: AgentTurn, pass: GoalPass, result: PassResult, touched: string[], checks: PassCheckOutcome[], review: ReviewPass) {
+  turn.ui.setStreamingLabel("Reviewing the goal pass…");
+  try {
+    const diff = await goalClient.passDiff(turn.rootPath, pass.id, REVIEW_DIFF_CHARS).catch(() => "");
+    return await review({ instruction: pass.instruction, plan: result.plan ?? [], checks, modifiedFiles: touched, diff, response: result.response });
+  } catch {
+    return undefined;
+  } finally {
+    turn.ui.setStreamingLabel(DEFAULT_STREAMING_LABEL);
+  }
+}
+
 /**
- * After a pass completed: the host measures and decides; the next pass starts while the goal
- * runs. A goal paused or cleared meanwhile (by a command, or by a message from the user) stops.
+ * After a pass completed: a reviewer judges it (when the chat has one), then the host measures
+ * and decides; the next pass starts while the goal runs. A goal paused or cleared meanwhile (by a
+ * command, or by a message from the user) stops.
  */
-export async function continueGoal(turn: AgentTurn, pass: GoalPass, result: PassResult, send: SendPass): Promise<void> {
+export async function continueGoal(turn: AgentTurn, pass: GoalPass, result: PassResult, send: SendPass, review?: ReviewPass): Promise<void> {
   if (turn.state.disposed) return;
   try {
     const touched = result.modifiedFiles.map((file) => workspaceRelative(turn.rootPath, file));
-    const report: PassReport = { ...passReport(result.response), ...(result.plan?.length ? { plan: result.plan.map(({ content, status }) => ({ content, status })) } : {}) };
-    const step = await goalClient.afterPass(turn.rootPath, activeRepository(turn.rootPath), pass.id, report, passChecks(pass.checks, result.checks), touched);
+    const checks = passChecks(pass.checks, result.checks);
+    const verdict = review ? await reviewOf(turn, pass, result, touched, checks, review) : undefined;
+    if (turn.state.disposed) return;
+    const report: PassReport = {
+      ...passReport(result.response),
+      ...(result.plan?.length ? { plan: result.plan.map(({ content, status }) => ({ content, status })) } : {}),
+      ...(verdict ? { review: verdict } : {}),
+      edited: touched.length,
+    };
+    const step = await goalClient.afterPass(turn.rootPath, activeRepository(turn.rootPath), pass.id, report, checks, touched);
     if (turn.state.disposed) return;
     addAssistantMessage(turn, passMessage(step, pass.pass));
     void turn.chat.save();

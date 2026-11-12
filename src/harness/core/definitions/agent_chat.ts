@@ -455,7 +455,7 @@ function finishingSection(input: AgentChatInput, toolNames: string[]): string {
   const todos = toolNames.includes("update_todos")
     ? `
 - When the request has two or more distinct requirements or steps, list each one with 'update_todos' before you start, including open items from earlier messages. Keep exactly one item in_progress, and mark it completed only once it is actually done (and verified, when there is a check for it). Send the whole updated list after each item.
-- Your turn cannot end while items are pending or in_progress: finish them, or cancel the ones that are no longer needed.`
+- Your turn cannot end while items are pending or in_progress: finish them. Cancel an item only when it turned out to be unnecessary. Work the user asked for is never unnecessary: do not cancel it, or stop, because it is large, risky, touches shared code or has a wide blast radius; do it in small, checked steps. The gate also refuses a list with more items cancelled than completed.`
     : "";
   return `
 Finishing the request:

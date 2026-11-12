@@ -10,8 +10,10 @@
 // (`SINGLE_AGENT_PROFILE`) and of every built-in step profile:
 // rusty-core's gate calls it with no `todos`, scoped to the agent's session,
 // and it fails while items are still pending or in progress, and in a
-// workflow step also while the step has made no plan. A model that
-// calls it that way just gets the current list back.
+// workflow step also while the step has made no plan. It also fails while the
+// run has dropped its work: cancelled more items than it completed (models
+// cancelled whole plans as "too large" or "risky" to end the turn). A model
+// that calls it that way just gets the current list back.
 
 import type { CapabilityEvent } from "../../contract";
 import type { HostToolCall, HostToolHandler } from "../CoreHarness";
@@ -31,7 +33,7 @@ const MARKS: Record<TodoStatus, string> = { pending: "☐", in_progress: "▶", 
 
 export const UPDATE_TODOS_TOOL: HostToolSpec = {
   name: UPDATE_TODOS_TOOL_NAME,
-  description: "Replace this chat's task list with the complete, updated list. Use it for any request with two or more distinct requirements or steps. Keep exactly one item in_progress while work remains, and mark an item completed only once it is actually done. Your turn cannot end while items are pending or in_progress: finish them, or cancel the ones that are no longer needed.",
+  description: "Replace this chat's task list with the complete, updated list. Use it for any request with two or more distinct requirements or steps. Keep exactly one item in_progress while work remains, and mark an item completed only once it is actually done. Your turn cannot end while items are pending or in_progress: finish them. Cancel an item only when it turned out to be unnecessary, never because it is large, risky or slow; remove items the user no longer wants.",
   input_schema: {
     type: "object",
     properties: {
@@ -95,6 +97,24 @@ export function stepTodoScope(lists: TodoLists, rootSessionKey: string, currentS
   };
 }
 
+/** Each list's statuses when this run first touched it, by item text. */
+type Snapshots = Map<string, Map<string, TodoStatus>>;
+
+/** Items this run cancelled: cancelled now, not cancelled when the run first saw the list. */
+function droppedThisRun(todos: Todo[], before: Map<string, TodoStatus> | undefined): Todo[] {
+  return todos.filter((todo) => todo.status === "cancelled" && before?.get(todo.content) !== "cancelled");
+}
+
+/** The run dropped its work rather than doing it: it cancelled more items than are completed, and two or more, or one with nothing completed. */
+function droppedWork(todos: Todo[], dropped: Todo[]): boolean {
+  const completed = todos.filter((todo) => todo.status === "completed").length;
+  return dropped.length > completed && (dropped.length >= 2 || completed === 0);
+}
+
+function droppedReport(dropped: Todo[]): string {
+  return `You cancelled ${dropped.length} task list item${dropped.length === 1 ? "" : "s"} without doing ${dropped.length === 1 ? "it" : "them"}:\n${dropped.map((todo) => `- ${todo.content}`).join("\n")}\n\nCancelled means the item turned out to be unnecessary. It does not mean the item is large, risky, touches many files or would take long: that work is the request. Reopen these items with 'update_todos' and continue with the first one now, in small steps, checking each. Only if you cannot go on without something only the user can give (a decision, a credential, a value that is neither in the code nor in its history) ask with 'ask_user_question'. ${AGAIN}`;
+}
+
 function isOpen(todo: Todo): boolean {
   return todo.status === "pending" || todo.status === "in_progress";
 }
@@ -126,17 +146,21 @@ const NO_PLAN = `You have not written a plan for this step. Call 'update_todos' 
 /** What is still open, for the gate's feedback and the model's own check. */
 function openItemsReport(todos: Todo[]): string {
   const open = todos.filter(isOpen);
-  return `${open.length} task list item${open.length === 1 ? " is" : "s are"} not done:\n${open.map((todo) => `- [${todo.status}] ${todo.content}`).join("\n")}\n\nKeep working until each one is done and mark it completed with 'update_todos'. If an item is no longer needed, mark it cancelled. If you are blocked on a decision only the user can make, ask with 'ask_user_question'. ${AGAIN}`;
+  return `${open.length} task list item${open.length === 1 ? " is" : "s are"} not done:\n${open.map((todo) => `- [${todo.status}] ${todo.content}`).join("\n")}\n\nKeep working until each one is done and mark it completed with 'update_todos'. Cancel an item only when it turned out to be unnecessary, not because it is large or risky. If you are blocked on a decision only the user can make, ask with 'ask_user_question'. ${AGAIN}`;
 }
 
 export function updateTodosTool(scope: TodoScope, onEvent: (event: CapabilityEvent<"agent_chat">) => void): HostToolHandler {
+  const snapshots: Snapshots = new Map();
   return async (args, _signal, _observer, call) => {
     const key = scope.key(call);
+    if (!snapshots.has(key)) snapshots.set(key, new Map((scope.lists.get(key) ?? []).map((todo) => [todo.content, todo.status])));
     const raw = (args as { todos?: unknown } | undefined)?.todos;
     if (raw === undefined) {
       const todos = scope.lists.get(key) ?? [];
       if (todos.some(isOpen)) return { ok: false, error: openItemsReport(todos) };
       if (!todos.length && scope.requiresPlan) return { ok: false, error: NO_PLAN };
+      const dropped = droppedThisRun(todos, snapshots.get(key));
+      if (droppedWork(todos, dropped)) return { ok: false, error: droppedReport(dropped) };
       return { ok: true, output: todos.length ? `All items are done:\n${renderTodos(todos)}` : "The task list is empty." };
     }
     const todos = parseTodos(raw);
@@ -146,7 +170,9 @@ export function updateTodosTool(scope: TodoScope, onEvent: (event: CapabilityEve
     const step = scope.step?.(call);
     onEvent(step ? { kind: "plan", todos, step } : { kind: "plan", todos });
     const open = todos.filter(isOpen).length;
-    return { ok: true, output: open ? `Task list saved: ${open} of ${todos.length} still open.` : `Task list saved: all ${todos.length} done.` };
+    const cancelled = todos.filter((todo) => todo.status === "cancelled").length;
+    if (open) return { ok: true, output: `Task list saved: ${open} of ${todos.length} still open.` };
+    return { ok: true, output: cancelled ? `Task list saved: none open; ${todos.length - cancelled} completed, ${cancelled} cancelled.` : `Task list saved: all ${todos.length} done.` };
   };
 }
 
@@ -154,5 +180,5 @@ export function updateTodosTool(scope: TodoScope, onEvent: (event: CapabilityEve
 export function openTodosReminder(chatId: string): string {
   const todos = todosFor(chatId);
   if (!todos.some(isOpen)) return "";
-  return `[Task list carried over from earlier in this chat. Finish the open items unless the message below changes what is wanted; then update the list with 'update_todos' (cancel items that no longer apply).]\n${renderTodos(todos)}\n\n`;
+  return `[Task list carried over from earlier in this chat. Finish the open items unless the message below changes what is wanted; then update the list with 'update_todos' (remove items the message below no longer wants; do not cancel work because it is large).]\n${renderTodos(todos)}\n\n`;
 }

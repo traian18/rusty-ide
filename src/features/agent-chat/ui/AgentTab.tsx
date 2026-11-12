@@ -3,6 +3,7 @@ import { PlanPanel } from "./plan/PlanPanel";
 import { useWorkspaceStore } from "../../../store";
 import { Chat } from "./Chat";
 import { ChatQueryRail } from "./ChatQueryRail";
+import { agentChatScrollKey } from "./chatScrollMemory";
 import type { TabOfType } from "../../../app/tabs/types";
 import { AUTO_FLOW } from "../../workflows";
 import { AgentComposer, ModifiedFilesBar } from "./AgentComposer";
@@ -69,6 +70,7 @@ function ChatPane({ agent }: { agent: AgentTabModel }) {
       <ChatQueryRail queries={search.queryMetadata} activeQueryId={search.activeQueryId} onSelect={search.selectQuery} disabled={agentChats.length === 0} />
       <Chat
         messages={agentChats}
+        scrollKey={agentChatScrollKey(agent.chatId)}
         onTogglePin={(messageId, pinned) => {
           // Saved so the pin survives reopening the chat.
           useWorkspaceStore.getState().setAgentMessagePinned(agent.chatId, messageId, pinned);

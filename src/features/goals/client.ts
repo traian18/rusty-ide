@@ -43,7 +43,19 @@ export interface GoalStep {
 }
 
 export interface PassCheckOutcome { name: string; passed: boolean; ran: boolean; summary: string }
-export interface PassReport { agent_status?: string; done_when_met?: boolean; judge_reason?: string; next?: string; plan?: Array<{ content: string; status: string }> }
+/** A reviewer's verdict on a pass (a model call without tools that reads its diff, checks and plan). */
+export interface Review { verdict: "done" | "continue" | "blocked"; reason: string; next_step?: string }
+export interface PassReport {
+  agent_status?: string;
+  done_when_met?: boolean;
+  judge_reason?: string;
+  next?: string;
+  plan?: Array<{ content: string; status: string }>;
+  /** When present it decides done and blocked; the agent's own lines count only without it. */
+  review?: Review;
+  /** Files the pass changed. */
+  edited?: number;
+}
 
 const now = () => new Date().toISOString();
 
@@ -58,7 +70,7 @@ export const goalClient = {
         scope: start.scope,
         scopeNote: start.scopeNote ?? null,
         targets: { min_file_health: targets.minFileHealth, min_mean_health: targets.minMeanHealth, max_severity: targets.maxSeverity, checks: targets.checks, guidelines: targets.guidelines, done_when: targets.doneWhen },
-        budget: start.maxPasses ? { max_passes: start.maxPasses, no_progress_passes: 2 } : null,
+        budget: start.maxPasses ? { max_passes: start.maxPasses, no_progress_passes: 3 } : null,
         keepBest: start.keepBest,
         chatId,
       },
@@ -68,6 +80,11 @@ export const goalClient = {
 
   afterPass(root: string, activeRepository: string | undefined, id: string, report: PassReport, checks: PassCheckOutcome[], touched: string[]): Promise<GoalStep> {
     return invoke("goal_after_pass", { root, activeRepository: activeRepository ?? null, id, report, checks, touched, now: now() });
+  },
+
+  /** What the running pass changed since its checkpoint, as a unified diff cut to about `maxChars`. */
+  passDiff(root: string, id: string, maxChars: number): Promise<string> {
+    return invoke("goal_pass_diff", { root, id, maxChars });
   },
 
   control(root: string, activeRepository: string | undefined, id: string, action: "pause" | "resume" | "clear", reason?: string): Promise<GoalStep> {
