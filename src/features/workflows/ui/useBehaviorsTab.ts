@@ -25,6 +25,8 @@ export function useBehaviorsTab(props: { isActive?: boolean }) {
   const [builtinPositions, setBuiltinPositions] = useState<Record<string, Position>>({});
   const [workflowTemplate, setWorkflowTemplate] = useState<JsonObject>();
   const [defaultProfile, setDefaultProfile] = useState<string>();
+  // The core's own profile: what runs when the workspace sets no default.
+  const [coreProfile, setCoreProfile] = useState<string>();
   const [failures, setFailures] = useState<LoadFailure[]>([]);
   const [loading, setLoading] = useState(false);
   const [issues, setIssues] = useState<Record<string, Issue[]>>({});
@@ -55,6 +57,8 @@ export function useBehaviorsTab(props: { isActive?: boolean }) {
       setWorkflows(catalog.workflows.map(stored));
       setFailures(catalog.failures);
       setBuiltins(catalog.profiles.filter(isBuiltinEntry).map((entry) => entry.document));
+      const core = catalog.profiles.find((entry) => entry.source === "core");
+      setCoreProfile(core ? profileId(core.document) : undefined);
       setWorkflowTemplate(catalog.default_workflow);
       setDefaultProfile(workspaceDefault);
       setSelectedWorkflow((current) => current ?? catalog.workflows[0]?.path);
@@ -341,6 +345,8 @@ export function useBehaviorsTab(props: { isActive?: boolean }) {
     workflows, setWorkflows, builtins, setBuiltins,
     builtinPositions, setBuiltinPositions, workflowTemplate, setWorkflowTemplate,
     defaultProfile, setDefaultProfile, failures, setFailures,
+    // The profile agents actually run under by default: the workspace's choice, else the core's.
+    effectiveDefaultProfile: defaultProfile ?? coreProfile,
     loading, setLoading, issues, setIssues,
     selectedProfile, setSelectedProfile, focusedRule, setFocusedRule,
     selectedWorkflow, setSelectedWorkflow, workflowSelection, setWorkflowSelection,

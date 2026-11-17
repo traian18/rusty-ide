@@ -55,7 +55,7 @@ const ProfileCanvasInner: React.FC<ProfileCanvasProps> = ({
           profile,
           selected: id === selected,
           readOnly,
-          isDefault: defaultProfile ? id === defaultProfile : readOnly,
+          isDefault: id === defaultProfile,
           issueCount: (issues[id] ?? []).filter((issue) => issue.blocking).length,
           dirty: dirty.has(id),
         },

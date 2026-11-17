@@ -12,7 +12,7 @@ import type { BehaviorsTabModel } from "./useBehaviorsTab";
 
 // The names it reads from the tab model are destructured below.
 export const BehaviorInspectorPane: React.FC<{ model: BehaviorsTabModel }> = ({ model }) => {
-  const { currentIssues,  rootPath, mode,  workflows, defaultProfile,  selectedProfile, setSelectedProfile, focusedRule, workflowSelection, setWorkflowSelection, showJson, setShowJson, setCreating, setConfirmDelete, profileIds, currentWorkflow, currentProfileDoc, currentProfile, updateProfile, updateWorkflow, drill, setWorkspaceDefault, revertCurrent } = model;
+  const { currentIssues,  rootPath, mode,  workflows, effectiveDefaultProfile,  selectedProfile, setSelectedProfile, focusedRule, workflowSelection, setWorkflowSelection, showJson, setShowJson, setCreating, setConfirmDelete, profileIds, currentWorkflow, currentProfileDoc, currentProfile, updateProfile, updateWorkflow, drill, setWorkspaceDefault, revertCurrent } = model;
   return (
     <aside className={styles.inspector} aria-label="Inspector">
       {mode === "profiles" && currentProfile ? (
@@ -50,7 +50,7 @@ export const BehaviorInspectorPane: React.FC<{ model: BehaviorsTabModel }> = ({ 
               issues={currentIssues}
               profileIds={profileIds}
               focusedRule={focusedRule}
-              isDefault={defaultProfile ? defaultProfile === selectedProfile : !currentProfileDoc}
+              isDefault={effectiveDefaultProfile === selectedProfile}
               onChange={(next) => selectedProfile && updateProfile(selectedProfile, () => next)}
               onSetDefault={(on) => void setWorkspaceDefault(on ? selectedProfile : undefined)}
             />
@@ -74,10 +74,12 @@ export const BehaviorInspectorPane: React.FC<{ model: BehaviorsTabModel }> = ({ 
             onDelete={() => setConfirmDelete(true)}
           />
           {isBuiltinWorkflowPath(currentWorkflow.path) ? (
-            <div className={styles.section}><Button onClick={() => setCreating("workflows")}>Customize a copy</Button></div>
+            <div className={styles.section}>
+              <Button onClick={() => setCreating("workflows")}>Customize a copy</Button>
+              <p className={styles.muted}>Built into Rusty · available in every project.</p>
+            </div>
           ) : null}
           <fieldset disabled={isBuiltinWorkflowPath(currentWorkflow.path)} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-          {isBuiltinWorkflowPath(currentWorkflow.path) ? <p className={styles.muted}>Built into Rusty · available in every project.</p> : null}
           {showJson ? (
             <div className={styles.section}>
               <JsonField

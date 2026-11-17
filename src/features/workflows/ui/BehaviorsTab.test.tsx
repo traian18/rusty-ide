@@ -176,6 +176,23 @@ describe("BehaviorsTab", () => {
     for (const id of ["feature-delivery", "bug-resolution", "safe-refactor", "documentation"]) expect(button(container, id)).toBeDefined();
   });
 
+  it("marks only the profile agents actually run under as the default", async () => {
+    const markedDefault = () =>
+      [...container.querySelectorAll("aside button")]
+        .filter((item) => [...item.querySelectorAll("span")].some((span) => span.textContent === "default"))
+        .map((item) => item.textContent?.replace(/default$/, "").trim());
+
+    await act(async () => button(container, "Profiles").click());
+    expect(markedDefault()).toEqual(["demo"]);
+
+    // With no workspace default, the core's own profile runs, not every built-in.
+    delete files["/ws/.rusty/profiles/config.json"];
+    await act(async () => { useWorkspaceStore.setState({ rootPath: undefined }); });
+    await act(async () => { useWorkspaceStore.setState({ rootPath: "/ws" }); });
+    await flush();
+    expect(markedDefault()).toEqual(["rusty.default"]);
+  });
+
   it("edits a profile, shows core validation, and saves it to .rusty/profiles", async () => {
     await act(async () => button(container, "Profiles").click());
     const item = button(container, "demo");

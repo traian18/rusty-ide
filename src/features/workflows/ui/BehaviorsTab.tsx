@@ -16,7 +16,7 @@ import { BehaviorList } from "./BehaviorList";
 import { BehaviorInspectorPane } from "./BehaviorInspectorPane";
 export const BehaviorsTab: React.FC<{ isActive?: boolean }> = (props) => {
   const model = useBehaviorsTab(props);
-  const { inspector, rootPath, runs, mode, setMode, profiles, workflows, setWorkflows, builtins, builtinPositions, setBuiltinPositions, workflowTemplate, defaultProfile,  loading, issues, selectedProfile,    setSelectedWorkflow, workflowSelection, setWorkflowSelection,  setShowJson, creating, setCreating, confirmDelete, setConfirmDelete, saving, profileIds, dirtyProfiles, dirtyCount, currentWorkflow,  currentProfile, drillWorkflow, drillStep, updateProfile, updateWorkflow, selectProfile, createProfile, drill, returnToWorkflow, saveAll, runInAgentMode,  deleteCurrent,  currentDoc,  } = model;
+  const { inspector, rootPath, runs, mode, setMode, profiles, workflows, setWorkflows, builtins, builtinPositions, setBuiltinPositions, workflowTemplate, effectiveDefaultProfile,  loading, issues, selectedProfile,    setSelectedWorkflow, workflowSelection, setWorkflowSelection,  setShowJson, creating, setCreating, confirmDelete, setConfirmDelete, saving, profileIds, dirtyProfiles, dirtyCount, currentWorkflow,  currentProfile, drillWorkflow, drillStep, updateProfile, updateWorkflow, selectProfile, createProfile, drill, returnToWorkflow, saveAll, runInAgentMode,  deleteCurrent,  currentDoc,  } = model;
   if (!rootPath) {
     return (
       <div className={styles.root}>
@@ -103,7 +103,7 @@ export const BehaviorsTab: React.FC<{ isActive?: boolean }> = (props) => {
                   builtins={builtins}
                   builtinPositions={builtinPositions}
                   selected={selectedProfile}
-                  defaultProfile={defaultProfile}
+                  defaultProfile={effectiveDefaultProfile}
                   dirty={dirtyProfiles}
                   issues={issues}
                   onSelect={selectProfile}

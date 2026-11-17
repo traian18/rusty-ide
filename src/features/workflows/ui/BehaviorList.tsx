@@ -10,7 +10,7 @@ import type { BehaviorsTabModel } from "./useBehaviorsTab";
 
 // The names it reads from the tab model are destructured below.
 export const BehaviorList: React.FC<{ model: BehaviorsTabModel }> = ({ model }) => {
-  const {  mode, profiles, workflows, builtins, defaultProfile, failures, loading, issues, selectedProfile, selectedWorkflow, setSelectedWorkflow, setWorkflowSelection, setShowJson, selectProfile } = model;
+  const {  mode, profiles, workflows, builtins, defaultProfile, effectiveDefaultProfile, failures, loading, issues, selectedProfile, selectedWorkflow, setSelectedWorkflow, setWorkflowSelection, setShowJson, selectProfile } = model;
   return (
     <aside className={styles.list}>
       {mode === "workflows" ? (
@@ -29,7 +29,7 @@ export const BehaviorList: React.FC<{ model: BehaviorsTabModel }> = ({ model }) 
             >
               <WorkflowIcon size={14} />
               <span className={styles.listName}>{String(doc.document.name ?? workflowId(doc.document))}</span>
-              {isBuiltinWorkflowPath(doc.path) ? <span className={styles.badge}>Built-in</span> : <StatusDot dirty={isDirty(doc)} issues={issues[doc.path]} />}
+              {isBuiltinWorkflowPath(doc.path) ? <span className={styles.listTag}>Built-in</span> : <StatusDot dirty={isDirty(doc)} issues={issues[doc.path]} />}
             </button>
           ))}
           {workflows.length === 0 && !loading ? (
@@ -75,7 +75,7 @@ export const BehaviorList: React.FC<{ model: BehaviorsTabModel }> = ({ model }) 
               >
                 <FileJson size={14} />
                 <span className={styles.listName}>{id}</span>
-                {!defaultProfile ? <span className={styles.chip}>default</span> : null}
+                {id === effectiveDefaultProfile ? <span className={styles.chip}>default</span> : null}
               </button>
             );
           })}
