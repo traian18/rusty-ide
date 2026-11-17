@@ -78,7 +78,7 @@ describe("chat store", () => {
     const pending = tab.chats.turnFor("t");
     pending.state.specRun = { root: "/ws", change: "0001-x", step: "plan", workflowPath: "builtin:spec-plan" };
     pending.state.specQueue = [{ message: "next", run: { root: "/ws", change: "0001-x", step: "capability" } }] as never;
-    pending.state.goal = { id: "g-1", pass: 1, checks: [] };
+    pending.state.goal = { id: "g-1", pass: 1, checks: [], instruction: "Ship the spec" };
     tab.chats.sessionFor("t").setChatWorkflow("builtin:spec-plan", { persist: false });
 
     readSavedChat.mockResolvedValue({ messages: [{ id: "q", role: "user", content: "Rust guide", timestamp: "t" }] });
