@@ -7,6 +7,7 @@ import type { GitHubMcpModel } from "./useGitHubMcp";
 
 export function GitHubMcpPresetIntegrationMethodSelector({ model }: { model: GitHubMcpModel }): React.ReactElement {
   const { formData, handleFieldChange } = model;
+  const activePreset = GITHUB_PRESETS.find((preset) => preset.id === formData.method);
 
   return (
     <>
@@ -25,6 +26,7 @@ export function GitHubMcpPresetIntegrationMethodSelector({ model }: { model: Git
                 key={preset.id}
                 type="button"
                 onClick={() => handleFieldChange("method", preset.id as GitHubIntegrationMethod)}
+                aria-pressed={isActive}
                 className={`${styles.presetCard} ${isActive ? styles.presetCardActive : ""}`}
               >
                 <div>
@@ -39,14 +41,16 @@ export function GitHubMcpPresetIntegrationMethodSelector({ model }: { model: Git
                   </div>
                   <p className={styles.presetDesc}>{preset.description}</p>
                 </div>
-                <div className={styles.presetCodeRow} title={preset.commandPreview}>
-                  <Terminal size={11} className={styles.presetCodeIcon} />
-                  <span className={styles.presetCode}>{preset.commandPreview}</span>
-                </div>
               </button>
             );
           })}
         </div>
+        {activePreset && (
+          <div className={styles.presetCommand} title={activePreset.commandPreview}>
+            <Terminal size={13} aria-hidden="true" />
+            <code className={styles.presetCommandText}>{activePreset.commandPreview}</code>
+          </div>
+        )}
       </div>
     </>
   );

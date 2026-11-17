@@ -15,8 +15,8 @@
 .group {
   margin: var(--space-3) var(--space-2) var(--space-1);
   font-size: var(--font-size-ui-xs);
+  font-weight: 600;
   color: var(--color-fg-muted);
-  text-transform: uppercase;
 }
 
 .row {

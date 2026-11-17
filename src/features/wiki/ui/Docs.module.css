@@ -32,6 +32,14 @@
   color: var(--color-fg-muted);
 }
 
+/* The toolbar's two switches (Index in background, Use in chats). */
+.switches {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  margin-right: var(--space-2);
+}
+
 .body {
   display: flex;
   min-height: 0;
@@ -206,8 +214,8 @@
 .guideGroup {
   margin: var(--space-3) var(--space-2) var(--space-1);
   font-size: var(--font-size-ui-xs);
+  font-weight: 600;
   color: var(--color-fg-muted);
-  text-transform: uppercase;
 }
 
 .guideBar {

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { FolderGit2, Loader2, RefreshCw } from "lucide-react";
+import { BookText, FileCheck2, FolderGit2, Files, HeartPulse, Loader2, RefreshCw, type LucideIcon } from "lucide-react";
 
 import { navigationRequest } from "../../architecture";
 import { useRepository } from "../../architecture/ui";
@@ -18,7 +18,6 @@ import { useDashboard, type DashboardPage } from "../dashboardState";
 import { FileDrawer } from "./FileDrawer";
 import { FilesPage } from "./FilesPage";
 import styles from "./Dashboard.module.css";
-import { LegendBlip, radarSkin } from "./radar/Radar";
 
 type OpenTab = (tab: ReturnType<typeof navigationRequest>["tab"]) => void;
 
@@ -35,11 +34,11 @@ export interface DocumentationTabProps {
   handToAgent?(prompt: string, files: string[]): void;
 }
 
-const PAGES: { id: DashboardPage; label: string }[] = [
-  { id: "docs", label: "Project documentation" },
-  { id: "specs", label: "Specs" },
-  { id: "health", label: "Code health" },
-  { id: "files", label: "Files" },
+const PAGES: { id: DashboardPage; label: string; icon: LucideIcon }[] = [
+  { id: "docs", label: "Project documentation", icon: BookText },
+  { id: "specs", label: "Specs", icon: FileCheck2 },
+  { id: "health", label: "Code health", icon: HeartPulse },
+  { id: "files", label: "Files", icon: Files },
 ];
 
 /** Everything about one repository a developer reads: its documentation and specs, its code health, and how its files are distributed. */
@@ -63,7 +62,7 @@ export function DocumentationTab({ client = dashboardClient, healthClient: healt
   const root = rootOverride ?? active?.worktreePath ?? rootPath;
   if (!root) {
     return (
-      <div className={`${styles.centered} ${radarSkin}`}>
+      <div className={styles.centered}>
         <p>Open a workspace to read its documentation.</p>
       </div>
     );
@@ -218,7 +217,7 @@ function Shell({ root, client, health, docs, specs, selector, workspace, openFil
   }
 
   return (
-    <div className={`${styles.root} ${radarSkin}`}>
+    <div className={styles.root}>
       <div className={styles.header} role="toolbar" aria-label="Documentation">
         {selector}
         {workspace && page === "specs" && !showRepositories ? (
@@ -243,7 +242,7 @@ function Shell({ root, client, health, docs, specs, selector, workspace, openFil
       </div>
       <div className={styles.body}>
         <nav className={styles.nav} aria-label="Documentation pages">
-          {PAGES.map(({ id, label }) => (
+          {PAGES.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               type="button"
@@ -254,7 +253,7 @@ function Shell({ root, client, health, docs, specs, selector, workspace, openFil
                 setPage(id);
               }}
             >
-              <LegendBlip page={id} /> {label}
+              <Icon size={15} aria-hidden="true" /> {label}
             </button>
           ))}
         </nav>

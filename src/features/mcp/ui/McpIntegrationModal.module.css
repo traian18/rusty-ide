@@ -19,12 +19,9 @@
 }
 
 .sectionTitle {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-family: monospace;
-  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-md);
+  font-weight: 600;
+  color: var(--color-fg-strong);
   margin: 0;
   display: flex;
   align-items: center;
@@ -32,7 +29,7 @@
 }
 
 .sectionDesc {
-  font-size: 11px;
+  font-size: var(--font-size-ui-sm);
   color: var(--color-fg-muted);
   margin: 0;
 }
@@ -44,12 +41,9 @@
 }
 
 .label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-family: monospace;
-  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-sm);
+  font-weight: 600;
+  color: var(--color-fg-strong);
 }
 
 .labelRequired::after {
@@ -120,18 +114,16 @@
 }
 
 .error {
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
   color: var(--color-status-danger);
-  font-family: monospace;
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
 .hint {
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
   color: var(--color-fg-muted);
-  font-family: monospace;
   display: flex;
   align-items: flex-start;
   gap: 5px;
@@ -235,15 +227,14 @@
   gap: 6px;
   align-self: flex-start;
   padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: monospace;
+  font-size: var(--font-size-ui-xs);
+  font-weight: 600;
   color: var(--color-primary);
   background: transparent;
   border: 1px dashed var(--color-border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: border-color 140ms ease, background 140ms ease;
 }
 
 .addBtn:hover {
@@ -252,12 +243,11 @@
 }
 
 .emptyNote {
-  font-size: 11px;
+  font-size: var(--font-size-ui-xs);
   color: var(--color-fg-muted);
-  font-family: monospace;
   padding: 8px 10px;
   border: 1px dashed var(--color-border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .testRow {
