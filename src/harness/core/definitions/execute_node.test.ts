@@ -142,7 +142,7 @@ describe("executeNodeDefinition", () => {
       }),
     );
     expect(recipe.mcp_servers).toEqual([
-      { name: "filesystem", transport: { kind: "stdio", command: "npx", args: ["fs-mcp"], env: undefined }, request_timeout_secs: 30 },
+      { name: "filesystem", transport: { kind: "stdio", command: "npx", args: ["fs-mcp"], env: undefined, cwd: "/workspace" }, request_timeout_secs: 30 },
     ]);
   });
 

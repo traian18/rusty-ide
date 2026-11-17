@@ -111,7 +111,7 @@ export const globalExploreDefinition: CoreCapabilityDefinition<"global_explore">
     if (!mapped.supported) {
       throw new Error(`CoreHarness: global_explore cannot run on core -- ${mapped.reason}`);
     }
-    const { specs: mcpServers, skipped } = mapMcpServerConfigs(asMcpServerConfigs(input.mcpServers));
+    const { specs: mcpServers, skipped } = mapMcpServerConfigs(asMcpServerConfigs(input.mcpServers), input.workspaceRoot);
     for (const { reason } of skipped) console.warn(`[global_explore] ${reason}`);
     return {
       workspace: { root: input.workspaceRoot, binding: "host" },

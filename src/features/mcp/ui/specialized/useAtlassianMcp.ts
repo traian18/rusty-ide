@@ -65,7 +65,7 @@ export function useAtlassianMcp() {
 
     try {
       const config = atlassianFormToConfig(formData);
-      const result: McpTestResult = await testMcpConnection(config);
+      const result: McpTestResult = await testMcpConnection(config, useWorkspaceStore.getState().rootPath);
       setTestResult({
         status: "success",
         message: `Connected successfully! Discovered ${result.toolCount} tool${result.toolCount === 1 ? "" : "s"}.`,

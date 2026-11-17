@@ -3,7 +3,7 @@ import { useWorkspaceStore } from "../../../../store";
 import { VfsRegistry } from "../../service/vfs";
 import { notify } from "../../../notifications";
 import { resolveSkill, toSkillData, BUILT_IN_SKILL_IDS } from "../../../skills";
-import { resolveExecutionProvider } from "../../../providers";
+import { concreteDefaultModel, resolveExecutionProvider } from "../../../providers";
 import { harness } from "../../../../harness";
 import { createRunHost } from "../../../../harness/hostDefaults";
 
@@ -50,7 +50,7 @@ export function useExplorerSummarize({ selectedNodeId, selectedNode, nodeStatus,
     const currentProviders = useWorkspaceStore.getState().customProviders;
     const currentActiveProviderId = useWorkspaceStore.getState().activeCustomProviderId;
     const currentProviderStatus = useWorkspaceStore.getState().providerStatus;
-    const currentActiveModel = useWorkspaceStore.getState().activeModel;
+    const currentActiveModel = concreteDefaultModel(useWorkspaceStore.getState());
     const currentSummarizeModel = selectedNode?.data?.summarizeModel || currentActiveModel;
     const resolution = resolveExecutionProvider(
       currentProviders,

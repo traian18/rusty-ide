@@ -1,4 +1,5 @@
 import { createEmptyCanvasContext } from "../../features/canvas";
+import { mcpStateForWorkspace } from "../../features/mcp";
 import { tabsAfterBranchChange, tabsAfterWorkspaceChange } from "../tabs/transitions";
 import { pruneForClosedTab, seedForNewTab } from "../tabs/policy";
 import { disposeTab } from "../tabs/effects";
@@ -32,8 +33,12 @@ export const createWorkspaceSlice: WorkspaceSliceCreator = (set, get) => ({
     const opened = tabsAfterWorkspaceChange();
     const agentTab = opened.tabs.find((tab) => tab.type === "agent");
     const seeded = agentTab ? seedForNewTab(agentTab, get()) : {};
+    const state = get();
     set({
       rootPath: path,
+      // MCP servers and built-in skill grants are the new workspace's own;
+      // the previous workspace's are neither shown nor offered to runs.
+      ...mcpStateForWorkspace(state.mcpServersByWorkspace, state.builtInSkillMcpGrantsByWorkspace, state.skills, path),
       repositories: [],
       repositoriesLoading: false,
       activeRepositoryId: null,

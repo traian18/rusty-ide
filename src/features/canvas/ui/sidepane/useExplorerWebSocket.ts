@@ -14,7 +14,7 @@ import {
 import type { AgentQuestion } from "../../../agent-chat/ui";
 import { scheduleTreeRefresh } from "../../../explorer/ui";
 import { appendBoundedText } from "../../../../lib/util/boundedTextBuffer";
-import { providerModelVariants, selectableModelProviders } from "../../../providers";
+import { concreteDefaultModel, providerModelVariants, selectableModelProviders } from "../../../providers";
 import { useSelectableModels } from "../../../providers/ui";
 import { resolveExecutionProvider } from "../../../providers";
 import { harness } from "../../../../harness";
@@ -57,7 +57,7 @@ export const useExplorerWebSocket = (selectedNode: any) => {
   const addLog = useWorkspaceStore((state) => state.addLog);
   const setNodeStatus = useWorkspaceStore((state) => state.setNodeStatus);
 
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
+  const activeModel = useWorkspaceStore((state) => concreteDefaultModel(state));
   const providers = useWorkspaceStore((state) => state.customProviders);
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
@@ -181,7 +181,7 @@ export const useExplorerWebSocket = (selectedNode: any) => {
     const currentProviders = useWorkspaceStore.getState().customProviders;
     const currentActiveProviderId = useWorkspaceStore.getState().activeCustomProviderId;
     const currentProviderStatus = useWorkspaceStore.getState().providerStatus;
-    const currentActiveModel = useWorkspaceStore.getState().activeModel;
+    const currentActiveModel = concreteDefaultModel(useWorkspaceStore.getState());
     const currentExploreModel = selectedNode?.data?.exploreModel || selectedNode?.data?.model || currentActiveModel;
     const resolution = resolveExecutionProvider(
       currentProviders,

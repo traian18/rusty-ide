@@ -30,7 +30,10 @@ export function useProviderChecks(draft: CustomProvider) {
         modelsFetchedAt: new Date().toISOString(),
         executionStatus: checkSucceeded(draft, "catalog"),
       });
-      const replacement = replacementActiveModel(supported.flatMap(providerModelVariants), activeModel);
+      // Only a default of this provider (or none) follows its refreshed catalogue; another
+      // provider's default model is the user's choice and stays.
+      const ownsDefault = !activeModel || activeModel.startsWith(`${draft.id}/`) || draft.models.some((model) => model.id === activeModel);
+      const replacement = ownsDefault ? replacementActiveModel(supported.flatMap(providerModelVariants), activeModel) : undefined;
       if (replacement) setActiveModel(replacement);
       notify("Models refreshed", modelsRefreshedMessage(supported.length, models.length - supported.length), supported.length ? "success" : "info");
     } catch (err: any) {

@@ -17,7 +17,6 @@ vi.mock("../../providers/ui/useSelectableModels", () => ({
   }),
 }));
 
-import { AGENT_MODEL_SELECTION_STORAGE_KEY } from "../../providers";
 import { useWorkspaceStore } from "../../../store";
 import { AgentTab } from "./AgentTab";
 import { BUILTIN_WORKFLOW_PATH } from "../../workflows";
@@ -114,7 +113,10 @@ describe("Agent chat and the starter flow", () => {
     run.mockReset();
     run.mockImplementation(() => ({ runId: "r", started: Promise.resolve(), done: new Promise(() => {}), cancel: vi.fn() }));
     useWorkflowRunStore.setState({ agentRequest: undefined, runs: {} });
-    useWorkspaceStore.setState({ rootPath: "/ws", activeModel: "model-a", agentChats: { agent: [] } });
+    useWorkspaceStore.setState({
+      rootPath: "/ws", activeModel: "model-a", agentChats: { agent: [] }, secureConfigLoaded: true,
+      customProviders: [{ id: "p", name: "P", authType: "none", models: [{ id: "model-a", name: "Model A" }, { id: "model-b", name: "Model B" }] }] as never,
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -144,31 +146,32 @@ describe("Agent chat and the starter flow", () => {
     expect(select().textContent).toBe("Single agent");
   });
 
-  it("keeps the chosen Agent model across global changes, new chats and tab remounts", async () => {
-    const modelButton = () => container.querySelector('button[title="Model B"]') as HTMLButtonElement | null;
-    await act(async () => (container.querySelector('button[title="Model A"]') as HTMLButtonElement).click());
-    await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent === "Model B")!.click());
-    expect(modelButton()).not.toBeNull();
-    expect(localStorage.getItem(AGENT_MODEL_SELECTION_STORAGE_KEY)).toBe("model-b");
-    act(() => useWorkspaceStore.setState({ activeModel: "model-a" }));
-    expect(modelButton()).not.toBeNull();
+  it("keeps a chat's model in that chat, starts the next chat on the default, and leaves the default alone", async () => {
+    const modelButton = (name: string) => container.querySelector(`button[title="${name}"]`) as HTMLButtonElement | null;
+    await act(async () => modelButton("Model A")!.click());
+    await act(async () => options().find((option) => option.textContent === "Model B")!.click());
+    expect(modelButton("Model B")).not.toBeNull();
+    expect(useWorkspaceStore.getState().activeModel).toBe("model-a");
     await newChat();
-    expect(modelButton()).not.toBeNull();
-    act(() => root.unmount());
-    root = createRoot(container);
-    await act(async () => root.render(<AgentTab tab={tab} />));
-    await flush();
-    expect(modelButton()).not.toBeNull();
+    expect(modelButton("Model A")).not.toBeNull();
   });
 
-  it("shows a saved model as unavailable while the catalogue lacks it, without replacing the choice", async () => {
-    localStorage.setItem(AGENT_MODEL_SELECTION_STORAGE_KEY, "other-model");
-    act(() => root.unmount());
-    root = createRoot(container);
-    await act(async () => root.render(<AgentTab tab={tab} />));
+  it("restores the model a saved chat ran on", async () => {
+    files[CHAT_PATH] = JSON.stringify({ ...JSON.parse(files[CHAT_PATH]), model: "model-b" });
+    await act(async () => {
+      [...container.querySelectorAll("div")].filter((div) => div.textContent?.includes("earlier request")).at(-1)!.click();
+    });
     await flush();
-    expect(container.querySelector('button[title="other-model (unavailable)"]')).not.toBeNull();
-    expect(localStorage.getItem(AGENT_MODEL_SELECTION_STORAGE_KEY)).toBe("other-model");
+    expect(container.querySelector('button[title="Model B"]')).not.toBeNull();
+  });
+
+  it("moves a saved chat whose model's provider is gone to the default model", async () => {
+    files[CHAT_PATH] = JSON.stringify({ ...JSON.parse(files[CHAT_PATH]), model: "removed-provider/model" });
+    await act(async () => {
+      [...container.querySelectorAll("div")].filter((div) => div.textContent?.includes("earlier request")).at(-1)!.click();
+    });
+    await flush();
+    expect(container.querySelector('button[title="Model A"]')).not.toBeNull();
   });
 
   it("leaves a chat loaded from history as it was saved", async () => {

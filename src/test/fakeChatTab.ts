@@ -13,7 +13,7 @@ export function fakeChatTab(tabId: string, options: Array<Pick<WorkflowChoice, "
   const context = (): ChatTabContext => ({
     tab: { id: tabId, type: "agent", title: "Agent", status: "idle", dirty: false } as ChatTabContext["tab"],
     rootPath: "/ws",
-    selectedModel: "model-a",
+    modelFor: (chatModel: string | undefined) => chatModel || "model-a",
     selectedSkillId: "build",
     intelligentModelSelectionSettings: {} as ChatTabContext["intelligentModelSelectionSettings"],
     autoApprove: false,

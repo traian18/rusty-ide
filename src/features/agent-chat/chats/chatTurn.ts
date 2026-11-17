@@ -7,11 +7,12 @@ import { chatSession, type ChatSessionActions } from "./chatSession";
 import { chatUi } from "../ui/chats/chatUi";
 
 /** What every chat of the tab shares, as of the latest render: the tab, the workspace, and the
- * model, skill and approval choices a message is sent with. */
+ * skill and approval choices a message is sent with. The model is each chat's own. */
 export interface ChatTabContext {
   tab: TabOfType<"agent">;
   rootPath: string;
-  selectedModel: string;
+  /** The model a chat whose choice is `chatModel` runs on: that choice while it can run, else the default. */
+  modelFor(chatModel: string | undefined): string;
   selectedSkillId: string;
   intelligentModelSelectionSettings: AgentTurn["intelligentModelSelectionSettings"];
   autoApprove: boolean;
@@ -44,7 +45,7 @@ export function chatTurn(context: ChatTabContext, chatId: string): AgentTurn {
     rootPath: context.rootPath,
     state,
     activity,
-    selectedModel: context.selectedModel,
+    selectedModel: context.modelFor(state.chatModel),
     selectedSkillId: context.selectedSkillId,
     intelligentModelSelectionSettings: context.intelligentModelSelectionSettings,
     ui: { ...ui, setAutoWorkflow: session.setAutoWorkflow },

@@ -20,6 +20,8 @@ export interface SavedChatFile {
   historySummary?: unknown;
   modifiedFiles?: unknown;
   workflow?: unknown;
+  /** The model the chat ran on (absent in older files). */
+  model?: unknown;
   flowSwitching?: unknown;
   workflowCheckpoint?: unknown;
   followedSpec?: unknown;

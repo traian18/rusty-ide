@@ -22,6 +22,7 @@ import type { UseFormWatch } from "react-hook-form";
 import type { McpFormValues } from "../model";
 import { isValidUrl, toServerConfig } from "../service/form-utils";
 import { testMcpConnection } from "../../../harness/core/mcpTestConnection";
+import { useWorkspaceStore } from "../../../store";
 
 // ───────────────────── Types ─────────────────────────────
 
@@ -89,7 +90,7 @@ export async function runConnectionTest(
   }
 
   try {
-    const result = await testMcpConnection(toServerConfig(values));
+    const result = await testMcpConnection(toServerConfig(values), useWorkspaceStore.getState().rootPath);
     return { status: "success", message: successMessage(result) };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);

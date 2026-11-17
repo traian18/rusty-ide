@@ -31,6 +31,15 @@ export const activeExplorerChatRuns = new Map<string, RunHandle<"agent_chat">>()
 export const explorerQuestionResolvers = new Map<string, (answer: string) => void>();
 export const activeExplorerSubagents = new Map<string, SubagentActivity[]>();
 
+/** Another workspace opened: every explorer chat run stops, so none goes on with the previous
+ * workspace's session and its MCP servers. Pending questions are dropped with them. */
+export function stopAllExplorerRuns(): void {
+  for (const run of activeExplorerChatRuns.values()) run.cancel();
+  activeExplorerChatRuns.clear();
+  explorerQuestionResolvers.clear();
+  activeExplorerSubagents.clear();
+}
+
 export interface ActiveTaskGeneration {
   run: RunHandle<"generate_task_nodes">;
   requestId: string;

@@ -7,7 +7,7 @@ import type { ChatMessage, EditorSelectionContext, RunHandle } from "../../../ha
 import { MarkdownRenderer } from "../../../lib/ui/MarkdownRenderer";
 import { CustomSelect } from "../../../lib/ui/CustomSelect";
 import { useSelectableModels } from "../../providers/ui";
-import { resolveExecutionProvider } from "../../providers";
+import { concreteDefaultModel, resolveExecutionProvider } from "../../providers";
 
 interface InlineChatProps {
   sessionId: string;
@@ -18,7 +18,7 @@ interface InlineChatProps {
 
 export const InlineChat = ({ sessionId, context, position, onClose }: InlineChatProps) => {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
+  const activeModel = useWorkspaceStore((state) => concreteDefaultModel(state));
   const providers = useWorkspaceStore((state) => state.customProviders);
   const activeProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);

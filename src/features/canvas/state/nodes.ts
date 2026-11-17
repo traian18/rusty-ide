@@ -1,5 +1,6 @@
 import { type Edge, type Node } from "@xyflow/react";
 import { BUILT_IN_SKILL_IDS, GLOBAL_CHAT_DEFAULT_SKILL_ID } from "../../skills";
+import { concreteDefaultModel } from "../../providers";
 import { VfsRegistry } from "../service/vfs";
 import { findTabIdByNodeId, getActiveCanvasTabId, getOrCreateContext, updateContextAndSync, canvasHasGlobalChatNode } from "../model/canvasHelpers";
 import type { WorkspaceSliceCreator } from "../../../store/sliceTypes";
@@ -57,7 +58,7 @@ export const nodesSlice: WorkspaceSliceCreator = (set) => ({
         id,
         name: "AI Executor Node",
         prompt: "",
-        model: state.activeModel,
+        model: concreteDefaultModel(state),
         status: "idle",
         skillId: BUILT_IN_SKILL_IDS.BUILD,
         isMinimized: true,
@@ -123,7 +124,7 @@ export const nodesSlice: WorkspaceSliceCreator = (set) => ({
             id,
             name: task.title,
             prompt: task.description,
-            model: state.activeModel,
+            model: concreteDefaultModel(state),
             status: "idle",
             sourceGlobalChatNodeId: anchorNodeId,
             skillId: BUILT_IN_SKILL_IDS.BUILD,

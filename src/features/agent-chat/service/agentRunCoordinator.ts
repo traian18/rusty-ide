@@ -10,7 +10,7 @@ import { createRunHost } from "../../../harness/hostDefaults";
 import type { RunHandle } from "../../../harness/contract";
 import { appendBoundedText } from "../../../lib/util/boundedTextBuffer";
 import { notifyRunStatus } from "../../notifications";
-import { resolveExecutionProvider } from "../../providers";
+import { concreteDefaultModel, resolveExecutionProvider } from "../../providers";
 import { buildAttachmentContext } from "./contextAttachmentService";
 
 const runs = new Map<string, RunHandle<"execute_node">>();
@@ -26,7 +26,7 @@ export async function executeNode(nodeId: string, customPrompt?: string, attachm
   node ||= state.nodes.find((candidate) => candidate.id === nodeId);
   if (!node || node.type !== "taskNode") return;
 
-  const model = node.data.model || state.activeModel;
+  const model = node.data.model || concreteDefaultModel(state);
   const resolution = resolveExecutionProvider(state.customProviders, state.providerStatus, state.activeCustomProviderId, model);
   if (!resolution.ok) {
     notify("Cannot run this node", resolution.message, "error");

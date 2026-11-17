@@ -1,0 +1,139 @@
+/* The MCP page inside the shared PageShell: a left nav like Settings', and the integration beside it. */
+
+.titleIcon {
+  color: var(--color-primary);
+  flex-shrink: 0;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 13rem minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-5);
+}
+
+.nav {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.navItem {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-fg-default);
+  padding: var(--space-2) var(--space-3);
+  font: inherit;
+  font-size: var(--font-size-ui-sm);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.navItem:hover {
+  border-color: var(--color-border-default);
+  background: var(--color-surface-panel);
+  color: var(--color-fg-strong);
+}
+
+.navItem:focus-visible {
+  outline: 2px solid var(--color-border-focus);
+  outline-offset: 2px;
+}
+
+.navItemActive,
+.navItemActive:hover {
+  border-color: var(--color-primary);
+  background: var(--color-interaction-selected);
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.navLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-xs);
+  font-weight: 500;
+}
+
+.navCount {
+  font-variant-numeric: tabular-nums;
+}
+
+.dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.statusConnected {
+  color: var(--color-status-success);
+}
+
+.statusDisabled {
+  color: var(--color-status-warning);
+}
+
+.panelArea {
+  min-width: 0;
+}
+
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-panel);
+}
+
+.emptyTitle {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-fg-strong);
+  font-size: var(--font-size-ui-md);
+  font-weight: 600;
+}
+
+.emptyText {
+  margin: 0;
+  max-width: 60ch;
+  color: var(--color-fg-muted);
+  font-size: var(--font-size-ui-sm);
+  line-height: var(--line-height-ui);
+}
+
+@media (max-width: 760px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .nav {
+    position: static;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+}

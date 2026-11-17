@@ -4,6 +4,7 @@
  * restart carries on with the rest. The bubble's × stops it.
  */
 import { pageModel } from "../wiki";
+import { concreteDefaultModel } from "../providers";
 import { docsClient, type DocsClient } from "../wiki";
 import { writePage, type PageModel } from "../wiki";
 import { writingOrder } from "../wiki";
@@ -42,7 +43,7 @@ export async function runDocumentationUpdate(root: string, deps: RunnerDeps = de
     const pending = await deps.background.pending(root);
     if (!pending.pages.length) return;
     const settings = await deps.docs.documentationSettings(root).catch(() => ({ model: null, style: null }));
-    const model = pending.model ?? settings.model ?? useWorkspaceStore.getState().activeModel ?? "";
+    const model = pending.model ?? settings.model ?? concreteDefaultModel(useWorkspaceStore.getState()) ?? "";
     const plan = await deps.docs.documentationPlan(root);
     const kinds = new Map(plan.pages.map((p) => [p.id, p.kind]));
     const order = writingOrder(pending.pages.map((id) => ({ id, kind: kinds.get(id) ?? "module" })));

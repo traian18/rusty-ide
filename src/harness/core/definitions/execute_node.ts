@@ -217,7 +217,7 @@ export const executeNodeDefinition: CoreCapabilityDefinition<"execute_node"> = {
     }
     const toolSpecs = toolSpecsFor(asSkill(input.skill));
     const mcpConfigs = asMcpServerConfigsFromContext(input.mcpContext);
-    const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
+    const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs, input.workspaceRoot);
     for (const { reason } of skipped) console.warn(`[execute_node] ${reason}`);
     const executionPolicy = skillExecutionPolicy(input.skill, "execute", mcpServers.map((spec) => spec.name));
     return {

@@ -31,6 +31,8 @@ export interface TurnState {
   /** The chat was closed: its runs' late events and outcomes are dropped. */
   disposed: boolean;
   agentRun: RunHandle<"agent_chat"> | null;
+  /** The model this chat runs on, as chosen (new chats start on the default model); saved with it. */
+  chatModel: string | undefined;
   /** The saved workflow (.rusty/workflows) this chat follows instead of a single agent loop. */
   chatWorkflow: string | undefined;
   workflowCheckpoint: FailedWorkflowCheckpoint | undefined;
@@ -82,6 +84,7 @@ export function createTurnState(): TurnState {
   return {
     disposed: false,
     agentRun: null,
+    chatModel: undefined,
     chatWorkflow: undefined,
     workflowCheckpoint: undefined,
     workflowOptions: [],

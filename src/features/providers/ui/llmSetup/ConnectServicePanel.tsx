@@ -22,6 +22,7 @@ function useSaveNewProvider() {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
   const addCustomProvider = useWorkspaceStore((state) => state.addCustomProvider);
   const setActiveCustomProviderId = useWorkspaceStore((state) => state.setActiveCustomProviderId);
+  const activeModel = useWorkspaceStore((state) => state.activeModel);
   const setActiveModel = useWorkspaceStore((state) => state.setActiveModel);
 
   return (draft: NewProviderDraft): boolean => {
@@ -35,7 +36,8 @@ function useSaveNewProvider() {
     const provider = buildNewProvider(draft, customProviders);
     addCustomProvider(provider);
     setActiveCustomProviderId(provider.id);
-    if (provider.models.length > 0) setActiveModel(provider.models[0].id);
+    // The first provider connected supplies the default model; later ones leave it alone.
+    if (!activeModel && provider.models.length > 0) setActiveModel(provider.models[0].id);
     notify("Saved", `Provider ${draft.name} saved successfully!`, "success");
     return true;
   };

@@ -5,6 +5,7 @@ import { CompactSelect } from "../../../lib/ui/CompactSelect";
 import { Button, Callout } from "../../../lib/ui";
 import { MarkdownRenderer } from "../../../lib/ui/MarkdownRenderer";
 import { useSelectableModels } from "../../providers/ui";
+import { concreteDefaultModel } from "../../providers";
 import { notify } from "../../notifications";
 import { useWorkspaceStore } from "../../../store";
 import { toRepositoryError } from "../../architecture";
@@ -46,7 +47,7 @@ export function GuideView({ client, root, revision, openCitation, makeModel }: G
   const [progress, setProgress] = useState<WriteProgress | null>(null);
   const abort = useRef<AbortController | null>(null);
   const [reload, setReload] = useState(0);
-  const chatModel = useWorkspaceStore((state) => state.activeModel);
+  const chatModel = useWorkspaceStore((state) => concreteDefaultModel(state));
   const customProviders = useWorkspaceStore((state) => state.customProviders);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);

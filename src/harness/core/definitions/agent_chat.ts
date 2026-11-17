@@ -608,7 +608,7 @@ export const agentChatDefinition: CoreCapabilityDefinition<"agent_chat"> = {
     const mode: ChatMode = { planOnly: Boolean(input.planOnly), vfsOnly: Boolean(input.vfsOnly), workflow: Boolean(input.workflow) };
     const toolSpecs = [...toolSpecsFor(asSkill(input.skill), mode), ...(input.workflow ? [WORKFLOW_CONTEXT_TOOL] : [RUSTY_DOCS_TOOL]), ...(plansTasks(input) ? [SPEC_TASKS_CHECK_TOOL] : [])];
     const mcpConfigs = asMcpServerConfigs(input.mcpServers);
-    const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs);
+    const { specs: mcpServers, skipped } = mapMcpServerConfigs(mcpConfigs, input.workspaceRoot);
     for (const { reason } of skipped) console.warn(`[agent_chat] ${reason}`);
     const executionPolicy = skillExecutionPolicy(
       input.skill,

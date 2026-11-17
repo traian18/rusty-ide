@@ -2,9 +2,29 @@
 
 `McpIntegrationModal` is a self-contained form for adding/editing a single MCP
 (Model Context Protocol) server entry. It is rendered inside `McpIntegrationTab`,
-which manages the full collection through the store's `mcpServers` map (name to config), saved
-with the rest of the app's encrypted secure config by `saveSecureConfig`. The feature follows the
+which manages the open workspace's collection through the store's `mcpServers` map (name to config),
+saved with the rest of the app's encrypted secure config by `saveSecureConfig`. The feature follows the
 shape in [`../README.md`](../README.md).
+
+## Servers belong to a workspace
+
+Every workspace (its root folder) has its own servers and its own built-in skill grants:
+`mcpServersByWorkspace` and `builtInSkillMcpGrantsByWorkspace` in the store and the saved config,
+keyed by `mcpWorkspaceKey(rootPath)`. `mcpServers` is only the open workspace's map, and the store's
+setters write it and that workspace's entry together. With no workspace open there are no servers and
+the setters do nothing.
+
+- **Switching.** `setRootPath` and the startup `restoreWorkspace` step swap in the new workspace's
+  servers and grants with `mcpStateForWorkspace`, in the same update that sets `rootPath`, so a run
+  input built from one store snapshot always carries its own workspace's servers. Opening another
+  workspace also ends the Agent tab's chats (`resetForWorkspace`) and the canvas explorer runs
+  (`stopAllExplorerRuns`), which releases their sessions and stops their stdio servers.
+- **Stdio `cwd`.** `mapMcpServerConfig(config, workspaceRoot)` starts a stdio server in the run's
+  workspace folder; connection tests pass the open workspace.
+- **Migration.** `readSavedMcp` moves the old app-wide `mcpServers` and `builtInSkillMcpServers` to
+  `lastWorkspacePath`. With no saved workspace there is nowhere to put them and they are dropped.
+- **Copy.** `WorkspaceMcpScope` names the workspace and copies servers in from another one
+  (`copyMcpServersFrom`), skipping names the open workspace already has.
 
 ## Files
 
@@ -14,9 +34,11 @@ shape in [`../README.md`](../README.md).
 | `model.ts` | `McpServerConfig`, `TransportConfig`, `AuthConfig`, `McpConfigFile` and the form value types |
 | `service/constants.ts` | transport, auth and grant options, form defaults |
 | `service/form-utils.ts` | pure conversions between form values and a server config (`toFormValues`, `toServerConfig`, `isValidUrl`) |
+| `service/workspaceServers.ts` | per-workspace servers and grants: keys, swap, copy, migration of the old app-wide shape (pure, with tests) |
 | `service/githubConfig.ts`, `atlassianConfig.ts` | presets and parsers for the GitHub and Atlassian (Jira and Confluence) servers, with tests |
 | `ui/index.ts` | the public API for views: `McpIntegrationTab` |
-| `ui/McpIntegrationTab.tsx` | the page, with GitHub, Atlassian and generic server tabs |
+| `ui/McpIntegrationTab.tsx` | the page, with GitHub, Atlassian and generic server tabs; asks for a workspace when none is open |
+| `ui/WorkspaceMcpScope.tsx` | the bar naming the open workspace, with "Copy from another workspace" |
 | `ui/McpIntegrationModal.tsx` | the add and edit form; composes the sections in `ui/formSections/` |
 | `ui/formSections/` | `IdentitySection`, `TransportSection`, `AuthSection`, `EnvironmentSection`, `AdvancedSection`, `TestConnectionSection`; each reads the form with `useFormContext` |
 | `ui/connection-test.ts` | input checks, the test orchestrator and the `useConnectionTest` hook |

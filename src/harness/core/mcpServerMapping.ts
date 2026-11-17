@@ -34,7 +34,9 @@ function buildAuthHeaders(auth: AuthConfig): Record<string, string> | undefined 
   return undefined;
 }
 
-export function mapMcpServerConfig(config: McpServerConfig): McpServerMappingResult {
+/** Maps one server. A stdio server starts in `workspaceRoot` when given: servers belong to a
+ * workspace, so a local server runs in that workspace's folder, not the app's. */
+export function mapMcpServerConfig(config: McpServerConfig, workspaceRoot?: string): McpServerMappingResult {
   if (!config.enabled) {
     return { ok: false, reason: `MCP server '${config.name}' is disabled` };
   }
@@ -60,6 +62,7 @@ export function mapMcpServerConfig(config: McpServerConfig): McpServerMappingRes
           command: config.transport.command,
           args: config.transport.args,
           env: config.transport.env,
+          ...(workspaceRoot ? { cwd: workspaceRoot } : {}),
         },
         request_timeout_secs,
       },
@@ -85,14 +88,14 @@ export function mapMcpServerConfig(config: McpServerConfig): McpServerMappingRes
  * caller can log) -- the per-list convenience every definition (global_
  * explore/execute_node/agent_chat) actually wants, so they don't each
  * reimplement the same reduce. */
-export function mapMcpServerConfigs(configs: McpServerConfig[]): {
+export function mapMcpServerConfigs(configs: McpServerConfig[], workspaceRoot?: string): {
   specs: McpServerSpec[];
   skipped: { name: string; reason: string }[];
 } {
   const specs: McpServerSpec[] = [];
   const skipped: { name: string; reason: string }[] = [];
   for (const config of configs) {
-    const result = mapMcpServerConfig(config);
+    const result = mapMcpServerConfig(config, workspaceRoot);
     if (result.ok) specs.push(result.spec);
     else skipped.push({ name: config.name, reason: result.reason });
   }

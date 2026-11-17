@@ -26,8 +26,9 @@ export interface McpTestResult {
   tools: string[];
 }
 
-export async function testMcpConnection(config: McpServerConfig): Promise<McpTestResult> {
-  const mapped = mapMcpServerConfig(config);
+/** Tests one server; a stdio server starts in `workspaceRoot`, as it would in a run there. */
+export async function testMcpConnection(config: McpServerConfig, workspaceRoot?: string): Promise<McpTestResult> {
+  const mapped = mapMcpServerConfig(config, workspaceRoot || undefined);
   if (!mapped.ok) throw new Error(mapped.reason);
   return invoke<McpTestResult>("mcp_test_connection", { server: mapped.spec });
 }

@@ -3,7 +3,7 @@ import { useWorkspaceStore, Skill } from "../../../store";
 import { skillsService } from "../service/skillsService";
 import { notify } from "../../notifications";
 import { useSelectableModels } from "../../providers/ui";
-import { resolveExecutionProvider } from "../../providers";
+import { concreteDefaultModel, resolveExecutionProvider } from "../../providers";
 import { harness } from "../../../harness";
 import { createRunHost } from "../../../harness/hostDefaults";
 import type { RunHandle } from "../../../harness/contract";
@@ -18,7 +18,7 @@ export function useSkillsTab() {
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
   const mcpServers = useWorkspaceStore((state) => state.mcpServers);
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
+  const activeModel = useWorkspaceStore((state) => concreteDefaultModel(state));
 
   // Tab UI state from store (persists across mount/unmount)
   const skillsTabUi = useWorkspaceStore((state) => state.skillsTabUi);

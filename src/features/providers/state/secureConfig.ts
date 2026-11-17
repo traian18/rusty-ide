@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "../../mcp";
+import { mcpStateForWorkspace, readSavedMcp, type SavedMcpConfig } from "../../mcp";
 import { loadStoredThemeId, saveThemeId } from "../../settings";
 import { isManagedAuthProvider, isRemovedProviderId, isRemovedProviderModel, normalizeStoredModelReference, normalizeStoredProvider, normalizedProviderId, PROVIDER_CONFIG_VERSION } from "../service/providerHelpers";
 import type { CustomProvider, LspSettings, WorkspaceState } from "../../../store/types";
@@ -29,10 +29,10 @@ export async function saveSecureConfig(get: () => WorkspaceState): Promise<void>
     activeCustomProviderId: state.activeCustomProviderId,
     activeModel: state.activeModel,
     lastWorkspacePath: state.rootPath,
-    mcpServers: state.mcpServers,
-    builtInSkillMcpServers: Object.fromEntries(
-      state.skills.filter((skill) => skill.isBuiltIn).map((skill) => [skill.id, skill.mcpServers ?? []]),
-    ),
+    // Per workspace; the store keeps the open workspace's entry in step with
+    // `mcpServers`, so every workspace's servers are saved, not only the open one's.
+    mcpServersByWorkspace: state.mcpServersByWorkspace,
+    builtInSkillMcpGrantsByWorkspace: state.builtInSkillMcpGrantsByWorkspace,
     webSearchApiKeys: state.webSearchApiKeys,
     lspSettings: { ...state.lspSettings, enabled: false },
   });
@@ -50,11 +50,9 @@ get: () => WorkspaceState,
     activeModel?: string;
     activeThemeId?: string;
     lastWorkspacePath?: string;
-    mcpServers?: Record<string, McpServerConfig>;
-    builtInSkillMcpServers?: Record<string, string[]>;
     webSearchApiKeys?: Record<string, string>;
     lspSettings?: LspSettings;
-  }>("rusty_secure_config");
+  } & SavedMcpConfig>("rusty_secure_config");
   if (!config) {
     // Nothing has ever been saved (e.g. a fresh install) -- that is a
     // successfully "loaded" (empty) state, not a failure, so saving is
@@ -111,13 +109,13 @@ get: () => WorkspaceState,
       ? ""
       : normalizeStoredModelReference(config.activeModel, configVersion) || "";
   }
-  if (config.mcpServers) updates.mcpServers = config.mcpServers;
-  const grants = config.builtInSkillMcpServers;
-  if (grants) {
-    updates.skills = get().skills.map((skill) =>
-      skill.isBuiltIn && Array.isArray(grants[skill.id]) ? { ...skill, mcpServers: grants[skill.id] } : skill,
-    );
-  }
+  // MCP servers and built-in skill grants are per workspace; the old app-wide
+  // lists move to the last opened workspace. Only the open workspace's
+  // entry is put in `mcpServers` -- none until the restore step opens one.
+  const savedMcp = readSavedMcp(config);
+  updates.mcpServersByWorkspace = savedMcp.servers;
+  updates.builtInSkillMcpGrantsByWorkspace = savedMcp.grants;
+  Object.assign(updates, mcpStateForWorkspace(savedMcp.servers, savedMcp.grants, get().skills, get().rootPath));
   if (config.webSearchApiKeys) updates.webSearchApiKeys = config.webSearchApiKeys;
   if (config.lspSettings) updates.lspSettings = { ...config.lspSettings, enabled: false };
   const storedThemeId = loadStoredThemeId();

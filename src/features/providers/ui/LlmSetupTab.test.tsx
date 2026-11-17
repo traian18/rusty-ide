@@ -59,6 +59,9 @@ async function renderTab(state: {
     activeCustomProviderId: state.activeId === undefined ? "ollama" : state.activeId,
     activeModel: state.activeModel ?? "ollama/llama3",
     providerStatus: state.status ?? {},
+    // Loaded, so the default model can follow the providers; saving is not what these tests check.
+    secureConfigLoaded: true,
+    saveSecureConfig: async () => {},
   });
   await act(async () => root.render(<LlmSetupTab />));
 }
@@ -123,14 +126,105 @@ describe("LlmSetupTab provider selection", () => {
     expect(text()).toContain("1 catalog entries are hidden");
   });
 
-  it("activates a provider and its first supported model from the list", async () => {
+  it("opens a provider from the list without changing the default model", async () => {
     const vllm: CustomProvider = { ...ollama, id: "vllm", name: "vLLM", models: [{ id: "vllm/qwen", name: "qwen" }] };
     await renderTab({ providers: [ollama, vllm] });
     const entry = [...container.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.includes("vLLM"));
     await click(entry!);
     expect(store().activeCustomProviderId).toBe("vllm");
-    expect(store().activeModel).toBe("vllm/qwen");
+    expect(store().activeModel).toBe("ollama/llama3");
     expect(text()).toContain("vLLM Settings");
+  });
+});
+
+describe("LlmSetupTab default model", () => {
+  const vllm: CustomProvider = { ...ollama, id: "vllm", name: "vLLM", models: [{ id: "vllm/qwen", name: "qwen" }] };
+
+  it("offers every connected provider's models and sets the one default", async () => {
+    await renderTab({ providers: [ollama, vllm] });
+    await chooseOption("llm-default-model-select", "vLLM / qwen");
+    expect(store().activeModel).toBe("vllm/qwen");
+    expect(store().activeCustomProviderId).toBe("ollama");
+  });
+
+  it("moves the default to another connected model when its provider is gone", async () => {
+    await renderTab({ providers: [ollama, vllm], activeModel: "removed/model" });
+    expect(store().activeModel).toBe("ollama/llama3");
+  });
+});
+
+const openRouterModel = (remoteId: string) => ({ id: `openrouter/${remoteId}`, remoteId, name: remoteId, supported: true });
+const openRouter = {
+  id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", apiKey: "or-key", apiType: "openai-completions", authType: "bearer",
+  models: ["typesafe/jev-1.13", "vendor/light", "vendor/standard", "vendor/heavy"].map(openRouterModel),
+} as CustomProvider;
+const level = (name: string) => `openrouter:openrouter/vendor/${name}`;
+const JEV_SETTINGS = {
+  ...useWorkspaceStore.getState().intelligentModelSelectionSettings,
+  enabled: true, jevModelId: null,
+  levelModels: { light: level("light"), standard: level("standard"), heavy: level("heavy") },
+};
+
+describe("LlmSetupTab AUTO as the default model", () => {
+  afterEach(() => useWorkspaceStore.setState({ intelligentModelSelectionSettings: { ...JEV_SETTINGS, enabled: false } }));
+
+  it("offers AUTO when JEV and every level's model are set, and names the stand-in for other features", async () => {
+    useWorkspaceStore.setState({ intelligentModelSelectionSettings: JEV_SETTINGS });
+    await renderTab({ providers: [ollama, openRouter] });
+    await chooseOption("llm-default-model-select", "AUTO — Intelligent model selection");
+    expect(store().activeModel).toBe("__rusty_auto_model_selection__");
+    expect(text()).toContain("use the Standard level's model");
+    expect(text()).toContain("Default model: AUTO");
+  });
+
+  it("does not offer AUTO while intelligent selection is off, and keeps AUTO as the default", async () => {
+    useWorkspaceStore.setState({ intelligentModelSelectionSettings: { ...JEV_SETTINGS, enabled: false } });
+    await renderTab({ providers: [ollama, openRouter], activeModel: "__rusty_auto_model_selection__" });
+    await click("#llm-default-model-select");
+    const labels = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => option.textContent);
+    expect(labels).not.toContain("AUTO — Intelligent model selection");
+    expect(store().activeModel).toBe("__rusty_auto_model_selection__");
+    expect(text()).toContain("AUTO cannot run right now");
+  });
+});
+
+describe("LlmSetupTab deleting an integration", () => {
+  const added: CustomProvider = { ...ollama, id: "my-llm", name: "My LLM", models: [{ id: "my-llm/m", name: "m" }] };
+
+  async function confirmDelete() {
+    await click("#llm-delete-provider-button");
+    await click("#confirm-modal-confirm");
+  }
+
+  it("deletes a provider the user added and moves the default off its models", async () => {
+    await renderTab({ providers: [ollama, added], activeId: "my-llm", activeModel: "my-llm/m" });
+    expect($("#llm-delete-provider-button")!.textContent).toBe("Delete integration");
+    await confirmDelete();
+    expect(provider("my-llm")).toBeUndefined();
+    expect(store().activeCustomProviderId).toBe("ollama");
+    expect(store().activeModel).toBe("ollama/llama3");
+  });
+
+  it("keeps the provider when the confirmation is cancelled", async () => {
+    await renderTab({ providers: [ollama, added], activeId: "my-llm" });
+    await click("#llm-delete-provider-button");
+    await click("#confirm-modal-cancel");
+    expect(provider("my-llm")).toBeDefined();
+  });
+
+  it("resets a built-in provider instead of deleting it", async () => {
+    const anthropic: CustomProvider = { id: "anthropic", name: "Anthropic", baseUrl: "https://api.anthropic.com", apiKey: "sk-test", apiType: "anthropic-messages", authType: "anthropic", models: [] };
+    await renderTab({ providers: [ollama, anthropic], activeId: "anthropic" });
+    expect($("#llm-delete-provider-button")!.textContent).toBe("Remove connection");
+    await confirmDelete();
+    expect(provider("anthropic")).toBeDefined();
+    expect(provider("anthropic")!.apiKey).toBe("");
+    expect(store().activeCustomProviderId).toBe("anthropic");
+  });
+
+  it("offers no delete for a signed-in provider, which signs out instead", async () => {
+    await renderTab({ providers: [ollama, copilot], activeId: "github-copilot", status: { "github-copilot": { kind: "ready" } as ProviderStatus } });
+    expect($("#llm-delete-provider-button")).toBeNull();
   });
 });
 
@@ -160,7 +254,7 @@ describe("LlmSetupTab connect service form", () => {
     expect(store().customProviders).toHaveLength(1);
   });
 
-  it("saves a new provider with a unique id and activates its model", async () => {
+  it("saves a new provider with a unique id, selects it and keeps the existing default model", async () => {
     await type("#llm-custom-provider-name", " Ollama ");
     await type("#llm-custom-provider-url", "http://localhost:11500/v1 ");
     await type("#llm-model-id", " library/qwen3 ");
@@ -184,7 +278,7 @@ describe("LlmSetupTab connect service form", () => {
       }],
     });
     expect(store().activeCustomProviderId).toBe("ollama-1");
-    expect(store().activeModel).toBe("ollama-1/library/qwen3");
+    expect(store().activeModel).toBe("ollama/llama3");
     expect(lastNotice()).toMatchObject({ title: "Saved", variant: "success" });
     expect($("#llm-custom-provider-name")).toBeNull();
   });

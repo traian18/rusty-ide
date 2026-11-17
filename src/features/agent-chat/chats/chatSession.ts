@@ -1,7 +1,7 @@
 import type { ContextCompactionRunConfig } from "../../../harness/core/decideToolConfig";
 import { readWorkflowCheckpoint } from "../../../harness/core/workflowRun";
 import { notify } from "../../notifications";
-import { AgentChatSaveQueue, readChatWorkflow, readFlowSwitching, readFollowedSpec, readModifiedFiles } from "../service/agentChatPersistence";
+import { AgentChatSaveQueue, readChatModel, readChatWorkflow, readFlowSwitching, readFollowedSpec, readModifiedFiles } from "../service/agentChatPersistence";
 import { readHistorySummary, type HistorySummary } from "../service/historySummary";
 import { refreshSummaryInBackground, resetSummary } from "../historySummaryJob";
 import { useWorkspaceStore, type CustomProvider } from "../../../store";
@@ -37,7 +37,7 @@ export function chatSession(chatId: string, rootPath: string, runtime: ChatRunti
     const messages = useWorkspaceStore.getState().agentChats[chatId] || [];
     const queue = state.chatSaveQueue;
     try {
-      await queue.save(rootPath, chatId, messages, state.modifiedFiles, state.chatWorkflow, state.workflowCheckpoint, state.flowSwitching, state.historySummary, state.followedSpec);
+      await queue.save(rootPath, chatId, messages, state.modifiedFiles, state.chatWorkflow, state.workflowCheckpoint, state.flowSwitching, state.historySummary, state.followedSpec, state.chatModel);
       if (state.chatSaveQueue === queue) setActiveChatPath(queue.path);
       await onSaved();
     } catch (error) {
@@ -64,6 +64,14 @@ export function chatSession(chatId: string, rootPath: string, runtime: ChatRunti
     setAutoWorkflow(undefined);
     if (persist && hasMessages()) void save();
   };
+  /** The model this chat runs on. A conversation already on disk remembers it right away; a new
+   * one saves it with its first message. */
+  const setChatModel = (model: string | undefined, { persist = true }: Persist = {}) => {
+    if (state.chatModel === model) return;
+    state.chatModel = model;
+    patch({ model: model ?? "" });
+    if (persist && hasMessages()) void save();
+  };
   /** The followed workflow turned out to be the built-in one under another path: follow it by its own. */
   const adoptChatWorkflowPath = (path: string) => {
     state.chatWorkflow = path;
@@ -87,6 +95,9 @@ export function chatSession(chatId: string, rootPath: string, runtime: ChatRunti
     resetHistorySummary(readHistorySummary(file.historySummary));
     setModifiedFiles(readModifiedFiles(file.modifiedFiles));
     setChatWorkflow(readChatWorkflow(file.workflow), { persist: false });
+    // An older file has no model: the chat keeps the one it was opened with (the default).
+    const savedModel = readChatModel(file.model);
+    if (savedModel) setChatModel(savedModel, { persist: false });
     setFlowSwitching(readFlowSwitching(file.flowSwitching), { persist: false });
     state.lastWorkflowRun = undefined;
     setWorkflowCheckpoint(file.workflowCheckpoint);
@@ -109,7 +120,7 @@ export function chatSession(chatId: string, rootPath: string, runtime: ChatRunti
   });
 
   return {
-    setAutoWorkflow, save, saved, savingTo, setModifiedFiles, setWorkflowCheckpoint, setChatWorkflow, adoptChatWorkflowPath, setFlowSwitching,
+    setAutoWorkflow, save, saved, savingTo, setModifiedFiles, setWorkflowCheckpoint, setChatModel, setChatWorkflow, adoptChatWorkflowPath, setFlowSwitching,
     refreshHistorySummary, restore, forget,
   };
 }

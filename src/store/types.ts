@@ -6,7 +6,7 @@ import type {
   OnNodesChange,
 } from "@xyflow/react";
 import type { GitStatusResult } from "../features/git";
-import type { McpServerConfig } from "../features/mcp";
+import type { McpServerConfig, WorkspaceMcpServers, WorkspaceSkillGrants } from "../features/mcp";
 import type { TypographyPreferences } from "../features/settings";
 import type { KeyboardShortcutPreferences, SecretShieldPreferences, ShortcutAction } from "../features/settings";
 import type { EditorFileSafetyPreferences } from "../features/editor";
@@ -520,11 +520,15 @@ export interface WorkspaceState extends SecretShieldPreferences {
   /** Clears one day's token totals (YYYY-MM-DD) back to zero; all-time totals are kept. */
   resetMetricsDay: (day: string) => Promise<void>;
 
+  /** The open workspace's MCP servers (also its `mcpServersByWorkspace` entry); setters are no-ops with no workspace. */
   mcpServers: Record<string, McpServerConfig>;
+  mcpServersByWorkspace: WorkspaceMcpServers;
+  builtInSkillMcpGrantsByWorkspace: WorkspaceSkillGrants;
   setMcpServers: (servers: Record<string, McpServerConfig>) => void;
   addMcpServer: (server: McpServerConfig) => void;
   updateMcpServer: (name: string, updates: Partial<McpServerConfig>) => void;
   removeMcpServer: (name: string) => void;
+  copyMcpServersFrom: (sourceRoot: string) => number; // copies in the servers the open workspace lacks; returns how many
 
   /** Keyed by web-search provider id ("brave", "tavily", "exa", ...) --
    * a plain Record rather than importing harness/core/definitions/
@@ -604,6 +608,7 @@ export interface WorkspaceState extends SecretShieldPreferences {
   clearGlobalChatHistory: (nodeId: string) => void;
 
   addCustomProvider: (provider: CustomProvider) => void;
+  deleteProvider: (providerId: string) => void; // an added provider goes; a built-in one is reset to its defaults
   updateProviderSettings: (providerId: string, settings: Partial<Omit<CustomProvider, "id">>) => void;
   addManualModel: (providerId: string, model: ProviderModel) => void;
   removeManualModel: (providerId: string, modelId: string) => void;

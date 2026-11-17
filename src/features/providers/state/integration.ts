@@ -1,8 +1,10 @@
 import { BUILT_IN_SKILLS, DEFAULT_SKILL_ID } from "../../skills";
 import { skillsService } from "../../skills";
 import { loadStoredThemeId, saveThemeId } from "../../settings";
+import { mcpWorkspaceKey, mergeMissingServers, serversForWorkspace, withWorkspaceGrant, withWorkspaceServers, type McpServerMap } from "../../mcp";
 import { DEFAULT_THEME_ID, defaultLspSettings, defaultProviders } from "./integrationDefaults";
 import { loadSecureConfig, saveSecureConfig } from "./secureConfig";
+import { afterProviderDelete } from "../service/chatModel";
 import type { WorkspaceSliceCreator } from "../../../store/sliceTypes";
 import type { Skill, WorkspaceState } from "../../../store/types";
 
@@ -30,6 +32,17 @@ function scheduleSaveSecureConfig(get: () => WorkspaceState): void {
   pendingSaveTimers.set(get, timer);
 }
 
+/** The open workspace's servers set to `servers`, in both `mcpServers` and its workspace entry; no workspace open, no change. */
+function writeWorkspaceServers(
+  state: WorkspaceState,
+  get: () => WorkspaceState,
+  servers: McpServerMap,
+): Partial<WorkspaceState> {
+  if (!mcpWorkspaceKey(state.rootPath)) return {};
+  scheduleSaveSecureConfig(get);
+  return { mcpServers: servers, mcpServersByWorkspace: withWorkspaceServers(state.mcpServersByWorkspace, state.rootPath, servers) };
+}
+
 export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
   customProviders: defaultProviders,
   activeCustomProviderId: "opencode",
@@ -42,6 +55,8 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
   // restore happens in loadSecureConfig below, from "rusty_secure_config").
   // Deleted outright rather than replaced (REFACTOR_PLAN.md PR 3a).
   mcpServers: {},
+  mcpServersByWorkspace: {},
+  builtInSkillMcpGrantsByWorkspace: {},
   webSearchApiKeys: {},
   activeThemeId: DEFAULT_THEME_ID,
   secureConfigLoaded: false,
@@ -79,13 +94,17 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
 
   updateSkill: (id, updates) => set((state) => {
     // Built-in skills live only in memory; their MCP grants are the one edit
-    // persisted (with the secure config), since grants are what decide which
-    // servers a skill's sessions get.
-    if (state.skills.some((skill) => skill.id === id && skill.isBuiltIn)) scheduleSaveSecureConfig(get);
+    // persisted (with the secure config, per workspace like the servers they
+    // name), since grants are what decide which servers a skill's sessions get.
+    const builtInGrant = state.skills.some((skill) => skill.id === id && skill.isBuiltIn) && updates.mcpServers !== undefined;
+    if (builtInGrant) scheduleSaveSecureConfig(get);
     return {
       skills: state.skills.map((skill) => skill.id === id
         ? { ...skill, ...updates, updatedAt: new Date().toISOString() }
         : skill),
+      ...(builtInGrant
+        ? { builtInSkillMcpGrantsByWorkspace: withWorkspaceGrant(state.builtInSkillMcpGrantsByWorkspace, state.rootPath, id, updates.mcpServers ?? []) }
+        : {}),
     };
   }),
 
@@ -95,26 +114,28 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
   })),
   setActiveSkill: (activeSkillId) => set({ activeSkillId }),
 
-  setMcpServers: (mcpServers) => {
-    set({ mcpServers });
-    scheduleSaveSecureConfig(get);
-  },
-  addMcpServer: (server) => set((state) => {
-    scheduleSaveSecureConfig(get);
-    return { mcpServers: { ...state.mcpServers, [server.name]: server } };
-  }),
+  // Servers belong to the open workspace: every change writes the open
+  // workspace's entry too, and with no workspace open nothing changes.
+  setMcpServers: (mcpServers) => set((state) => writeWorkspaceServers(state, get, mcpServers)),
+  addMcpServer: (server) => set((state) =>
+    writeWorkspaceServers(state, get, { ...state.mcpServers, [server.name]: server })),
   updateMcpServer: (name, updates) => set((state) => {
     const existing = state.mcpServers[name];
     if (!existing) return {};
-    scheduleSaveSecureConfig(get);
-    return { mcpServers: { ...state.mcpServers, [name]: { ...existing, ...updates } } };
+    return writeWorkspaceServers(state, get, { ...state.mcpServers, [name]: { ...existing, ...updates } });
   }),
   removeMcpServer: (name) => set((state) => {
     const mcpServers = { ...state.mcpServers };
     delete mcpServers[name];
-    scheduleSaveSecureConfig(get);
-    return { mcpServers };
+    return writeWorkspaceServers(state, get, mcpServers);
   }),
+  copyMcpServersFrom: (sourceRoot) => {
+    const state = get();
+    if (!mcpWorkspaceKey(state.rootPath)) return 0;
+    const { servers, copied } = mergeMissingServers(state.mcpServers, serversForWorkspace(state.mcpServersByWorkspace, sourceRoot));
+    if (copied > 0) set(writeWorkspaceServers(state, get, servers));
+    return copied;
+  },
 
   setWebSearchApiKey: (provider, key) => set((state) => {
     scheduleSaveSecureConfig(get);
@@ -144,6 +165,13 @@ export const createIntegrationSlice: WorkspaceSliceCreator = (set, get) => ({
     set({ activeModel });
     scheduleSaveSecureConfig(get);
   },
+  // Chats on the deleted provider's models fall back to the default model when they next show or send.
+  deleteProvider: (providerId) => set((state) => {
+    if (!state.customProviders.some((provider) => provider.id === providerId)) return {};
+    scheduleSaveSecureConfig(get);
+    const next = afterProviderDelete(state.customProviders, providerId, defaultProviders, state.activeCustomProviderId, state.activeModel, state.providerStatus);
+    return { customProviders: next.providers, activeCustomProviderId: next.selectedProviderId, activeModel: next.defaultModel };
+  }),
 
   addManualModel: (providerId, model) => set((state) => {
     scheduleSaveSecureConfig(get);

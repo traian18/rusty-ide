@@ -3,6 +3,7 @@ import { createIntegrationTestStore } from "../../../test/integrationTestStore";
 import { THEME_STORAGE_KEY } from "../../settings";
 import { theme as defaultTheme } from "../../../theme";
 import { SecureStorageService } from "../../settings";
+import { DEFAULT_SERVER_CONFIG } from "../../mcp";
 
 vi.mock("../../settings/service/secureStorageService", () => ({
   SecureStorageService: {
@@ -380,9 +381,9 @@ describe("createIntegrationSlice: built-in skill MCP grants survive a restart", 
     vi.mocked(SecureStorageService.saveSecureData).mockReset();
   });
 
-  it("saves the servers ticked on a built-in skill and restores them on load", async () => {
+  it("saves the servers ticked on a built-in skill under the workspace and restores them there", async () => {
     vi.mocked(SecureStorageService.loadSecureData).mockResolvedValue(null);
-    const first = createIntegrationTestStore();
+    const first = createIntegrationTestStore({ rootPath: "/work/a" });
     await first.getState().loadSecureConfig();
     const plan = first.getState().skills.find((skill) => skill.isBuiltIn && skill.name === "plan")!;
 
@@ -390,14 +391,78 @@ describe("createIntegrationSlice: built-in skill MCP grants survive a restart", 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const saved = vi.mocked(SecureStorageService.saveSecureData).mock.calls.at(-1)?.[1] as {
-      builtInSkillMcpServers: Record<string, string[]>;
+      builtInSkillMcpGrantsByWorkspace: Record<string, Record<string, string[]>>;
     };
-    expect(saved.builtInSkillMcpServers[plan.id]).toEqual(["atlassian"]);
+    expect(saved.builtInSkillMcpGrantsByWorkspace["/work/a"][plan.id]).toEqual(["atlassian"]);
 
     vi.mocked(SecureStorageService.loadSecureData).mockResolvedValue(saved);
-    const restarted = createIntegrationTestStore();
+    const restarted = createIntegrationTestStore({ rootPath: "/work/a" });
     await restarted.getState().loadSecureConfig();
     expect(restarted.getState().skills.find((skill) => skill.id === plan.id)?.mcpServers).toEqual(["atlassian"]);
+
+    const elsewhere = createIntegrationTestStore({ rootPath: "/work/b" });
+    await elsewhere.getState().loadSecureConfig();
+    expect(elsewhere.getState().skills.find((skill) => skill.id === plan.id)?.mcpServers).toEqual([]);
+  });
+});
+
+describe("createIntegrationSlice: MCP servers belong to the open workspace", () => {
+  const github = { ...DEFAULT_SERVER_CONFIG, name: "github", transport: { type: "http" as const, url: "https://github.test/mcp" } };
+  const jira = { ...DEFAULT_SERVER_CONFIG, name: "jira", transport: { type: "http" as const, url: "https://jira.test/mcp" } };
+
+  beforeEach(() => {
+    vi.mocked(SecureStorageService.loadSecureData).mockReset();
+    vi.mocked(SecureStorageService.saveSecureData).mockReset();
+  });
+
+  it("adds a server to the open workspace only", () => {
+    const testStore = createIntegrationTestStore({ rootPath: "/work/a", secureConfigLoaded: true });
+    testStore.getState().addMcpServer(github);
+    expect(testStore.getState().mcpServers).toEqual({ github });
+    expect(testStore.getState().mcpServersByWorkspace).toEqual({ "/work/a": { github } });
+  });
+
+  it("ignores server changes with no workspace open", () => {
+    const testStore = createIntegrationTestStore({ secureConfigLoaded: true });
+    testStore.getState().addMcpServer(github);
+    expect(testStore.getState().mcpServers).toEqual({});
+    expect(testStore.getState().mcpServersByWorkspace).toEqual({});
+  });
+
+  it("leaves another workspace's servers alone when the open one changes, and saves both", async () => {
+    const testStore = createIntegrationTestStore({
+      rootPath: "/work/b",
+      secureConfigLoaded: true,
+      mcpServersByWorkspace: { "/work/a": { github } },
+    });
+    testStore.getState().addMcpServer(jira);
+    testStore.getState().removeMcpServer("github");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(testStore.getState().mcpServersByWorkspace).toEqual({ "/work/a": { github }, "/work/b": { jira } });
+    const saved = vi.mocked(SecureStorageService.saveSecureData).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(saved.mcpServersByWorkspace).toEqual({ "/work/a": { github }, "/work/b": { jira } });
+    expect(saved).not.toHaveProperty("mcpServers");
+  });
+
+  it("copies another workspace's servers in, skipping names already there", () => {
+    const testStore = createIntegrationTestStore({
+      rootPath: "/work/b",
+      secureConfigLoaded: true,
+      mcpServers: { github: { ...github, enabled: false } },
+      mcpServersByWorkspace: { "/work/a": { github, jira }, "/work/b": { github: { ...github, enabled: false } } },
+    });
+    expect(testStore.getState().copyMcpServersFrom("/work/a")).toBe(1);
+    expect(testStore.getState().mcpServers.github.enabled).toBe(false);
+    expect(Object.keys(testStore.getState().mcpServersByWorkspace["/work/b"]).sort()).toEqual(["github", "jira"]);
+  });
+
+  it("moves the old app-wide servers to the last workspace on load, showing none until it opens", async () => {
+    vi.mocked(SecureStorageService.loadSecureData).mockResolvedValue({ lastWorkspacePath: "/work/a", mcpServers: { github } });
+    const testStore = createIntegrationTestStore();
+    await testStore.getState().loadSecureConfig();
+    expect(testStore.getState().mcpServersByWorkspace).toEqual({ "/work/a": { github } });
+    expect(testStore.getState().mcpServers).toEqual({});
   });
 });
 

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Plug } from "lucide-react";
+import { FolderOpen, Plug } from "lucide-react";
+import { WorkspaceMcpScope } from "./WorkspaceMcpScope";
 import { useWorkspaceStore } from "../../../store";
 import { GitHubIcon, AtlassianIcon } from "./specialized/icons";
 import { GitHubMcpTab } from "./specialized/GitHubMcpTab";
@@ -7,10 +8,12 @@ import { AtlassianMcpTab } from "./specialized/AtlassianMcpTab";
 import { GenericMcpTab } from "./specialized/GenericMcpTab";
 import type { McpTabKey } from "../service/specializedTypes";
 import { SecretStorageStatus } from "../../settings/ui";
-import styles from "./specialized/SpecializedMcp.module.css";
+import { PageShell } from "../../../lib/ui";
+import styles from "./McpIntegrationTab.module.css";
 
 export const McpIntegrationTab: React.FC = () => {
   const mcpServers = useWorkspaceStore((state) => state.mcpServers);
+  const rootPath = useWorkspaceStore((state) => state.rootPath);
   const [activeTab, setActiveTab] = useState<McpTabKey>("github");
 
   const servers = Object.values(mcpServers);
@@ -33,73 +36,80 @@ export const McpIntegrationTab: React.FC = () => {
       servers.some((s) => s.name.toLowerCase().includes("atlassian") && s.enabled)
   );
 
+  const presetStatus = (configured: boolean, enabled: boolean): NavStatus =>
+    !configured ? { kind: "setup" } : enabled ? { kind: "connected" } : { kind: "disabled" };
+
   return (
-    <div className="w-full h-full p-8 max-w-5xl mx-auto flex flex-col space-y-6 font-sans text-[var(--color-fg-default)] overflow-y-auto">
-      {/* Top Main Header */}
-      <div className="flex flex-col space-y-1">
-        <h2 className="text-2xl font-bold text-[var(--color-fg-strong)] flex items-center space-x-2.5">
-          <Plug className="text-[var(--color-primary)]" size={26} />
-          <span>Model Context Protocol (MCP) Integrations</span>
-        </h2>
-        <p className="text-xs text-[var(--color-fg-muted)] font-mono">
-          Connect specialized MCP tool servers to empower Rusty agents with external services, issue trackers, and developer APIs.
-        </p>
-        <SecretStorageStatus />
-      </div>
+    <PageShell
+      icon={<Plug size={18} />}
+      title="Model Context Protocol (MCP) Integrations"
+      description="Connect specialized MCP tool servers to empower Rusty agents with external services, issue trackers, and developer APIs."
+      headerExtra={<SecretStorageStatus />}
+    >
 
-      {/* Tab Navigation Bar */}
-      <div className={styles.tabNav}>
-        <button
-          type="button"
-          onClick={() => setActiveTab("github")}
-          className={`${styles.tabNavButton} ${activeTab === "github" ? styles.tabNavButtonActive : ""}`}
-        >
-          <GitHubIcon size={16} />
-          <span>GitHub</span>
-          {hasGithub ? (
-            <span className={`${styles.tabBadge} ${isGithubEnabled ? styles.badgeConnected : ""}`}>
-              {isGithubEnabled ? "Connected" : "Disabled"}
-            </span>
-          ) : (
-            <span className={styles.tabBadge}>Setup</span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("atlassian")}
-          className={`${styles.tabNavButton} ${activeTab === "atlassian" ? styles.tabNavButtonActive : ""}`}
-        >
-          <AtlassianIcon size={16} />
-          <span>Atlassian (Jira & Confluence)</span>
-          {hasAtlassian ? (
-            <span className={`${styles.tabBadge} ${isAtlassianEnabled ? styles.badgeConnected : ""}`}>
-              {isAtlassianEnabled ? "Connected" : "Disabled"}
-            </span>
-          ) : (
-            <span className={styles.tabBadge}>Setup</span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("generic")}
-          className={`${styles.tabNavButton} ${activeTab === "generic" ? styles.tabNavButtonActive : ""}`}
-        >
-          <Plug size={16} />
-          <span>Generic / Custom Servers</span>
-          <span className={`${styles.tabBadge} ${activeTab === "generic" ? styles.tabBadgeActive : ""}`}>
-            {servers.length}
-          </span>
-        </button>
-      </div>
-
-      {/* Tab Content Panel */}
-      <div className="w-full">
-        {activeTab === "github" && <GitHubMcpTab />}
-        {activeTab === "atlassian" && <AtlassianMcpTab />}
-        {activeTab === "generic" && <GenericMcpTab onSelectTab={setActiveTab} />}
-      </div>
-    </div>
+        {rootPath ? (
+          <>
+            <WorkspaceMcpScope rootPath={rootPath} />
+            <div className={styles.layout}>
+              <nav className={styles.nav} aria-label="MCP integrations">
+                <NavItem active={activeTab === "github"} onClick={() => setActiveTab("github")} icon={<GitHubIcon size={15} />} label="GitHub" status={presetStatus(hasGithub, isGithubEnabled)} />
+                <NavItem active={activeTab === "atlassian"} onClick={() => setActiveTab("atlassian")} icon={<AtlassianIcon size={15} />} label="Atlassian (Jira & Confluence)" status={presetStatus(hasAtlassian, isAtlassianEnabled)} />
+                <NavItem active={activeTab === "generic"} onClick={() => setActiveTab("generic")} icon={<Plug size={15} />} label="Generic / Custom Servers" status={{ kind: "count", count: servers.length }} />
+              </nav>
+              <div className={styles.panelArea}>
+                {activeTab === "github" && <GitHubMcpTab />}
+                {activeTab === "atlassian" && <AtlassianMcpTab />}
+                {activeTab === "generic" && <GenericMcpTab onSelectTab={setActiveTab} />}
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className={styles.empty}>
+            <h3 className={styles.emptyTitle}>
+              <FolderOpen size={16} className={styles.titleIcon} />
+              Open a workspace to set up MCP servers
+            </h3>
+            <p className={styles.emptyText}>
+              MCP servers belong to a workspace: each workspace has its own, and only the open workspace's servers are available to its chats and runs.
+            </p>
+          </div>
+        )}
+    </PageShell>
   );
 };
+
+type NavStatus = { kind: "setup" | "connected" | "disabled" } | { kind: "count"; count: number };
+
+function NavItem({ active, onClick, icon, label, status }: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  status: NavStatus;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={`${styles.navItem} ${active ? styles.navItemActive : ""}`}
+      title={label}
+    >
+      {icon}
+      <span className={styles.navLabel}>{label}</span>
+      <NavStatusMark status={status} />
+    </button>
+  );
+}
+
+function NavStatusMark({ status }: { status: NavStatus }) {
+  if (status.kind === "count") return <span className={`${styles.navStatus} ${styles.navCount}`}>{status.count}</span>;
+  if (status.kind === "setup") return <span className={styles.navStatus}>Setup</span>;
+  const label = status.kind === "connected" ? "Connected" : "Disabled";
+  return (
+    <span className={`${styles.navStatus} ${status.kind === "connected" ? styles.statusConnected : styles.statusDisabled}`} title={label}>
+      <span className={styles.dot} aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </span>
+  );
+}

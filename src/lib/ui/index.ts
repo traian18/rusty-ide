@@ -14,6 +14,8 @@ export { Modal } from "./Modal/Modal";
 export type { ModalProps } from "./Modal/Modal";
 export { IconButton } from "./IconButton/IconButton";
 export type { IconButtonProps } from "./IconButton/IconButton";
+export { PageShell } from "./PageShell/PageShell";
+export type { PageShellProps } from "./PageShell/PageShell";
 export { Callout } from "./Callout/Callout";
 export type { CalloutProps, CalloutVariant } from "./Callout/Callout";
 export { TokenBadge } from "./TokenBadge/TokenBadge";

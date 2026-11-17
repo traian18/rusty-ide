@@ -66,6 +66,32 @@ describe("createWorkspaceSlice: setRootPath calls loadWorkspaceData", () => {
     expect(state.activeTabId).toBe("agent");
   });
 
+  it("swaps in the new workspace's MCP servers and built-in grants, dropping the previous one's", () => {
+    vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
+    const github = { name: "github", enabled: true } as any;
+    const jira = { name: "jira", enabled: true } as any;
+    const store = createWorkspaceTestStore({
+      loadWorkspaceData: vi.fn().mockResolvedValue(undefined),
+      saveSecureConfig: vi.fn().mockResolvedValue(undefined),
+      rootPath: "/work/a",
+      mcpServers: { github },
+      mcpServersByWorkspace: { "/work/a": { github }, "/work/b": { jira } },
+      builtInSkillMcpGrantsByWorkspace: { "/work/a": { plan: ["github"] } },
+      skills: [{ id: "plan", isBuiltIn: true, mcpServers: ["github"] }] as any,
+    } as any);
+
+    store.getState().setRootPath("/work/b");
+    expect(store.getState().mcpServers).toEqual({ jira });
+    expect(store.getState().skills[0].mcpServers).toEqual([]);
+
+    store.getState().setRootPath("/work/c");
+    expect(store.getState().mcpServers).toEqual({});
+
+    store.getState().setRootPath("/work/a");
+    expect(store.getState().mcpServers).toEqual({ github });
+    expect(store.getState().skills[0].mcpServers).toEqual(["github"]);
+  });
+
   it("still resets tabs/canvases/nodes exactly as before", () => {
     vi.stubGlobal("localStorage", { getItem: () => null, setItem: () => {} });
     const loadWorkspaceData = vi.fn().mockResolvedValue(undefined);

@@ -20,7 +20,7 @@ vi.mock("../../providers/service/resolveExecutionProvider", () => ({
 import { useWorkspaceStore } from "../../../store";
 import { BUILT_IN_SKILL_IDS } from "../../skills";
 import { AUTO_MODEL_ID } from "../../providers";
-import { saveAgentModelSelection } from "../../providers";
+import { chatRuntime } from "../chats/chatRuntime";
 import { AgentTab } from "./AgentTab";
 import { AUTO_FLOW } from "../../workflows";
 import { workflowKind } from "../../workflows";
@@ -844,10 +844,16 @@ describe("Agent chat workflows", () => {
           contextSummariesEnabled: true, smartContextCompactionEnabled: false,
         },
       });
-      saveAgentModelSelection(AUTO_MODEL_ID);
       await act(async () => root.unmount());
       root = createRoot(container);
       await act(async () => root.render(<AgentTab tab={tab} />));
+      await flush();
+      // AUTO is this chat's own choice.
+      const chatId = useChatStore.getState().tabs[(tab as { id: string }).id]!.activeChatId!;
+      await act(async () => {
+        chatRuntime(chatId).state.chatModel = AUTO_MODEL_ID;
+        useChatStore.getState().patch(chatId, { model: AUTO_MODEL_ID });
+      });
       await flush();
     });
 

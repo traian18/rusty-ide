@@ -16,6 +16,11 @@ import type { WorkspaceState } from "../store/types";
 export function createWorkspaceTestStore(overrides: Partial<WorkspaceState> = {}) {
   return create<WorkspaceState>()((...args) => ({
     ...createWorkspaceSlice(...args),
+    // Read by setRootPath to swap in the new workspace's MCP servers.
+    mcpServers: {},
+    mcpServersByWorkspace: {},
+    builtInSkillMcpGrantsByWorkspace: {},
+    skills: [],
     ...overrides,
   }) as unknown as WorkspaceState);
 }

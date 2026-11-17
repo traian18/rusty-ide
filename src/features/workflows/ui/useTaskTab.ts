@@ -5,6 +5,7 @@ import { VfsRegistry } from "../../canvas";
 import { getFileTypeDetails } from "../../editor/ui";
 import { useDiffViewMode } from "../../../lib/ui/useDiffViewMode";
 import { useSelectableModels } from "../../providers/ui";
+import { concreteDefaultModel } from "../../providers";
 import type { TabOfType } from "../../../app/tabs/types";
 
 export const EMPTY_ARRAY: any[] = [];
@@ -26,7 +27,7 @@ export function useTaskTab(props: Pick<TaskTabProps, "tab" | "isActive">) {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
+  const activeModel = useWorkspaceStore((state) => concreteDefaultModel(state));
   const updateTaskNode = useWorkspaceStore((state) => state.updateTaskNode);
   const { options: modelOptions, unauthenticatedProviders } = useSelectableModels(
     customProviders,

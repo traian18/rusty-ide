@@ -4,6 +4,7 @@ import { explorerClient } from "../../explorer";
 import { FolderOpen, History, Trash2, ArrowRight } from "lucide-react";
 import { useWorkspaceStore } from "../../../store";
 import { notify } from "../../notifications";
+import { stopAllExplorerRuns } from "./sidepane/explorerRunRegistry";
 
 export const WorkspaceTab: React.FC = () => {
   const rootPath = useWorkspaceStore((state) => state.rootPath);
@@ -68,6 +69,7 @@ export const WorkspaceTab: React.FC = () => {
     try {
       const tree = await explorerClient.tree(path);
       
+      if (path !== rootPath) stopAllExplorerRuns();
       setFileTree(tree);
       setRootPath(path);
       updateRecents(path);

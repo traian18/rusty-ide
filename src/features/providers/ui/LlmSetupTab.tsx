@@ -1,30 +1,17 @@
-import React, { useEffect } from "react";
-import { useWorkspaceStore, CustomProvider } from "../../../store";
+import React from "react";
+import { useWorkspaceStore } from "../../../store";
 import { Cpu } from "lucide-react";
-import { ProviderList, selectFirstSupportedModel } from "./llmSetup/ProviderList";
+import { ProviderList } from "./llmSetup/ProviderList";
 import { ConnectServicePanel } from "./llmSetup/ConnectServicePanel";
 import { ProviderDetails } from "./llmSetup/ProviderDetails";
-
-/** With no model chosen yet, default to the selected provider's first supported one. */
-function useDefaultActiveModel(provider: CustomProvider | undefined) {
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
-  const setActiveModel = useWorkspaceStore((state) => state.setActiveModel);
-
-  useEffect(() => {
-    if (activeModel || !provider) return;
-    const modelId = selectFirstSupportedModel(provider);
-    if (modelId) setActiveModel(modelId);
-  }, [activeModel, provider, setActiveModel]);
-}
+import { DefaultModelCard } from "./llmSetup/DefaultModelCard";
 
 export const LlmSetupTab: React.FC = () => {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
   const setActiveCustomProviderId = useWorkspaceStore((state) => state.setActiveCustomProviderId);
-  const setActiveModel = useWorkspaceStore((state) => state.setActiveModel);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
   const selectedProvider = customProviders.find((p) => p.id === activeCustomProviderId);
-  useDefaultActiveModel(selectedProvider);
 
   return (
     <div className="w-full h-full p-8 max-w-5xl mx-auto flex flex-col space-y-6 font-sans text-[var(--text-normal)] overflow-y-auto">
@@ -38,6 +25,8 @@ export const LlmSetupTab: React.FC = () => {
         </p>
       </div>
 
+      <DefaultModelCard />
+
       <div className="grid grid-cols-1 md:grid-cols-5 gap-8">
         <div className="md:col-span-2 space-y-4">
           <ProviderList
@@ -45,11 +34,7 @@ export const LlmSetupTab: React.FC = () => {
             activeProviderId={activeCustomProviderId}
             connectionStatuses={{}}
             providerStatus={providerStatus}
-            onSelectProvider={(provider) => {
-              setActiveCustomProviderId(provider.id);
-              const modelId = selectFirstSupportedModel(provider);
-              if (modelId) setActiveModel(modelId);
-            }}
+            onSelectProvider={(provider) => setActiveCustomProviderId(provider.id)}
           />
           <ConnectServicePanel />
         </div>

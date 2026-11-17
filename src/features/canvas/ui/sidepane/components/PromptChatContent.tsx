@@ -6,6 +6,7 @@ import { Chat } from "../../../../agent-chat/ui";
 import { AgentQuestion, ChatInput } from "../../../../agent-chat/ui";
 import type { SubagentActivity } from "../../../../agent-chat/ui";
 import { useSelectableModels } from "../../../../providers/ui";
+import { concreteDefaultModel } from "../../../../providers";
 
 interface PromptChatContentProps {
   selectedNode: any;
@@ -25,7 +26,7 @@ interface PromptChatContentProps {
 const EMPTY_ARRAY: any[] = [];
 
 const ModelSelector: React.FC<{ nodeId: string; nodeData: any }> = ({ nodeId, nodeData }) => {
-  const activeModel = useWorkspaceStore((s) => s.activeModel);
+  const activeModel = useWorkspaceStore((s) => concreteDefaultModel(s));
   const providers = useWorkspaceStore((s) => s.customProviders);
   const activeProviderId = useWorkspaceStore((s) => s.activeCustomProviderId);
   const providerStatus = useWorkspaceStore((s) => s.providerStatus);

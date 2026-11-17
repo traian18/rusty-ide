@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AgentChatSaveQueue, readChatWorkflow, readFollowedSpec, readModifiedFiles } from "./..";
+import { AgentChatSaveQueue, readChatModel, readChatWorkflow, readFollowedSpec, readModifiedFiles } from "./..";
 import type { AgentMessage } from "../../../store/types";
 
 const { invoke } = vi.hoisted(() => ({ invoke: vi.fn() }));
@@ -27,6 +27,18 @@ describe("conversation persistence", () => {
     expect("workflow" in without).toBe(false);
     expect(readChatWorkflow(undefined)).toBeUndefined();
     expect(readChatWorkflow("")).toBeUndefined();
+  });
+
+  it("saves the model a chat runs on, and older chats have none", async () => {
+    invoke.mockResolvedValue("/workspace/.rusty/chats/chat.json");
+    const queue = new AgentChatSaveQueue();
+    await queue.save("/workspace", "agent", [message], [], undefined, undefined, false, undefined, undefined, "anthropic/claude-opus-4-6");
+    await queue.save("/workspace", "agent", [message], []);
+    const [withModel, without] = invoke.mock.calls.map((call) => JSON.parse(call[1].content));
+    expect(readChatModel(withModel.model)).toBe("anthropic/claude-opus-4-6");
+    expect("model" in without).toBe(false);
+    expect(readChatModel(undefined)).toBeUndefined();
+    expect(readChatModel(" ")).toBeUndefined();
   });
 
   it("saves the Implement change a chat follows, so a later 'continue' still ticks its tasks", async () => {

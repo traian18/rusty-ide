@@ -2,7 +2,6 @@ import { HelpCircle as HelpIcon, Layers, RefreshCw, Save, ShieldCheck } from "lu
 import { useWorkspaceStore, type CustomProvider } from "../../../../store";
 import { isManagedAuthProvider, providerModelVariants } from "../../service/providerHelpers";
 import { providerStatusOrUnknown } from "../../integrations/registryTypes";
-import { CustomSelect } from "../../../../lib/ui/CustomSelect";
 import { managedAuthCopy } from "./managedAuth";
 import { ManagedAuthPanel } from "./ManagedAuthPanel";
 import { modelOptions } from "./providerDraft";
@@ -11,8 +10,10 @@ import { ProviderSettingsForm } from "./ProviderSettingsForm";
 import { FieldLabel } from "./settingFields";
 import { useProviderChecks, type ProviderChecks } from "./useProviderChecks";
 import { useProviderDraft } from "./useProviderDraft";
+import { DeleteProviderButton } from "./DeleteProviderButton";
+import { AUTO_MODEL_ID } from "../../service/intelligentModelSelector";
 
-/** Settings, default model and connection checks of the selected provider. */
+/** Settings, models and connection checks of the selected provider, and deleting it. */
 export function ProviderDetails({ provider }: { provider: CustomProvider }) {
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
   const editor = useProviderDraft(provider);
@@ -30,8 +31,11 @@ export function ProviderDetails({ provider }: { provider: CustomProvider }) {
           <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] font-mono tracking-wider">Provider Configuration</span>
           <span className="text-lg font-bold text-[var(--text-light)]">{provider.name} Settings</span>
         </div>
-        <div className="flex items-center space-x-1 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-full px-3 py-1 font-mono text-[10px] text-[var(--text-muted)]">
-          <span>ID:</span><span className="font-bold text-[var(--text-light)]">{provider.id}</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center space-x-1 bg-[var(--bg-app)] border border-[var(--border-color)] rounded-full px-3 py-1 font-mono text-[10px] text-[var(--text-muted)]">
+            <span>ID:</span><span className="font-bold text-[var(--text-light)]">{provider.id}</span>
+          </div>
+          <DeleteProviderButton provider={provider} />
         </div>
       </div>
 
@@ -41,9 +45,9 @@ export function ProviderDetails({ provider }: { provider: CustomProvider }) {
         ) : (
           <ProviderSettingsForm draft={editor.draft} setDraft={editor.setDraft} validation={editor.validation} showKey={editor.showKey} onToggleShowKey={editor.toggleShowKey} />
         )}
-        <DefaultModelPicker
+        <ProviderModels
           provider={provider}
-          placeholder={signInPending ? `Sign in with ${copy.vendor} to load ${copy.product} models` : "No supported models available - update the provider catalogue"}
+          emptyText={signInPending ? `Sign in with ${copy.vendor} to load ${copy.product} models.` : "No supported models available - update the provider catalogue."}
         />
         <ProviderActions checks={checks} checksDisabled={checks.busy || signInPending} save={managed ? undefined : { disabled: !canSave, onClick: editor.save }} />
       </div>
@@ -56,16 +60,18 @@ export function ProviderDetails({ provider }: { provider: CustomProvider }) {
   );
 }
 
-function DefaultModelPicker({ provider, placeholder }: { provider: CustomProvider; placeholder: string }) {
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
-  const setActiveModel = useWorkspaceStore((state) => state.setActiveModel);
+/** What the provider offers. Choosing the model happens once, across providers, in the Default model card. */
+function ProviderModels({ provider, emptyText }: { provider: CustomProvider; emptyText: string }) {
   const listsEfforts = provider.models.some((model) => providerModelVariants(model).length > 1);
   const hiddenCount = provider.models.filter((model) => model.supported === false).length;
+  const count = modelOptions(provider).length;
 
   return (
     <div className="space-y-2 pt-2">
-      <FieldLabel icon={Layers}>Default Target Model</FieldLabel>
-      <CustomSelect value={activeModel} onChange={setActiveModel} options={modelOptions(provider)} placeholder={placeholder} />
+      <FieldLabel icon={Layers}>Models</FieldLabel>
+      <span className="block text-[11px] text-[var(--text-muted)]">
+        {count > 0 ? `${count} model${count === 1 ? "" : "s"} available; choose the default model at the top of this page, and a chat's own model in the chat.` : emptyText}
+      </span>
       {listsEfforts && <span className="text-[10px] text-[var(--text-muted)] font-mono">Reasoning-capable models are listed once per supported effort; the selected effort is sent with every request.</span>}
       {hiddenCount > 0 && <span className="text-[10px] text-[var(--text-muted)] font-mono">{hiddenCount} catalog entries are hidden because their protocol or tool capabilities are not supported.</span>}
     </div>
@@ -95,7 +101,7 @@ function ProviderActions({ checks, checksDisabled, save }: ProviderActionsProps)
       </div>
       <div className="flex items-center space-x-1.5 text-[10px] font-mono text-[var(--text-muted)] bg-[var(--bg-app)]/50 border border-[var(--border-color)]/40 rounded-lg px-2.5 py-1.5 w-fit">
         <ShieldCheck size={14} className="text-[var(--color-status-success)]" />
-        <span>Active Model: {activeModel || "None selected"}</span>
+        <span>Default model: {activeModel === AUTO_MODEL_ID ? "AUTO" : activeModel || "None selected"}</span>
       </div>
     </div>
   );

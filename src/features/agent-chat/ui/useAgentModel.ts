@@ -1,70 +1,52 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { resolveSkill, DEFAULT_SKILL_ID } from "../../skills";
 import { useSelectableModels } from "../../providers/ui";
-import { loadAgentModelSelection, saveAgentModelSelection } from "../../providers";
-import { AUTO_MODEL_ID, findOpenRouterJevProvider, isSignedOutProviderModel, resolveLevelCandidates } from "../../providers";
+import { AUTO_MODEL_ID, defaultForChats, findOpenRouterJevProvider, isAutoSelectionAvailable, resolveChatModel } from "../../providers";
 import { useWorkspaceStore } from "../../../store";
 import { isAutoMode, onAutoMode, setAutoMode } from "../../../harness/autoMode";
+import { useChatStore } from "./chats/chatStore";
 
-/** The Agent tab's model choice: its own, seeded once from the global default.
+/** The shown chat's model. Each chat keeps its own choice (saved with it); a new chat starts on the
+ * default model. A choice that can no longer run -- its provider was deleted, signed out or lost its
+ * key, or the model left the catalogue -- falls back to the default, and the chat keeps that.
  * AUTO is offered when intelligent selection can run. */
-export function useAgentModel() {
+export function useAgentModel(chatId: string, setChatModel: (model: string) => void) {
   const customProviders = useWorkspaceStore((state) => state.customProviders);
   const activeCustomProviderId = useWorkspaceStore((state) => state.activeCustomProviderId);
   const providerStatus = useWorkspaceStore((state) => state.providerStatus);
-  const activeModel = useWorkspaceStore((state) => state.activeModel);
-  const setActiveModel = useWorkspaceStore((state) => state.setActiveModel);
+  const defaultModel = useWorkspaceStore((state) => defaultForChats(state));
+  const configLoaded = useWorkspaceStore((state) => state.secureConfigLoaded);
   const settings = useWorkspaceStore((state) => state.intelligentModelSelectionSettings);
-  const savedAgentModelRef = useRef(loadAgentModelSelection());
-  const [selectedModel, setSelectedModel] = useState(() => savedAgentModelRef.current ?? activeModel);
+  const chatModel = useChatStore((state) => state.chats[chatId]?.model ?? "");
   const { options: baseModelOptions, unauthenticatedProviders } = useSelectableModels(customProviders, providerStatus, activeCustomProviderId);
   const autoAvailable = Boolean(findOpenRouterJevProvider(customProviders, settings.jevModelId));
 
-  const modelOptions = useCallback(() => {
-    if (!settings.enabled || !findOpenRouterJevProvider(customProviders, settings.jevModelId)) return baseModelOptions;
-    const { missing } = resolveLevelCandidates(customProviders, providerStatus, activeCustomProviderId, settings.levelModels);
-    if (missing.length > 0) return baseModelOptions;
-    return [{ id: AUTO_MODEL_ID, name: "AUTO — Intelligent model selection" }, ...baseModelOptions];
-  }, [activeCustomProviderId, baseModelOptions, customProviders, settings, providerStatus]);
+  const autoOffered = useCallback(
+    () => isAutoSelectionAvailable({ customProviders, providerStatus, activeCustomProviderId, intelligentModelSelectionSettings: settings }),
+    [activeCustomProviderId, customProviders, settings, providerStatus],
+  );
 
-  // Signing out takes the provider's models away, the chosen one included, so
-  // this is not the "(unavailable)" case below: the choice starts over.
+  const modelFor = useCallback(
+    (model: string | undefined) => resolveChatModel(model, defaultModel, customProviders, providerStatus, autoOffered()),
+    [autoOffered, customProviders, defaultModel, providerStatus],
+  );
+  const selectedModel = modelFor(chatModel);
+
+  // The chat's own choice cannot run any more: it moves to the default and keeps it. Not before the
+  // saved configuration (provider keys) has loaded, when every model would look unusable.
   useEffect(() => {
-    if (!selectedModel || !isSignedOutProviderModel(selectedModel, customProviders, providerStatus)) return;
-    savedAgentModelRef.current = undefined;
-    saveAgentModelSelection("");
-    setSelectedModel("");
-  }, [customProviders, providerStatus, selectedModel]);
+    if (!configLoaded || !selectedModel || selectedModel === chatModel) return;
+    setChatModel(selectedModel);
+  }, [chatModel, configLoaded, selectedModel, setChatModel]);
 
-  // Seed Agent mode once from the global default, then retain its own choice.
-  // A provider refresh must not silently swap it for the first available model.
-  useEffect(() => {
-    if (savedAgentModelRef.current) return;
-    const usableDefault = isSignedOutProviderModel(activeModel, customProviders, providerStatus) ? "" : activeModel;
-    const nextModel = usableDefault || modelOptions()[0]?.id || "";
-    if (!nextModel) return;
-    savedAgentModelRef.current = nextModel;
-    saveAgentModelSelection(nextModel);
-    setSelectedModel(nextModel);
-  }, [activeCustomProviderId, activeModel, customProviders, providerStatus, settings, modelOptions]);
+  const selectModel = (model: string) => setChatModel(model);
 
-  const selectModel = (model: string) => {
-    savedAgentModelRef.current = model;
-    saveAgentModelSelection(model);
-    setSelectedModel(model);
-    // AUTO is an Agent-only choice; concrete choices also update the shared default.
-    if (model !== AUTO_MODEL_ID) setActiveModel(model);
-  };
-
-  const available = modelOptions();
-  const options = selectedModel && !available.some((option) => option.id === selectedModel)
-    ? [...available, { id: selectedModel, name: `${selectedModel} (unavailable)` }]
-    : available;
+  const options = autoOffered() ? [{ id: AUTO_MODEL_ID, name: "AUTO — Intelligent model selection" }, ...baseModelOptions] : baseModelOptions;
   const placeholder = baseModelOptions.length === 0 && unauthenticatedProviders.length > 0
     ? `Sign in to ${unauthenticatedProviders.map((p) => p.name).join(", ")} to see more models`
     : "Select model";
 
-  return { selectedModel, selectModel, options, placeholder, autoAvailable, intelligentModelSelectionSettings: settings };
+  return { selectedModel, selectModel, modelFor, options, placeholder, autoAvailable, intelligentModelSelectionSettings: settings };
 }
 
 /** The Agent tab's skill: always one that exists. Resolution order: the

@@ -25,6 +25,11 @@ export function readFollowedSpec(value: unknown): FollowedSpec | undefined {
     : undefined;
 }
 
+/** The model a saved conversation ran on (absent in older files). */
+export function readChatModel(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
 export function readChatWorkflow(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
 }
@@ -53,8 +58,8 @@ export class AgentChatSaveQueue {
 
   /** `workflow` is the path of the workflow this chat follows, if any;
    * `historySummary` is its smart-compaction summary of earlier turns;
-   * `followedSpec` the Implement change it works on. */
-  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean, historySummary?: unknown, followedSpec?: FollowedSpec): Promise<void> {
+   * `followedSpec` the Implement change it works on; `model` the model it runs on. */
+  save(rootDir: string, tabId: string, messages: AgentMessage[], modifiedFiles: string[], workflow?: string, workflowCheckpoint?: unknown, flowSwitching?: boolean, historySummary?: unknown, followedSpec?: FollowedSpec, model?: string): Promise<void> {
     const chatId = this.chatId ??= `agent_${tabId}_${crypto.randomUUID()}`;
     const content = JSON.stringify({
       tabId, messages: savedMessages(messages), modifiedFiles: readModifiedFiles(modifiedFiles), savedAt: new Date().toISOString(),
@@ -63,6 +68,7 @@ export class AgentChatSaveQueue {
       ...(flowSwitching ? { flowSwitching: true } : {}),
       ...(historySummary ? { historySummary } : {}),
       ...(followedSpec ? { followedSpec } : {}),
+      ...(model ? { model } : {}),
     });
     this.pending = this.pending.catch(() => {}).then(async () => {
       if (this.path) {

@@ -2,6 +2,7 @@ import { harness } from "../../../harness";
 import { clearTodos, todosFor } from "../../../harness/core/definitions/todoTool";
 import { commandPermissionService } from "../../permissions";
 import { useWorkspaceStore } from "../../../store";
+import { defaultChatModel, defaultForChats, isAutoSelectionAvailable } from "../../providers";
 import { useWorkflowRunStore } from "../../workflows";
 import { cancelResponseFlush, releasePendingQuestions } from "../ui/turn";
 import { chatRuntime, disposeChatRuntime } from "./chatRuntime";
@@ -10,13 +11,16 @@ import { agentChatScrollKey, forgetScroll } from "../ui/chatScrollMemory";
 
 /** Opens a new chat in the tab and shows it, after the others or at strip position `at`. The
  * tab's first chat takes the tab's id, so a tab with one chat keys its messages, todos and grants
- * as it always has. */
+ * as it always has. Every new chat starts on the default model (or, when that cannot run, the
+ * first model a connected provider offers). */
 export function openChat(tabId: string, at?: number): string {
   const chatId = tabChatIds(tabId).includes(tabId) ? `${tabId}_${crypto.randomUUID()}` : tabId;
   const store = useWorkspaceStore.getState();
   if (!store.agentChats[chatId]) store.clearAgentMessages(chatId);
-  chatRuntime(chatId);
+  const { state } = chatRuntime(chatId);
+  state.chatModel = defaultChatModel(defaultForChats(store), store.customProviders, store.providerStatus, isAutoSelectionAvailable(store)) || undefined;
   useChatStore.getState().add(tabId, chatId, todosFor(chatId), at);
+  useChatStore.getState().patch(chatId, { model: state.chatModel ?? "" });
   return chatId;
 }
 

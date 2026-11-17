@@ -4,7 +4,6 @@ import {
   isCodexProvider,
   isCopilotProvider,
   isManagedAuthProvider,
-  providerModelVariants,
 } from "../../service/providerHelpers";
 import { providerStatusOrUnknown } from "../../integrations/registryTypes";
 
@@ -115,11 +114,6 @@ function statusDotClassName(status: ProviderStatus): string {
   return "bg-[var(--text-muted)]";
 }
 
-function selectFirstSupportedModel(provider: CustomProvider): string | undefined {
-  const model = provider.models.find((candidate) => candidate.supported !== false);
-  return model ? providerModelVariants(model)[0].id : undefined;
-}
-
 export function ProviderList({
   providers,
   activeProviderId,
@@ -197,5 +191,3 @@ export function ProviderList({
     </div>
   );
 }
-
-export { selectFirstSupportedModel };

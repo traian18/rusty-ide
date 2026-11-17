@@ -1,4 +1,5 @@
 import { explorerClient } from "../../features/explorer";
+import { mcpStateForWorkspace } from "../../features/mcp";
 import { useWorkspaceStore } from "../../store";
 import type { StartupStep, StepContext } from "../startup/types";
 
@@ -46,7 +47,13 @@ export async function restoreWorkspace(ctx: StepContext): Promise<void> {
   try {
     const fileTree = await explorerClient.tree(path);
     if (ctx.signal.aborted) return;
-    useWorkspaceStore.setState({ rootPath: path, fileTree, pendingWorkspaceRestorePath: null });
+    const state = useWorkspaceStore.getState();
+    useWorkspaceStore.setState({
+      rootPath: path,
+      fileTree,
+      pendingWorkspaceRestorePath: null,
+      ...mcpStateForWorkspace(state.mcpServersByWorkspace, state.builtInSkillMcpGrantsByWorkspace, state.skills, path),
+    });
     await useWorkspaceStore.getState().loadWorkspaceData();
   } catch (error) {
     console.error("Failed to load last workspace folder:", error);

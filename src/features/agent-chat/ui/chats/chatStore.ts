@@ -39,6 +39,8 @@ export interface ChatView {
   /** Where the chat is saved, once it has been. */
   activeChatPath: string | null;
   modifiedFiles: string[];
+  /** The model this chat runs on, as chosen; saved with the conversation. */
+  model: string;
   chatWorkflow: string | undefined;
   /** With Auto, the workflow chosen for the latest message (drives the bar's steps). */
   autoWorkflow: string | undefined;
@@ -72,7 +74,7 @@ export function emptyChatView(tabId: string, chatId: string, plan: Todo[] = []):
   return {
     chatId, tabId, message: "", isStreaming: false, subagents: [], runUsage: null, streamingLabel: DEFAULT_STREAMING_LABEL,
     agentQuestions: [], workflowQuestions: [], workflowRunning: false, plan, stepPlans: [],
-    activeChatPath: null, modifiedFiles: [], chatWorkflow: undefined, autoWorkflow: undefined, flowSwitching: false, workflowCheckpoint: undefined,
+    activeChatPath: null, modifiedFiles: [], model: "", chatWorkflow: undefined, autoWorkflow: undefined, flowSwitching: false, workflowCheckpoint: undefined,
     continueAt: undefined, contextEstimate: null,
   };
 }

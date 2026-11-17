@@ -25,6 +25,19 @@ describe("mapMcpServerConfig", () => {
     });
   });
 
+  it("starts a stdio server in the workspace folder when one is given", () => {
+    const stdio = server({ transport: { type: "stdio", command: "npx" } });
+    const result = mapMcpServerConfig(stdio, "/work/a");
+    expect(result.ok && result.spec.transport).toEqual({ kind: "stdio", command: "npx", args: undefined, env: undefined, cwd: "/work/a" });
+    const [spec] = mapMcpServerConfigs([stdio], "/work/b").specs;
+    expect(spec.transport).toMatchObject({ cwd: "/work/b" });
+  });
+
+  it("never gives an http server a cwd", () => {
+    const result = mapMcpServerConfig(server({ transport: { type: "http", url: "https://example.test/mcp" } }), "/work/a");
+    expect(result.ok && result.spec.transport).not.toHaveProperty("cwd");
+  });
+
   it("maps an http server with no auth", () => {
     const result = mapMcpServerConfig(server({ transport: { type: "http", url: "https://example.test/mcp" } }));
     expect(result).toEqual({

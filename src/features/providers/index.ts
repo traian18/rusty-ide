@@ -6,4 +6,4 @@ export { AUTO_LEVEL_CRITERIA, AUTO_LEVEL_LABELS, AUTO_MODEL_ID, IntelligentModel
 export { baseModelReference, isCodexProvider, isCopilotProvider, isManagedAuthProvider, isSignedOutProviderModel, parseModelReference, providerHasModelReference, providerModelVariants, resolveProviderModel, selectableModelProviders } from "./service/providerHelpers";
 export { modelLimitsFor, refreshModelLimits, type ModelLimits } from "./modelLimits";
 export { resolveExecutionProvider } from "./service/resolveExecutionProvider";
-export { AGENT_MODEL_SELECTION_STORAGE_KEY, loadAgentModelSelection, saveAgentModelSelection } from "./service/agentModelSelection";
+export { concreteDefaultModel, defaultChatModel, defaultForChats, isAutoSelectionAvailable, isModelUsable, isProviderConnected, providerOfModel, resolveChatModel, type DefaultModelState } from "./service/chatModel";

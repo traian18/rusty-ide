@@ -10,7 +10,7 @@ import { useState, useRef, useEffect } from "react";
 import { useWorkspaceStore } from "../../../../store";
 import { VfsRegistry } from "../../service/vfs";
 import { notify } from "../../../notifications";
-import { resolveExecutionProvider } from "../../../providers";
+import { concreteDefaultModel, resolveExecutionProvider } from "../../../providers";
 import { harness } from "../../../../harness";
 import { createRunHost } from "../../../../harness/hostDefaults";
 import type { RunHandle } from "../../../../harness/contract";
@@ -66,7 +66,7 @@ export const useEdgeWebSocket = (
     const providers = useWorkspaceStore.getState().customProviders;
     const activeProviderId = useWorkspaceStore.getState().activeCustomProviderId;
     const providerStatus = useWorkspaceStore.getState().providerStatus;
-    const activeModel = useWorkspaceStore.getState().activeModel;
+    const activeModel = concreteDefaultModel(useWorkspaceStore.getState());
     const resolution = resolveExecutionProvider(providers, providerStatus, activeProviderId, activeModel);
     if (!resolution.ok) {
       setChatMessages((prev) => [...prev, { role: "assistant", content: resolution.message }]);
