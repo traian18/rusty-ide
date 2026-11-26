@@ -18,7 +18,12 @@ interface FileTabToolbarProps {
   onToggleMarkdown: () => void;
   showBlame: boolean;
   onToggleBlame: () => void;
+  /** The open search bar's height: the toolbar moves down by it so the search stays visible. */
+  searchOffset?: number;
 }
+
+/** The toolbar's distance from the top edge with no search bar open (Tailwind's top-2.5). */
+const TOOLBAR_TOP = 10;
 
 const VfsBadge: React.FC<{ vfsTabId: string }> = ({ vfsTabId }) => (
   <span
@@ -86,8 +91,11 @@ const DiskFileActions: React.FC<Pick<FileTabToolbarProps, "tab" | "repoPath" | "
 };
 
 /** The file tab's floating action controls, top right. */
-export const FileTabToolbar: React.FC<FileTabToolbarProps> = ({ tab, repoPath, isMarkdown, markdownPreview, onToggleMarkdown, showBlame, onToggleBlame }) => (
-  <div className="absolute top-2.5 right-6 z-10 flex items-center space-x-2">
+export const FileTabToolbar: React.FC<FileTabToolbarProps> = ({ tab, repoPath, isMarkdown, markdownPreview, onToggleMarkdown, showBlame, onToggleBlame, searchOffset = 0 }) => (
+  <div
+    className="absolute right-6 z-10 flex items-center space-x-2 transition-[top] duration-200"
+    style={{ top: TOOLBAR_TOP + searchOffset }}
+  >
     {tab.vfsTabId && <VfsBadge vfsTabId={tab.vfsTabId} />}
     {isMarkdown && <MarkdownToggle preview={markdownPreview} onToggle={onToggleMarkdown} />}
     {!tab.vfsTabId && <DiskFileActions tab={tab} repoPath={repoPath} showBlame={showBlame} onToggleBlame={onToggleBlame} />}

@@ -23,6 +23,7 @@ import { type FileContent, useFileContent } from "./fileTab/useFileContent";
 import { useFileEditor } from "./fileTab/useFileEditor";
 import { type GitBlame, useGitBlame } from "./fileTab/useGitBlame";
 import { useGitGutter } from "./fileTab/useGitGutter";
+import { useFindWidgetOffset } from "./fileTab/useFindWidgetOffset";
 import { useInlineChat } from "./fileTab/useInlineChat";
 
 interface FileTabProps {
@@ -131,7 +132,7 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
   const autoSave = useAutoSave(tab, location.canvasTabId, gutter.reloadHead);
   const [markdownPreview, toggleMarkdownPreview] = useMarkdownPreview(tab.path, location.isMarkdown);
   const language = content.shebangLanguage ?? getFileTypeDetails(tab.path).language;
-  const handleEditorMount = useFileEditor(editorRef, { tab, isActive, location, language, blame, gutter, definitions, inlineChat, autoSave });
+  const findWidget = useFindWidgetOffset();  const handleEditorMount = useFileEditor(editorRef, { tab, isActive, location, language, blame, gutter, definitions, inlineChat, autoSave, findWidget });
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined || isReceivingFileText()) return;
     content.setFileContent(value);
@@ -154,6 +155,8 @@ export const FileTab: React.FC<FileTabProps> = ({ tab, isActive }) => {
         onToggleMarkdown={toggleMarkdownPreview}
         showBlame={blame.showBlame}
         onToggleBlame={blame.toggle}
+        // The Markdown preview has no find widget.
+        searchOffset={markdownPreview ? 0 : findWidget.offset}
       />
       {definitions.menu && <DefinitionMenu menu={definitions.menu} onOpen={definitions.open} onClose={definitions.close} />}
       {inlineChat.state && (

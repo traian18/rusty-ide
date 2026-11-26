@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { loader } from "@monaco-editor/react";
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
+// The bare API leaves out the find widget, which the app's full Monaco has.
+import "monaco-editor/esm/vs/editor/contrib/find/browser/findController.js";
 
 /**
  * Runs FileTab on the real wrapper and the real Monaco: what is under test is
@@ -327,6 +329,24 @@ describe("FileTab and the file on disk", () => {
 
     expect(editors()[0].getValue()).toContain("// typed\n");
     await wait(SAVE_DELAY_MS + 20);
+  });
+
+  it("moves the toolbar below the search bar while it is open", async () => {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(33);
+    // The app renders in StrictMode, which runs effect cleanups once right after mounting.
+    act(() => root.render(<StrictMode><FileTab tab={TAB} isActive={true} /></StrictMode>));
+    await vi.waitFor(() => expect(editors()).toHaveLength(1));
+    const toolbar = () => container.querySelector<HTMLElement>('[title="Reveal in File Tree"]')!.parentElement!;
+    await vi.waitFor(() => expect(toolbar().style.top).toBe("10px"));
+
+    await wait(50);
+    await act(() => editors()[0].getAction("actions.find")!.run());
+    await wait(50);
+    expect(toolbar().style.top).toBe("43px");
+
+    act(() => editors()[0].trigger("keyboard", "closeFindWidget", null));
+    await wait(50);
+    expect(toolbar().style.top).toBe("10px");
   });
 
   it("keeps the last text when the file disappears", async () => {

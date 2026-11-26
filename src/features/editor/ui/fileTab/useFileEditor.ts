@@ -5,6 +5,7 @@ import { staysOpen, type FileLocation, type FileTabData } from "./fileLocation";
 import { fileModel } from "./fileTextChannel";
 import type { AutoSave } from "./useAutoSave";
 import type { DefinitionLookup } from "./useDefinitionLookup";
+import type { FindWidgetOffset } from "./useFindWidgetOffset";
 import type { GitBlame } from "./useGitBlame";
 import type { GitGutter } from "./useGitGutter";
 import type { InlineChatControl } from "./useInlineChat";
@@ -21,6 +22,7 @@ export interface FileEditorParts {
   definitions: DefinitionLookup;
   inlineChat: InlineChatControl;
   autoSave: AutoSave;
+  findWidget: FindWidgetOffset;
 }
 
 function locationOf(tab: FileTabData, position: { lineNumber: number; column: number }) {
@@ -92,6 +94,7 @@ export function useFileEditor(editorRef: MutableRefObject<any>, parts: FileEdito
       if (useWorkspaceStore.getState().activeTabId === current.id) noteCursor(locationOf(current, e.position));
     });
     parts.gutter.attach();
+    parts.findWidget.attach(editor);
     if (monaco) parts.inlineChat.register(editor, monaco, { language: parts.language, onOpen: parts.definitions.close });
 
     // Cmd/Ctrl-click looks up a definition; any other click closes the menu,
