@@ -31,6 +31,7 @@ import type { CapabilityEvent } from "../../contract";
 import type { StepModelRunConfig } from "../decideToolConfig";
 import type { ExecutionRequest } from "../engine/ExecutionProtocol";
 import { recordAppliedModel } from "../appliedModels";
+import { contextWindowOf } from "../contextCompaction";
 import { mapProviderToIntegration } from "../providerMapping";
 import { inPlaceLevelTargets, type StepUpTarget } from "./decideStepUp";
 import { checkModelSwitch, estimateConversationTokens } from "../tokenOptimizations";
@@ -118,12 +119,30 @@ export interface StepModelSelectionDeps {
   provider: CustomProvider | undefined;
   /** The model the run (and so every step) starts on. */
   baseModel: string;
-  request: Pick<ExecutionRequest, "messages">;
+  request: Pick<ExecutionRequest, "messages"> & Partial<Pick<ExecutionRequest, "system_prompt" | "tools">>;
   /** The step's display name, for the decision record. */
   step?: string;
   signal?: AbortSignal;
   post?: typeof postJevDecision;
   onTrace?: (trace: JevDecisionTrace) => void;
+}
+
+/** A step's request may take at most this share of its model's window when the
+ * step starts: its own tool output still has to fit. */
+const MAX_START_SHARE = 0.5;
+
+/** The targets whose window has room for the step. rusty-core sizes the step's
+ * requests for the run's base model, because the choice is applied after. */
+function targetsThatFit(
+  targets: Partial<Record<AutoLevel, StepUpTarget>>,
+  provider: CustomProvider | undefined,
+  request: StepModelSelectionDeps["request"],
+): Partial<Record<AutoLevel, StepUpTarget>> {
+  const tokens = estimateConversationTokens([request.messages, request.system_prompt ?? "", request.tools ?? []]);
+  return Object.fromEntries(Object.entries(targets).filter(([, target]) => {
+    const window = contextWindowOf(provider, target.model);
+    return !window || tokens <= window * MAX_START_SHARE;
+  }));
 }
 
 /**
@@ -134,7 +153,7 @@ export interface StepModelSelectionDeps {
 export async function selectStepModel(deps: StepModelSelectionDeps): Promise<StepModelChoice | undefined> {
   const { config, provider, baseModel, request, step, onTrace } = deps;
   const post = deps.post ?? postJevDecision;
-  const targets = inPlaceLevelTargets(config.levels, provider, baseModel);
+  const targets = targetsThatFit(inPlaceLevelTargets(config.levels, provider, baseModel), provider, request);
   // With fewer than two models to choose between, rating the step changes nothing.
   if (new Set(Object.values(targets).map((target) => target.params.model)).size < 2) return undefined;
 

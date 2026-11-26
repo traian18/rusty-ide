@@ -24,6 +24,17 @@ describe("compactionRecipe", () => {
   it("standard mode carries only the window", () => {
     expect(compactionRecipe({ mode: "standard" }, provider, "m")).toEqual({ mode: "standard", context_window: 200_000 });
   });
+  it("carries the windows of the models AUTO may step up to on the run's provider", () => {
+    const run = { id: "p", name: "P", baseUrl: "https://p.invalid/v1", apiKey: "k", apiType: "openai-completions", models: [{ id: "p/m", remoteId: "m", name: "M", contextWindow: 200_000 }, { id: "p/big", remoteId: "big", name: "B", contextWindow: 64_000 }, { id: "p/none", name: "N" }] };
+    const levels = {
+      standard: { providerId: "p", model: "p/big", name: "B" },
+      heavy: { providerId: "other", model: "other/x", name: "X" },
+      light: { providerId: "p", model: "p/none", name: "N" },
+    };
+    expect(compactionRecipe({ mode: "standard" }, run, "p/m", "p/m", levels)).toEqual({
+      mode: "standard", context_window: 200_000, model: "p/m", model_windows: { "p/big": 64_000 },
+    });
+  });
   it("smart mode carries the JEV connection", () => {
     expect(compactionRecipe({ mode: "smart", jev: { apiKey: "k", jevModelId: "jev-1", confidence: 0.7 } }, provider, "p/none")).toEqual({
       mode: "smart",
@@ -37,9 +48,9 @@ import { flattenHistory } from "./definitions/promptHistory";
 import { setOptimizationEnabled } from "./tokenOptimizations";
 
 describe("historyBudgetChars", () => {
-  it("is 40% of the window in characters, and absent when the window is unknown", () => {
+  it("is 40% of the window in characters, assuming 128k when the window is unknown", () => {
     expect(historyBudgetChars(provider, "m")).toBe(320_000);
-    expect(historyBudgetChars(provider, "p/none")).toBeUndefined();
+    expect(historyBudgetChars(provider, "p/none")).toBe(204_800);
   });
 });
 

@@ -4,7 +4,7 @@
 // its API wants extra headers).
 
 import type { CustomProvider, ProviderModel } from "../../../store/types";
-import { parseModelReference } from "../../../features/providers";
+import { modelLimitsFor, parseModelReference } from "../../../features/providers";
 import { getProviderHeaders } from "../../../features/providers";
 
 interface ProviderDefaults {
@@ -90,7 +90,7 @@ function resolveDirectApiKey(provider: CustomProvider): string {
 }
 
 /** What the model's own configuration says, with pi-ai's defaults for anything it leaves out. */
-function modelSettings(configured: ProviderModel | undefined, modelId: string) {
+function modelSettings(configured: ProviderModel | undefined, modelId: string, contextWindow: number | undefined) {
   return {
     name: configured?.name || modelId,
     reasoning: configured?.reasoning ?? false,
@@ -98,14 +98,21 @@ function modelSettings(configured: ProviderModel | undefined, modelId: string) {
     thinkingBudgets: configured?.thinkingBudgets,
     input: configured?.input || ["text"],
     cost: configured?.cost || { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: configured?.contextWindow || 200_000,
+    contextWindow: contextWindow || 200_000,
     maxTokens: configured?.maxTokens || 16_384,
     compat: configured?.compat,
     headers: configured?.headers,
   };
 }
 
-function syntheticModel(provider: CustomProvider, configuredModel: ProviderModel | undefined, modelId: string): any {
+/** pi-ai fits the requested output to this window, so it must be the model's
+ * own: the first model's settings stand in for an unlisted one, but its
+ * window would let a smaller model be asked for more than it can hold. */
+function windowOf(provider: CustomProvider, selected: ProviderModel | undefined, modelId: string): number | undefined {
+  return selected?.contextWindow || modelLimitsFor(provider.id, modelId)?.contextWindow;
+}
+
+function syntheticModel(provider: CustomProvider, configuredModel: ProviderModel | undefined, modelId: string, contextWindow: number | undefined): any {
   const defaults = getProviderDefaults(provider.id);
   const configuredBaseUrl = (firstSet([configuredModel?.baseUrl, provider.baseUrl, defaults?.baseUrl]) ?? "").replace(/\/+$/, "");
   if (!configuredBaseUrl) throw new Error(`No base URL is configured for ${provider.name}.`);
@@ -114,7 +121,7 @@ function syntheticModel(provider: CustomProvider, configuredModel: ProviderModel
     : normalizeApiType(firstSet([configuredModel?.apiType, provider.apiType, defaults?.apiType]));
   // Mistral's SDK takes the server root and adds `/v1/...` itself.
   const baseUrl = api === "mistral-conversations" ? configuredBaseUrl.replace(/\/v1$/, "") : configuredBaseUrl;
-  const { name, ...settings } = modelSettings(configuredModel, modelId);
+  const { name, ...settings } = modelSettings(configuredModel, modelId, contextWindow);
   return { id: modelId, name, api, provider: provider.id, baseUrl, ...settings };
 }
 
@@ -159,7 +166,7 @@ export function resolveDirectRuntime(modelReference: string, provider: CustomPro
   const modelId = selection.modelId;
   if (!modelId) return undefined;
 
-  const model = syntheticModel(provider, selection.model || fallbackModel, modelId);
+  const model = syntheticModel(provider, selection.model || fallbackModel, modelId, windowOf(provider, selection.model, modelId));
 
   const authType = authTypeFor(provider);
   const apiKey = resolveDirectApiKey(provider) || (authType === "none" ? "not-needed" : "");

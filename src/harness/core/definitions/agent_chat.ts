@@ -469,15 +469,14 @@ Finishing the request:
 /** Characters of repository documentation: about 8% of the model's window, between 1,500 and 6,000. */
 function repositoryContextSpec(input: AgentChatInput): NonNullable<SessionRecipe["repository_context"]> {
   const context = input.repositoryContext;
-  const historyBudget = historyBudgetChars(input.customProvider, input.model);
-  const maxChars = historyBudget ? Math.min(6_000, Math.max(1_500, Math.round(historyBudget * 0.2))) : undefined;
+  const maxChars = Math.min(6_000, Math.max(1_500, Math.round(historyBudgetChars(input.customProvider, input.model) * 0.2)));
   return {
     enabled: true,
     ...(context?.activeFile ? { active_file: context.activeFile } : {}),
     ...(context?.activeRepository ? { active_repository: context.activeRepository } : {}),
     ...(context?.touched?.length ? { touched: context.touched } : {}),
     ...(context?.task ? { task: context.task } : {}),
-    ...(maxChars ? { max_chars: maxChars } : {}),
+    max_chars: maxChars,
   };
 }
 

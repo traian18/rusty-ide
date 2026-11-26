@@ -399,6 +399,12 @@ describe("direct runtime resolution", () => {
     expect(runtime.model).toMatchObject({ name: "Second", baseUrl: "https://second.invalid/v2", api: "openai-responses", contextWindow: 1000, maxTokens: 50 });
   });
 
+  it("never lends the first model's window to a model the provider does not list", () => {
+    const listed = { ...lab, models: [{ ...lab.models[0]!, contextWindow: 1_000_000 }] };
+    expect(resolveDirectRuntime("lab/first", listed)!.model.contextWindow).toBe(1_000_000);
+    expect(resolveDirectRuntime("lab/unlisted", listed)!.model.contextWindow).toBe(200_000);
+  });
+
   it("finds a model by its remote id and takes the effort the reference names", () => {
     const runtime = resolveDirectRuntime("first-remote::reasoning=high", lab)!;
     expect(runtime).toMatchObject({ modelId: "first-remote", reasoningEffort: "high" });

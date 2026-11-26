@@ -249,8 +249,10 @@ pub async fn build_session_builder(
     if let Some((model, window)) = compaction.trusted_model_window() {
         builder = builder.trusted_model_window(model, window);
     }
+    let windows = compaction.model_windows();
+    builder = builder.model_windows(windows.clone());
     builder = builder.context_provider_with_backend(move |backend| {
-        compaction_provider(&compaction, backend, summary_model)
+        compaction_provider(&compaction, windows, backend, summary_model)
     });
     if let Some(spec) = recipe.skills {
         builder = builder.skills(skills_config_from_spec(spec, &recipe.workspace.root));
@@ -584,6 +586,19 @@ mod tests {
         assert_eq!(config.mode, CompactionMode::Smart);
         assert_eq!(config.context_window, Some(200_000));
         assert_eq!(config.jev.unwrap().model_id, "jev-1");
+    }
+
+    #[test]
+    fn model_windows_follow_the_model_of_each_request() {
+        let config: ContextCompactionRecipe = serde_json::from_value(serde_json::json!({
+            "context_window": 400000, "model_windows": { "small": 32000 }
+        }))
+        .unwrap();
+        let windows = config.model_windows();
+        assert_eq!(windows.window_for(Some("small")), Some(32_000));
+        assert_eq!(windows.window_for(Some("base")), Some(400_000));
+        let unknown = ContextCompactionRecipe::default().model_windows();
+        assert_eq!(unknown.window_for(Some("base")), None);
     }
 
     #[test]

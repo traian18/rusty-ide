@@ -27,7 +27,7 @@ export function refreshSummaryInBackground(chat: SummaryChat, provider: CustomPr
   const { state } = chat;
   if (compaction.mode !== "smart") return;
   const budgetChars = historyBudgetChars(provider, model);
-  if (!budgetChars || state.historySummaryJob) return;
+  if (state.historySummaryJob) return;
   const conversation = state.chatSaveQueue;
   const controller = new AbortController();
   state.historySummaryJob = controller;

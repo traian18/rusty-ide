@@ -8,7 +8,7 @@ import { executionObservability } from "../../../features/observability";
 import { trajectories } from "../../../features/observability";
 import type { CoreCapabilityDefinition, ExecutionAnswerer, HostToolHandler, RunContext } from "../CoreHarness";
 import { compactionRecipe } from "../contextCompaction";
-import type { ContextCompactionRunConfig } from "../decideToolConfig";
+import type { ContextCompactionRunConfig, DecideToolRunConfig } from "../decideToolConfig";
 import type { BridgeEvent, CoreEngine } from "../engine/CoreEngineClient";
 import { changedPathsFromTool } from "../fileChangeTracking";
 import { appliedModel } from "../appliedModels";
@@ -223,9 +223,8 @@ export class CoreRun<K extends CapabilityName> implements WorkflowRunAccess<K> {
     const withWorkflow = this.workflow.attachTo(base);
     const compaction = compactionRecipe(
       (this.input as { contextCompaction?: ContextCompactionRunConfig }).contextCompaction,
-      this.input.customProvider,
-      (this.input as { model?: unknown }).model,
-      base.execution_params?.model,
+      this.input.customProvider, (this.input as { model?: unknown }).model, base.execution_params?.model,
+      (this.input as { jevDecisionTool?: DecideToolRunConfig }).jevDecisionTool?.stepUp?.levels,
     );
     const recipe: SessionRecipe = compaction ? { ...withWorkflow, context_compaction: compaction } : withWorkflow;
     observe(() => trajectories.append(this.runId, "Session context", {

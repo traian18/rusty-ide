@@ -143,6 +143,18 @@ describe("selectStepModel", () => {
     expect(body.state).toContain("characters omitted");
   });
 
+  it("leaves out models whose window has no room for the step", async () => {
+    const small = { ...PROVIDER, models: [
+      { id: "claude-haiku-4-5", name: "Haiku", contextWindow: 8_000 },
+      { id: "claude-sonnet-4-5", name: "Sonnet", contextWindow: 200_000 },
+      { id: "claude-opus-4-1", name: "Opus", contextWindow: 200_000 },
+    ] } as unknown as CustomProvider;
+    const long = request({ messages: [{ role: "User", content: [{ Text: { text: `${"x".repeat(40_000)}${PROMPT}` } }] }] });
+    const pick = (chosen: ExecutionRequest) => selectStepModel({ config: CONFIG, provider: small, baseModel: BASE, request: chosen, post: post(answer([0.9, 0.08, 0.02], 0.95)) });
+    expect((await pick(request()))?.level).toBe("light");
+    expect((await pick(long))?.level).toBe("standard");
+  });
+
   it("does not ask JEV when there is nothing to choose between", async () => {
     const single = deps(answer([0.1, 0.8, 0.1], 0.9), { config: { ...CONFIG, levels: { standard: LEVELS.standard } } });
     expect(await selectStepModel(single.options)).toBeUndefined();

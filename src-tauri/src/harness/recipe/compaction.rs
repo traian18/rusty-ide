@@ -3,6 +3,7 @@
 //! is known. Kept apart from the recipe's wiring so compaction can change
 //! without touching how a session is assembled.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -41,11 +42,23 @@ pub struct ContextCompactionRecipe {
     /// Estimates are reported only for requests on this model.
     #[serde(default)]
     pub model: Option<String>,
+    /// The windows of the other models the session may switch to, by effective model id.
+    #[serde(default)]
+    pub model_windows: HashMap<String, u64>,
     #[serde(default)]
     pub jev: Option<JevCompactionRecipe>,
 }
 
 impl ContextCompactionRecipe {
+    /// The windows the session's requests are sized against, shared by its backend and its
+    /// compaction provider so what one learns from a rejection reaches the other.
+    pub fn model_windows(&self) -> Arc<rusty_context::ModelWindows> {
+        Arc::new(
+            rusty_context::ModelWindows::new(self.context_window)
+                .with_models(self.model_windows.clone()),
+        )
+    }
+
     /// The model and window an estimate may be reported against: both must be known, and the
     /// window usable.
     pub fn trusted_model_window(&self) -> Option<(String, u64)> {
@@ -71,16 +84,19 @@ fn first_pass() -> Arc<dyn rusty_context::ContextProvider> {
 }
 
 /// Standard compaction: local tiers only, sized by the model's window.
-fn standard_compaction(window: Option<u64>) -> Arc<rusty_context::PolicyDrivenCompactionProvider> {
+fn standard_compaction(
+    windows: Arc<rusty_context::ModelWindows>,
+) -> Arc<rusty_context::PolicyDrivenCompactionProvider> {
     let passthrough = first_pass();
     Arc::new(
         rusty_context::PolicyDrivenCompactionProvider::new(
             passthrough,
             rusty_context::ContextPolicy::default(),
-            window,
+            None,
             COMPACTION_KEEP_RECENT,
             COMPACTION_FALLBACK_CHARS,
         )
+        .with_model_windows(windows)
         .with_anchor_first_user_message(true),
     )
 }
@@ -92,11 +108,11 @@ fn standard_compaction(window: Option<u64>) -> Arc<rusty_context::PolicyDrivenCo
 /// cannot be answered.
 pub(super) fn compaction_provider(
     config: &ContextCompactionRecipe,
+    windows: Arc<rusty_context::ModelWindows>,
     backend: Arc<dyn rusty_runtime::traits::ExecutionBackend>,
     summary_model: Option<String>,
 ) -> Arc<dyn rusty_context::ContextProvider> {
-    let window = config.context_window;
-    let standard = standard_compaction(window);
+    let standard = standard_compaction(windows.clone());
     if config.mode != CompactionMode::Smart {
         return standard;
     }
@@ -109,9 +125,10 @@ pub(super) fn compaction_provider(
             None => rusty_context::BackendSummarizer::new(backend),
         }),
         rusty_context::ContextPolicy::default(),
-        window,
+        None,
         COMPACTION_KEEP_RECENT,
     )
+    .with_model_windows(windows)
     .with_anchor_first_user_message(true);
     Arc::new(match importance_judge(config.jev.as_ref()) {
         Some(judge) => summarizing.with_importance_judge(judge),

@@ -90,6 +90,8 @@ export interface SessionRecipe {
     context_window?: number;
     /** The effective model id (`execution_params.model`) the window belongs to. */
     model?: string;
+    /** The windows of other models the session may switch to, by effective model id. */
+    model_windows?: Record<string, number>;
     jev?: { api_key: string; model_id: string; confidence?: number };
   };
   /** Behavior profile for the root agent (`.rusty/profiles/`); absent → workspace default. */
